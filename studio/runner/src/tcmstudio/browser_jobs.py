@@ -28,6 +28,11 @@ is tested; in the browser the self-test and the parity check say whether they di
 ``admet_read``       a molecule file or one SMILES read as ``bioagent admet`` reads it
 ``run_admet``        the ADMET pipeline (``bioagent admet``) on the page's chemistry and
                      domain search, as ``pipeline.admet`` runs it
+``dock_read``        prepared docking inputs (PDBQT) read and checked as ``bioagent dock
+                     RECEPTOR.pdbqt LIGANDS.pdbqt`` reads them, and the plan of Vina runs the
+                     page computes: each run's exact receptor and ligand text, box and settings
+``run_dock``         the prepared docking (``bioagent.docking.prepared``) on the Vina results
+                     the page computed, as ``pipeline.dock`` runs it with a .pdbqt receptor
 ``verify_pipeline``  a pipeline run re-checked (its ``verify_run``) and held to what the
                      runner's job of that kind requires of its outputs; and the ADMET models
                      held to their cards
@@ -65,6 +70,15 @@ pipeline is ``bioagent.admet``'s. An SDF or .mol file is refused for the runner 
 SDMolSupplier is not ported), and so is a run of more than ``ADMET_MOLECULES_MAX``
 molecules (``need`` ``memory``).
 
+Docking runs in the browser on prepared inputs only (``bioagent.docking.prepared``): a rigid
+receptor and ligands as PDBQT, used as given. AutoDock Vina 1.2.7, compiled to WebAssembly,
+runs in the page's own workers, one Vina run each (``dock_read`` writes the plan of them);
+their results come back here as files read by ``PrecomputedVina``, which holds each to the
+receptor, ligand and settings it was asked for, and everything else is this Python. A
+receptor or ligands that are not ``.pdbqt`` (they need preparing: meeko and RDKit, the
+runner's) are refused for the runner, and so are more than ``DOCK_LIGANDS_MAX`` ligands or
+a receptor of more than ``DOCK_RECEPTOR_ATOMS_MAX`` atoms (``need`` ``memory``).
+
 ``call`` never raises. A failure is ``{"ok": false, "error": {"type", "message"}}`` with
 ``type`` ``bad_arguments`` (the arguments are not what the function takes), ``refused``
 (it cannot run here: a package this runtime does not hold, or, with ``need`` ``memory``,
@@ -87,9 +101,10 @@ import json
 import sys
 from typing import Any, Callable, Mapping
 
-__all__ = ["ADMET_MOLECULES_MAX", "BadArguments", "FUNCTIONS", "Refused", "admet_read",
-           "admet_split", "admet_train", "build_snapshots", "call", "main", "plan_snapshots",
-           "run_admet", "run_research", "run_rnaseq_counts", "run_scrna", "self_test",
+__all__ = ["ADMET_MOLECULES_MAX", "BadArguments", "DOCK_LIGANDS_MAX", "DOCK_PLAN_SCHEMA",
+           "DOCK_RECEPTOR_ATOMS_MAX", "FUNCTIONS", "Refused", "admet_read", "admet_split",
+           "admet_train", "build_snapshots", "call", "dock_read", "main", "plan_snapshots",
+           "run_admet", "run_dock", "run_research", "run_rnaseq_counts", "run_scrna", "self_test",
            "verify_pipeline", "verify_research"]
 
 Emit = Callable[[str, dict[str, Any]], Any]
@@ -100,7 +115,9 @@ _HITS = ("potency", "screening")
 #: The pipeline module of each pipeline job kind the browser runs (its ``verify_run``).
 _PIPELINES = {"pipeline.rnaseq": "bioagent.omics.rnaseq",
               "pipeline.scrna": "bioagent.omics.scrna",
-              "pipeline.admet": "bioagent.admet.pipeline"}
+              "pipeline.admet": "bioagent.admet.pipeline",
+              # the browser docks prepared inputs only (the runner's job checks either mode)
+              "pipeline.dock": "bioagent.docking.prepared"}
 #: The largest inputs a browser worker takes (wasm32 caps its memory near 4 GB), from whole
 #: runs in Pyodide 314.0.7 under Node (the WebAssembly memory at its peak). Single cell: the
 #: doublet scores hold one table's cells x genes densely, so that product is bounded per table

@@ -336,13 +336,27 @@ def _table_head(path: Path, n: int = 20) -> list[dict[str, str]] | None:
         return None
 
 
-def _verifier(module: str) -> Callable[[Path], str | None]:
+def _verifier(module: str | Mapping[str, str]) -> Callable[[Path], str | None]:
     """A validator for ``run.json`` that re-checks the run with the pipeline's own
-    ``verify_run`` (the output digests ``run.json`` records)."""
+    ``verify_run`` (the output digests ``run.json`` records). For a kind with modes that
+    are different pipelines, ``module`` maps the name ``run.json`` records as its
+    ``pipeline`` to the module whose ``verify_run`` checks it; a run of any other name is
+    refused."""
     def check(path: Path) -> str | None:
         import importlib
         try:
-            verify_run = importlib.import_module(module).verify_run
+            name = module
+            if not isinstance(module, str):
+                text = read_record(path, RUN_JSON_MAX_BYTES)
+                if text is None:
+                    return f"not a regular file of at most {RUN_JSON_MAX_BYTES} bytes"
+                doc = json.loads(text)
+                recorded = doc.get("pipeline") if isinstance(doc, dict) else None
+                if not isinstance(recorded, str) or recorded not in module:
+                    return (f"run.json records the pipeline {recorded!r}, not one of "
+                            f"{', '.join(module)}")
+                name = module[recorded]
+            verify_run = importlib.import_module(name).verify_run
             ok, problems = verify_run(path.parent)
         except Exception as exc:                                # noqa: BLE001
             return f"the run could not be verified: {type(exc).__name__}: {exc}"
@@ -773,6 +787,79 @@ def _fold_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
 
 # --------------------------------------------------------------------------- pipeline.dock
 
+#: pipeline.dock's two modes, by the pipeline its run.json records: from a PDB receptor and ligands
+#: prepared here (meeko, RDKit), and from prepared inputs, PDBQT used as given (the browser's
+#: docking job runs this one); each is checked by its own module's ``verify_run``.
+DOCK_PIPELINES = {"bioagent.docking": "bioagent.docking.pipeline",
+                  "bioagent.docking.prepared": "bioagent.docking.prepared"}
+_PDBQT = ".pdbqt"
+
+
+def _coordinate(name: str, value: Any) -> str:
+    """A centre or size coordinate for the command line, read back as exactly this float
+    (``%g`` when it round-trips, else ``repr``)."""
+    x = _num(name, value)
+    short = f"{x:g}"
+    return short if float(short) == x else repr(x)
+
+
+def _dock_box(p: dict[str, Any], out: dict[str, Any], *, size_alone: bool = False) -> None:
+    center, size = p.get("center"), p.get("size")
+    if not (center or size):
+        return
+    for name, value in (("center", center), ("size", size)):
+        if value is None and name == "center" and size_alone:
+            continue
+        if not (isinstance(value, list) and len(value) == 3):
+            raise BadParams("center and size: three numbers each (x, y, z; Å)" if not size_alone else
+                            "center and size: three numbers each (x, y, z; Å); size alone sets the "
+                            "sides of the box built around reference_ligand")
+        out[name] = ",".join(_coordinate(name, v) for v in value)
+
+
+def _dock_prepared(p: dict[str, Any], ctx: PrepareContext, receptor: str) -> dict[str, Any]:
+    """pipeline.dock with a ``.pdbqt`` receptor: the prepared mode (``bioagent dock
+    RECEPTOR.pdbqt LIGANDS.pdbqt``, bioagent.docking.prepared). The ligands and the reference
+    ligand are ``.pdbqt`` files too, used as given; what only the preparation reads is
+    refused rather than ignored, and the site is center and size, or reference_ligand."""
+    for key, why in (("site_ligand", "name the site with center and size, or give the co-crystal "
+                                     "ligand prepared in its crystal pose as reference_ligand"),
+                     ("chains", "the receptor is used as prepared, every chain of it"),
+                     ("allow_remote", "nothing is fetched: the receptor is the .pdbqt given")):
+        if p.get(key):
+            raise BadParams(f"{key}: a .pdbqt receptor is used as prepared, so {key} cannot apply; "
+                            f"{why}")
+    files = {}
+    for key in ("ligands", "reference_ligand"):
+        value = p.get(key)
+        if key == "reference_ligand" and value in (None, ""):
+            continue
+        found = ctx.find(value.strip()) if isinstance(value, str) and value.strip() else None
+        if found is None or not found[0].name.lower().endswith(_PDBQT):
+            raise BadParams(f"{key}: with a .pdbqt receptor, {key} is a .pdbqt file as well (its "
+                            "upload id): " + ("prepared ligands, one or several as MODEL blocks; "
+                                              "preparing from SMILES, CSV or SDF needs a PDB "
+                                              "receptor" if key == "ligands" else
+                                              "the co-crystal ligand, prepared, in its crystal "
+                                              "pose"))
+        files[key] = str(found[0])
+        ctx.inputs[key] = found[1]
+    out: dict[str, Any] = {
+        "receptor": receptor, "ligands": files["ligands"], "allow_remote": False,
+        "scoring": _enum("scoring", p.get("scoring"), ("vina", "vinardo"), "vina"),
+        "exhaustiveness": _int("exhaustiveness", p.get("exhaustiveness", 8), 1, 64),
+        "poses": _int("poses", p.get("poses", 9), 1, 20),
+        # Vina takes seed 0 as "pick one at random": a prepared run is always seeded
+        "seed": _int("seed", p.get("seed", 42), 1, 2**31 - 1)}
+    if "reference_ligand" in files:
+        out["reference_ligand"] = files["reference_ligand"]
+    _dock_box(p, out, size_alone="reference_ligand" in files)
+    if "center" not in out and "reference_ligand" not in out:
+        raise BadParams("give the docking site: center and size, or reference_ligand (the "
+                        "co-crystal ligand as a prepared .pdbqt in its crystal pose)")
+    return out
+
+
 def _dock_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     remote = bool(p.get("allow_remote"))
     rec = p.get("receptor")
@@ -783,6 +870,11 @@ def _dock_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
         receptor = rec.strip()
     else:
         receptor = str(ctx.file("receptor", rec))
+        if receptor.lower().endswith(_PDBQT):
+            return _dock_prepared(p, ctx, receptor)
+    if p.get("reference_ligand"):
+        raise BadParams("reference_ligand: for a prepared receptor (.pdbqt); with a PDB receptor "
+                        "name the co-crystal ligand with site_ligand")
     lig = p.get("ligands")
     found = ctx.find(lig.strip()) if isinstance(lig, str) and lig.strip() else None
     if found is not None:
@@ -807,13 +899,7 @@ def _dock_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
         if not remote:
             raise BadParams("site_ligand: its SMILES comes from the RCSB Chemical Component "
                             "Dictionary; set allow_remote, or give center and size instead")
-    center, size = p.get("center"), p.get("size")
-    if center or size:
-        if not (isinstance(center, list) and isinstance(size, list) and len(center) == 3
-                and len(size) == 3):
-            raise BadParams("center and size: three numbers each (x, y, z; Å)")
-        out["center"] = ",".join(f"{_num('center', v):g}" for v in center)
-        out["size"] = ",".join(f"{_num('size', v):g}" for v in size)
+    _dock_box(p, out)
     if "site_ligand" not in out and "center" not in out:
         raise BadParams("give the docking site: site_ligand (a co-crystal ligand), or center "
                         "and size")
@@ -824,8 +910,8 @@ def _dock_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     argv = _cli(ctx, "dock", r["receptor"], r["ligands"], _opt("out", OUTPUT_TOKEN),
                 _opt("scoring", r["scoring"]), _opt("exhaustiveness", r["exhaustiveness"]),
                 _opt("poses", r["poses"]), _opt("seed", r["seed"]))
-    for key, flag in (("site_ligand", "site-ligand"), ("center", "center"), ("size", "size"),
-                      ("chains", "chains")):
+    for key, flag in (("site_ligand", "site-ligand"), ("reference_ligand", "reference-ligand"),
+                      ("center", "center"), ("size", "size"), ("chains", "chains")):
         if r.get(key):
             argv.append(_opt(flag, r[key]))
     if r["allow_remote"]:
@@ -1495,7 +1581,7 @@ def default_kinds() -> dict[str, Kind]:
              timeout_s=12 * 3600.0, result=_stdout_result, progress=_stage_progress),
         Kind("pipeline.dock", ("分子对接流程", "Docking"), "minutes", _dock_prepare, _dock_command,
              artefacts=(run_json, ("scores", "scores.tsv", True), report, limits),
-             validators={"run": _verifier("bioagent.docking.pipeline")},
+             validators={"run": _verifier(DOCK_PIPELINES)},
              network=lambda r: bool(r.get("allow_remote")),
              remote=lambda r: bool(r.get("allow_remote")), timeout_s=24 * 3600.0,
              result=_table_result("scores.tsv"), progress=_stage_progress),

@@ -21,7 +21,9 @@
 //               from its facts (capabilities.js evidenceLevel), not taken from them.
 // Most stages run on the CPU only (Pyodide in the job workers, the page's kernels); a stage whose similarity search
 // ran on WebGPU says so (device "webgpu"), the receipt's device.used is then "cpu+webgpu", and its compute section says
-// with what adapter and calibration.
+// with what adapter and calibration. An engine of the job's own that runs in dedicated workers beside Pyodide (AutoDock
+// Vina 1.2.7 compiled to WebAssembly, for pipeline.dock) is the receipt's engine, and its device note names it with the
+// number of workers its stages' compute facts name.
 // Its assurance is "outputs_verified" only when it succeeded, both digests agree for every output and no output it was
 // expected to write is missing.
 
@@ -198,6 +200,58 @@ export function platformOf(infos = []) {
 const round3 = (x) => Math.round(x * 1000) / 1000;
 const isObject = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
 
+/**
+ * The engines a job names (job.engine: one {name, version, build, wasm_sha256, stages} or a list) as the receipt lists
+ * them, the runner's way (receipt.engine: [{id, version, stages}]) with what a browser engine adds (its name, its build,
+ * the SHA-256 of its WebAssembly) → a list, empty when the job names none.
+ */
+export function engineList(engine) {
+  const list = Array.isArray(engine) ? engine : isObject(engine) ? [engine] : [];
+  return list.filter(isObject).map((e) => {
+    const id = String(e.id ?? e.name ?? "").trim();
+    if (!id) return null;
+    const out = { id, version: e.version === undefined || e.version === null ? null : String(e.version), stages: Array.isArray(e.stages) ? e.stages.map(String) : [] };
+    if (e.name) out.name = String(e.name);
+    if (e.build) out.build = String(e.build);
+    if (bareSha256(e.wasm_sha256)) out.wasm_sha256 = bareSha256(e.wasm_sha256);
+    return out;
+  }).filter(Boolean);
+}
+
+/**
+ * The job's engines that computed in dedicated Web Workers of their own, beside the job workers' Pyodide (an engine
+ * whose build is "wasm", in the stages it names, where those stages' compute facts say a worker ran them) →
+ * [{engine: its words ("AutoDock Vina 1.2.7 (WebAssembly)"), workers: how many the facts name (null: none named),
+ * stages, backends}]. A reused stage computed nothing this time.
+ */
+export function dedicatedEngines(stages = [], engines = []) {
+  const out = [];
+  for (const e of engineList(engines)) {
+    if (e.build !== "wasm") continue;
+    const workers = new Set();
+    const backends = new Set();
+    const ran = [];
+    for (const s of Array.isArray(stages) ? stages : []) {
+      if (!s || s.reused || !e.stages.includes(String(s.id))) continue;
+      const facts = stageCompute(s).filter((f) => f.where === "worker" && !f.discarded);
+      if (!facts.length) continue;
+      ran.push(String(s.id));
+      for (const f of facts) {
+        backends.add(f.backend);
+        if (typeof f.worker === "string" && f.worker) workers.add(f.worker);
+      }
+    }
+    if (ran.length) out.push({ engine: `${e.name || e.id}${e.version ? ` ${e.version}` : ""} (WebAssembly)`, workers: workers.size || null, stages: ran, backends: [...backends] });
+  }
+  return out;
+}
+
+/** How a device note says one of dedicatedEngines(). */
+export function dedicatedNote(d) {
+  const n = d?.workers;
+  return `${d?.engine} in ${n ? `${n} dedicated Web Worker${n === 1 ? "" : "s"}` : "dedicated Web Workers"}, one thread each`;
+}
+
 function seconds(from, to) {
   const a = Date.parse(from || "");
   const b = Date.parse(to || "");
@@ -214,11 +268,12 @@ function seconds(from, to) {
  * problems, limitations: lists of strings; stages: job.stages; paramsSha256: SHA-256 of the canonical JSON of the
  * parameters (the bytes receipt.input_sha256 is taken over; the runner's params_sha256 hashes Python's default
  * json.dumps spacing, so the two are not compared); expected / missing: output names; provenance: what the results
- * rest on ({models: [model cards' digests]}, default job.provenance).
+ * rest on ({models: [model cards' digests]}, default job.provenance); engine: the engines of the job's own (engineList;
+ * default job.engine: pipeline.dock's AutoDock Vina).
  */
 export function buildJobReceipt({
   job, artefacts, workerDigests = {}, pageDigests = {}, workers = [], runtime = null, platform = null, resources = null,
-  checks = [], problems = [], limitations = [], stages, paramsSha256 = null, expected = [], missing = [], provenance,
+  checks = [], problems = [], limitations = [], stages, paramsSha256 = null, expected = [], missing = [], provenance, engine,
 } = {}) {
   const j = job || {};
   const arts = Array.isArray(artefacts) ? artefacts : Array.isArray(j.artefacts) ? j.artefacts : [];
@@ -243,10 +298,16 @@ export function buildJobReceipt({
       unused.length ? `the GPU was tried for ${unused.join(", ")} and its results not used` : null,
     ].filter(Boolean).join("; ");
   }
+  // the job's own engines in dedicated workers (AutoDock Vina), said with their workers
+  const engines = engineList(engine === undefined ? j.engine : engine);
+  const dedicated = dedicatedEngines(stageList, engines);
+  const own = new Set(dedicated.flatMap((d) => d.backends));
+  const engineNote = dedicated.map((d) => `; ${dedicatedNote(d)}`).join("");
   // what the page itself computed for stages that used no GPU (the chemistry worker's RDKit.js, a CPU kernel); a stage
   // whose search Python did itself (preference reference) computed nothing here
-  const pageStages = compute ? Object.entries(compute.stages).filter(([, c]) => !(c.gpu?.used > 0) && Object.keys(c.backends).some((b) => b !== "python")) : [];
-  const pageNote = pageStages.length ? `; in this page: ${pageStages.map(([id, c]) => `${id} ${Object.keys(c.backends).filter((b) => b !== "python").join(" and ")}${c.discarded ? ` (${c.discarded.reason})` : ""}`).join(", ")}` : "";
+  const pageBackends = (c) => Object.keys(c.backends).filter((b) => b !== "python" && !own.has(b));
+  const pageStages = compute ? Object.entries(compute.stages).filter(([, c]) => !(c.gpu?.used > 0) && pageBackends(c).length) : [];
+  const pageNote = pageStages.length ? `; in this page: ${pageStages.map(([id, c]) => `${id} ${pageBackends(c).join(" and ")}${c.discarded ? ` (${c.discarded.reason})` : ""}`).join(", ")}` : "";
   return {
     schema: JOB_RECEIPT_SCHEMA,
     job_id: j.id ?? null,
@@ -256,7 +317,8 @@ export function buildJobReceipt({
     submission_id: j.submission_id ?? null,
     params_sha256: paramsSha256,
     inputs: j.inputs && typeof j.inputs === "object" ? j.inputs : {},
-    engine: null,
+    // as the runner lists them ([{id, version, stages}]), with a browser engine's name, build and wasm SHA-256
+    engine: engines.length ? engines : null,
     placement: "browser",
     runtime,
     platform,
@@ -270,7 +332,7 @@ export function buildJobReceipt({
       used: ran || compute ? (compute?.gpu_stages.length ? "cpu+webgpu" : "cpu") : null,
       evidence: ev.evidence,
       note: ran
-        ? `computed on this device's CPU: CPython compiled to WebAssembly (Pyodide) in ${n} dedicated Web Worker${n === 1 ? "" : "s"}, one thread each${pageNote}; ${gpuNote}`
+        ? `computed on this device's CPU: CPython compiled to WebAssembly (Pyodide) in ${n} dedicated Web Worker${n === 1 ? "" : "s"}, one thread each${engineNote}${pageNote}; ${gpuNote}`
         : "assigned the CPU; no job worker computed anything for this job",
       stages: Object.keys(deviceStages).length ? deviceStages : null,
       verify_stages: ev.verify_stages,

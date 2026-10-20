@@ -1295,9 +1295,19 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
     "pipeline.dock": {
         "title": ("分子对接流程", "Docking"), "category": "structure_molecules",
         "summary": "AutoDock Vina docking with a redocking check of the site: scores, ligand "
-                   "efficiency, contacts and poses.",
-        "parameters": obj({"receptor": S(f"PDB file ({_UPLOAD}), PDB:<id>[:chains] or UniProt:<acc>"),
-                           "ligands": S(f"CSV name,smiles / SDF / .smi ({_UPLOAD}) or one SMILES"),
+                   "efficiency and poses. Two modes: from a PDB receptor and SMILES/CSV/SDF ligands, "
+                   "prepared with meeko and RDKit (contacts and SDF poses too; the runner), or from "
+                   "prepared inputs, a rigid receptor and ligands as PDBQT, used as given (AutoDock "
+                   "Vina 1.2.7, in the browser too).",
+        "parameters": obj({"receptor": S(f"PDB file ({_UPLOAD}), PDB:<id>[:chains] or UniProt:<acc>; or a "
+                                         "prepared rigid receptor, a .pdbqt file, for the prepared mode"),
+                           "ligands": S(f"CSV name,smiles / SDF / .smi ({_UPLOAD}) or one SMILES; with a "
+                                        ".pdbqt receptor a .pdbqt of one prepared ligand or several "
+                                        "(MODEL blocks)"),
+                           "reference_ligand": S("prepared mode: the co-crystal ligand as a prepared .pdbqt "
+                                                 "file in its crystal pose; the box is built around it unless "
+                                                 "center and size are given, and it is redocked to validate the "
+                                                 "setup"),
                            "site_ligand": S("co-crystal ligand residue name"),
                            "center": arr(N(), minItems=3, maxItems=3),
                            "size": arr(N(), minItems=3, maxItems=3),
@@ -1309,7 +1319,7 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
                           required=("receptor", "ligands")),
         "heavy": ["rdkit", "meeko", "vina", "gemmi"], "network_if": "allow_remote",
         "hosts": ["files.rcsb.org", "data.rcsb.org", "alphafold.ebi.ac.uk"],
-        "duration": "minutes", "tags": ("对接", "Vina", "配体")},
+        "duration": "minutes", "tags": ("对接", "Vina", "配体", "PDBQT")},
     "pipeline.admet": {
         "title": ("ADMET 预测流程", "ADMET"), "category": "structure_molecules",
         "summary": "ADMET: standardisation, descriptors, Lipinski/Veber/Egan/Ghose, PAINS/Brenk/"
@@ -1435,19 +1445,30 @@ def _dataset_hosts(keys: Iterable[str]) -> dict[str, list[str]]:
 #: parity tests run it (studio/web/test/runtime/science.mjs: research.snapshot as a job on fixture files, research.run
 #: as a job on the planted world, with --mode omics pipeline.rnaseq on the count-matrix reference and
 #: pipeline.scrna on the single-cell reference as count tables, and with --mode admet admet.models on the small TDC-
-#: shaped archive and pipeline.admet on a molecule set, each compared with the native run;
-#: studio/e2e/science.spec.mjs; the live-data 葛根芩连汤 comparison).
+#: shaped archive and pipeline.admet on a molecule set, and with --mode dock pipeline.dock on the prepared 3PTB
+#: fixture, each compared with the native run; studio/e2e/science.spec.mjs; the live-data 葛根芩连汤 comparison).
 BROWSER_JOB_KINDS = ("research.snapshot", "research.run", "pipeline.rnaseq", "pipeline.scrna", "admet.models",
-                     "pipeline.admet")
+                     "pipeline.admet", "pipeline.dock")
 #: The browser's chemistry for the ADMET jobs: RDKit.js, the version registry/scientific_environments.json pins for
 #: rdkit (studio/web/js/scientific/chem/rdkit.js RDKIT holds the pin; the tests hold the two to each other).
 RDKIT_JS = {"engine": "rdkit.js", "package": "@rdkit/rdkit", "version": "2026.9.1", "release": "2026.09.1"}
 _ADMET_PACKAGES = ["numpy", "scipy", "scikit-learn"]
+#: The browser's docking engine: AutoDock Vina compiled to WebAssembly by studio/scripts/build_vina_wasm.py, the version
+#: registry/scientific_environments.json pins for vina; the wasm's path from the site's root, SHA-256 and size. The
+#: build's manifest (studio/web/js/scientific/dock/vina_build.json) records them; the tests hold this pin to it, to
+#: boot.json's (webbuild.vina_pin) and to the registry.
+VINA_WASM = {"version": "1.2.7", "wasm": "js/scientific/dock/vendor/vina-1.2.7.wasm",
+             "sha256": "94807d4aeb358234fc4506ddd4c61b050d6b056fac8da412798eaf615ef09232", "bytes": 492_557}
 
 
 def _admet_molecules_max() -> int:
     from .browser_jobs import ADMET_MOLECULES_MAX       # the standard library only
     return ADMET_MOLECULES_MAX
+
+
+def _dock_limits() -> dict[str, int]:
+    from .browser_jobs import DOCK_LIGANDS_MAX, DOCK_RECEPTOR_ATOMS_MAX
+    return {"ligands": DOCK_LIGANDS_MAX, "receptor_atoms": DOCK_RECEPTOR_ATOMS_MAX}
 
 _WORKERS = ("one job worker per job, one job at a time in a tab (the pool is sized one per spare CPU core, at "
             "most one per 1.5 GB of device memory, at most 4)")
@@ -1460,8 +1481,9 @@ def _browser_job(packages: list[str], **extra: Any) -> dict[str, Any]:
 
 #: How each browser job kind runs, as the catalog states it (entry.execution.browser_job). The pipelines run a
 #: subset of their kind in the browser: ``runner_only`` lists the arguments that take a call to the runner, each
-#: with the reason (capability.runner_only reads it, and the page's router may: {arg, absent: true | is: value |
-#: suffix: [...], why}).
+#: with the reason (capability.runner_only reads it, and the page's router may: {arg, absent: true | present: true |
+#: is: value | suffix: [...] | not_suffix: [...], why}). ``runtime`` is where the Python stages run; a kind whose
+#: engine is not Python names it in ``engines`` (docking: AutoDock Vina in WebAssembly, in workers of its own).
 _BROWSER_JOBS: dict[str, dict[str, Any]] = {
     "research.snapshot": _browser_job(["pyarrow"]),
     "research.run": _browser_job(["pyarrow"]),
@@ -1508,6 +1530,33 @@ _BROWSER_JOBS: dict[str, dict[str, Any]] = {
             {"arg": "molecules", "suffix": [".sdf", ".sdf.gz", ".mol"],
              "why": "an SDF or .mol file is read with RDKit's SDMolSupplier, which the browser's chemistry (RDKit.js) "
                     "does not port; CSV, TSV and .smi files and one SMILES run here"}]),
+    # the prepared mode (bioagent.docking.prepared): the Python stages in the job worker, each Vina run in a worker of
+    # its own (the page's), read back through PrecomputedVina; preparing inputs (meeko, RDKit) is the runner's
+    "pipeline.dock": _browser_job(
+        ["numpy"],
+        inputs="a prepared rigid receptor and prepared ligands as PDBQT (one ligand, or several as MODEL blocks) from "
+               "the project's files, and the site as center and size or as the co-crystal ligand prepared as PDBQT in "
+               "its crystal pose (reference_ligand); a PDB receptor, SMILES/CSV/SDF ligands and site_ligand need the "
+               "runner, which prepares them with meeko and RDKit",
+        engines={"vina": {"engine": "AutoDock Vina", "version": VINA_WASM["version"],
+                          "build": "WebAssembly (studio/scripts/build_vina_wasm.py)",
+                          "wasm_sha256": VINA_WASM["sha256"]}},
+        # measured in Node (tcmstudio.browser_jobs.DOCK_LIGANDS_MAX, DOCK_RECEPTOR_ATOMS_MAX): more is refused
+        limits=_dock_limits(),
+        runner_only=[
+            {"arg": "receptor", "not_suffix": [".pdbqt"],
+             "why": "a receptor that is not a prepared .pdbqt (a PDB file, PDB:<id>, UniProt:<acc>) is prepared with "
+                    "meeko, which this browser does not hold; a prepared rigid receptor (.pdbqt) docks here"},
+            {"arg": "ligands", "not_suffix": [".pdbqt"],
+             "why": "ligands as SMILES, CSV, SDF or .smi are prepared with RDKit and meeko (3-D embedding, protonation "
+                    "as written, torsion trees), which this browser does not hold; prepared ligands (.pdbqt) dock here"},
+            {"arg": "site_ligand", "present": True,
+             "why": "a co-crystal ligand named by its residue is cut from a PDB receptor with RDKit, its bond orders "
+                    "from the RCSB Chemical Component Dictionary; here, give the site as center and size, or the "
+                    "ligand prepared in its crystal pose as reference_ligand (.pdbqt)"},
+            {"arg": "allow_remote", "is": True,
+             "why": "fetching a structure from RCSB or AlphaFold DB, and preparing it, is the runner's; here the "
+                    "receptor is a prepared .pdbqt from the project's files"}]),
 }
 
 

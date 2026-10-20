@@ -1,0 +1,26 @@
+REMARK VINA RESULT:    -6.049      0.000      0.000
+REMARK INTER + INTRA:          -6.433
+REMARK INTER:                  -6.403
+REMARK INTRA:                  -0.030
+REMARK UNBOUND:                -0.030
+REMARK  Name = benzamidine
+REMARK SMILES N=C(N)c1ccccc1
+REMARK SMILES IDX 3 1 2 2 1 3 4 7 5 8 9 9 6 10 8 11 7 12
+REMARK H PARENT 3 4 3 5 1 6
+ROOT
+ATOM      1  N   UNL     1      -2.609  14.186  14.620  1.00  0.00    -0.384 N 
+ATOM      2  C   UNL     1      -2.003  13.568  15.673  1.00  0.00    +0.122 C 
+ATOM      3  N   UNL     1      -1.701  12.317  15.527  1.00  0.00    -0.284 NA
+ATOM      4  H   UNL     1      -3.327  14.858  14.861  1.00  0.00    +0.158 HD
+ATOM      5  H   UNL     1      -2.928  13.503  13.940  1.00  0.00    +0.158 HD
+ATOM      6  H   UNL     1      -1.209  11.958  16.349  1.00  0.00    +0.189 HD
+ENDROOT
+BRANCH   2   7
+ATOM      7  C   UNL     1      -1.727  14.321  16.925  1.00  0.00    +0.016 A 
+ATOM      8  C   UNL     1      -2.432  15.501  17.190  1.00  0.00    +0.012 A 
+ATOM      9  C   UNL     1      -0.782  13.850  17.843  1.00  0.00    +0.012 A 
+ATOM     10  C   UNL     1      -2.185  16.211  18.365  1.00  0.00    +0.001 A 
+ATOM     11  C   UNL     1      -0.541  14.562  19.019  1.00  0.00    +0.001 A 
+ATOM     12  C   UNL     1      -1.240  15.742  19.278  1.00  0.00    +0.000 A 
+ENDBRANCH   2   7
+TORSDOF 1

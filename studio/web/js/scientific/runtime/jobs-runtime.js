@@ -9,7 +9,9 @@
 //
 // The ADMET jobs (pipelines/admet.js) also get the RDKit.js build boot.json pins (its rdkit entry: the wasm's URL and
 // SHA-256), the dataset workspace of the registry's "admet" group (the TDC archive, through the site's relay) and the
-// person's acceleration setting (settings.browserAcceleration: where the applicability-domain search may run).
+// person's acceleration setting (settings.browserAcceleration: where the applicability-domain search may run). The
+// docking job (pipelines/dock.js) gets the AutoDock Vina build boot.json pins (its vina entry: the wasm's URL, SHA-256
+// and size), which its own workers run (js/scientific/dock/dock.worker.js).
 
 import { pipelineArguments } from "../../core/catalog.js";
 import { glossary, t } from "../../core/i18n.js";
@@ -19,6 +21,7 @@ import { DatasetWorkspace } from "../data/datasets.js";
 import { OpfsStore } from "../data/opfs-store.js";
 import { HANDLERS } from "../pipelines/network-pharmacology.js";
 import { ADMET_HANDLERS, createAdmetHandlers } from "../pipelines/admet.js";
+import { DOCK_HANDLERS, createDockHandlers } from "../pipelines/dock.js";
 import { OMICS_HANDLERS } from "../pipelines/omics.js";
 import { SELFTEST_KIND, browserSelfTest } from "../pipelines/selftest.js";
 import { BrowserJobService, envelopeFor } from "./job-manager.js";
@@ -29,7 +32,7 @@ export const BROWSER_JOB_ID = /^bj-[0-9a-f]{8,}$/;
 
 const ENDED = ["succeeded", "failed", "cancelled", "interrupted"];
 /** The handlers this page has, by kind: what a call needs the runner for is asked of them before it is placed. */
-const BY_KIND = new Map([...HANDLERS, ...OMICS_HANDLERS, ...ADMET_HANDLERS].map((h) => [h.kind, h]));
+const BY_KIND = new Map([...HANDLERS, ...OMICS_HANDLERS, ...ADMET_HANDLERS, ...DOCK_HANDLERS].map((h) => [h.kind, h]));
 
 /**
  * The job kind and parameters a call stands for ({kind, params}), or null when it is not a job this service runs; a
@@ -282,9 +285,14 @@ export async function createJobsRuntime(opts = {}) {
     chemWorkerUrl: new URL("js/scientific/chem/chem.worker.js", site).href,
     preference: () => (typeof opts.settings === "function" ? opts.settings()?.browserAcceleration : null) || "auto",
   });
+  // a site whose boot.json names no vina entry refuses the docking (null), rather than fetching a build it did not pin
+  const dock = createDockHandlers({
+    vina: isPlainObject(boot.vina) ? boot.vina : null, VinaWorker: Worker, siteUrl: site,
+    vinaWorkerUrl: new URL("js/scientific/dock/dock.worker.js", site).href,
+  });
   const service = new BrowserJobService({
     indexedDB: opts.indexedDB, pool, store, datasets, datasetGroups: { admet: admetData }, projectFiles: projectFilesResolver(opts.files),
-    handlers: [...HANDLERS, ...OMICS_HANDLERS, ...admet, browserSelfTest],
+    handlers: [...HANDLERS, ...OMICS_HANDLERS, ...admet, ...dock, browserSelfTest],
   });
   try {
     await service.start();
