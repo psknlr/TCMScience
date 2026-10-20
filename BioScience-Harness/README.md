@@ -640,9 +640,11 @@ snapshot pipeline, the live validation tier and Studio's runner). It is stricter
   URL, a path or an override of the size gate.
 - Not implemented: object storage (R2) for shared copies, and ENA downloads by accession.
 
-What remains unverified live: the transfer has been tested against loopback servers only (`tests/test_acquisition_transfer.py`,
-`tests/test_tcmdb_fetch_integrity.py`). No live run of it has happened yet; the live tier
-(`.github/workflows/live-data.yml`) is where it will first meet the real servers.
+The transfer is tested against loopback servers (`tests/test_acquisition_transfer.py`, `tests/test_tcmdb_fetch_integrity.py`),
+and the live tier (`.github/workflows/live-data.yml`) runs it: in `live-data` #17 (2026-10-19) it fetched the 17 research
+files from their servers, 14 PASS against a reviewed checksum or size and 3 UNVERIFIED (no reviewed checksum or size),
+and a resume onto a partial file passed on one file each from Zenodo, STRING and bidd.group. The committed download
+record (`bioagent/data/live_download_verification.json`) is still the one from 2026-10-11.
 
 <!-- zh -->
 大文件由 `acquisition.transfer.VerifiedTransfer` 获取（`bioagent tcmdb fetch`、`bioagent fetch`、快照流水线、在线验证层与 Studio 的 Runner 都使用它）。它比它所扩展的「可断点续传、带校验和」的 `Downloader` 更严格：
@@ -652,7 +654,7 @@ What remains unverified live: the transfer has been tested against loopback serv
 - Studio 的 Runner 提供 `/api/datasets`（需配对令牌），获取请求只接受已登记的数据集键，从不接受 URL、路径或对大小门槛的覆盖。
 - 未实现：用于共享副本的对象存储（R2），以及按 accession 从 ENA 下载。
 
-尚未在线验证的部分：这套传输只在本机回环服务器上测试过（`tests/test_acquisition_transfer.py`、`tests/test_tcmdb_fetch_integrity.py`），还没有做过任何一次真实的在线运行；在线验证层（`.github/workflows/live-data.yml`）将是它第一次面对真实服务器的地方。
+这套传输在本机回环服务器上测试过（`tests/test_acquisition_transfer.py`、`tests/test_tcmdb_fetch_integrity.py`），并由在线验证层（`.github/workflows/live-data.yml`）真实运行：在 `live-data` #17（2026-10-19）中，它从各自的服务器取得 17 个研究文件，14 个对照经审核的校验和或大小为 PASS，3 个为 UNVERIFIED（没有经审核的校验和或大小）；在 Zenodo、STRING 和 bidd.group 上各对一个文件续传部分下载，均通过。已提交的下载记录（`bioagent/data/live_download_verification.json`）仍是 2026-10-11 的那一份。
 
 ## Layout · 目录结构
 

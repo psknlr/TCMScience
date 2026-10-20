@@ -26,6 +26,8 @@ from __future__ import annotations
 import csv
 import gzip
 import io
+import itertools
+import zlib
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -119,13 +121,16 @@ def _dedupe(names: np.ndarray) -> np.ndarray:
 def read_10x_mtx(directory: str | Path) -> CellMatrix:
     d = Path(directory)
     mtx = _first(d, "matrix.mtx")
-    with (gzip.open(mtx, "rb") if mtx.suffix == ".gz" else mtx.open("rb")) as fh:
-        m = spio.mmread(fh)
-    with _open(_first(d, "barcodes.tsv")) as fh:
-        barcodes = np.array([line.rstrip("\n").split("\t")[0] for line in fh if line.strip()],
-                            dtype=object)
-    with _open(_first(d, "features.tsv", "genes.tsv")) as fh:
-        rows = [line.rstrip("\n").split("\t") for line in fh if line.strip()]
+    try:
+        with (gzip.open(mtx, "rb") if mtx.suffix == ".gz" else mtx.open("rb")) as fh:
+            m = spio.mmread(fh)
+        with _open(_first(d, "barcodes.tsv")) as fh:
+            barcodes = np.array([line.rstrip("\n").split("\t")[0] for line in fh
+                                 if line.strip()], dtype=object)
+        with _open(_first(d, "features.tsv", "genes.tsv")) as fh:
+            rows = [line.rstrip("\n").split("\t") for line in fh if line.strip()]
+    except (EOFError, OSError, zlib.error) as exc:          # a gzip stream cut short or corrupt
+        raise ScIOError(f"{d} cannot be read to its end ({type(exc).__name__}: {exc})") from exc
     ids = np.array([r[0] for r in rows], dtype=object)
     names = np.array([r[1] if len(r) > 1 else r[0] for r in rows], dtype=object)
     kinds = np.array([r[2] if len(r) > 2 else "Gene Expression" for r in rows], dtype=object)
@@ -218,26 +223,46 @@ def to_anndata(m: CellMatrix) -> Any:
 
 
 def read_table(path: str | Path) -> CellMatrix:
-    """Genes in rows, cells in columns; the first column holds gene names."""
+    """Genes in rows, cells in columns; the first column holds gene names. Read a row at a
+    time and kept sparse, so that a table needs memory for its non-zero counts, not for its
+    text: the same matrix as parsing the whole table at once, in a fraction of the memory
+    (a browser worker's wasm32 memory holds ~4 GB). Blank lines are skipped."""
     path = Path(path)
+    genes: list[str] = []
+    indptr, indices, data = [0], [], []
     with _open(path) as fh:
-        text = fh.read()
-    first = text.split("\n", 1)[0]
-    delimiter = "\t" if first.count("\t") >= first.count(",") else ","
-    rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
-    if len(rows) < 2:
+        try:
+            first = fh.readline()
+            delimiter = "\t" if first.count("\t") >= first.count(",") else ","
+            reader = csv.reader(itertools.chain([first], fh), delimiter=delimiter)
+            header = next(reader, None) or []
+            cells = max(len(header) - 1, 0)
+            for row in reader:
+                if not row:
+                    continue
+                if len(row) - 1 != cells:
+                    raise ScIOError(f"{path}: rows have {len(row) - 1} values for {cells} "
+                                    "cells")
+                try:
+                    values = np.fromiter(map(float, row[1:]), dtype=np.float64, count=cells)
+                except ValueError as exc:
+                    raise ScIOError(f"{path}: a value is not a number ({exc})") from exc
+                nonzero = np.flatnonzero(values)
+                genes.append(row[0])
+                indices.append(nonzero)
+                data.append(values[nonzero])
+                indptr.append(indptr[-1] + len(nonzero))
+        except (EOFError, OSError, zlib.error) as exc:      # a gzip stream cut short or corrupt
+            raise ScIOError(f"{path} cannot be read to its end ({type(exc).__name__}: "
+                            f"{exc})") from exc
+    if not genes:
         raise ScIOError(f"{path} has no data rows")
-    cells = np.array(rows[0][1:], dtype=object)
-    genes = np.array([r[0] for r in rows[1:]], dtype=object)
-    try:
-        values = np.array([[float(v) for v in r[1:]] for r in rows[1:]], dtype=np.float64)
-    except ValueError as exc:
-        raise ScIOError(f"{path}: a value is not a number ({exc})") from exc
-    if values.shape[1] != len(cells):
-        raise ScIOError(f"{path}: rows have {values.shape[1]} values for {len(cells)} cells")
-    m = _check_integer(sparse.csr_matrix(values.T), str(path))
-    return CellMatrix(counts=m, cells=cells, gene_ids=genes.copy(), gene_names=_dedupe(genes),
-                      source=str(path))
+    by_gene = sparse.csr_matrix((np.concatenate(data), np.concatenate(indices), indptr),
+                                shape=(len(genes), cells))
+    names = np.array(genes, dtype=object)
+    m = _check_integer(by_gene.T, str(path))
+    return CellMatrix(counts=m, cells=np.array(header[1:], dtype=object),
+                      gene_ids=names.copy(), gene_names=_dedupe(names), source=str(path))
 
 
 def read_counts(path: str | Path) -> CellMatrix:

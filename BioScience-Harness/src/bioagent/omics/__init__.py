@@ -10,6 +10,8 @@
 ``backends``   the standard command-line tools (fastp, salmon, kallisto, HISAT2,
                featureCounts) when they are installed
 ``rnaseq``     the RNA-seq pipeline from a sample sheet to a report
+``rnaseq_counts`` its count-matrix mode: a count table and a sample table to the
+               same tests, tables and report
 ``sc``         single-cell building blocks (QC, doublets, Harmony, Leiden, UMAP,
                markers, annotation, trajectories, pseudobulk)
 ``scrna``      the single-cell pipeline from count matrices to annotated clusters

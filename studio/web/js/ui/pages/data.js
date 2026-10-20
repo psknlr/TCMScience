@@ -23,6 +23,7 @@ import { icon } from "../icons.js";
 import { confirmDialog, toast } from "../overlay.js";
 import { button, chip, disclosure, keyValue, notice, section, spinner } from "../primitives.js";
 import { JobTracker } from "../jobs.js";
+import { browserResearchSection } from "./browser-research.js";
 
 /** The six readiness states, in order (tcmstudio.dispatch READINESS): only "built" answers queries. */
 export const DATA_READINESS = ["catalogued", "live", "supported", "partial", "downloaded", "built"];
@@ -190,6 +191,8 @@ export function dataTab(app, rerender, { jobs, confirm = confirmDialog } = {}) {
     runnerBody.push(datasetList(app, st, (st.runner.datasets || []).map((r) => ({ row: r, where: "runner" })), { tracker, confirm, rerender }));
   }
   blocks.push(section({ title: t("ui.data.runner_title"), children: runnerBody }));
+  // the research files and snapshots this browser's own jobs read (job.research.snapshot / job.research.run here)
+  blocks.push(browserResearchSection(app, { tracker, confirm, rerender, st }));
 
   // this browser's hub (per project), only on a press: reading it loads the Python runtime
   const project = app.state.project;

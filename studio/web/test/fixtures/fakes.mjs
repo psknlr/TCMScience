@@ -165,6 +165,65 @@ export function testCatalogDoc() {
   };
 }
 
+/**
+ * The browser job kinds' runner_only rules, as tcmstudio.catalog._BROWSER_JOBS states them (execution.browser_job): the
+ * arguments that take a call of a kind the browser runs in part to the runner.
+ */
+export const RUNNER_ONLY = Object.freeze({
+  "pipeline.rnaseq": [
+    { arg: "counts", absent: true, why: "without counts this is the FASTQ run (QC, trimming, quantification), which runs on the runner; this browser runs the count-matrix mode (counts and a sample table)" },
+    { arg: "de_backend", is: "pydeseq2", why: "PyDESeq2 is not in this browser's Python; the built-in DESeq2 implementation is" },
+  ],
+  "pipeline.scrna": [
+    { arg: "analysis_backend", is: "scanpy", why: "Scanpy, anndata, leidenalg and umap-learn are not in this browser's Python; the built-in analysis is" },
+    { arg: "integration", is: "scvi", why: "scVI (scvi-tools and torch) is not in this browser's Python; built-in Harmony is" },
+    { arg: "source", suffix: [".h5", ".h5ad"], why: "a 10x HDF5 or .h5ad source is not yet supported in the browser (its readers, h5py and anndata, are not loaded by this job); count tables (CSV/TSV) run here" },
+  ],
+  "pipeline.admet": [
+    { arg: "molecules", suffix: [".sdf", ".sdf.gz", ".mol"], why: "an SDF or .mol file is read with RDKit's SDMolSupplier, which the browser's chemistry (RDKit.js) does not port; CSV, TSV and .smi files and one SMILES run here" },
+  ],
+});
+
+/**
+ * testCatalogDoc with run_pipeline as tcmstudio.catalog and core_tools write it once the browser runs pipeline.rnaseq and
+ * pipeline.scrna: a family (job.pipeline.*) whose schema takes pipeline and arguments only, the two kinds with their
+ * browser_job and runner_only rules, and fold on the runner alone.
+ */
+export function pipelineCatalogDoc() {
+  const doc = testCatalogDoc();
+  const obj = (props = {}) => ({ type: "object", properties: props });
+  const job = { kind: "job", category: "omics", summary: "x", example: null, network: false, confirm: true, job: true, gpu: false, heavy: [], tags: [] };
+  const browserJob = (kind) => ({ service: "studio-jobs/1", runtime: "pyodide", pyodide_packages: ["numpy", "scipy"], runner_only: RUNNER_ONLY[kind] });
+  Object.assign(doc.core.find((c) => c.name === "run_pipeline"), {
+    exec: ["browser", "runner"], maps_to: "job.pipeline.*",
+    parameters: { type: "object", properties: { pipeline: { type: "string", enum: ["rnaseq", "scrna", "fold"] }, arguments: { type: "object" } }, required: ["pipeline", "arguments"], additionalProperties: false },
+  });
+  doc.entries.push(
+    { ...job, id: "job.pipeline.rnaseq", title: { zh: "RNA-seq", en: "RNA-seq" }, summary: "RNA-seq differential expression", tags: ["RNA-seq"], parameters: obj({ counts: { type: "string" }, samples: { type: "string" }, de_backend: { type: "string" } }), exec: ["browser", "runner"], execution: { browser_job: browserJob("pipeline.rnaseq") } },
+    { ...job, id: "job.pipeline.scrna", title: { zh: "单细胞", en: "Single-cell" }, parameters: obj({ source: { type: "string" }, analysis_backend: { type: "string" }, integration: { type: "string" } }), exec: ["browser", "runner"], execution: { browser_job: browserJob("pipeline.scrna") } },
+    { ...job, id: "job.pipeline.fold", title: { zh: "结构", en: "Fold" }, parameters: obj({ method: { type: "string" } }), exec: ["runner"] },
+  );
+  return doc;
+}
+
+/**
+ * pipelineCatalogDoc with the ADMET kinds as tcmstudio.catalog writes them once the browser runs them: run_pipeline's
+ * pipelines include admet, job.pipeline.admet (its runner_only rule: SDF and .mol files) and job.admet.models.
+ */
+export function admetCatalogDoc() {
+  const doc = pipelineCatalogDoc();
+  const obj = (props = {}) => ({ type: "object", properties: props });
+  const job = { kind: "job", category: "structure_molecules", summary: "x", example: null, network: false, confirm: true, job: true, gpu: false, heavy: ["rdkit", "scikit-learn"], tags: [] };
+  const browserJob = (kind) => ({ service: "studio-jobs/1", runtime: "pyodide", pyodide_packages: ["numpy", "scipy", "scikit-learn"], chemistry: { engine: "rdkit.js", package: "@rdkit/rdkit", version: "2026.9.1", release: "2026.09.1" }, ...(RUNNER_ONLY[kind] ? { runner_only: RUNNER_ONLY[kind] } : {}) });
+  doc.core.find((c) => c.name === "run_pipeline").parameters.properties.pipeline.enum.push("admet");
+  doc.entries.push(
+    { ...job, id: "job.pipeline.admet", title: { zh: "ADMET", en: "ADMET" }, parameters: obj({ molecules: { type: "string" }, endpoints: { type: "array" } }), exec: ["browser", "runner"], execution: { browser_job: browserJob("pipeline.admet") } },
+    // network unless the call gives the archive (a project file it reads instead of downloading), as tcmstudio.catalog
+    { ...job, id: "job.admet.models", title: { zh: "构建 ADMET 模型", en: "Build the ADMET models" }, network: true, network_unless: "archive", hosts: ["dataverse.harvard.edu"], parameters: obj({ archive: { type: "string" }, endpoints: { type: "array" } }), exec: ["browser", "runner"], execution: { browser_job: browserJob("admet.models") } },
+  );
+  return doc;
+}
+
 export function loadFixture(name) {
   return JSON.parse(readFileSync(new URL(`./${name}`, import.meta.url), "utf8"));
 }

@@ -29,7 +29,7 @@ Cloudflare Worker (`studio/edge`: static files, the `/v1` relay to the Tao-S1 mo
 to public databases) and an optional local runner (`tcmstudio serve`, native CPython). In the browser, tools run in a
 Web Worker on **Pyodide 314.0.7** (CPython 3.14 compiled to WebAssembly) executing the real `psh`, `bioagent` and
 `tcmstudio` packages from a SHA-256-verified bundle, so a browser call and a runner call return the same envelope
-(CONTRACTS §3). The tool catalog has **650 entries** (25 core tools); **630 run in the browser** today
+(CONTRACTS §3). The tool catalog has **651 entries** (25 core tools); **637 run in the browser** today
 ([matrix](compat/summary.md)).
 
 **Where computation happened before this work.** Every browser tool ran single-threaded on the CPU in Pyodide, except
@@ -42,8 +42,10 @@ distance (pure-Python O(n·m) loops: a 2000 × 2000 local alignment took 2.9 s i
 (O(n²·w)); and, for large results, the envelope's own post-processing ([§9.3](#93-the-envelope-overhead)). Not ported
 yet: neighbour joining and UPGMA (O(n³) in Python) and the network-pharmacology permutation null (1000 seeded
 permutations per pathway; a port must reproduce Python's Mersenne Twister draws exactly). The null is the research
-loop's (`job.research.run`, `analysis/network_pharmacology.py`), outside the skill pins; the pinned seed-corpus skill
-draws no permutation and computes no topology.
+loop's (`job.research.run`, `analysis/network_pharmacology.py`), outside the skill pins, and it now runs in the browser
+without a port: the research jobs run the loop itself in Pyodide job workers, where CPython's own MT19937 draws exactly
+what the runner's draws ([BROWSER_JOBS.md](BROWSER_JOBS.md)). The pinned seed-corpus skill draws no permutation and
+computes no topology.
 
 **A constraint on acceleration.** The four governed TCM skills (safety, entity normalisation, evidence retrieval,
 network pharmacology) are pinned in `BioScience-Harness/registry/skills.lock.yaml`. The pin is a content hash over each
@@ -82,15 +84,16 @@ compared with native CPython: that comparison was made only for the calls of the
 
 | Class | Meaning | Entries |
 |---|---|---:|
-| 1 | Runs in the browser now, unchanged (Pyodide, CPU) | 171 |
+| 1 | Runs in the browser now, unchanged (Pyodide, CPU) | 172 |
 | 1g | Runs in the browser now; its data comes from a public API through the bounded gateway | 444 |
+| 1j | Runs in the browser now as a job: the same Python in job workers, files in private storage ([BROWSER_JOBS.md](BROWSER_JOBS.md)) | 6 |
 | 2 | A JavaScript CPU kernel computes the hot loop, byte-identical to Python | 4 |
 | 3 | WebGPU or WebAssembly SIMD integer reductions, exact, recounted in Python | 3 |
 | 4 | WebNN candidate (a neural model would run here) | 0 |
 | 5 | A WASM SIMD / threads kernel would pay off; not written | 8 |
-| 6 | Needs substantial work for the browser (data size, memory, a job model) | 3 |
-| 7 | Needs a native engine or GPU framework (RNA-seq, docking, ADMET, folding) | 9 |
-| 8 | Stays on the local runner (processes, files, long jobs, MCP servers) | 8 |
+| 6 | Needs substantial work for the browser (data size, memory, a job model) | 1 |
+| 7 | Needs a native engine or GPU framework (RNA-seq from FASTQ, docking, ADMET, folding) | 7 |
+| 8 | Stays on the local runner (processes, files, long jobs, MCP servers) | 6 |
 
 Class 4 is empty because no tool runs a neural model; the matrix does not pretend otherwise. Classes 7 and 8 stay on
 the runner: a browser cannot run STAR, AutoDock Vina or PyTorch-CUDA, and should not pretend to. Nothing was removed:
@@ -300,10 +303,13 @@ adapter (a machine whose only adapter is a CPU renderer has no GPU to fall back 
 ## 6. WebGPU, WebAssembly and WebNN
 
 **WebGPU** is used where it is exact: integer reductions (sites, differences and transitions between aligned sequences,
-mismatches, GC counts) in a WGSL compute shader. Floating-point model transforms, rounding, errors and verdicts stay in
-Python. WebGPU is not a CUDA substitute here. No Python library runs on it, and the GPU frameworks used by the runner's
-jobs (PyTorch for structure prediction, for example) cannot be loaded in a page. Its code paths were exercised only on
-SwiftShader (exact, as the benchmark checks, but slow); its speed on a real GPU is **unmeasured**.
+mismatches, GC counts) in a WGSL compute shader, and (P3) the ADMET applicability-domain search, a batch Tanimoto max
+over packed fingerprints, exact in its integers ([§6.1](#61-the-science-kernels-and-the-device-check-p3)). Floating-point
+model transforms, rounding, errors and verdicts stay in Python. WebGPU is not a CUDA substitute here. No Python library
+runs on it, and the GPU frameworks used by the runner's jobs (PyTorch for structure prediction, for example) cannot be
+loaded in a page. Its code paths were exercised only on SwiftShader (exact, as the benchmark and the device check show,
+but slow); its speed on a real GPU is **unmeasured**, and the GPU is used for the domain search only where this device's
+own check measured it exact and faster ([§6.1](#61-the-science-kernels-and-the-device-check-p3)).
 
 **WebAssembly is the portable CPU layer.** Pyodide runs everything; the SIMD kernel speeds up the counts. SIMD is in
 every current engine (Chrome 91+, Firefox 89+, Safari 16.4+), and where it is missing the JavaScript kernel takes its
@@ -346,6 +352,93 @@ shows when it is connected. It would add one operation (for example, an embeddin
 OpenVINO, QNN or Core ML) with the same envelope and receipt, the device reported by the native runtime rather than
 guessed, and the person choosing it. The app must keep working without it.
 
+### 6.1 The science kernels and the device check (P3)
+
+The P3 ADMET jobs ([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)) have a second exact GPU kernel (the first is the
+sequence tools' integer counts above). Their applicability-domain search is **batch Tanimoto max** over
+packed 2048-bit Morgan fingerprints: for each query molecule, the nearest training molecule of an endpoint (the
+smallest index on ties), and the integer intersection and union, with Python dividing in float64. The integers make it
+exact. It is written three ways — JavaScript, WebAssembly SIMD (`i8x16.popcnt`), and WebGPU (WGSL) — each held to the
+others and to Python's own reference, `np.bitwise_count` (`compute/science-cpu.js`, `compute/wasm/science.wat`,
+`compute/science-gpu.js`; `build_wasm.mjs --check` covers the WebAssembly module, and the WGSL exact-key trick is valid
+only for ≤ 2048 bits, which the code enforces).
+
+**The device check and the calibration.** Nothing about a device is believed from its name. Before the GPU runs any of
+a person's work, a **device check** (`compute/device-check.js`) measures this device's kernels on fixed seeded inputs at
+four sizes (32 × 2048, then 256, 1024 and 4096 queries against 10,504 references, the size of the largest
+endpoint's training set, cyp2d6_veith): the GPU's known-answer test, then,
+per size, every backend's answer against the JavaScript reference (exactly), and the GPU's time as the scheduler would
+run it (search and the CPU check), against the WebAssembly SIMD and JavaScript times, after one first (cold) call that
+is reported but not counted. The report (schema `tcmstudio.device-check/1`) is kept as this device's **calibration**, in
+the origin's own IndexedDB under a fingerprint of the adapter (as `classifyAdapter` saw it) and the browser's brands and
+platform (`compute/calibration.js`); a browser update or another adapter changes the fingerprint, so the check runs
+again. The scheduler and the job receipts cite the calibration by id. A calibration of another adapter, another browser,
+or kernels whose SHA-256 has changed says nothing about this device, so the GPU is not chosen from it.
+
+**The accelerated rule.** The scheduler (`compute/science-scheduler.js`) uses the GPU for the domain search only when,
+and only where, the calibration says a **physical** adapter that passed its known-answer test was **exact** and
+**measured faster** than the WebAssembly SIMD kernel at that size — never from a cost model. A GPU result is used only
+after it passes a CPU check (`validateTanimoto`: every index a reference, every count its reference's, and the full
+exact search of a sample of queries), and Python checks it again (`PrecomputedSimilarity`); a result that fails is not
+used, the CPU recomputes, and the stage's GPU work is discarded. Whether one call counts as `accelerated` is decided for
+that call alone: its own GPU time — set-up included when it is the device's first (cold) use in the session, and the CPU
+check of its result — must be below the CPU kernel's time the device check measured at a size no larger than the call's
+(taking the CPU kernel's time to grow with the number of comparisons, that is a bound, not an estimate). The job receipt's
+`accelerated` therefore comes only from a measurement on that device; a call the rule cannot decide is not called
+accelerated, and a stage is `accelerated` only when every GPU call of it reached that rung.
+
+**SwiftShader is not evidence.** There is no physical GPU on this machine or in CI; the only WebGPU adapter is
+SwiftShader, a CPU renderer the browser marks as a fallback adapter. Production refuses it. The harness and the device
+check use it only when told to (`--software`), and then label it. On it the WGSL kernel is **exact** at every size
+(32 × 2048 and 256/1024/4096 × 10,504, against WebAssembly SIMD and JavaScript), which is all a software adapter can
+show. Its timings are the CPU's: in `gpu-science.mjs --software` (headless Chromium 141, this machine's 4-core Xeon) at
+1024 × 10,504 the JavaScript kernel took 1,434 ms, the WebAssembly SIMD kernel 181 ms and the SwiftShader "GPU"
+1,975 ms (search and its CPU check) — slower than the SIMD CPU kernel, because it is a software renderer (in Node the
+two CPU kernels took 1,550 and 185 ms). The device-check verdict on it reads "software, not evidence", and no row of it carries a speed-up or an
+`accelerated` verdict, by design. A hardware GPU's speed here is therefore **unmeasured**, and P3's acceptance criterion
+(a physical adapter, measured faster) stays **open** ([§11](#11-roadmap)).
+
+**ONNX Runtime Web, evaluated and not used for P3.** The ADMET models are scikit-learn tree ensembles
+(`HistGradientBoosting`), and they stay in Python: measured (onnxruntime-web 1.30.0, in Node and headless Chromium 141 here), their ONNX form runs only on ONNX Runtime
+Web's CPU (WebAssembly) execution providers, bit-identical to native ORT at one thread: the builds with its native
+WebGPU execution provider lack the `ai.onnx.ml` tree-ensemble operators ("No Op registered for
+TreeEnsembleClassifier"), and the JSEP build, which has them, places the tree nodes on its CPU provider, so no tree
+node ran on a GPU. Two of its WebAssembly files, the native WebGPU build's (26,781,914 bytes) and the JSEP build's
+(28,312,028), also exceed the site's 25 MiB per-file limit, so they could only come from a CDN. For these tree models
+it adds no GPU path, so it waits for a neural workload (P5, WebNN). One thing to carry to P5: `skl2onnx`'s
+`HistGradientBoosting` export rounds the float64 split thresholds to float32 without the threshold adjustment it applies
+to other tree models, so an input that lands exactly on a rounded threshold can go the other way than scikit-learn (24
+label flips on 4,000 adversarial rows); rounding the thresholds down instead (`np.nextafter(t32, -inf)`) routes every one of those rows as scikit-learn does
+(0 flips). No
+WebGPU matmul or PCA kernel was written either: no consumer in these pipelines could keep parity (the omics pipelines
+are held to native float64), and the guidebook's own rule is that WebGPU should not automatically be selected for every
+scientific operation.
+
+### 6.2 How to verify on your own GPU
+
+The device check above has only ever run on a software adapter here. To run it on a real GPU — a Mac Studio (M-series),
+a Windows + NVIDIA machine, or any device with a hardware adapter — there are two ways, and both produce the same report
+(`tcmstudio.device-check/1`):
+
+- **In the app**: open the site, go to **Settings → Compute**, and press **Check this device**. It runs the check on
+  the page and shows the adapter and whether it is physical, the known-answer test, and, at each size, the three
+  kernels' times, whether every backend was exact, and the verdict (GPU faster / not faster / no verdict, with the
+  reason). The report is kept as this device's calibration, so under the acceleration setting Auto the ADMET jobs'
+  domain search then uses the GPU for a call whose largest measured size no larger than it was found exact and faster.
+  (The CPU reference can pause the page for about 6 s at the largest size on this machine.) The panel's rendering is
+  unit-tested and `deviceCheck` itself ran in Chromium through the harness; the button has not been pressed in a browser
+  here.
+- **From the harness** (a checkout of this repository, with `studio`'s npm dependencies installed for Playwright):
+  `node studio/web/test/runtime/gpu-science.mjs --channel chrome --headed` runs the same check in
+  the person's own Chrome against its real GPU and prints the report. Without a flag a software-only machine reports
+  "no physical adapter" and exits 0 (not a parity failure); `--software` forces and labels SwiftShader; `--quick` uses
+  the two smaller sizes.
+
+The report shows, per size, the GPU time (search and its CPU check) beside the WebAssembly SIMD and JavaScript times,
+whether the GPU's answers were exact, and the per-size verdict, and an overall verdict and label. On a physical adapter
+that is exact and faster, a size reads `accelerated`, and that is the measurement P3's acceptance criterion needs; a
+software adapter always reads "software, not evidence".
+
 ---
 
 ## 7. Offline, storage and caching
@@ -364,8 +457,11 @@ guessed, and the person choosing it. The app must keep working without it.
   to IndexedDB (IDBFS) where it works, and the receipt says `durable: false` where it does not.
 - The capability probe reports quota, usage, whether storage is persisted, OPFS and the Cache API.
 
-**Proposed**: ask for persistent storage (`navigator.storage.persist()`) when the person downloads something large;
-resumable, content-addressed model downloads into OPFS, with a quota check before the download starts.
+**Implemented for the research jobs** ([BROWSER_JOBS.md](BROWSER_JOBS.md)): resumable, verified downloads of the
+research files into OPFS (a storage check on the reviewed sizes before a job starts: the three files with no reviewed
+size are not counted, and the job's log names them; `If-Range` resumes), read in place by Python through
+synchronous access handles, and a *Keep this data* button that asks for persistent storage. **Proposed**: the same for
+model downloads (none ships).
 
 ---
 
@@ -518,13 +614,17 @@ nothing changes.
 | Phase | Work | Priority | Status |
 |---|---|---|---|
 | 1 | Network switches made reliable; capability probe; scheduler; exact CPU kernels (JavaScript, WASM SIMD); WebGPU packets bound and checked; offline service worker; matrix; benchmark; envelope fast paths; ranked formula search with herb names ([§11.1](#111-ranked-formula-search)) | — | **Done** (this branch) |
-| 2 | Network-pharmacology permutation null in WebAssembly, drawing exactly what Python's MT19937 draws. It belongs to the research loop (`job.research.run`, `analysis/network_pharmacology.py`), not to a pinned skill (the seed-corpus skill draws no permutation), so a port needs no re-pin; the loop runs on the runner (its snapshot ledger and run length, class 6), so the port waits for a small-dataset browser mode | P2 | Proposed |
+| 2 | The research loop in the browser (`job.research.snapshot`, `job.research.run`): job workers, OPFS, a job service with cancel and resume, receipts; the permutation null is CPython's own MT19937, so no port is needed ([BROWSER_JOBS.md](BROWSER_JOBS.md)) | P1 | **Done** (this branch); the real 葛根芩连汤 browser run passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, commits 43918ac, 53bdbb0 and 65fa6aa, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it) |
+| 2 | RNA-seq from a count matrix and single-cell from count tables as browser jobs (`job.pipeline.rnaseq` in its count-matrix mode, `job.pipeline.scrna`): the runner's Python with Pyodide's numpy and scipy, inputs copied from the project's files and checked against their SHA-256; FASTQ, PyDESeq2, Scanpy, scVI, 10x HDF5, `.h5ad` and inputs above 6,000 cells, a table above 66,000,000 cells × genes or a count matrix above 10,000,000 genes × samples refused for the runner, with the reason ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)) | P2 | **Done** (this branch, commit 65fa6aa): implemented and tested locally in headless Chromium 141 with Pyodide 314.0.7 (`science.mjs --mode omics`): on `omics_counts_world` v1 and `sc_world` v1 every output identical to the native command's, within the stated tolerance (at most 0.133 of it) or not compared with the reason (the UMAP layout and five figures); the genes called, each cell's cluster and cell type identical; the known answers hold on the browser's files. The same check passed in Studio's CI with Pyodide's numpy and scipy from jsDelivr (`studio` #91 (run 39286931542, commit 65fa6aa, 2026-10-19)) |
+| 3 | ADMET in the browser (`job.admet.models`, `job.pipeline.admet`): bioagent's ADMET pipeline and model build in Pyodide job workers (scikit-learn 1.8.0), the chemistry in RDKit.js 2026.9.1 with exact ports, the applicability-domain search on the Tanimoto kernel (WebAssembly SIMD, or WebGPU where this device's check found it exact and faster), re-checked in Python; the models built here from the TDC archive and kept in private storage, nothing trained shipped ([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet), [§6.1](#61-the-science-kernels-and-the-device-check-p3)) | P3 | **Done** (this branch); on the real TDC archive it passed in `live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20, headless Chromium 141 on GitHub's runner, Pyodide 314.0.7; the archive given to the page as a project file): all 22 models built in the browser, 202 of the 81,809 molecules (0.25%) refused by the browser chemistry and the native models trained without them too; the model cards the native ones field by field (not the model file's digest, the seconds or the chemistry's name), the domain files the native run's bytes; on the 16,353 test molecules every raw model output and domain search identical, 36 final predictions differing by 1 unit in the last place of float64, through `10 **` or `expit` (up to 4 units allowed); `pipeline.admet` with these models on a 39-molecule set (29 predicted, 9 refused as expected, 1 not read, as natively) wrote the native `admet.tsv` bytes on the kept molecules. Before that, the same comparison passed locally in headless Chromium 141 (`science.mjs --mode admet`) on a small known-answer archive and a synthetic one at the TDC sizes. Studio's CI runs it on the known-answer archive; it passed in `studio` #95 (run 39386727362, commit 0882e95, 2026-10-20). The physical-GPU acceptance is the next row's and stays open |
+| 3 | The exact Tanimoto kernel (JavaScript, WebAssembly SIMD, WebGPU/WGSL), the device check and the per-device calibration, and the "accelerated" rule decided per call from a measurement ([§5.1](#51-the-evidence-ladder), [§6.1](#61-the-science-kernels-and-the-device-check-p3)) | P3 | **Implemented; acceptance open: needs a physical GPU.** Exact on SwiftShader (a software adapter, refused in production and never evidence of a GPU); the WebGPU path has never run on a hardware GPU here or in CI, so its speed is unmeasured and no call has ever reached `accelerated`. The device check runs it on real hardware ([§6.2](#62-how-to-verify-on-your-own-gpu)) |
+| 3 | ONNX Runtime Web for the ADMET tree models | P3 | **Evaluated, not used** ([§6.1](#61-the-science-kernels-and-the-device-check-p3)): tree ensembles run only on its CPU (WebAssembly) execution providers (bit-identical to native ORT at one thread): its native WebGPU builds lack the `ai.onnx.ml` ops and its JSEP build runs them on the CPU, and two of its WebAssembly files exceed the 25 MiB per-file limit; it waits for a neural workload (below) |
 | 2 | A compact count format across the Pyodide boundary (JSON dominates large matrices) | P1 | Proposed |
 | 2 | CSP enforcing; `storage.persist()` on large downloads; Firefox and WebKit runs of the runtime check in CI | P1 | Proposed |
 | 3 | One ONNX embedding model for TCM terms through ONNX Runtime Web (WebNN → WebGPU → WASM, each checked against WASM) | P2 | Proposed |
 | 3 | WASM threads for distance-matrix rows and neighbour joining; SIMD alignment (anti-diagonals) | P2 | Proposed |
 | 4 | Optional NPU operation in the local runner ([§6](#6-webgpu-webassembly-and-webnn)); in-browser chat models (WebLLM) for desktops with a capable GPU, opt-in and labelled | P3 | Proposed |
-| 4 | Small-dataset browser mode for single-cell analysis | P3 | Proposed |
+| 4 | Small-dataset browser mode for single-cell analysis | P3 | **Done** as the P2 row above: count tables up to 6,000 cells (66,000,000 cells × genes in a table), the built-in analysis |
 
 ### 11.1 Ranked formula search
 
@@ -568,16 +668,36 @@ skill's code no longer matches its pin.
   in WebAssembly SIMD, with JavaScript as fallback. Each is checked in Python before use, and each receipt names it.
 - WebGPU count packets bound to their input by SHA-256 and recounted in Python; a bad packet is ignored, never fatal.
 - An offline-capable app shell and Python runtime (service worker, verified manifest, opt-in updates, kill switch).
-- A compatibility matrix of all 650 catalog entries, generated and checked in CI.
+- A compatibility matrix of all 651 catalog entries, generated and checked in CI.
 - A benchmark harness that times only outputs checked equal to the reference, and the measurements in [§9](#9-performance).
 - Envelope post-processing for large results about 1.6× faster natively, and the 120 × 1000 distance-matrix call
   1.9× faster in the browser, byte-identical (differential tests against the original code).
 - Ranked formula search over the 84,294-row workbook, with a herb found under every name the materia table gives it
   (黄芪 also as 黄耆: 5,936 rows instead of 31), identical in the browser and on the runner.
+- RNA-seq from a count matrix and single-cell from count tables as browser jobs (2026-10-19): compared output by output
+  with the native command on two known-answer references, locally in headless Chromium; identical, within a stated
+  tolerance, or (the UMAP layout and figures) not compared, and said so ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)).
+- ADMET in the browser as jobs (2026-10-20): bioagent's model build and pipeline in Pyodide (scikit-learn 1.8.0), the
+  chemistry in RDKit.js 2026.9.1 with exact ports (held to native RDKit on a 484-molecule parity fixture and NCI's
+  first 4,999, refusing what it cannot reproduce), the applicability-domain search on the exact Tanimoto kernel. On a
+  small known-answer archive and a synthetic one at the TDC sizes the domain files and `admet.tsv` were the native
+  run's bytes, the model cards the native ones but for the model file's digest, the seconds and the chemistry's name,
+  and the predictions exact at full precision apart from a named last-bit rule; tested locally in headless Chromium
+  with Pyodide 314.0.7, and on the known-answer archive in Studio's CI (`studio` #95, 2026-10-20). On the real TDC
+  archive the same comparison passed in `live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20; the archive given
+  to the page as a project file): all 22 models built in the browser, 202 of the 81,809 molecules (0.25%) refused by
+  the browser chemistry and left out of the native run too, the cards the native ones but for the model file's digest,
+  the seconds and the chemistry's name, the domain files the native bytes, every raw model output and domain search on
+  the 16,353 test molecules identical, and 36 final predictions differed by 1 unit in the last place of float64,
+  through `10 **` or `expit` ([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)).
 
 **Implemented, partly verified**
 
 - The WebGPU path: exact on SwiftShader; never run on a hardware GPU here, so its speed is unknown.
+- The exact Tanimoto kernel for the ADMET domain search (JavaScript, WebAssembly SIMD, WebGPU/WGSL), with the device
+  check, the per-device calibration and the per-call `accelerated` rule ([§6.1](#61-the-science-kernels-and-the-device-check-p3)):
+  exact on SwiftShader, refused in production, never run on a hardware GPU, so no call has reached `accelerated` and
+  P3's acceptance criterion stays open. The device check runs it on real hardware ([§6.2](#62-how-to-verify-on-your-own-gpu)).
 - The evidence ladder ([§5.1](#51-the-evidence-ladder)): one adapter classifier, a known-answer test per device,
   like-for-like GPU timing, and `receipt.compute.gpu`. Unit-tested with doubles, and the classifier, the known-answer
   test and the GPU timestamps ran in Chromium on SwiftShader (`webgpu.browser.mjs --software`). The rungs above
@@ -586,9 +706,8 @@ skill's code no longer matches its pin.
 - The runner's accelerator-runtime report: detection only; no such runtime was installed here.
 
 **Proposed, not implemented** (nothing in the app claims these): WebNN or WebGPU model inference (embeddings,
-classifiers, local chat models), WASM-threaded kernels, the MT19937-exact permutation port, semantic (embedding)
-retrieval, a native NPU operation, persistent-storage requests and model caching in OPFS, an enforcing CSP, and testing in
-Firefox, Safari, on phones, GPUs and NPUs.
+classifiers, local chat models), WASM-threaded kernels, semantic (embedding) retrieval, a native NPU operation, model
+caching in OPFS, an enforcing CSP, and testing in Firefox, Safari, on phones, GPUs and NPUs.
 
 **What Studio may say about itself, then**: tools run locally in the browser, on the CPU, with exact kernels for
 alignment, edit distance and sequence counts. The count kernels may use WebGPU for large workloads on any adapter not
@@ -597,5 +716,18 @@ is exact on a software adapter in tests and has never run on a hardware GPU, so 
 `accelerated` only from a measurement on that device). Model calls are remote unless the person runs a local model. WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a
 verified execution provider and hardware-backed execution evidence; none has either, so no NPU is used or claimed.
 Resource-intensive pipelines need the local runner; no remote compute environment is deployed
-([REMOTE_COMPUTE.md](REMOTE_COMPUTE.md)). Browser mode supports a limited seed-corpus network hypothesis workflow; full
-data-driven network pharmacology needs verified snapshots and the runner's research job.
+([REMOTE_COMPUTE.md](REMOTE_COMPUTE.md)). The data-driven network-pharmacology research loop runs in the browser as jobs
+(the runner's Python in job workers, the data in the site's private storage), checked against a known answer
+([BROWSER_JOBS.md](BROWSER_JOBS.md)); the seed skill remains a limited seed-corpus network hypothesis workflow. RNA-seq
+differential expression from a count matrix and single-cell analysis of count tables (up to 6,000 cells, 66,000,000
+cells × genes in a table, 10,000,000 genes × samples) also run there as jobs; on two simulated references their numbers
+matched the native run's within a stated tolerance and their UMAP layout was not compared, and a person's own run is
+compared with nothing; RNA-seq from FASTQ, Scanpy, scVI and larger inputs need the runner. ADMET (the model build and
+the predictions) runs there too, bioagent's own pipeline with its chemistry in RDKit.js and its models built in this
+browser from the TDC archive and kept in private storage; on the real TDC archive in CI (`live-data` #24, 2026-10-20),
+with the molecules its chemistry refused (202 of 81,809) left out of the native build too, its 22 model cards matched
+the native run's but for the model file's digest, the seconds and the chemistry's name, and their test-set predictions
+matched apart from a named last-bit rule. Its applicability-domain search can use the GPU, but only where this
+device's own check measured a physical adapter exact and faster, and on the software adapter available here and in CI
+it is exact and never counted as acceleration, so the physical-GPU acceptance stays open; an SDF or `.mol` file and
+more than 20,000 molecules need the runner ([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)).

@@ -708,9 +708,10 @@ _ENGINES: tuple[dict[str, Any], ...] = (
      # the versions bioagent's "docking" extra asks for (BioScience-Harness/pyproject.toml)
      "install": 'pip install "rdkit>=2023.9" "meeko>=0.6" "vina>=1.2.5" "gemmi>=0.6"'},
     {"id": "admet", "name": "ADMET models (RDKit, scikit-learn)",
-     "modules": ("rdkit", "sklearn"), "dist": "scikit-learn", "used_by": ["pipeline.admet"],
+     "modules": ("rdkit", "sklearn"), "dist": "scikit-learn",
+     "used_by": ["pipeline.admet", "admet.models"],
      # the versions bioagent's "admet" extra asks for
-     "install": 'pip install "rdkit>=2023.9" "scikit-learn>=1.3"'},
+     "install": 'pip install "rdkit>=2023.9" "scikit-learn>=1.3" "numpy>=2.0"'},
     {"id": "pyarrow", "name": "Snapshot tables (PyArrow)", "modules": ("pyarrow",),
      "dist": "pyarrow", "used_by": ["research.run"], "install": "pip install pyarrow"},
 )

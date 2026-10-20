@@ -25,6 +25,12 @@ def register(sub: argparse._SubParsersAction) -> None:
     a.add_argument("--archive", default="", help="a local copy of the TDC ADMET group zip")
     a.add_argument("--cache", default="", help="where models live (default: data lake/admet)")
     a.add_argument("--endpoint", action="append", default=[], help="only these; repeatable")
+    a.add_argument("--max-iter", type=int, default=600,
+                   help="with --build-models: the most boosting iterations (early stopping "
+                        "usually ends sooner; default 600)")
+    a.add_argument("--seed", type=int, default=0,
+                   help="with --build-models: the models' random state (their early-stopping "
+                        "validation split; default 0)")
     a.add_argument("--verify", default="", help="re-check a finished run directory and exit")
 
 
@@ -44,7 +50,7 @@ def dispatch(a: argparse.Namespace) -> int | None:
         from .models import build_models
         try:
             ms = build_models(cache, archive=a.archive or None, endpoints=a.endpoint or None,
-                              rebuild=a.rebuild)
+                              rebuild=a.rebuild, max_iter=a.max_iter, seed=a.seed)
         except (ChemError, OSError) as exc:
             print(f"refused: {exc}", file=sys.stderr)
             return 1

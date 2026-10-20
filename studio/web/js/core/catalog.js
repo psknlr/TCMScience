@@ -11,7 +11,7 @@
 
 import { CATEGORIES } from "./glossary.js";
 import { baseReceipt } from "./receipt.js";
-import { canonicalJson, isLoopbackUrl, isPlainObject, nowIso, sha256Hex } from "./util.js";
+import { canonicalJson, isLoopbackUrl, isPlainObject, nowIso, objectArgument, sha256Hex } from "./util.js";
 
 export const CATALOG_SCHEMA = "tcmstudio.catalog/1";
 const LOCAL_TOOLS = new Set(["catalog_search", "capabilities_status"]);
@@ -496,7 +496,9 @@ const REQUIREMENT_TEXT = {
     ? { detail: `the ${names.join(", ")} dataset${names.length > 1 ? "s" : ""} built or imported in this runtime`, remedy: `Import a built ${names[0]} store here with tcmdb.import_store, or build it on the local runner (job.tcmdb.build {dataset: ${names[0]}}).` }
     : { detail: "a tcmdb store built or imported in this runtime", remedy: "Import a built store here with tcmdb.import_store, or fetch and build one on the local runner (job.tcmdb.fetch, then job.tcmdb.build)." }),
   network: () => ({ detail: "web access for this project", remedy: "Turn on web access for this project." }),
-  job_service: () => ({ detail: "the runner's job service", remedy: "Connect the local runner: jobs run only there." }),
+  // the runner's, as tcmstudio.capability words it; this browser's job service runs the kinds it implements, so the
+  // remedy names both
+  job_service: () => ({ detail: "the runner's job service", remedy: "Start the job service where the job runs: restart the runner where its job service can start, or, for a job kind this browser runs, use a current Chromium-based browser outside a private window." }),
   compute_setting: () => ({ detail: "compute set to runner or auto", remedy: "Set compute to Auto or Local runner (Settings → Compute, or the project's default)." }),
   remote_backend: () => ({ detail: "a remote compute backend (none is configured)", remedy: "Studio has no remote compute backend: set compute to Auto, Browser or Local runner (Settings → Compute)." }),
   memory: () => ({ detail: "a smaller request for the browser runtime", remedy: "Connect the local runner (tcmstudio serve), or send a smaller input." }),
@@ -564,6 +566,52 @@ export function isRequirement(r) {
   return isPlainObject(r) && typeof r.need === "string" && typeof r.detail === "string";
 }
 
+/**
+ * Why a browser job would not run these arguments in the browser (tcmstudio.capability.runner_only): the reasons of
+ * the entry's execution.browser_job.runner_only rules they meet (an argument `absent`, one that `is` a value, a file
+ * name with one of the `suffix`-es). A kind runs only part of itself in the browser; the rest needs the runner. Empty
+ * without arguments.
+ */
+export function runnerOnly(entry, args) {
+  if (!isPlainObject(args)) return [];
+  const rules = entry?.execution?.browser_job?.runner_only;
+  const out = [];
+  for (const rule of Array.isArray(rules) ? rules.filter(isPlainObject) : []) {
+    const value = args[rule.arg ?? ""];
+    let met;
+    if ("absent" in rule) met = value === undefined || value === null || value === "";
+    else if ("is" in rule) met = value === rule.is;
+    else met = typeof value === "string" && listOf(rule.suffix).some((s) => value.trim().toLowerCase().endsWith(s.toLowerCase()));
+    if (met) out.push(String(rule.why || `${rule.arg} needs the runner`));
+  }
+  return out;
+}
+
+/**
+ * run_pipeline's arguments as the runner's schema check reads them (dispatch._check; its schema takes `pipeline` and
+ * `arguments`, an object, and nothing else): the job kind's parameters, given as an object or as the JSON text of one;
+ * or why the runner refuses the call as bad arguments: no `arguments`, `arguments` of another type, or the kind's
+ * parameters given beside them. → {params} | {problem}.
+ */
+export function pipelineArguments(args) {
+  const a = isPlainObject(args) ? args : {};
+  const flat = Object.keys(a).filter((k) => k !== "pipeline" && k !== "arguments").sort();
+  if (flat.length) return { problem: `run_pipeline has no argument ${flat.map((k) => `'${k}'`).join(", ")}: the job kind's parameters go in arguments, an object` };
+  if (a.arguments === undefined) return { problem: "run_pipeline is missing the required argument 'arguments' (the job kind's parameters, an object)" };
+  const params = objectArgument(a.arguments);
+  return params ? { params } : { problem: `arguments must be an object (the job kind's parameters), not ${kindOf(a.arguments)}` };
+}
+
+/** A value's type as the dispatcher names it (dispatch._kind_of). */
+function kindOf(v) {
+  if (v === null) return "null";
+  if (typeof v === "boolean") return "a boolean";
+  if (typeof v === "number") return "a number";
+  if (typeof v === "string") return "a string";
+  if (Array.isArray(v)) return "a list";
+  return isPlainObject(v) ? "an object" : typeof v;
+}
+
 // ------------------------------------------------------------------------------------------------- capability state
 
 /** state.implementation values; tested ⇔ a committed verification level passed; implemented ⇔ the ref resolves. */
@@ -612,9 +660,25 @@ export function datasetsOf(entry, args) {
 }
 
 /**
+ * Whether a call of this entry reaches the network by its network flag (tcmstudio.capability: an entry with
+ * network_unless needs it unless the call gives that argument, admet.models' archive as a project file, which it then
+ * reads instead of downloading). network_if, the argument that makes an entry with no network flag reach out, is the
+ * caller's to read.
+ */
+export function networkByFlag(entry, args) {
+  const e = isPlainObject(entry) ? entry : {};
+  if (!e.network) return false;
+  const unless = typeof e.network_unless === "string" && e.network_unless ? e.network_unless : null;
+  return !(unless && isPlainObject(args) && Boolean(args[unless]));
+}
+
+/**
  * The capability state of an entry here: {implementation, readiness: {browser: R, runner: R}}, R = {state, requires}.
  * ctx: {browser, runner (runtime statuses), web (the project's web access), built (dataset keys known built in the
- * browser: tcmdb status), packages (Pyodide packages this browser can load, when known), args (a call's arguments)}.
+ * browser: tcmdb status), packages (Pyodide packages this browser can load, when known), args (a call's arguments),
+ * jobs (the browser job service: {status, kinds: [job kinds it runs], snapshots: research snapshots here (true, false,
+ * or null when not read), admet_models: the ADMET endpoints whose models are built here ([] for none, null when not
+ * read)}, when the page has one)}.
  *
  * browser: decided here. A dataset counts as present only when it is known built (ctx.built); a package list that is
  * not known is not held against the entry (the call itself reports one it cannot load). runner: the runner catalog's
@@ -625,7 +689,7 @@ export function entryState(entry, ctx = {}) {
   const e = isPlainObject(entry) ? entry : {};
   const exec = Array.isArray(e.exec) ? e.exec : [];
   const args = isPlainObject(ctx.args) ? ctx.args : {};
-  const netOff = ctx.web === false && (Boolean(e.network) || (typeof e.network_if === "string" && args[e.network_if] === true));
+  const netOff = ctx.web === false && (networkByFlag(e, args) || (typeof e.network_if === "string" && args[e.network_if] === true));
 
   // browser
   const b = [];
@@ -645,6 +709,34 @@ export function entryState(entry, ctx = {}) {
     const built = toSet(ctx.built);
     const lack = data.includes("*") ? (built.size ? [] : ["*"]) : data.filter((d) => !built.has(d));
     if (lack.length) b.push(requirement("dataset", { names: lack.filter((d) => d !== "*") }));
+  }
+  // a job runs in the browser only through the page's job service (studio/web/js/scientific), for the kinds it runs
+  const browserJob = exec.includes("browser") && Boolean(e.job) && isPlainObject(e.execution?.browser_job);
+  if (browserJob && ctx.jobs !== undefined) {
+    const kind = String(e.id || "").replace(/^job\./, "");
+    const kinds = Array.isArray(ctx.jobs?.kinds) ? ctx.jobs.kinds : [];
+    if (ctx.jobs?.status !== "ready" || !kinds.includes(kind)) {
+      b.push(requirement("job_service", {
+        detail: "this browser's job service (job workers and the site's private file storage)",
+        remedy: "Use a current Chromium-based browser such as Chrome or Edge, outside a private window (Firefox and Safari have not been tested with these jobs), or connect the local runner.",
+      }));
+    } else if (kind === "research.run" && ctx.jobs.snapshots === false) {
+      b.push(requirement("dataset", {
+        names: ["research snapshots"], detail: "the research snapshots built in this browser",
+        remedy: "Build them first in this browser (job.research.snapshot: the NPASS, CMAUP and LOTUS files plus STRING and Reactome), or connect a runner that has them.",
+      }));
+    } else if (kind === "pipeline.admet" && Array.isArray(ctx.jobs.admet_models)) {
+      // the endpoints a call asks for (every one built when it names none) must have their models built here
+      const asked = Array.isArray(args.endpoints) ? args.endpoints.map((x) => String(x).trim()) : [];
+      const lack = asked.length ? asked.filter((x) => !ctx.jobs.admet_models.includes(x)) : ctx.jobs.admet_models.length ? [] : ["*"];
+      if (lack.length) {
+        b.push(requirement("dataset", {
+          names: ["ADMET models"],
+          detail: lack.includes("*") ? "the ADMET models built in this browser" : `the ADMET models built in this browser for ${lack.join(", ")}`,
+          remedy: "Build them first in this browser (job.admet.models: the TDC ADMET group archive, through the site's relay or from a project file, and the models trained here), or connect a runner that has them.",
+        }));
+      }
+    }
   }
   if (netOff) b.push(requirement("network"));
   if (ctx.browser !== undefined && !isUp(ctx.browser)) b.push(requirement("browser_runtime"));

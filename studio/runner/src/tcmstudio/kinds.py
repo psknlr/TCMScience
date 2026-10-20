@@ -43,7 +43,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 __all__ = ["BadParams", "Kind", "PrepareContext", "StartContext", "KINDS", "default_kinds",
            "OUTPUT_TOKEN", "safe_id", "stdout_json", "read_stages", "read_record",
-           "stage_summary", "RECORD_MAX_BYTES", "RUN_JSON_MAX_BYTES", "main"]
+           "stage_summary", "admet_endpoints", "RECORD_MAX_BYTES", "RUN_JSON_MAX_BYTES", "main"]
 
 OUTPUT_TOKEN = "{output}"
 _UPLOAD_ID = re.compile(r"^u_[0-9a-f]{16}$")
@@ -54,6 +54,17 @@ _SMILES = re.compile(r"^[A-Za-z0-9@+\-\[\]()=#$%/\\.:*~]{1,2000}$")
 _REMOTE_STRUCTURE = re.compile(r"^(PDB:[0-9A-Za-z]{4}(:[A-Za-z0-9]{1,26})?|UniProt:[A-Za-z0-9]{6,10})$",
                                re.IGNORECASE)
 _DISEASE = re.compile(r"^[A-Za-z]{2,12}[_:][A-Za-z0-9]{1,20}$")
+#: research.run's permutations, at least and at most (the browser's research job keeps the same bounds)
+PERMUTATIONS = (100, 100000)
+#: pipeline.rnaseq's FDR level, and pipeline.scrna's Leiden resolution and highly variable genes, at
+#: least and at most (the catalog's schemas state the same; the browser's jobs keep the same bounds)
+RNASEQ_ALPHA = (0.0001, 0.5)
+SCRNA_RESOLUTION = (0.05, 5.0)
+SCRNA_TOP_GENES = (50, 10000)
+#: admet.models' boosting iterations at most (build_models' max_iter, 600 by default), at least and at
+#: most; the browser's model build keeps the same bounds
+ADMET_MAX_ITER = (10, 5000)
+_ENDPOINT = re.compile(r"^[A-Za-z0-9_.]{1,64}$")
 _SOURCE_KEY = re.compile(r"^[a-z0-9_]{1,40}$")
 
 
@@ -149,6 +160,10 @@ class Kind:
     result: Callable[[Path, dict[str, Any]], Any] | None = None
     verify: Callable[[dict[str, Any], Mapping[str, str]], list[str]] | None = None
     progress: Callable[[Path, dict[str, Any]], dict[str, Any] | None] | None = None
+    #: the checks of the parameters alone, which read no file (``prepare`` makes them too); the
+    #: dispatcher makes them before it looks for an engine, so a call that no engine could run
+    #: is refused as bad arguments, never for a tool to install
+    check: Callable[[Mapping[str, Any]], None] | None = None
 
     def __post_init__(self) -> None:
         if self.progress is None:
@@ -556,9 +571,11 @@ def _int(name: str, value: Any, low: int, high: int) -> int:
     return int(value)
 
 
-def _num(name: str, value: Any) -> float:
+def _num(name: str, value: Any, low: float | None = None, high: float | None = None) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise BadParams(f"{name}: a number is needed")
+    if low is not None and high is not None and not low <= value <= high:
+        raise BadParams(f"{name}: between {low:g} and {high:g}")
     return float(value)
 
 
@@ -571,7 +588,17 @@ def _enum(name: str, value: Any, allowed: Sequence[str], default: str) -> str:
 
 # ------------------------------------------------------------------------- pipeline.rnaseq
 
+#: What only a FASTQ run takes; a count-matrix run refuses each rather than ignore it.
+RNASEQ_FASTQ_ONLY = ("transcripts", "genome", "annotation", "engine", "trimmer")
+#: A FASTQ sample sheet given as the sample table of a count-matrix run, refused in these words
+#: (the browser's job, tcmstudio.browser_jobs, refuses it in them too).
+RNASEQ_COUNTS_FASTQ_SHEET = ("samples: with counts this is the sample table (sample and the "
+                             "design columns); a FASTQ sample sheet runs without counts")
+
+
 def _rnaseq_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
+    if p.get("counts"):
+        return _rnaseq_counts_prepare(p, ctx)
     sheet, samples = _stage_sheet(ctx, "samples", p.get("samples"), ("fastq_1", "fastq_2"))
     files = {k: str(ctx.file(k, p[k])) for k in ("transcripts", "annotation", "genome") if p.get(k)}
     engine = _enum("engine", p.get("engine"), ("auto", "builtin", "salmon", "kallisto", "hisat2"), "auto")
@@ -581,18 +608,50 @@ def _rnaseq_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
         raise BadParams(f"engine: {engine} needs a transcriptome FASTA (transcripts)")
     if engine == "auto" and "transcripts" not in files and "genome" not in files:
         raise BadParams("give transcripts (a transcriptome FASTA), or a genome with engine hisat2")
-    out = {"sheet": str(sheet), "samples": samples, "files": files, "engine": engine,
-           "design": _text("design", p.get("design") or "~ condition", max_len=200),
-           "trimmer": _enum("trimmer", p.get("trimmer"), ("auto", "builtin", "fastp", "none"), "auto"),
+    return {"sheet": str(sheet), "samples": samples, "files": files, "engine": engine,
+            "trimmer": _enum("trimmer", p.get("trimmer"), ("auto", "builtin", "fastp", "none"), "auto"),
+            **_rnaseq_choices(p)}
+
+
+def _rnaseq_choices(p: dict[str, Any]) -> dict[str, Any]:
+    """The test's settings, the same in both modes: design, backend, alpha and contrast."""
+    out = {"design": _text("design", p.get("design") or "~ condition", max_len=200),
            "de_backend": _enum("de_backend", p.get("de_backend"), ("builtin", "pydeseq2"), "builtin"),
-           "alpha": _num("alpha", p.get("alpha", 0.05))}
+           "alpha": _num("alpha", p.get("alpha", 0.05), *RNASEQ_ALPHA)}
     if p.get("contrast"):
         out["contrast"] = _text("contrast", p["contrast"],
                                 pattern=re.compile(r"^[^,\s]+,[^,]+,[^,]+$"), max_len=200)
     return out
 
 
+def _rnaseq_check(p: Mapping[str, Any]) -> None:
+    """With counts, nothing of the FASTQ run is taken (``RNASEQ_FASTQ_ONLY``): no engine runs a
+    count matrix, so naming one is a bad argument wherever the call would run."""
+    given = [k for k in RNASEQ_FASTQ_ONLY if p.get(k) not in (None, "")] if p.get("counts") else []
+    if given:
+        raise BadParams("a count-matrix run takes no FASTQ reference or engine: " + ", ".join(given)
+                        + " (leave them out with counts, or give a FASTQ sample sheet without counts)")
+
+
+def _rnaseq_counts_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
+    """The count-matrix mode (``bioagent rnaseq --counts``): a count table and a sample table,
+    each one file; nothing of the FASTQ run is taken."""
+    _rnaseq_check(p)
+    counts = ctx.file("counts", p.get("counts"))
+    table = ctx.file("samples", p.get("samples"))
+    if _is_sheet(table, "fastq_1") or _is_sheet(table, "fastq_2"):
+        raise BadParams(RNASEQ_COUNTS_FASTQ_SHEET)
+    return {"mode": "counts", "counts": str(counts), "sample_table": str(table), **_rnaseq_choices(p)}
+
+
 def _rnaseq_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
+    if r.get("mode") == "counts":
+        argv = _cli(ctx, "rnaseq", _opt("counts", r["counts"]), _opt("samples", r["sample_table"]),
+                    _opt("design", r["design"]), _opt("de-backend", r["de_backend"]),
+                    _opt("alpha", r["alpha"]), _opt("threads", ctx.threads))
+        if r.get("contrast"):
+            argv.append(_opt("contrast", r["contrast"]))
+        return argv + [_opt("out", OUTPUT_TOKEN), "--json"]
     argv = _cli(ctx, "rnaseq", _opt("samples", r["sheet"]))
     for key in ("transcripts", "annotation", "genome"):
         if key in r["files"]:
@@ -630,16 +689,23 @@ def _scrna_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     if _is_sheet(src, "path"):
         staged, samples = _stage_sheet(ctx, "source", p.get("source"), ("path",))
         src = staged
+    out: dict[str, Any] = {"source": str(src), "samples": samples, **_scrna_choices(p)}
+    if p.get("markers"):
+        out["markers"] = str(ctx.file("markers", p["markers"]))
+    return out
+
+
+def _scrna_choices(p: dict[str, Any]) -> dict[str, Any]:
+    """Every setting but the files: doublets, backend, integration, resolution, seed, highly
+    variable genes, and the root and contrast when given."""
     out: dict[str, Any] = {
-        "source": str(src), "samples": samples,
         "doublets": _enum("doublets", p.get("doublets"), ("remove", "flag", "off"), "remove"),
         "analysis_backend": _enum("analysis_backend", p.get("analysis_backend"),
                                   ("builtin", "scanpy"), "builtin"),
         "integration": _enum("integration", p.get("integration"), ("none", "harmony", "scvi"), "harmony"),
-        "resolution": _num("resolution", p.get("resolution", 1.0)),
-        "seed": _int("seed", p.get("seed", 0), 0, 2**31 - 1)}
-    if p.get("markers"):
-        out["markers"] = str(ctx.file("markers", p["markers"]))
+        "resolution": _num("resolution", p.get("resolution", 1.0), *SCRNA_RESOLUTION),
+        "seed": _int("seed", p.get("seed", 0), 0, 2**31 - 1),
+        "n_top_genes": _int("n_top_genes", p.get("n_top_genes", 2000), *SCRNA_TOP_GENES)}
     for key in ("root", "contrast"):
         if p.get(key):
             out[key] = _text(key, p[key], max_len=200)
@@ -650,7 +716,8 @@ def _scrna_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     argv = _cli(ctx, "scrna", r["source"], _opt("out", OUTPUT_TOKEN),
                 _opt("doublets", r["doublets"]), _opt("analysis-backend", r["analysis_backend"]),
                 _opt("integration", r["integration"]), _opt("resolution", r["resolution"]),
-                _opt("seed", r["seed"]), _opt("scvi-threads", ctx.threads))
+                _opt("seed", r["seed"]), _opt("n-top-genes", r.get("n_top_genes", 2000)),
+                _opt("scvi-threads", ctx.threads))
     for key in ("markers", "root", "contrast"):
         if r.get(key):
             argv.append(_opt(key, r[key]))
@@ -779,15 +846,112 @@ def _admet_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     else:
         raise BadParams("molecules: an uploaded CSV (name,smiles), SDF or .smi file (its "
                         "upload id), or one SMILES")
-    endpoints = [_text("endpoints", e, pattern=re.compile(r"^[A-Za-z0-9_.]{1,64}$"))
-                 for e in p.get("endpoints") or []]
-    return {"molecules": molecules, "endpoints": endpoints,
+    return {"molecules": molecules, "endpoints": _admet_prepare_endpoints(p.get("endpoints")),
             "cache": str(Path(ctx.data_env["BIOAGENT_DATA_LAKE"]) / "admet")}
+
+
+def _admet_prepare_endpoints(values: Any) -> list[str]:
+    """pipeline.admet's endpoints: names of the expected form (one with no model makes the run
+    incomplete, as ``bioagent admet --endpoint`` does; it is not refused here)."""
+    if values is not None and not isinstance(values, (list, tuple)):
+        raise BadParams("endpoints: a list of TDC ADMET endpoint names")
+    return [_text("endpoints", e, pattern=_ENDPOINT) for e in values or []]
 
 
 def _admet_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     argv = _cli(ctx, "admet", r["molecules"], _opt("out", OUTPUT_TOKEN), _opt("cache", r["cache"]))
     return argv + [_opt("endpoint", e) for e in r["endpoints"]]
+
+
+# ---------------------------------------------------------------------------- admet.models
+
+def admet_endpoints(values: Any) -> list[str]:
+    """TDC ADMET endpoint names, each one of ``bioagent.admet.models.ENDPOINTS``, without
+    repeats, in the order given (empty: every endpoint)."""
+    from bioagent.admet.models import ENDPOINTS
+    if values is not None and not isinstance(values, (list, tuple)):
+        raise BadParams("endpoints: a list of TDC ADMET endpoint names")
+    names = [_text("endpoints", e, pattern=_ENDPOINT) for e in values or ()]
+    unknown = [e for e in names if e not in ENDPOINTS]
+    if unknown:
+        raise BadParams(f"endpoints: no TDC ADMET endpoint {', '.join(unknown)}; one of "
+                        f"{', '.join(ENDPOINTS)}")
+    return list(dict.fromkeys(names))
+
+
+def _admet_models_choices(p: Mapping[str, Any]) -> dict[str, Any]:
+    """Every setting of a model build but the archive: the endpoints, build_models' max_iter
+    and seed (its defaults, 600 and 0), and whether finished models are trained again."""
+    if p.get("rebuild") not in (None, True, False):
+        raise BadParams("rebuild: true or false")
+    return {"endpoints": admet_endpoints(p.get("endpoints")),
+            "max_iter": _int("max_iter", p.get("max_iter", 600), *ADMET_MAX_ITER),
+            "seed": _int("seed", p.get("seed", 0), 0, 2**31 - 1),
+            "rebuild": bool(p.get("rebuild"))}
+
+
+def _admet_models_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
+    """``bioagent admet --build-models`` into the data lake's ADMET cache (where
+    pipeline.admet reads the models), from the TDC archive downloaded once and pinned by its
+    SHA-256, or from a local copy of it (``archive``)."""
+    out = _admet_models_choices(p)
+    out["archive"] = str(ctx.file("archive", p["archive"])) if p.get("archive") else None
+    out["cache"] = str(Path(ctx.data_env["BIOAGENT_DATA_LAKE"]) / "admet")
+    return out
+
+
+def _admet_models_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
+    argv = _cli(ctx, "admet", "--build-models", _opt("cache", r["cache"]),
+                _opt("max-iter", r["max_iter"]), _opt("seed", r["seed"]))
+    if r.get("archive"):
+        argv.append(_opt("archive", r["archive"]))
+    if r.get("rebuild"):
+        argv.append("--rebuild")
+    return argv + [_opt("endpoint", e) for e in r["endpoints"]]
+
+
+def _admet_models_checked(r: Mapping[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
+    """The endpoints the build was asked for (every one, when none was named) held to their
+    cards (``bioagent.admet.models.verify_models``), each trained on the build's archive:
+    the local copy given, else TDC's pinned archive, which the build downloads and checks."""
+    from bioagent.admet.models import ENDPOINTS, TDC_ADMET_SHA256, verify_models
+    archive = r.get("archive")
+    expected = hashlib.sha256(Path(archive).read_bytes()).hexdigest() if archive else TDC_ADMET_SHA256
+    return verify_models(Path(r["cache"]) / "models", list(r.get("endpoints") or ENDPOINTS),
+                         archive_sha256=expected)
+
+
+def _admet_models_verify(r: dict[str, Any], data_env: Mapping[str, str]) -> list[str]:
+    del data_env
+    return _admet_models_checked(r)[1]
+
+
+def _admet_models_result(job_dir: Path, r: dict[str, Any]) -> Any:
+    """Each endpoint's card as the build left it: its held-out score, sizes, what was dropped,
+    the archive and the card's digest."""
+    del job_dir
+    _, _, report = _admet_models_checked(r)
+    keep = ("metric", "test_score", "train", "test", "dropped_unreadable",
+            "dropped_unstandardisable", "archive_is_pinned", "card_sha256", "model_sha256")
+    return {"models": str(Path(r["cache"]) / "models"),
+            "endpoints": {e: {k: c.get(k) for k in keep} for e, c in report["endpoints"].items()}}
+
+
+def _admet_models_progress(job_dir: Path, r: dict[str, Any]) -> dict[str, Any] | None:
+    """The endpoints finished (trained, or kept because their model still matches its card)
+    of those asked for, from the lines the build prints, one per endpoint."""
+    from bioagent.admet.models import ENDPOINTS
+    asked = list(r.get("endpoints") or ENDPOINTS)
+    try:
+        text = (job_dir / "stdout.log").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return _last_line_progress(job_dir, r)
+    done = {m.group(1) for m in re.finditer(r"^  ([a-z0-9_]+): ", text, re.MULTILINE)}
+    n = len(done & set(asked))
+    line = _tail_line(job_dir / "stdout.log")
+    # one more step, the runner's own check of the cards, as _stage_progress counts it
+    return {"fraction": round(n / (len(asked) + 1), 3),
+            "message": line[:200] if line else "downloading or reading the archive"}
 
 
 # ----------------------------------------------------------------------------- research
@@ -889,7 +1053,7 @@ def _research_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
         "state_dir": str(ctx.paths["projects"] / safe_id(ctx.project_id) / "research" / ctx.job_id),
         "background": _enum("background", p.get("background"), ("assayed", "reactome"), "assayed"),
         "hits": _enum("hits", p.get("hits"), ("potency", "screening"), "potency"),
-        "permutations": _int("permutations", p.get("permutations", 1000), 100, 100000),
+        "permutations": _int("permutations", p.get("permutations", 1000), *PERMUTATIONS),
         "accept_review": bool(p.get("accept_review")),
         "activity": [_text("activity", a, pattern=_SOURCE_KEY) for a in p.get("activity") or []],
         "optional": [_text("optional", a, pattern=_SOURCE_KEY) for a in p.get("optional") or []]}
@@ -1312,7 +1476,8 @@ def default_kinds() -> dict[str, Kind]:
              _rnaseq_prepare, _rnaseq_command,
              artefacts=(run_json, report, ("results", "deseq2_results.tsv", True), limits),
              validators={"run": _verifier("bioagent.omics.rnaseq")},
-             timeout_s=48 * 3600.0, result=_stdout_result, progress=_rnaseq_progress),
+             timeout_s=48 * 3600.0, result=_stdout_result, progress=_rnaseq_progress,
+             check=_rnaseq_check),
         Kind("pipeline.scrna", ("单细胞分析流程", "Single-cell pipeline"), "minutes",
              _scrna_prepare, _scrna_command,
              artefacts=(run_json, report, ("clusters", "clusters.tsv", True),
@@ -1338,6 +1503,13 @@ def default_kinds() -> dict[str, Kind]:
              _admet_command, artefacts=(("table", "admet.tsv", True), run_json, limits),
              validators={"run": _verifier("bioagent.admet.pipeline")},
              timeout_s=6 * 3600.0, result=_table_result("admet.tsv"), progress=_stage_progress),
+        # the models live in the data lake's ADMET cache, where pipeline.admet reads them: no
+        # output of the job's own; the cards are checked against their files after it ends
+        Kind("admet.models", ("构建 ADMET 模型", "Build the ADMET models"), "hours",
+             _admet_models_prepare, _admet_models_command,
+             network=lambda r: not r.get("archive"), timeout_s=12 * 3600.0,
+             verify=_admet_models_verify, result=_admet_models_result,
+             progress=_admet_models_progress),
         Kind("research.run", ("研究闭环", "Research loop"), "minutes", _research_prepare,
              _research_command,
              artefacts=(("artifact", "artifact.json", True), ("result", "result.json", True),

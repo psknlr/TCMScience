@@ -167,7 +167,7 @@ TCMScience 主要不是一个「工具多」的生物医学智能体。它是一
 
 用文献定义得到的富集是循环论证：成分—靶点数据和文本挖掘研究的是同一批热门蛋白。所以流程默认使用遗传证据，选用文献时会给出警告。完整方法、敏感性分析与局限见[设计规范](BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md)。
 
-*尚无回归检查。* 以上数字来自设计规范中记录的、在下载文件上于 CI 之外完成的运行。`.github/workflows/live-data.yml` 中为这首方剂定义的真实数据用例（研究任务的十六个阶段与九个导出文件，再执行 `verify`）已经写好，但尚未执行过（见 [docs/validation.md](docs/validation.md)）。
+*尚无回归检查。* 以上数字来自设计规范中记录的、在下载文件上于 CI 之外完成的运行。`.github/workflows/live-data.yml` 中为这首方剂定义的真实数据用例（研究任务的十六个阶段与九个导出文件，再执行 `verify`）已在 `live-data` #16 与 #17（2026-10-19）中通过。这一步检查退出码、九个导出文件存在且非空，并由 `verify` 对照快照重新核对它们（退出码 0）；它不比对上面的任何数字，所以这些数字不受 CI 检查（见 [docs/validation.md](docs/validation.md)）。
 
 ## 证据治理
 
@@ -239,6 +239,8 @@ python -m bioagent.mcp review DRAFT.yaml                                  # docs
 
 # 从 FASTQ 到差异表达报告的 RNA-seq 流程（docs/analysis-pipelines.md）
 python -m bioagent.cli rnaseq --samples samples.csv --transcripts tx.fa --annotation genes.gtf --out results/
+# ……或从计数矩阵和样本表出发（计数矩阵模式；它也能在 Studio 的浏览器中运行）
+python -m bioagent.cli rnaseq --counts counts.tsv --samples samples.tsv --out results/
 
 # 测试：PSH 全部测试；BioScience 单元层（不需要数据湖，不联网）
 cd PSH-Harness        && PYTHONPATH=src python -m pytest -q
@@ -277,7 +279,7 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 
 | 流程 | 它拒绝做什么 |
 |---|---|
-| `bioagent rnaseq` — FASTQ → 质控 → 修剪 → 定量 → DESeq2 → 报告 | 把表达差异说成机制或效应：人体样本只支持关联，细胞和动物样本只支持机制假说。 |
+| `bioagent rnaseq` — FASTQ → 质控 → 修剪 → 定量 → DESeq2 → 报告；或计数矩阵 → DESeq2 → 报告（`--counts`） | 把表达差异说成机制或效应：人体样本只支持关联，细胞和动物样本只支持机制假说。 |
 | `bioagent scrna` — 计数矩阵 → 质控 → 双细胞 → Harmony → Leiden → 标志基因 → 注释 → PAGA／拟时序 → 伪 bulk | 把按标志基因给出的标签当作测量，或把细胞当作重复：标签和拟时序是输出，不同条件按样本比较。 |
 | `bioagent fold` — 序列 → ESMFold／AlphaFold2 → pLDDT、DSSP、几何检查 → 与参考结构比 TM-score | 把预测当作实测结构，或未经允许把序列发往任何地方：模型是带置信度的输出，远程预测需要 `--allow-remote`。 |
 | `bioagent dock` — 受体 + 配体 → 准备好的 PDBQT → 再对接检验 → Vina 构象、打分、接触 | 把打分当作亲和力，或用没通过再对接检验的设置给构象排序：先验证；没有验证，就不下结论。 |
@@ -322,7 +324,7 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 | Reactome | 通路成员 | CC0 |
 | Open Targets 26.09 | 靶点—疾病关联 | CC0 |
 
-大文件由 Runner 获取，从不经过浏览器的查询网关。中断的下载只在确认是同一个远程文件时才续传（`If-Range` 带强 ETag 或 Last-Modified 日期，且 `Content-Range` 完全吻合），或者有经审核的校验和能核对拼接后的文件；否则从头重新下载。压缩包在保留之前完整读一遍（gzip、bzip2、xz 读到结尾，zip 逐个核对 CRC）。Runner 的 `/api/datasets` 接口只获取已登记的数据集，从不接受 URL 或路径。对象存储（R2）和按 accession 从 ENA 下载都没有实现。新的传输只在本机回环服务器上测试过，还没有做过任何一次真实的在线运行。
+大文件由 Runner 获取，从不经过浏览器的查询网关。中断的下载只在确认是同一个远程文件时才续传（`If-Range` 带强 ETag 或 Last-Modified 日期，且 `Content-Range` 完全吻合），或者有经审核的校验和能核对拼接后的文件；否则从头重新下载。压缩包在保留之前完整读一遍（gzip、bzip2、xz 读到结尾，zip 逐个核对 CRC）。Runner 的 `/api/datasets` 接口只获取已登记的数据集，从不接受 URL 或路径。对象存储（R2）和按 accession 从 ENA 下载都没有实现。在线层经这套传输下载：在 `live-data` #17（2026-10-19）中，它的 17 个文件从各自的服务器取得，14 个对照经审核的校验和或大小为 PASS，3 个为 UNVERIFIED（没有经审核的校验和或大小）；在 Zenodo、STRING 和 bidd.group 上各对一个文件续传部分下载，均通过。
 
 ### Studio：浏览器与本机 Runner
 
@@ -332,11 +334,13 @@ TCMScience 通过浏览器提供对已登记科学能力的访问（[Studio](stu
 |---|---|---|
 | 浏览器中的 Python 工具、受治理 Skill 与临床辨证（Pyodide，CPU） | 已实现，已测试 | CI 的浏览器端到端测试；在 CI 中 Pyodide 的 CDN 不可达时测试失败，而不是跳过。与本机 CPython 的输出对比只覆盖列明的一部分，由手动运行的运行时核对完成（[兼容矩阵](studio/docs/compat/summary.md)）。没有来自已部署站点的记录 |
 | 7 个序列工具的精确 JavaScript 与 WebAssembly SIMD 内核 | 已实现，已测试 | Studio 的 CI（`studio.yml`）对照 Python 参考实现跑 374 个一致性用例 |
-| 其中 3 个工具的 WebGPU 整数计数 | 已实现；只在软件适配器上测试过 | 从未在硬件 GPU 上运行，速度未经测量；在调度器预计更快时，用于任何未被识别为软件渲染器的适配器（实体适配器，或无法识别的适配器，后者从不算作 GPU） |
+| 其中 3 个工具的 WebGPU 整数计数，以及 ADMET 适用域检索（Tanimoto） | 已实现；只在软件适配器上测试过 | 从未在硬件 GPU 上运行，速度未经测量；在调度器预计更快时，用于任何未被识别为软件渲染器的适配器（实体适配器，或无法识别的适配器，后者从不算作 GPU）。ADMET 适用域检索仅在本设备自身的检查测得实体适配器既精确又更快时才用 GPU；本处可用的软件适配器上它精确但绝不算作加速，故 P3 的实体 GPU 验收仍未满足（[BROWSER_COMPUTE.md §6.1–6.2](studio/docs/BROWSER_COMPUTE.md)） |
 | WebNN | 只做检测 | 提供 WebNN 能力检测。只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持真正的 NPU 加速；目前没有任何工作负载具备这两者 |
-| 浏览器经站点的受限网关查询公共数据库 | 已实现，已测试 | 每个操作的请求都由 `connector_coverage.py --check` 对照模拟传输检查过，并确认离线时被拒绝，这一检查在本地运行（CI 中的这一步已定义，尚未运行）；并由维护者的运行对真实上游验证过（带日期）；没有一个经过已部署网关验证（[按验证层级的覆盖](studio/docs/compat/connectors.md)） |
-| 网络药理学 | 浏览器中受限 | 浏览器模式支持有限的种子语料网络假说流程。完整的数据驱动网络药理学分析需要经过验证的外部数据快照和合适的科学计算后端：即 Runner 上的研究任务，记录十六个阶段，写出九个导出文件（[分析流程](docs/analysis-pipelines.md)） |
-| 分析流程与原生引擎 | 在本机 Runner 上实现；各引擎路径最后一次在 CI 的引擎任务（CPU）中运行是 `ci` #281（2026-10-11），早于现在的阶段记录和流程代码；此后只在本地以内置路径运行过，没有运行真实的 Vina | `ci.yml` 的引擎任务已定义；自 `ci` #281 以来没有一次运行真正执行了任务（[分析流程](docs/analysis-pipelines.md#what-is-verified-where)、[验证](docs/validation.md#not-verified-here-and-why)） |
+| 浏览器经站点的受限网关查询公共数据库 | 已实现，已测试 | 每个操作的请求都由 `connector_coverage.py --check` 对照模拟传输检查过，并确认离线时被拒绝，这一检查是 CI `validation` 任务中的一步（在 `ci` #317 中通过，2026-10-19）；并由维护者的运行对真实上游验证过（带日期）；没有一个经过已部署网关验证（[按验证层级的覆盖](studio/docs/compat/connectors.md)） |
+| 浏览器中的网络药理学研究任务（无需 Runner） | 已实现，已用已知答案和葛根芩连汤真实文件测试 | `research.snapshot` 与 `research.run` 以浏览器任务运行：Runner 的同一套 Python 在 Pyodide 任务工作线程中执行，17 个原始文件（418 MB）保存在本站私有存储中。在模拟世界上，任务工作线程写出的五张表与原生 CPython 逐字节一致（无头 Chromium，本地及 Studio 的 CI，使用 Pyodide 自带的 pyarrow）。从私有存储挂载原始文件构建快照（也以 `research.snapshot` 任务运行），快照 ID 与原生构建相同；工作线程丢失的任务可从检查点续跑：这两项在无头 Chromium 中通过，本地及 Studio 的 CI（`studio` #88，2026-10-19，使用 Pyodide 自带的 pyarrow）均已通过。模拟世界没有 STRING、疾病、CMAUP、LOTUS 层，网络拓扑在那里未被检验。葛根芩连汤真实数据以浏览器任务运行、并与原生运行逐个导出文件比对：已在 `live-data` #18、#19 与 #21 中通过（运行 39251758718、39258060948 与 39286930354，提交 43918ac、53bdbb0 与 65fa6aa，2026-10-19，GitHub 运行器上的无头 Chromium，Pyodide 314.0.7 及其 pyarrow 22.0.0）：17 个原始文件导入本站私有存储，`research.snapshot` 与 `research.run` 作为浏览器任务成功运行，每个导出文件与同一批文件上的原生运行逐字节一致（五张表、`provenance.json`、`limitations.md`、`report.html`；`run_manifest.json` 除执行块外一致）。该次运行：4 味药材、1,792 个成分、370 个实测人类靶点、237 个节点 624 条边的 STRING 网络、检验 959 条 Reactome 通路，BH 校正后无一显著（因此真实数据上未抽取置换零分布；模拟世界检验了它）（[BROWSER_JOBS.md](studio/docs/BROWSER_JOBS.md)）。这是同一天的几次运行，每次 live-data 运行都会重复。锁定的种子 Skill 仍是有限的种子语料网络假说分析 |
+| 浏览器中的 RNA-seq（计数矩阵）与单细胞（计数表）分析（无需 Runner） | 已实现，已在无头 Chromium（Pyodide 314.0.7）中测试：本地及 Studio 的 CI（`studio` #91，2026-10-19） | `pipeline.rnaseq`（计数矩阵模式）与 `pipeline.scrna`（计数表，内置分析与 Harmony）以浏览器任务运行：Runner 的同一套 Python 配 Pyodide 的 numpy 与 scipy，输入从项目文件复制并按其 SHA-256 核对。在已知答案参考 `omics_counts_world` v1（2,000 个基因 × 6 个样本）与 `sc_world` v1（1,356 个细胞，质控后 1,077 个）上，与同一批文件上的原生命令逐个输出比对（`science.mjs --mode omics`）：逐字节一致，或数值在给定容差内（\|a − b\| ≤ 1e-6 + 1e-4·max + 第六位有效数字的一个单位；最大差异用到容差的 0.133），或不比较并说明原因（UMAP 布局与五张图；改为检查布局结构）；显著的 90 个基因、每个细胞的聚类与细胞类型完全相同；在浏览器写出的文件上找到了预设答案。本地两个任务分别用时 8.1 秒与 9.5 秒（原生命令 1.1 秒与 5.3 秒）。用户自己的运行不与任何结果比较：其局限说明写明这一点，并说明接近阈值的值可能不同。从 FASTQ 出发的运行、PyDESeq2、Scanpy、scVI、10x HDF5 与 `.h5ad` 输入，以及超过 6,000 个细胞、单个表超过 66,000,000 个细胞 × 基因或计数矩阵超过 10,000,000 个基因 × 样本的输入（浏览器工作线程的 wasm32 内存约 4 GB；在 Node 下的 Pyodide 314.0.7 中完整运行测得，每项一次，不是在浏览器标签页中：四个 1,356 个细胞 × 33,000 个基因的表用 1.9 GB，单个 2,000 × 33,000 的表 2.2 GB，10 M 个计数 1.8–2.0 GB）都会被拒绝并说明原因，需要 Runner（[BROWSER_JOBS.md §3.1](studio/docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)） |
+| 浏览器中从结构出发的 ADMET（无需 Runner） | 已实现，已在无头 Chromium（Pyodide 314.0.7）中测试：本地、Studio 的 CI（`studio` #95，2026-10-20）及真实 TDC 归档（`live-data` #24，2026-10-20） | `admet.models` 在本浏览器中由 TDC ADMET 基准组归档（经本站中转下载并按锁定的 SHA-256 校验，或作为项目文件给出，其 SHA-256 与锁定值比较）训练 22 个终点模型并保存在私有存储中——不分发任何训练好的模型——`pipeline.admet` 从 CSV/TSV/`.smi` 文件或单个 SMILES 出发预测。它就是 `bioagent.admet` 本身：Pyodide 的 scikit-learn 1.8.0，化学用 RDKit.js 2026.9.1 加精确移植（在 484 个分子的一致性夹具与 NCI 前 4,999 个分子上与原生 RDKit 对齐；无法精确标准化的分子被拒绝、点名、交给 Runner，绝不近似），适用域检索用 Tanimoto 内核。与原生命令（RDKit 2026.9.1、scikit-learn 1.8.0、单线程）在已知答案归档（本地及 Studio 的 CI）与 TDC 规模的合成归档（仅本地）上比对（`science.mjs --mode admet`）：适用域文件与 `admet.tsv` 是原生运行的字节，模型卡除模型文件摘要、秒数与化学名称外与原生一致，模型原始输出与适用域检索完全一致，经 `expit`/`10 **` 的最终预测在既定末位规则内（16,120 个测试集预测中 52 个相差 1–2 个 float64 末位单位）。在真实 TDC 归档上以同样方式比对，已在 `live-data` #24 中通过（运行 39386727431，提交 0882e95，2026-10-20，GitHub 运行器上的无头 Chromium；CI 中归档作为项目文件交给页面，因此在浏览器中经本站中转下载尚未运行过）：22 张模型卡除摘要、秒数与化学名称外完全一致，22 个适用域文件逐字节一致；81,809 个分子中有 202 个（0.25%）被浏览器的化学步骤拒绝，原生构建同样不用它们；16,353 个测试集预测的模型原始输出与适用域检索完全一致，36 个经 `10 **` 或 `expit` 的最终预测相差 1 个 float64 末位单位，其余完全一致。未在实体 GPU 上运行，故 P3 的验收（实体 GPU、实测性能）仍未满足。SDF 或 `.mol` 文件、超过 20,000 个分子，以及受治理的 `predict-admet` Skill 都需要 Runner（[BROWSER_JOBS.md §3.2](studio/docs/BROWSER_JOBS.md#32-admet)） |
+| 分析流程与原生引擎 | 在本机 Runner 上实现；已在 CI 的引擎任务中测试（CPU 运行器） | `ci.yml` 的引擎任务在 `ci` #317（2026-10-19）中全部通过：带命令行工具和 R 的 DESeq2 的分析流程、使用真实 Vina 的对接、OpenMM 与 ProteinMPNN、scVI。这些测试在小型参考数据或夹具上运行各引擎：并非每条引擎路径，也没有真实数据（[分析流程](docs/analysis-pipelines.md#what-is-verified-where)、[验证](docs/validation.md#not-verified-here-and-why)） |
 | GPU 任务 | 在本机 Runner 上实现；从未在 CI 中的 GPU 上运行（CI 的任务都只有 CPU） | Runner 的 GPU 由驱动报告，在这里从未经计算验证 |
 | 远程计算 | 计划中：已设计，未部署 | [studio/docs/REMOTE_COMPUTE.md](studio/docs/REMOTE_COMPUTE.md) |
 
@@ -353,7 +357,7 @@ bioagent validate benchmark --out reports/ --live      # 桂枝汤与心悸，�
 bioagent validate summary reports/                     # 所有报告汇成一张 Markdown 表
 ```
 
-CI 设定为在每次推送时运行离线层，在 GitHub 的运行器上运行在线层（`.github/workflows/live-data.yml`）；自 `ci` #281 与 `live-data` #10（2026-10-11）以来，没有一次 `ci` 或 `live-data` 运行真正执行了任务，此后新增的内容在那里只是已定义、未执行（[docs/validation.md](docs/validation.md#not-verified-here-and-why)）。对照计划的验收标准，它们证明了什么、没有证明什么，见 [docs/release-qualification-2026-10.md](docs/release-qualification-2026-10.md)。数据库连接器有自己的层级（模拟传输、真实上游、经已部署网关的真实调用），浏览器与本机的一致性也有自己的层级（内核一致性；Pyodide 一致性，由手动运行的运行时核对，以及 CI 端到端测试中的一个 Skill），分别报告（[docs/validation.md](docs/validation.md)）。
+CI 设定为在每次推送时运行离线层，在 GitHub 的运行器上运行在线层（`.github/workflows/live-data.yml`）。从 `ci` #282 与 `live-data` #11（2026-10-11）到 2026-10-19，没有一次运行分配到运行器；此后任务恢复运行：`ci` #317 中推送时运行的任务全部通过，`live-data` #16 与 #17 均成功，包括葛根芩连汤研究任务（[docs/validation.md](docs/validation.md#not-verified-here-and-why)）。对照计划的验收标准，它们证明了什么、没有证明什么，见 [docs/release-qualification-2026-10.md](docs/release-qualification-2026-10.md)。数据库连接器有自己的层级（模拟传输、真实上游、经已部署网关的真实调用），浏览器与本机的一致性也有自己的层级（内核一致性；Pyodide 一致性，由手动运行的运行时核对，以及 CI 端到端测试中的一个 Skill），分别报告（[docs/validation.md](docs/validation.md)）。
 
 ## TCMScience Arena 评测平台
 

@@ -132,7 +132,8 @@ export class App {
     if (pairing) this.state.settings = updateSettings({ runner: { url: pairing.url, token: pairing.token } });
 
     try {
-      this.runtimes = runtimeMod ? await runtimeMod.createRuntimes(this.state.settings) : stubRuntimes();
+      // the browser's job service reads the project's own files (an omics job's count tables) from this page's store
+      this.runtimes = runtimeMod ? await runtimeMod.createRuntimes(this.state.settings, { jobsOptions: { files: this.store.files, settings: () => this.state.settings } }) : stubRuntimes();
     } catch (err) {
       console.warn("createRuntimes failed", err);
       this.runtimes = stubRuntimes();
@@ -301,6 +302,33 @@ export class App {
           this.#afterRunnerReady();
         }
       });
+    }
+    const jobs = this.runtimes.jobs;
+    if (jobs) {
+      this.state.browserJobs = { status: jobs.status, reason: jobs.reason || null, snapshots: null, admet: null };
+      const refresh = async () => {
+        let built = null;
+        let admet = null;
+        try {
+          const { snapshotsBuilt } = await import("../scientific/pipelines/network-pharmacology.js");
+          built = jobs.status === "ready" ? await snapshotsBuilt(jobs.service?.store) : null;
+        } catch { built = null; }
+        try {
+          // the ADMET models built in this browser (job.admet.models), which pipeline.admet predicts with here
+          const { admetModelsBuilt } = await import("../scientific/pipelines/admet.js");
+          admet = jobs.status === "ready" ? (await admetModelsBuilt(jobs.service?.store))?.endpoints || [] : null;
+        } catch { admet = null; }
+        this.state.browserJobs = { ...this.state.browserJobs, status: jobs.status, reason: jobs.reason || null, snapshots: Boolean(built), built, admet };
+        // what the router tells Python's readiness answers (unknown while the service is not running)
+        jobs.snapshots = jobs.status === "ready" ? Boolean(built) : null;
+        jobs.admetModels = admet;
+        this.emit("runtime", { kind: "jobs" });
+      };
+      this.refreshBrowserJobs = refresh;
+      jobs.onStatus?.(() => { refresh(); });
+      // a snapshot build that ended changes what research.run can read here, a model build what pipeline.admet can
+      this.on("job", (job) => { if (["research.snapshot", "admet.models"].includes(job?.kind) && ["succeeded", "failed", "cancelled"].includes(job.state)) refresh(); });
+      refresh();
     }
     if (browser) {
       this.state.browser.status = browser.status;
@@ -934,6 +962,7 @@ export class App {
       web: this.webOn(),
       compute: this.compute(),
       browser: { status: this.state.browser.status, device: "cpu (WebAssembly, single thread)" },
+      jobs: this.state.browserJobs ? { status: this.state.browserJobs.status, snapshots: this.state.browserJobs.snapshots, admet_models: this.state.browserJobs.admet ?? null, workers: this.runtimes.jobs?.pool?.size ?? null } : null,
       runner: {
         status: r.status, url: this.state.settings.runner.url, version: r.info?.version || null,
         devices: (r.devices?.devices || r.info?.devices || []).map((d) => ({ id: d.id, name: d.name, kind: d.kind, available: d.available })),

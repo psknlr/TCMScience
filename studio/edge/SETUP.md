@@ -209,7 +209,7 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 | 调整限额、模型、允许的网页来源 | 改 `studio/edge/wrangler.toml` 的 `[vars]`，合入 main 后自动重新部署。`PER_MINUTE`、`PER_DAY`、`TOTAL_PER_DAY` 是每人每分钟、每人每天、全体每天的模型调用次数；`TOKENS_PER_DAY`、`TOTAL_TOKENS_PER_DAY` 是每人每天、全体每天的 token。一个问题通常调用模型好几次。在控制台里直接改的变量会被下次部署覆盖 |
 | **暂停 Tao-S1（立即）** | Cloudflare → tcmscience-studio → **Settings → Variables and Secrets**，删除 `MINIMAX_API_KEY`。网页检测到中继没有密钥后，改请访客用自己的模型；网站照常。**同时**删除仓库 Secret `MINIMAX_API_KEY`，否则下次部署会把它写回去 |
 | 暂停 Tao-S1（持久） | 把 `wrangler.toml` 的 `RELAY` 改为 `"off"`，合入 main。部署后的检查会显示 `skipped (RELAY off)`，照常通过。恢复时改回 `"on"` |
-| 调整或暂停数据库网关 | 修改 `wrangler.toml` 的 `SOURCE_PER_MINUTE`、`SOURCE_PER_DAY`、`SOURCE_TOTAL_PER_DAY`；必须保留正数限额。`SOURCES = "off"` 暂停数据库网关，网页和模型中继照常。恢复时改回 `"on"` |
+| 调整或暂停数据库网关 | 修改 `wrangler.toml` 的 `SOURCE_PER_MINUTE`、`SOURCE_PER_DAY`、`SOURCE_TOTAL_PER_DAY`；必须保留正数限额。`SOURCES = "off"` 暂停数据库网关和数据中转（`/api/datasets/*`，浏览器研究任务下载原始文件时使用；每次中转下载是一次 Worker 请求加两次以上 Durable Object 调用），网页和模型中继照常。恢复时改回 `"on"` |
 | 看用量 | MiniMax 控制台的用量或账单页；Cloudflare 里 Worker 的 **Metrics** |
 | 看统计、导出 | <https://science.impf.ai/admin/> 登录后选 7/30/90 天、筛选、导出 CSV 或 JSON。要定期留存，在自己电脑上运行 `TCMS_EXPORT_TOKEN=… node studio/edge/scripts/export-telemetry.mjs --out ~/tcmscience-exports`（只写到仓库之外；见 TELEMETRY.md「导出与私有保存」）。**不要**把导出放进这个仓库或任何公开位置 |
 | 访客请求删除对话记录 | 请访客在「设置 → 隐私」里自己删除；做不到时请他提供「记录编号」，在后台「已同意记录的对话」里按编号查找后删除（TELEMETRY.md「删除请求」） |

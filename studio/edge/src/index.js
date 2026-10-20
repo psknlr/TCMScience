@@ -4,6 +4,7 @@
 //     here: a browser navigating to one of the app's routes gets index.html, anything else 404 (a scanner's probe of a
 //     path no one else asks for is noted as a security event).
 //   /v1/*: the Tao-S1 relay (relay.js). /api/sources/*: registered read-only database transport (sources.js).
+//   /api/datasets/files/*: the registered raw dataset files, streamed from their reviewed hosts (datasets.js).
 //   /api/telemetry/*: usage statistics and consented conversation records from the page (telemetry/routes.js).
 //   /api/admin/* and /admin/*: the owner's analytics dashboard and its API (admin.js), off until ADMIN_TOKEN is set.
 //   The Worker runs first on all of these (run_worker_first in wrangler.toml).
@@ -18,6 +19,7 @@
 //   one daily budget with the Limiter, which refuses service once it is spent.
 import { DurableObject } from "cloudflare:workers";
 import { adminSecure, handleAdmin } from "./admin.js";
+import { handleDatasets } from "./datasets.js";
 import { LimiterCore } from "./limiter.js";
 import { handle } from "./relay.js";
 import { redirectHttps, secure } from "./site.js";
@@ -340,6 +342,7 @@ async function route(request, env, ctx) {
   const path = url.pathname;
   if (under(path, "/v1")) return secure(await handle(request, env, relayDeps(env, ctx)), env);
   if (under(path, "/api/sources")) return secure(await handleSources(request, env, relayDeps(env, ctx)), env);
+  if (under(path, "/api/datasets")) return secure(await handleDatasets(request, env, relayDeps(env, ctx)), env);
   if (under(path, "/api/telemetry")) return secure(await handleTelemetry(request, env, telemetryDeps(env, ctx)), env);
   if (under(path, "/api/admin") || under(path, "/admin")) return adminSecure(secure(await handleAdmin(request, env, telemetryDeps(env, ctx)), env));
   return secure(await missing(request, env, url, relayDeps(env, ctx)), env);

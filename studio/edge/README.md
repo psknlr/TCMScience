@@ -31,6 +31,7 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
 | POST | `/v1/chat/completions` | OpenAI 格式（流式或非流式）。`model` 只能是 `Tao-S1` 或不写；网页把 `model` 写成 JSON 的**第一个键**，中继就只改这一段文本、不重新序列化整段对话 |
 | GET | `/api/sources/health` | 网关状态、已注册数据库及操作数量、数据大小与调用频率上限；不要求模型密钥 |
 | POST | `/api/sources/request` | `{url, method, headers, body_base64, allowed_hosts, timeout_s?}` → `{status, headers, body_base64, url, transport}`；上游 4xx/5xx 作为 `status` 保留，由浏览器后端处理 |
+| GET/HEAD | `/api/datasets/files/<group>/<name>` | 浏览器研究任务的数据中转：只转发 `runtime/datasets.json` 登记的确切 URL，透传 `Range`/`If-Range`，流式返回且不保存任何内容，限流与数据库网关相同（见 studio/docs/BROWSER_JOBS.md） |
 | GET | `/api/telemetry/health` | `{ok:true, service:"tcmscience-telemetry", version:1, analytics, conversations, consent_version, geo, retention_days}`（`/v1/health` 的 `telemetry` 字段相同） |
 | POST | `/api/telemetry/events` | 一批使用事件 → 204 |
 | POST | `/api/telemetry/conversations` | 一条已同意的对话记录 → 201 / 200 `{stored:false}` / 409 `consent_outdated` |
@@ -94,7 +95,7 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 
 ## 网页文件与响应头
 
-- `run_worker_first = ["/v1/*", "/api/sources/*", "/api/telemetry/*", "/api/admin/*", "/admin", "/admin/*"]`：模型、数据库网关、
+- `run_worker_first = ["/v1/*", "/api/sources/*", "/api/datasets/*", "/api/telemetry/*", "/api/admin/*", "/admin", "/admin/*"]`：模型、数据库网关、数据中转、
   统计与管理后台运行 Worker；`/admin/*` 的文件也由 Worker 把关（仪表板的代码只给已登录的管理员，页面强制 CSP）。
   其余文件由 Cloudflare 直接发送（免费，不计数）。
 - `not_found_handling = "none"`：找不到文件的路径交给 Worker——浏览器**导航**到它（应用自己的路由，如 `/p/<项目>/c/<会话>`）

@@ -8,7 +8,7 @@ runs, which are recorded but never released, until a person reviews and promotes
 
 | Pipeline | Command | Status |
 |---|---|---|
-| RNA-seq: FASTQ to differential expression | `bioagent rnaseq` | below |
+| RNA-seq: FASTQ, or a count matrix, to differential expression | `bioagent rnaseq` | below |
 | Single-cell: count matrices to an annotated atlas | `bioagent scrna` | below |
 | Protein structure: sequences to checked models | `bioagent fold` | below |
 | Docking: a receptor and ligands to validated poses | `bioagent dock` | below |
@@ -18,25 +18,41 @@ runs, which are recorded but never released, until a person reviews and promotes
 ## What is verified where
 
 Every pipeline is implemented and runs on the person's own runner (in Studio, as a runner
-job); none runs in the browser, and none has a record from a deployed service. What has
-been exercised differs by engine:
+job); network pharmacology also runs as browser jobs, with no runner (checked on a known answer and on fixture files;
+and on the real 葛根芩连汤 files, whose exports were the native run's bytes in `live-data` #18, #19 and #21:
+[BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)). So, in part, do RNA-seq and single cell: RNA-seq from a count
+matrix and single cell from count tables, with the built-in engines, up to 6,000 cells (66,000,000 cells × genes in a
+table) or 10,000,000 genes × samples
+([In the browser](#in-the-browser-count-matrices-and-count-tables), below); they were compared output by output with
+the native command on their known-answer references in headless Chromium, locally and in Studio's CI (`studio` #91,
+2026-10-19). So, in part, does ADMET: the model build (`admet.models`) and the predictions (`pipeline.admet`) from a
+CSV/TSV/`.smi` file or one SMILES, with its chemistry in RDKit.js 2026.9.1 and its models built in the browser from the
+TDC archive ([In the browser](#in-the-browser), below); they were compared with the native command in headless
+Chromium on a known-answer archive (locally and in Studio's CI, `studio` #95, 2026-10-20), on a synthetic one at the
+TDC sizes (locally) and on the real TDC archive (`live-data` #24: run 39386727431, commit 0882e95, 2026-10-20); the GPU
+domain search has not been run on a physical GPU. Structure and docking do not run in the browser, and no pipeline has
+a record from a deployed service. What has been exercised differs by engine:
 
 | Pipeline | Engines | Exercised where this was written | CI job with the engines | Reference dataset |
 |---|---|---|---|---|
-| RNA-seq | built-in QC, trimming, quantification and DE; fastp, salmon, kallisto, HISAT2 + featureCounts; PyDESeq2; R's DESeq2 as the reference | the built-in path; PyDESeq2 in a separate environment | "Analysis pipelines with the standard tools" | `omics_world` v1: **simulated**, known answer |
-| Single cell | built-in or Scanpy; Harmony (built-in or harmonypy) or scVI; built-in DE or PyDESeq2 for pseudobulk | the built-in path, Scanpy, harmonypy | the same job; scVI in "scVI, trained on the CPU" | `sc_world` v1: **simulated**, known answer |
+| RNA-seq | built-in QC, trimming, quantification and DE; fastp, salmon, kallisto, HISAT2 + featureCounts; PyDESeq2; R's DESeq2 as the reference | the built-in path, from FASTQ and from a count matrix (also in Pyodide in headless Chromium); PyDESeq2 in a separate environment | "Analysis pipelines with the standard tools" | `omics_world` v1 and, for the count-matrix mode, `omics_counts_world` v1: **simulated**, known answer |
+| Single cell | built-in or Scanpy; Harmony (built-in or harmonypy) or scVI; built-in DE or PyDESeq2 for pseudobulk | the built-in path (also in Pyodide in headless Chromium, on count tables), Scanpy, harmonypy | the same job; scVI in "scVI, trained on the CPU" | `sc_world` v1: **simulated**, known answer |
 | Structure | ESM Atlas (remote, `--allow-remote`), local ESMFold, ColabFold | the 1UBQ reference from the stored ESM Atlas model, offline; no local ESMFold weights, no ColabFold | "Analysis pipelines with the standard tools" (TM-align comparison) | PDB 1UBQ (public) |
 | Docking | AutoDock Vina 1.2, meeko, RDKit, gemmi | RDKit and meeko, with a stand-in for Vina that the tests name | "Molecular modelling with the standard tools" (real Vina, 3PTB redocking) | the 3PTB pocket (public) |
-| ADMET | RDKit, scikit-learn, models trained from the TDC archive | RDKit and scikit-learn; the archive only where `BIOAGENT_TDC_ARCHIVE` names a copy | "Molecular modelling with the standard tools" | the TDC ADMET group (public, a download) |
-| Network pharmacology | `bioagent.research` on ledger-verified snapshots | planted worlds and fixtures only (`+planted`, `+fx`) | the unit tier; real data in `live-data.yml`: defined, never executed | planted worlds: **simulated**, known answer |
+| ADMET | RDKit, scikit-learn, models trained from the TDC archive; in the browser, RDKit.js 2026.9.1 + ports and scikit-learn 1.8.0 in Pyodide | RDKit and scikit-learn; the archive only where `BIOAGENT_TDC_ARCHIVE` names a copy; the browser mode in headless Chromium, locally | "Molecular modelling with the standard tools"; the browser mode on the known-answer archive in Studio's CI (`studio` #95, 2026-10-20), and on the real TDC archive in `live-data.yml`: passed in `live-data` #24 (run 39386727431, 2026-10-20), not on a physical GPU | the TDC ADMET group (public, a download) |
+| Network pharmacology | `bioagent.research` on ledger-verified snapshots | planted worlds and fixtures only (`+planted`, `+fx`) | the unit tier; real data in `live-data.yml` (葛根芩连汤): passed in `live-data` #16 and #17 (2026-10-19) | planted worlds: **simulated**, known answer |
 
 Since stages and references were added (2026-10-18), the engine jobs also run
 `tests/test_runrecord.py` and `tests/test_pipeline_references.py`. Those two files need no
 engine (the RNA-seq and single-cell references pin the built-in backends; the docking one
 compares its fixture's digest), so they check the records and the reference results, not
-the engines; the engines are checked by each job's own tests. Those jobs have not run since
-then: every CI run from `ci` #282 and `live-data` #11 (2026-10-11, 20:06 UTC) onwards ended
-before a job was given a runner ([validation.md](validation.md)). Remote compute for these pipelines is designed, not
+the engines; the engines are checked by each job's own tests. From `ci` #282 (2026-10-11, 20:06
+UTC) until 2026-10-19 no CI run was given a runner; in `ci` #317 (2026-10-19) every engine job
+passed, these two files included, all on CPU runners ([validation.md](validation.md#not-verified-here-and-why)).
+The count-matrix mode's tests (`tests/test_omics_rnaseq_counts.py`, and its reference in
+`tests/test_pipeline_references.py`) joined that job with commit 65fa6aa; it passed in `ci` #322 (run 39286930329, 2026-10-19: 231 passed, 2
+skipped).
+Those jobs run each engine on a small reference or fixture, not on real data. Remote compute for these pipelines is designed, not
 deployed ([studio/docs/REMOTE_COMPUTE.md](../studio/docs/REMOTE_COMPUTE.md)).
 
 Three things hold whatever the engine:
@@ -68,6 +84,33 @@ sample,fastq_1,fastq_2,condition,batch
 ctrl1,ctrl1_R1.fastq.gz,ctrl1_R2.fastq.gz,control,1
 trt1,trt1_R1.fastq.gz,trt1_R2.fastq.gz,treated,1
 ```
+
+**From a count matrix** (`bioagent.omics.rnaseq_counts`), for counts made elsewhere (featureCounts, salmon through
+tximport, a published matrix):
+
+```bash
+bioagent rnaseq --counts counts.tsv --samples samples.tsv --design "~ condition" \
+    --contrast condition,treated,control --out results/
+```
+
+- `--counts` is a gene × sample table, TSV or CSV (gzipped or not): `gene_id`, an optional `gene_name`, then one
+  column per sample, every value a non-negative integer. Refused, with the line and sample named: a value that is not
+  a number, negative, not finite or not an integer ("round estimated counts first"), 2^53 or more, a duplicated gene
+  id or sample name, fewer than two samples, a sample with no counts at all, a tab or line break inside a name; and a
+  gzipped table whose stream is corrupt or cut short ("… cannot be read to its end (…)"), never a crash.
+- `--samples` is then a sample table: a `sample` column and the design variables, one row per count column. A FASTQ
+  sheet (`fastq_1`/`fastq_2`) is refused: reads go through the full pipeline.
+- The FASTQ options (`--transcripts`, `--genome`, `--annotation`, `--engine`, `--trimmer`, `--fragment-mean`,
+  `--fragment-sd`, `--strand`) are refused (exit 2), never ignored. `--design`, `--contrast`, `--covariate`,
+  `--de-backend` and `--alpha` mean what they mean for FASTQ.
+- From the counts on, the steps are the full pipeline's, by the same code: differential expression, VST, PCA, sample
+  distances, the same tables and figures, `report.md`/`report.html`, `limitations.md` and `run.json`. No read was
+  seen, so there is no QC, trimming or quantification, and `limitations.md` says the counts were analysed as given.
+  On the FASTQ reference's counts, rounded into a table, this mode writes the full pipeline's `deseq2_results.tsv`,
+  `de_diagnostics.tsv` and `vst.tsv` byte for byte (a test checks it).
+- `run.json` names the pipeline `bioagent.omics.rnaseq_counts`, the input kind `counts`, each input (path, SHA-256,
+  size) and the content digests of the canonical count and sample tables; `bioagent rnaseq --verify` checks either
+  mode. Its stages are `validate_counts`, `differential_expression`, `explore`, `report`, `verify`.
 
 ### Steps
 
@@ -155,6 +198,8 @@ it in the table.
 - The built-in test, PyDESeq2 and R's DESeq2 are not numerically identical; with three or
   fewer residual degrees of freedom the built-in test does not reproduce R's calls
   ([omics-backends.md](omics-backends.md)).
+- The count-matrix mode cannot check how its counts were made: library preparation, aligner or quantifier,
+  annotation and filtering are unknown to it.
 
 ## Single-cell: count matrices to an annotated atlas
 
@@ -169,7 +214,13 @@ The sample sheet lists `sample,path` and any sample variables (`condition`, `bat
 - an `.h5ad`;
 - a genes x cells CSV/TSV.
 
-Every input must be raw counts; normalised values are refused.
+Every input must be raw counts; normalised values are refused. A CSV/TSV table is read a row at a time, keeping each
+row's non-zero counts, so it needs memory for its counts rather than for its text (the matrix is the one a parse of
+the whole text gives; for one table of 1,356 cells × 33,000 genes in Pyodide, 1.55 GB instead of 2.0 GB at the run's
+peak; after reading, the doublet scores' dense matrix dominates). A blank line is skipped; a row with the wrong number
+of values is refused ("rows have N values for M cells"); a gzipped table or Cell Ranger file whose stream is corrupt
+or cut short is refused with the reason ("… cannot be read to its end (…)"); a sheet line with an empty `path` is
+refused ("line N of <sheet> names no path").
 
 ### Steps
 
@@ -240,6 +291,47 @@ declared design allows.
   thousands of cells, not millions.
 - The UMAP coordinates are not umap-learn's. The layout is a picture of the graph, not
   a measurement.
+- `--n-top-genes` (default 2,000; the runner's `n_top_genes`, 50 to 10,000) sets how many highly variable genes are
+  kept; the reference runs with 600.
+
+## In the browser: count matrices and count tables
+
+In Studio, two of these pipelines also run as browser jobs, with no runner, in Pyodide job workers holding numpy and
+scipy ([BROWSER_JOBS.md §3.1](../studio/docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)):
+
+- `pipeline.rnaseq` in its count-matrix mode (`counts` and `samples`), with the built-in DESeq2 implementation;
+- `pipeline.scrna` on count tables (CSV, TSV or TXT, gzipped or not, or a `.csv`/`.tsv` sample sheet of them), with the
+  built-in analysis and built-in Harmony or none.
+
+The inputs are files of the person's project, copied into the job's private storage and checked against their
+recorded SHA-256. Refused there with the reason, for the runner: a FASTQ run, PyDESeq2, Scanpy, scVI, 10x HDF5 and
+`.h5ad` sources, and more than 6,000 cells, a table of more than 66,000,000 cells × genes (the doublet scores hold one
+sample's cells × genes densely) or a count matrix of more than 10,000,000 genes × samples (a browser worker's wasm32
+memory holds about 4 GB; measured in Pyodide 314.0.7 under Node, one run each, not in a browser tab: four tables of
+1,356 cells × 33,000 genes took 1.9 GB, one table of 2,000 × 33,000 2.2 GB, 10 M counts 1.8–2.0 GB; a `MemoryError` is
+the same refusal). `counts` with a FASTQ sample sheet as `samples` is refused as bad arguments, as the runner refuses
+it. On `omics_counts_world` v1 and `sc_world` v1 (as count tables), compared
+output by output with the native command on the same files at one BLAS thread (`studio/web/test/runtime/science.mjs
+--mode omics`):
+
+- identical bytes: RNA-seq `counts.tsv`, `vst.tsv`, `report.md`, `limitations.md`; single-cell `clusters.tsv`,
+  `markers.tsv`, `paga.tsv`, `report.md`, `limitations.md`, `cells.tsv` apart from the UMAP coordinates;
+- within a stated tolerance (|a − b| ≤ 1e-6 + 1e-4·max + one unit in the sixth significant digit; the largest
+  difference 0.133 of it): `deseq2_results.tsv`, `de_diagnostics.tsv` and the four pseudobulk tables, all DESeq2 fits,
+  whose dispersion search turns last-bit differences between numpy builds into printed digits;
+- not compared, with the reason: the UMAP coordinates and five figures; the layout's structure is checked instead
+  (each cell's 15 nearest UMAP neighbours in its cluster: browser 0.9985, native 0.9983);
+- exactly the same: the 90 genes called, the pseudobulk calls, each of the 1,077 cells' cluster and cell type;
+- the known answers on the browser's files: all 80 planted genes found in their direction with 10 false discoveries
+  among 90 calls; ARI 1.0, the four cell types, 16 of 20 planted B-cell genes, mixing 1.03.
+
+Tested locally in headless Chromium 141 with Pyodide 314.0.7 (numpy 2.4.6, scipy 1.18.0), against native Python
+3.13.16 with numpy 2.5.4 and scipy 1.18.1; and in Studio's CI with Pyodide's numpy and scipy from jsDelivr, against
+CI's Python 3.12.15 (`studio` #91, 2026-10-19), with the same results but the native UMAP agreement, 0.9981 there. The
+tolerance was fitted on these two simulated references and is not established for other data; other settings (a
+pseudotime root, `integration: none`, a marker table of one's own) were not compared in a browser, and a person's own
+run is compared with nothing: its limitations say that a value near a threshold (an adjusted p-value near alpha) may
+differ.
 
 ## Protein structure: sequences to checked models
 
@@ -380,7 +472,7 @@ bioagent admet --verify admet/
 | Rules | Lipinski (one violation allowed), Veber, Egan and Ghose, on those descriptors |
 | Alerts | RDKit's filter catalogues: PAINS A/B/C (Baell & Holloway 2010), Brenk (2008), NIH (Jadhav 2010) |
 | Endpoints | one model per endpoint of the Therapeutics Data Commons ADMET benchmark group (Huang et al. 2021): a gradient-boosted tree over a 2048-bit Morgan count fingerprint and the descriptors, trained on TDC's `train_val` split with early stopping. Targets spanning orders of magnitude are modelled as log10 |
-| Domain | the largest Tanimoto similarity of the query to the model's training molecules; below 0.3 the prediction is flagged as outside the model's applicability domain |
+| Domain | the largest Tanimoto similarity of the query to the model's training molecules; below 0.3 the prediction is flagged as outside the model's applicability domain. The search was rewritten over a `uint64` view with `np.bitwise_count`, chunked so the temporary stays small: measured on this machine (numpy 2.4.6) with random 2048-bit fingerprints, 1,000 queries against 10,504 references (the size of cyp2d6_veith's training set) take about 0.43 s natively (the old code took about 15.0 s at a chunk of 64, and 35 s with a 6.7 GB peak at its default chunk of 512), and about 0.7 s in Pyodide 314.0.7 under Node, where the old default chunk raised `ValueError: array is too big`. The outputs are unchanged (the nearest training molecule, with ties broken by the smallest index as numpy's `argmax` does) |
 | Report | per molecule: properties, rules, alerts and predictions; the model cards; `run.json` with each model's digest |
 
 The archive is about 1.5 MB, fetched once from Harvard Dataverse and held to its pinned
@@ -475,13 +567,62 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 - A prediction is for the standardised parent structure, not for a salt or a prodrug as
   administered.
 
+### In the browser
+
+In Studio, ADMET also runs as browser jobs, with no runner
+([BROWSER_JOBS.md §3.2](../studio/docs/BROWSER_JOBS.md#32-admet)): `admet.models` builds the 22 endpoint models and
+`pipeline.admet` predicts with them. They are `bioagent.admet` itself, through an engine seam
+(`bioagent.admet.engine`): natively the default `RDKitEngine` wraps `chem.standardize`/`featurize`/`bits`/`descriptors`
+and `rules.alerts`, and the native outputs are unchanged by the seam (byte for byte on a before/after run of the small
+archive; `run.json` and the cards gain `chemistry`, `refused` and `dropped_unstandardisable`). In the browser Pyodide
+has scikit-learn 1.8.0 but no RDKit, so the page computes the chemistry itself in RDKit.js 2026.9.1 (the version
+`registry/scientific_environments.json` pins) plus bioagent's ports of the standardisation, the count fingerprint, the
+missing descriptors and the `FilterCatalog` alerts, held to native RDKit on a parity corpus; it writes the prepared
+features and bits, and a `PrecomputedEngine` reads them back. The models are trained in the browser from the TDC
+archive (fetched through the site's dataset relay or given as a project file; in CI it is given as a project file, and
+a download through the relay in a browser has not been run) and kept in the origin's private storage, so nothing
+trained is shipped; a model card names the chemistry it was built with.
+
+The browser **refuses** (never approximates) a molecule it cannot standardise exactly as native RDKit would — one that
+would need `MetalDisconnector`, `Reionizer` or the `Uncharger`'s canonical atom ranking, a `Normalizer` product RDKit
+cannot sanitise (which native RDKit carries forward unsanitised), a dative or zero bond, or more than 400 atoms, or on
+which RDKit.js throws an exception (the chemistry then goes on with a fresh module) — naming the step; in a build such a training molecule is dropped and counted on the card
+(`dropped_unstandardisable`), and in a prediction run the molecule is reported as refused and read by the runner. An
+SDF or `.mol` file (RDKit's `SDMolSupplier` is not ported) and more than 20,000 molecules per run also need the runner.
+The applicability-domain search (the Tanimoto above) runs on this device's WebAssembly SIMD kernel, or on its GPU only
+where this device's own check measured a physical adapter exact and faster, and Python checks the result before it uses it.
+Compared with the native command (RDKit 2026.9.1, scikit-learn 1.8.0, one thread) in headless Chromium, on a
+known-answer archive and a synthetic one at the TDC sizes, the domain files and `admet.tsv` were the native run's
+bytes, the model cards the native ones but for the model file's digest, the seconds and the chemistry's name, and every
+prediction was exact at full precision apart from values that pass through `expit` or `10 **`,
+which may differ by a few units in the last place of float64 (the C library's `exp`, or numpy's own AVX-512 power).
+That was tested locally; on the known-answer archive it also passed in Studio's CI (`studio` #95, 2026-10-20).
+
+On the real TDC archive the same comparison passed in `live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20),
+in headless Chromium on GitHub's runner. The archive (1,472,501 bytes, held to its pinned SHA-256; 22 endpoints, 81,809
+molecules over their splits) was downloaded natively from Harvard Dataverse and given to the page as a project file.
+The browser's chemistry refused 202 of the 81,809 molecules (0.25%, 150 distinct SMILES; the 202 by step: `Reionizer`
+96, `MetalDisconnector` 83, the `Uncharger`'s canonical atom ranking 18, an unsanitisable `Normalizer` product 5), and
+the native models were trained without them too; the 22 model cards were the native ones but for the two file digests,
+the seconds and the chemistry's name, and the 22 domain files were the native bytes. Of the 16,353 test-set
+predictions, every raw model output and every domain search was identical, and 36 final ones (through `10 **` or
+`expit`) differed by 1 unit in the last place of float64. `pipeline.admet` with these models on a 39-molecule set
+refused the 9 molecules expected, each for its step, did not read 1 (as natively), and for the 29 it kept wrote the
+native run's `admet.tsv` bytes. The domain search has not been run on a physical GPU, here or in CI (that run's
+forced-GPU rerun used SwiftShader, a software adapter, which is not evidence of a GPU), so P3's acceptance criterion
+([BROWSER_COMPUTE.md §6.1](../studio/docs/BROWSER_COMPUTE.md#61-the-science-kernels-and-the-device-check-p3)),
+verified execution on a physical GPU with measured performance, is not met.
+
 ## Network pharmacology: a formula to bounded mechanism hypotheses
 
 `bioagent research "<question>" --formula <formula> --snapshots DIR --ledger FILE
 --state-dir DIR --out DIR` runs the closed research loop (`bioagent.research.loop`): a
 frozen protocol, ledger-verified snapshots, the analysis as an isolated PSH tool call,
 pre-registered rebuttals and an attested release. In Studio it is the job `research.run`
-(core tool `network_pharmacology_run`). `scripts/run_network_pharmacology.py` runs the same
+(core tool `network_pharmacology_run`), on the runner or in the browser's own job workers
+with no runner: there the analysis runs in-process through the same PSH broker (a worker
+cannot start processes) and the artifact records `isolation: "in_process"`
+([studio/docs/BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)). `scripts/run_network_pharmacology.py` runs the same
 analysis under the run contract without the rebuttals. Neither is the seed skill
 `analyze-tcm-network-pharmacology`, which is a *limited seed-corpus network hypothesis
 analysis*: it reads only the curated seed corpus, with no database coverage and no measured
@@ -573,10 +714,11 @@ A table with nothing in it is written with its header. The research loop also wr
 - `tests/test_np_workflow.py` runs on the planted worlds (`bioagent.research.planted`) and
   the fixture of `tests/test_network_pharmacology.py`. They are fixtures, built under
   `+planted` and `+fx` versions, not data.
-- Real data: the `live-data` CI workflow is defined to download the real NPASS, CMAUP, LOTUS,
-  STRING and Reactome files on GitHub's runners, run 葛根芩连汤 through the research job,
-  upload the nine exports and run `verify` on them. That step has never been executed: no
-  `live-data` run since it was added has been given a runner ([validation.md](validation.md)).
+- Real data: the `live-data` CI workflow downloads the real NPASS, CMAUP, LOTUS, STRING and
+  Reactome files on GitHub's runners, runs 葛根芩连汤 through the research job, uploads the
+  nine exports and runs `verify` on them. That step passed in `live-data` #16 and #17
+  (2026-10-19). It checks exit codes, that the nine exports exist and are not empty, and
+  that `verify` exits 0; it asserts no count or pathway ([validation.md](validation.md#not-verified-here-and-why)).
   Nothing in this repository's offline tests is a real-data result.
 
 ### What a result is
@@ -651,6 +793,7 @@ A run is **complete** only when every required stage succeeded and no check is F
 | Pipeline | Stages, in order |
 |---|---|
 | RNA-seq | `validate_reference`, `ingest`, `validate_fastq`, `qc`, `trim` (skipped with `--trimmer none`), `quantify`, `summarize_genes`, `differential_expression`, `explore`, `report`, `verify` |
+| RNA-seq from a count matrix | `validate_counts`, `differential_expression`, `explore`, `report`, `verify` |
 | Single cell | `validate_input`, `qc`, `doublets` (skipped when off), `normalize`, `hvg`, `pca`, `integrate` (not applicable with one batch or `none`), `neighbors` (the kNN graph, UMAP connectivities and layout), `cluster` (Leiden, and PAGA's connectivity between the clusters), `markers`, `annotate`, `trajectory` (pseudotime; not applicable without a root), `pseudobulk_de` (not applicable without two conditions), `report`, `verify` |
 | Structure | `input_check`, `predict`, `sequence_identity`, `confidence`, `geometry`, `compare` (not applicable without a reference), `report`, `verify` |
 | Docking | `receptor_prep`, `ligand_prep`, `site`, `redock_validation` (skipped without a co-crystal ligand; FAIL beyond 2 Å), `dock`, `pose_checks`, `contacts`, `report`, `verify` |
@@ -714,7 +857,7 @@ does not validate binding. Vina's ranking is kept as it is.
 
 `tests/test_docking.py` exercises the stages and checks with RDKit, meeko and a
 stand-in for Vina, and says so; real Vina is run by CI's molecular-modelling job, which
-has not run since these checks were added (`ci` #281 was its last run). The
+passed with these checks in `ci` #317 (2026-10-19). The
 `dock-ligands` skill drafts a hypothesis only from a complete run, and only for a ligand
 whose best pose passed these checks.
 
@@ -730,13 +873,13 @@ incomplete, though descriptors, rules and alerts are still written.
 
 ### Reference datasets
 
-`bioagent/data/pipeline_references.json` (version 2026.10.1) names one reference
-dataset per pipeline: its content digests, the parameters it is run with, and the
+`bioagent/data/pipeline_references.json` (version 2026.10.2) names one reference
+dataset per pipeline (two for RNA-seq, one per mode): its content digests, the parameters it is run with, and the
 values expected from it. It also holds output digests, which are compared only in the
 environment they were recorded in (Python, numpy, scipy, CPU architecture and the CPU features
 numpy dispatches to): a table of floats can differ in its last digits on another machine with the
 same library versions, so elsewhere the expected values are the check. `tests/test_pipeline_references.py` re-runs the
-RNA-seq and single-cell references with the built-in backends and the structure reference
+RNA-seq (both modes) and single-cell references with the built-in backends and the structure reference
 offline, compares the docking reference's fixture digest (the redocking itself is in
 `tests/test_docking.py`, which needs Vina), and runs the ADMET reference only where its
 archive is given.
@@ -744,12 +887,13 @@ archive is given.
 | Pipeline | Reference | Kind | Where it is checked |
 |---|---|---|---|
 | RNA-seq | `omics_world` v1 (`tests/omics_world.py`, seed 1, 5% adapters) | simulated, known answer | here: the seven planted genes, at most one false discovery, 30 genes tested, outputs byte-identical |
+| RNA-seq, count matrix | `omics_counts_world` v1 (`tests/omics_world.py:make_counts_world`, seed 1: 2,000 genes × 6 samples, 40 genes four-fold up and 40 down) | simulated, known answer | here: at least 38 planted genes found in each direction (40 and 40 when recorded), none in the wrong direction, at most 15 false discoveries (10 among 90 calls when recorded), 1,999 genes tested, outputs byte-identical; in a browser, the same values (above) |
 | Single cell | `sc_world` v1 (`tests/sc_world.py`, seed 0) | simulated, known answer | here: ARI above 0.9 (1.0), the four cell types named, at least 12 planted genes in B-cell pseudobulk |
 | Structure | PDB 1UBQ and the stored ESM Atlas model | public | here, offline: TM-score 0.958, RMSD 0.83 Å; a new prediction requires the network or torch and transformers |
-| Docking | the 3PTB pocket | public (CC0) | requires vina, meeko and RDKit: defined for CI's molecular-modelling job (redocking under 2 Å; 0.38 Å documented), not yet executed there with this reference |
+| Docking | the 3PTB pocket | public (CC0) | requires vina, meeko and RDKit: CI's molecular-modelling job (redocking under 2 Å; 0.38 Å documented), passed there in `ci` #317 (2026-10-19) |
 | ADMET | the TDC ADMET group | public | requires RDKit, scikit-learn and the archive (`BIOAGENT_TDC_ARCHIVE`): held-out scores within 0.05 of the table above for scores on [0, 1], and within 5% for errors in the endpoint's unit |
 
-The two simulated references are not public data. A run on one of them is recognised by
+The three simulated references are not public data. A run on one of them is recognised by
 its content digests, and its `limitations.md` says "simulated, known answer … not public
 data".
 
@@ -757,9 +901,9 @@ data".
 
 一键分析流程从用户自己的数据或分子出发完成整套分析。每一步都记录参数、工具版本和文件摘要，并说明结果是什么、不是什么。包装这些流程的受治理 Skill 都是**候选**：在有人审核并晋级之前，只能作为开发运行，会被记录但不会被发布。
 
-**在哪里验证过（见上文「What is verified where」表）：** 所有流程都已实现，在用户自己的 Runner 上运行（Studio 中为 Runner 任务），都不在浏览器中运行，也都没有来自已部署服务的记录。撰写本文的环境中实际运行过：RNA-seq 与单细胞的内置路径，以及另一环境中的 Scanpy、harmonypy、PyDESeq2、RDKit、meeko 与 scikit-learn；没有运行过：真实的 AutoDock Vina、scVI、本地 ESMFold 权重、ColabFold 和 RNA-seq 的外部命令行工具，它们由 CI 的引擎作业运行。阶段与参考数据集的测试（`tests/test_runrecord.py`、`tests/test_pipeline_references.py`）已加入引擎作业；它们不需要任何引擎（RNA-seq 与单细胞参考固定使用内置后端，对接参考只比对夹具摘要），检查的是运行记录与参考结果，而不是引擎，引擎由各作业自己的测试检查。自 `ci` #282 与 `live-data` #11（2026-10-11 20:06 UTC）起，CI 运行都在分配运行器之前结束，这些测试尚未在 CI 中运行。RNA-seq 与单细胞的参考数据集是**模拟数据（已知答案）**，不是公开数据。远程计算已设计、未部署。无论用哪个引擎：内置 DESeq2 实现、PyDESeq2 与 R 的 DESeq2 方法相同但数值并不相同；对接打分不是实测亲和力；ADMET 在适用域外的预测会被标注且不可靠；结构预测绝不以检索到的结构替代。
+**在哪里验证过（见上文「What is verified where」表）：** 所有流程都已实现，在用户自己的 Runner 上运行（Studio 中为 Runner 任务）；网络药理学也能作为浏览器任务运行，无需 Runner（已在已知答案、夹具文件和葛根芩连汤真实文件上检验；真实数据的导出在 `live-data` #18、#19 与 #21 中与原生运行逐字节一致，见 [BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)）；RNA-seq 与单细胞也部分如此：从计数矩阵出发的 RNA-seq 与从计数表出发的单细胞分析，使用内置引擎，至多 6,000 个细胞（单个表 66,000,000 个细胞 × 基因）或 10,000,000 个基因 × 样本（见下文「浏览器中」），已在无头 Chromium 中（本地及 Studio 的 CI，`studio` #91，2026-10-19）与原生命令在其已知答案参考上逐个输出比对；ADMET 也部分如此：模型构建（`admet.models`）与从 CSV/TSV/`.smi` 文件或单个 SMILES 出发的预测（`pipeline.admet`），化学用 RDKit.js 2026.9.1、模型在浏览器中由 TDC 归档训练（见下文「浏览器中」），已在无头 Chromium 中与原生命令比对：已知答案归档（本地及 Studio 的 CI，`studio` #95，2026-10-20）、TDC 规模的合成归档（仅本地）与真实 TDC 归档（`live-data` #24：运行 39386727431，提交 0882e95，2026-10-20），适用域的 GPU 检索尚未在实体 GPU 上运行；结构预测与对接不在浏览器中运行，所有流程都没有来自已部署服务的记录。撰写本文的环境中实际运行过：RNA-seq（从 FASTQ 与从计数矩阵）与单细胞的内置路径（也在无头 Chromium 的 Pyodide 中运行过），以及另一环境中的 Scanpy、harmonypy、PyDESeq2、RDKit、meeko 与 scikit-learn；没有运行过：真实的 AutoDock Vina、scVI、本地 ESMFold 权重、ColabFold 和 RNA-seq 的外部命令行工具，它们由 CI 的引擎作业运行。阶段与参考数据集的测试（`tests/test_runrecord.py`、`tests/test_pipeline_references.py`）已加入引擎作业；它们不需要任何引擎（RNA-seq 与单细胞参考固定使用内置后端，对接参考只比对夹具摘要），检查的是运行记录与参考结果，而不是引擎，引擎由各作业自己的测试检查。从 `ci` #282（2026-10-11 20:06 UTC）到 2026-10-19，CI 运行都没有分配到运行器；在 `ci` #317（2026-10-19）中，各引擎作业全部通过，包括这两个文件，都在 CPU 运行器上。计数矩阵模式的测试（`tests/test_omics_rnaseq_counts.py` 及其在 `tests/test_pipeline_references.py` 中的参考）随提交 65fa6aa 加入该作业；该作业在 `ci` #322（运行 39286930329，2026-10-19）中通过：231 个通过，2 个跳过。这些作业在小型参考数据或夹具上运行各引擎，不是真实数据。RNA-seq 与单细胞的参考数据集是**模拟数据（已知答案）**，不是公开数据。远程计算已设计、未部署。无论用哪个引擎：内置 DESeq2 实现、PyDESeq2 与 R 的 DESeq2 方法相同但数值并不相同；对接打分不是实测亲和力；ADMET 在适用域外的预测会被标注且不可靠；结构预测绝不以检索到的结构替代。
 
-**RNA-seq**（`bioagent rnaseq`）：从 nf-core 格式的样本表出发，依次完成以下步骤：
+**RNA-seq**（`bioagent rnaseq`）：从 nf-core 格式的样本表出发（或用 `--counts` 从计数矩阵出发，见下文），依次完成以下步骤：
 - 质控：FastQC 的各模块与阈值；
 - 修剪：fastp，或内置的 cutadapt 式修剪；
 - 定量：salmon、kallisto 或内置的 k-mer 伪比对与 EM；也可用 HISAT2 + featureCounts；
@@ -769,6 +913,13 @@ data".
 - 报告：带 SVG 图的 Markdown/HTML 报告，以及记录全部摘要的 `run.json`，可用 `--verify` 复核。
 
 内置定量器对双端测序增加了片段长度一致性检查，纠正了外显子跳跃异构体被低估的问题。
+
+**从计数矩阵出发**（`bioagent rnaseq --counts counts.tsv --samples samples.tsv --out results/`，模块 `bioagent.omics.rnaseq_counts`），用于在别处得到的计数（featureCounts、经 tximport 的 salmon、已发表的矩阵）：
+- `--counts` 是基因 × 样本的 TSV 或 CSV 表（可 gzip）：`gene_id`、可选 `gene_name`，然后每个样本一列，每个值都必须是非负整数。以下情况被拒绝，并指明行与样本：非数字、负数、非有限值、非整数（「请先把估计计数取整」）、2^53 及以上、重复的基因 ID 或样本名、少于两个样本、某样本计数全为零、gzip 数据流损坏或被截断的表（「… cannot be read to its end (…)」，不会崩溃）、名称中含制表符或换行。
+- 此时 `--samples` 是样本表：`sample` 列加设计变量，每个计数列一行。FASTQ 样本表（含 `fastq_1`/`fastq_2`）被拒绝：读段要走完整流程。
+- FASTQ 专用选项（`--transcripts`、`--genome`、`--annotation`、`--engine`、`--trimmer`、`--fragment-mean`、`--fragment-sd`、`--strand`）被拒绝（退出码 2），绝不忽略。`--design`、`--contrast`、`--covariate`、`--de-backend` 与 `--alpha` 含义与 FASTQ 模式相同。
+- 从计数开始，步骤与完整流程相同、代码相同：差异表达、VST、PCA、样本距离、相同的表格与图、`report.md`/`report.html`、`limitations.md` 与 `run.json`。没有看到任何读段，因此没有质控、修剪和定量，`limitations.md` 注明计数按原样分析。把 FASTQ 参考的计数取整成表后，这一模式写出的 `deseq2_results.tsv`、`de_diagnostics.tsv` 与 `vst.tsv` 与完整流程逐字节相同（有测试检查）。
+- `run.json` 把流程记为 `bioagent.omics.rnaseq_counts`、输入类型 `counts`，记录每个输入（路径、SHA-256、大小）以及规范化计数表和样本表的内容摘要；`bioagent rnaseq --verify` 两种模式都能复核。阶段为 `validate_counts`、`differential_expression`、`explore`、`report`、`verify`。它无法检查计数是如何得到的（建库、比对或定量工具、注释、过滤都不可知）。
 
 验证有三层：
 - 按方法定义逐项核对；
@@ -791,13 +942,28 @@ data".
 - 轨迹分析：PAGA，以及从指定起点出发的扩散伪时间；
 - 条件间比较：按细胞类型做伪批量 DESeq2。
 
+计数表逐行读取，只保留每行的非零计数，所需内存取决于计数而非文本（矩阵与整体解析相同；在 Pyodide 中，单个 1,356 个细胞 × 33,000 个基因的表在运行峰值时用 1.55 GB 而非 2.0 GB；读入之后占主导的是双细胞评分的稠密矩阵）。空行跳过；值的个数不对的行被拒绝（「rows have N values for M cells」）；gzip 数据流损坏或被截断的计数表或 Cell Ranger 文件被拒绝并说明原因（「… cannot be read to its end (…)」）；样本表中 `path` 为空的行被拒绝（「line N of <样本表> names no path」）。
+
 分析后端（内置或 Scanpy）、批次整合方法（none、harmony 或 scvi）和伪批量检验实现（内置或 PyDESeq2）三者可独立选择，见 omics-backends.md。
 
 验证有两类：
 - 与参考实现对比：高变基因、Wilcoxon 分数和 Leiden 模块度与 Scanpy/leidenalg 一致，UMAP 连接度与 umap-learn 的差异在 5×10⁻⁶ 以内；
 - 用已知答案的模拟数据检验：低质量细胞全部剔除，聚类 ARI 大于 0.9，注释正确，伪时间沿预设路径（Spearman 大于 0.85），伪批量只在预设的细胞类型中找到差异。
 
-聚类、细胞类型标签和伪时间都只是输出，不构成结论；只有条件间的伪批量比较才会形成结论。
+聚类、细胞类型标签和伪时间都只是输出，不构成结论；只有条件间的伪批量比较才会形成结论。`--n-top-genes`（默认 2,000；Runner 的 `n_top_genes`，50 到 10,000）设定保留的高变基因数，参考数据用 600。
+
+**浏览器中：计数矩阵与计数表**（[BROWSER_JOBS.md §3.1](../studio/docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)）。在 Studio 中，这两个流程也能作为浏览器任务运行，无需 Runner，在装有 numpy 与 scipy 的 Pyodide 任务工作线程中：
+- `pipeline.rnaseq` 的计数矩阵模式（`counts` 与 `samples`），使用内置 DESeq2 实现；
+- `pipeline.scrna` 处理计数表（CSV、TSV 或 TXT，可 gzip，或由它们组成的 `.csv`/`.tsv` 样本表），使用内置分析与内置 Harmony 或不整合。
+
+输入是用户项目中的文件，复制到任务的私有存储并按记录的 SHA-256 核对。以下情况在浏览器中被拒绝并说明原因，交给 Runner：从 FASTQ 出发的运行、PyDESeq2、Scanpy、scVI、10x HDF5 与 `.h5ad` 来源，以及超过 6,000 个细胞、单个表超过 66,000,000 个细胞 × 基因（双细胞评分以稠密方式保存一个样本的细胞 × 基因）或计数矩阵超过 10,000,000 个基因 × 样本（浏览器工作线程的 wasm32 内存约 4 GB；在 Node 下的 Pyodide 314.0.7 中测得，每项一次，不是在浏览器标签页中：四个 1,356 个细胞 × 33,000 个基因的表用 1.9 GB，单个 2,000 × 33,000 的表 2.2 GB，10 M 个计数 1.8–2.0 GB；`MemoryError` 也是同样的拒绝）。`counts` 与作为 `samples` 的 FASTQ 样本表同时给出时，与 Runner 一样作为参数错误拒绝。在 `omics_counts_world` v1 与写成计数表的 `sc_world` v1 上，与同一批文件上单个 BLAS 线程的原生命令逐个输出比对（`studio/web/test/runtime/science.mjs --mode omics`）：
+- 逐字节一致：RNA-seq 的 `counts.tsv`、`vst.tsv`、`report.md`、`limitations.md`；单细胞的 `clusters.tsv`、`markers.tsv`、`paga.tsv`、`report.md`、`limitations.md`，以及除 UMAP 坐标外的 `cells.tsv`；
+- 在给定容差内（|a − b| ≤ 1e-6 + 1e-4·max + 第六位有效数字的一个单位；最大差异用到容差的 0.133）：`deseq2_results.tsv`、`de_diagnostics.tsv` 与四个伪批量表，都是 DESeq2 拟合的输出，其离散度搜索会把不同 numpy 构建之间末位的差异放大到打印出的数字；
+- 不比较并说明原因：UMAP 坐标与五张图；改为检查布局结构（每个细胞 15 个最近 UMAP 邻居中同簇的比例：浏览器 0.9985，原生 0.9983）；
+- 完全相同：显著的 90 个基因、各伪批量检验的显著基因、全部 1,077 个细胞的聚类与细胞类型；
+- 浏览器写出的文件上的已知答案：80 个预设基因全部按方向找到，90 个显著中假发现 10 个；ARI 1.0、四种细胞类型、B 细胞 20 个预设基因中找到 16 个、混合度 1.03。
+
+已在本地无头 Chromium 141 中用 Pyodide 314.0.7（numpy 2.4.6、scipy 1.18.0）测试，对照原生 Python 3.13.16、numpy 2.5.4、scipy 1.18.1；Studio 的 CI 中同样通过（`studio` #91，2026-10-19，使用 jsDelivr 上 Pyodide 的 numpy 与 scipy，原生为 CI 的 Python 3.12.15），结果相同，只是原生的 UMAP 同簇比例为 0.9981。这一容差是在这两个模拟参考上拟合的，对其他数据未经确立；其他设置（伪时间起点、`integration: none`、自备的标记基因表）没有在浏览器中比对过；用户自己的运行不与任何结果比较，其局限说明写明接近阈值的值（接近 alpha 的校正 p 值）可能不同。
 
 **蛋白结构预测**（`bioagent fold`）：输入 FASTA 或单条序列，可选三种预测器：
 - `esmatlas`（默认）：通过 Meta 的 ESM Atlas 服务运行 ESMFold，最长 400 个残基。序列会发往第三方，须显式加 `--allow-remote`；
@@ -849,12 +1015,18 @@ data".
 
 所有数值都是模型预测或规则判定，不是实测值；域外预测不可靠；结构警示只是提示需要进一步查看，并非定论（许多天然产物，尤其是黄酮和儿茶酚类，都会命中 PAINS 规则）。因此候选 Skill `predict-admet` 不提出任何结论，只输出这些结果，用于排序筛选、指导实验。
 
-**网络药理学**（`bioagent research "<问题>" --formula <方剂> …`；Studio 任务 `research.run`，核心工具 `network_pharmacology_run`）：在经台账核验的数据快照上运行闭环研究：冻结方案、检索、以隔离的 PSH 工具调用执行分析、预注册反驳、经审计链证明后发布。`--formula` 单独指定所研究的方剂（名称、带出处的名称或 ID）；问题文本若写的是另一个方剂，运行被拒绝。它不同于种子技能 `analyze-tcm-network-pharmacology`：后者是**有限种子语料网络假说分析**，只读取策展种子语料，不覆盖任何数据库，没有实测活性，也不做置换检验。
+适用域检索（上文的最大 Tanimoto）已在 `uint64` 视图上用 `np.bitwise_count` 重写，并分块使临时数组很小：在本机（numpy 2.4.6）用随机的 2048 位指纹测得：1,000 个查询对 10,504 个参考（cyp2d6_veith 训练集的规模）原生约 0.43 秒（旧代码按 64 分块约 15.0 秒，按其默认的 512 分块更达 35 秒、峰值 6.7 GB），在 Node 下的 Pyodide 314.0.7 中约 0.7 秒，而旧的默认分块在那里会抛出 `ValueError: array is too big`；输出不变（最近训练分子，平局按最小下标，与 numpy 的 `argmax` 一致）。
+
+**浏览器中**（[BROWSER_JOBS.md §3.2](../studio/docs/BROWSER_JOBS.md#32-admet)）：在 Studio 中，ADMET 也作为浏览器任务运行，无需 Runner——`admet.models` 构建 22 个终点模型，`pipeline.admet` 用它们预测。它们就是 `bioagent.admet` 本身，经由引擎接缝（`bioagent.admet.engine`）：原生默认的 `RDKitEngine` 封装 `chem.standardize`/`featurize`/`bits`/`descriptors` 与 `rules.alerts`，接缝不改变原生输出（小归档前后对比逐字节一致；`run.json` 与模型卡新增 `chemistry`、`refused`、`dropped_unstandardisable`）。浏览器中 Pyodide 有 scikit-learn 1.8.0 但没有 RDKit，故页面自己用 RDKit.js 2026.9.1（`registry/scientific_environments.json` 锁定的版本）加 bioagent 对标准化、计数指纹、所缺描述符与 FilterCatalog 结构警示的移植（在一致性语料上与原生 RDKit 对齐）算出化学，写出预备特征与位，由 `PrecomputedEngine` 读回；模型在浏览器中由 TDC 归档（经本站中转或作为项目文件给出；CI 中作为项目文件给出，尚未在浏览器中经本站中转下载过）训练并保存在本源私有存储中，不随代码分发，模型卡注明其化学来源。浏览器会**拒绝**（绝不近似）它无法像原生 RDKit 那样精确标准化的分子——需要 MetalDisconnector、Reionizer 或 Uncharger 规范原子排序、某条 Normalizer 变换的产物无法被 RDKit 消毒（原生 RDKit 带着未消毒的分子继续）、含配位键或零键、或原子数超过 400 的分子，或 RDKit.js 在其上抛出异常的分子（化学随后换用新的模块继续）——并指出所在步骤；构建时这样的训练分子被剔除并计入模型卡（`dropped_unstandardisable`），预测时该分子如实报告为被拒绝、由 Runner 读取。SDF 或 `.mol` 文件（RDKit 的 SDMolSupplier 未移植）与每次超过 20,000 个分子也需要 Runner。适用域检索在本设备的 WebAssembly SIMD 内核上运行，仅当本设备自身的检查测得实体适配器既精确又更快时才用 GPU，且 Python 在使用前核验其结果。与原生命令（RDKit 2026.9.1、scikit-learn 1.8.0、单线程）在无头 Chromium 中比对，在已知答案归档与 TDC 规模的合成归档上，适用域文件与 `admet.tsv` 都是原生运行的字节，模型卡除模型文件摘要、秒数与化学名称外与原生一致，每个预测在全精度下一致，只有经过 `expit` 或 `10 **` 的值可能在 float64 末位相差几个单位（C 库的 `exp`，或 numpy 自带的 AVX-512 幂运算）。以上在本地测试；已知答案归档上的比对也已在 Studio 的 CI（`studio` #95，2026-10-20）中通过。
+
+在真实 TDC 归档上，同样的比对已在 GitHub 运行器上的无头 Chromium 中通过：`live-data` #24（运行 39386727431，提交 0882e95，2026-10-20）。归档（1,472,501 字节，按锁定的 SHA-256 校验；22 个终点，各划分合计 81,809 个分子）由原生代码从 Harvard Dataverse 下载，作为项目文件交给页面。浏览器的化学步骤拒绝了 81,809 个分子中的 202 个（0.25%，150 个不同的 SMILES；这 202 个按步骤为：Reionizer 96 个、MetalDisconnector 83 个、Uncharger 规范原子排序 18 个、Normalizer 产物无法消毒 5 个），原生模型训练时同样不用它们；22 张模型卡除两个文件摘要、秒数与化学名称外与原生一致，22 个适用域文件是原生运行的字节。16,353 个测试集预测中，模型原始输出与适用域检索全部一致，36 个经 `10 **` 或 `expit` 的最终预测在 float64 末位相差 1 个单位。`pipeline.admet` 用这些模型处理 39 个分子的集合：拒绝了预期的 9 个，各在其对应的步骤；1 个未读入，与原生相同；对保留的 29 个分子，写出的 `admet.tsv` 是原生运行的字节。适用域检索尚未在实体 GPU 上运行，本机与 CI 都没有（该次运行中强制 GPU 的重跑用的是 SwiftShader 软件适配器，不是 GPU 的证据），故 P3 的验收标准（在实体 GPU 上经验证的执行与实测性能，见 [BROWSER_COMPUTE.md §6.1](../studio/docs/BROWSER_COMPUTE.md#61-the-science-kernels-and-the-device-check-p3)）尚未满足。
+
+**网络药理学**（`bioagent research "<问题>" --formula <方剂> …`；Studio 任务 `research.run`，核心工具 `network_pharmacology_run`）：在经台账核验的数据快照上运行闭环研究：冻结方案、检索、以隔离的 PSH 工具调用执行分析、预注册反驳、经审计链证明后发布。在 Studio 中它也能作为浏览器任务在任务工作线程里运行，无需 Runner：此时分析经同一个 PSH 代理在进程内执行（Worker 不能启动子进程），产物记录 `isolation: "in_process"`（[studio/docs/BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)）。`--formula` 单独指定所研究的方剂（名称、带出处的名称或 ID）；问题文本若写的是另一个方剂，运行被拒绝。它不同于种子技能 `analyze-tcm-network-pharmacology`：后者是**有限种子语料网络假说分析**，只读取策展种子语料，不覆盖任何数据库，没有实测活性，也不做置换检验。
 - 十六个工作流阶段（`bioagent.research.workflow`）逐一记录：状态（PASS、FAIL、BLOCKED、UNVERIFIED、SKIPPED、NOT_APPLICABLE）、原因、计数与复现命令。依次为：方剂身份、药材组成与基原物种、药材到化合物、结构身份与去重（按来源提供的标准 InChIKey，共享连接块的不同键只报告、不合并；快照不含结构，因此未做重新标准化，该阶段恒为 UNVERIFIED）、化合物到实测靶点、实测与预测分离、疾病基因、交集、PPI 网络、通路注释（Reactome；GO 因未登记 GO 快照而 SKIPPED；KEGG 因需要许可而 BLOCKED）、显式背景下的富集、覆盖全部检验通路的 BH 校正、度匹配置换与敏感性、拓扑（仅描述）、有界解释、可复现导出。
 - 被方案丢弃的数据源会使读取它的每个阶段为 UNVERIFIED 并附上偏离记录；技能合同请求、但本次运行拒绝的数据源（如 `--allow-source` 未列入）由读取它的每个阶段注明，并在 `limitations.md` 中占一行。未读到数据的阶段绝不会是 PASS，空结果也绝不会是 PASS（读到 STRING 但背景中没有实测靶点时，PPI 与拓扑阶段为 UNVERIFIED：无法构建网络，不是“无相互作用”的证据），缺失的数据集也绝不当作阴性证据。未指定疾病时，疾病阶段为 NOT_APPLICABLE；Open Targets 快照被拒绝时为 SKIPPED。在 `stages.json` 中，无可检验对象的阶段记为 `not_applicable`，因此“什么都无法检验”的运行不是 `complete`；检验了通路但无一显著的运行是完整的。
 - 九个导出文件：`compounds.tsv`、`targets.tsv`、`disease_targets.tsv`、`enrichment.tsv`、`network.tsv`（STRING 阈值以上的边列表，而非枢纽列表）、`provenance.json`（每条边追溯到快照记录）、`limitations.md`、`report.html` 与最后写出的 `run_manifest.json`（`tcmscience.run-manifest/1`：十六个阶段、每个输出的 SHA-256 与大小、快照 ID、参数、种子、代码摘要、方案摘要、复现命令，以及只记录本次执行身份的 `execution` 块，即审计链头与 `artifact.json` 摘要）。导出不含时间戳，两次全新运行字节相同；空表只写表头。
 - 复核：`python -m bioagent.analysis.np_exports verify RUN --snapshots DIR --ledger FILE` 复核清单摘要，并从表格自身各列重算每个 p 值与 q 值，再在清单所列快照上重跑分析，表格须逐字节一致。`verify` 全部通过时退出 0，有检查与运行相矛盾时退出 1，无矛盾但有检查无法进行（未给快照，或富集表为空、无可重算）时退出 3。任一阶段自身检查为 FAIL 时，`bioagent research` 退出 3。Studio 的 `research.run` 在退出码 0 与 1 时都要求这九个文件，退出码 3 使任务失败；其校验器重读清单中的每个摘要（不经符号链接，只读普通文件），运行后被改动的表格、或清单中列为 FAIL 的阶段，都会使任务检查失败。
-- 测试在植入世界（`bioagent.research.planted`）与测试夹具上运行，它们是夹具，不是数据。`live-data` CI 工作流中已定义真实数据用例：在 GitHub 运行器上下载真实的 NPASS、CMAUP、LOTUS、STRING 与 Reactome 文件，对葛根芩连汤运行研究任务，上传九个导出并执行 `verify`。但这一步从未执行过：加入之后的 `live-data` 运行都没有分配到运行器（见 [validation.md](validation.md)）。
+- 测试在植入世界（`bioagent.research.planted`）与测试夹具上运行，它们是夹具，不是数据。`live-data` CI 工作流中的真实数据用例：在 GitHub 运行器上下载真实的 NPASS、CMAUP、LOTUS、STRING 与 Reactome 文件，对葛根芩连汤运行研究任务，上传九个导出并执行 `verify`。这一步已在 `live-data` #16 与 #17（2026-10-19）中通过。它检查退出码、九个导出文件存在且非空，以及 `verify` 退出 0；它不断言任何计数或通路（见 [validation.md](validation.md#not-verified-here-and-why)）。
 - 空结果会说明属于哪一种：「在这些快照中未找到 N 个成分的任何实测靶点，因此无法检验富集；这是空结果，不是无活性的证据」，或「已检验通路，但没有通路同时通过 BH 与置换检验」——这是缺乏富集证据，而不是任何通路无关的证据。被发布的结论只能是 `mechanism_hypothesis`（机制假说）；适应证重叠与拓扑只作描述，不构成结论。
 
 **运行记录：阶段、完整性与局限。** 每个流程在运行中逐阶段记录（`bioagent.runrecord`）。每个阶段记录以下字段：
@@ -873,11 +1045,11 @@ data".
 - **RNA-seq：** 在合并多泳道文件、质控和修剪之前先校验参考（转录本 ID 唯一、注释能对上；hisat2 时 GTF 序列名都在基因组中），再逐条校验全部 FASTQ 记录（而不只是质控抽样的前 20 万条），包括双端配对的读段名。
 - **设备按实际记录：** 内置、Scanpy、Vina 和命令行工具都在 CPU 上。scVI 按设计在 CPU 上训练。本地 ESMFold 记录参数所在设备，它只通过 CUDA 使用 GPU，分配到 MPS 时实际在 CPU 上运行，并如实记录。ESM Atlas 记为远程。ColabFold 按其日志记录 `gpu` 或 `cpu`；`gpu` 只用于 ColabFold，因为其日志只说用了 GPU、不说是哪一块，并附说明：设备是日志报告的，不是本地观察到的。
 - **结构预测检查点：** 本地 ESMFold 记录模型 ID、版本和权重本身的 SHA-256（同一进程中每个版本只计算一次），CUDA 上的峰值显存只写入 `run.json`、不写入 `summary.json`；ColabFold 记录版本与 `config.json` 摘要，AlphaFold2 参数本身未做摘要，因此其检查点记为「不可验证」（`verifiable: false`，`scope: config_only`）；只有对权重本身做了摘要的检查点才算可验证；ESM Atlas 的权重无法从本地观察，记为「不可验证」，不声称任何摘要。任何方法得到的模型，序列都必须与输入一致；检索到的结构只用于比较，绝不替代预测。
-- **对接构象检查：** 坐标有限、重原子都在对接盒内、配体与受体重原子间距不小于 2.2 Å。这只是合理性检查，不是 PoseBusters，也不验证结合。`tests/test_docking.py` 用 RDKit、meeko 和 Vina 的替身测试各阶段与检查（测试中已注明），真实的 Vina 运行在 CI 的分子建模任务中。`dock-ligands` Skill 只在运行完整时提出假说，且只针对最优构象通过这些检查的配体。
+- **对接构象检查：** 坐标有限、重原子都在对接盒内、配体与受体重原子间距不小于 2.2 Å。这只是合理性检查，不是 PoseBusters，也不验证结合。`tests/test_docking.py` 用 RDKit、meeko 和 Vina 的替身测试各阶段与检查（测试中已注明），真实的 Vina 运行在 CI 的分子建模任务中，该任务连同这些检查在 `ci` #317（2026-10-19）中通过。`dock-ligands` Skill 只在运行完整时提出假说，且只针对最优构象通过这些检查的配体。
 - **ADMET：** 每个终点记录完整的模型身份：模型和归档的摘要、训练集、指标、适用域阈值与摘要、库版本。缺少模型时，模型与预测阶段为「不可用」，运行不完整。
 
-**参考数据集**（`bioagent/data/pipeline_references.json`，版本 2026.10.1）：每个流程一份，记录内容摘要、参数和预期结果。
-- RNA-seq 与单细胞的参考是**模拟数据（已知答案）**，不是公开数据，在本机重跑核对；在其上的运行会在 `limitations.md` 中注明。
+**参考数据集**（`bioagent/data/pipeline_references.json`，版本 2026.10.2）：每个流程一份（RNA-seq 每种模式各一份），记录内容摘要、参数和预期结果。
+- RNA-seq（`omics_world` v1；计数矩阵模式为 `omics_counts_world` v1：2,000 个基因 × 6 个样本，上调、下调各预设 40 个四倍差异基因，要求每个方向至少找到 38 个、方向错误 0 个、假发现至多 15 个、检验 1,999 个基因）与单细胞的参考是**模拟数据（已知答案）**，不是公开数据，在本机重跑核对；在其上的运行会在 `limitations.md` 中注明。
 - 结构参考为 PDB 1UBQ 与存档的 ESMFold 模型，离线核对。
-- 对接参考（3PTB）需要 Vina，在 CI 中核对。
+- 对接参考（3PTB）需要 Vina，在 CI 的分子建模任务中核对，在 `ci` #317（2026-10-19）中通过。
 - ADMET 参考需要 TDC 归档，仅在提供归档时核对。

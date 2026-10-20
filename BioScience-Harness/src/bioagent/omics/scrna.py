@@ -146,14 +146,20 @@ def read_sheet(path: str | Path) -> list[dict[str, str]]:
     text = p.read_text(encoding="utf-8-sig")
     first = text.splitlines()[0] if text.strip() else ""
     dialect = "excel-tab" if first.count("\t") > first.count(",") else "excel"
-    rows = [{k.strip(): (v or "").strip() for k, v in r.items() if k}
-            for r in csv.DictReader(text.splitlines(), dialect=dialect)]
+    reader = csv.DictReader(text.splitlines(), dialect=dialect)
+    rows, lines = [], []
+    for r in reader:
+        rows.append({k.strip(): (v or "").strip() for k, v in r.items() if k})
+        lines.append(reader.line_num)
     if not rows or "sample" not in rows[0] or "path" not in rows[0]:
         raise ScError(f"{p} needs 'sample' and 'path' columns")
     names = [r["sample"] for r in rows]
     if len(set(names)) != len(names):
         raise ScError(f"{p} names a sample twice")
-    for r in rows:
+    for line, r in zip(lines, rows):
+        if not r["path"]:
+            # an empty cell would name the sheet's own directory
+            raise ScError(f"line {line} of {p} names no path")
         q = Path(r["path"])
         q = q if q.is_absolute() else p.parent / q
         if not q.exists():
@@ -356,6 +362,9 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
     if integration.get("reached_iteration_limit"):
         warnings.append(f"harmonypy stopped at its limit of {integration['iterations']} "
                         "rounds; it may not have converged")
+    start = _layout_start(an.record)
+    if start.startswith("random"):
+        warnings.append(f"the UMAP layout started from random positions: {start[8:]}")
     if batch_values is not None:
         integration["mixing_before"] = _mixing(an.pcs, batch_values)
         integration["mixing_after"] = _mixing(an.embedding, batch_values)
@@ -443,7 +452,10 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
 
 
 def _is_sheet(path: Path) -> bool:
-    first = path.read_text(encoding="utf-8-sig").split("\n", 1)[0].lower()
+    """Whether ``path`` is a sample sheet (``sample`` and ``path`` columns), from its first
+    line alone: a count table is not read in full to tell."""
+    with path.open(encoding="utf-8-sig") as fh:
+        first = fh.readline().lower()
     cells = [c.strip() for c in first.replace("\t", ",").split(",")]
     return "sample" in cells and "path" in cells
 
@@ -503,8 +515,20 @@ def _tsv(path: Path, header: Sequence[str], rows: Sequence[Sequence[Any]]) -> No
                                                        else str(v)) for v in r) + "\n")
 
 
+def _layout_start(record: Mapping[str, Any]) -> str:
+    """How the built-in UMAP layout started (``sc.umap``), or '' when the record does not
+    say (the Scanpy backend's umap-learn does not report it)."""
+    return str((record.get("layout") or {}).get("start") or "")
+
+
 def _limitations(run: ScRun, config: ScConfig, rec: StageRecorder) -> list[str]:
     lines = list(LIMITATIONS)
+    start = _layout_start(run.analysis)
+    if start.startswith("random"):
+        lines.append(f"The UMAP layout started from random positions: {start[8:]}. Only "
+                     "the UMAP coordinates (cells.tsv umap_1, umap_2) and the UMAP and PAGA "
+                     "figures depend on the start; the clusters and every other table do "
+                     "not.")
     if config.doublets != "off":
         lines.append("Scrublet scores cells in a continuous transition between two types as "
                      "it scores doublets, so a real intermediate state can be called a "

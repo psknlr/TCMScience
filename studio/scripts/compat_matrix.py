@@ -12,6 +12,8 @@ specific class its code and dependencies support, never in one it has not been s
   1  runs in the browser now, unchanged (Pyodide: CPython compiled to WebAssembly, CPU)
   1g runs in the browser now; its data comes from the source's public API through the site's
      bounded gateway (the request, parsing and policy run locally; the data is remote by nature)
+  1j runs in the browser now as a job: the same Python in the page's job workers (Pyodide, CPU),
+     its files in the site's private storage (OPFS), followed and cancelled like a runner job
   2  converted: a JavaScript CPU kernel computes the hot loop, byte-identical to Python (checked)
   3  WebGPU and WebAssembly SIMD: exact integer reductions on the GPU or with SIMD on the CPU,
      with recounts in Python (and the JavaScript kernel, then Python, as the fallbacks)
@@ -39,9 +41,16 @@ for src in (STUDIO / "runner" / "src", REPO / "BioScience-Harness" / "src", REPO
     if src.is_dir() and str(src) not in sys.path:
         sys.path.insert(0, str(src))
 
+from tcmstudio.browser_jobs import ADMET_MOLECULES_MAX  # noqa: E402
+
+# what a browser ADMET run takes, measured in Pyodide 314.0.7 under Node (tcmstudio.browser_jobs)
+ADMET_MEASURED = ("1,000 molecules 224 MB, 10,000 625 MB, 20,000 1.0 GB at the WebAssembly memory's peak, 23 s "
+                  "for 20,000 with the page's domain search and 113 s when Python recomputes it")
+
 CLASS_LABELS = {
     "1": "browser now (Pyodide, CPU)",
     "1g": "browser now; data via the gateway",
+    "1j": "browser now, as a job (job workers + private storage)",
     "2": "browser: JavaScript CPU kernel",
     "3": "browser: WebGPU / WASM SIMD (exact) + CPU kernel",
     "4": "WebNN candidate",
@@ -92,27 +101,74 @@ PYODIDE_NOTES = {
 }
 # job and skill details: what blocks the browser, with the Pyodide 314 lockfile in mind
 RUNNER_REASONS = {
-    "job.pipeline.rnaseq": ("7", "salmon / kallisto / hisat2 / fastp are native binaries; the builtin engine is "
-                                 "numpy/scipy (in Pyodide) but a transcriptome index needs GBs of memory"),
-    "job.pipeline.scrna": ("6", "the builtin backend is numpy/scipy (in Pyodide) and could run small datasets; "
-                                "scanpy, harmony and scvi (torch) are not in Pyodide; files and hours-long runs need a job model"),
     "job.pipeline.fold": ("7", "ESMFold needs torch + transformers (not in Pyodide) and a GPU; ESM Atlas / ColabFold are "
                                "remote services (allow_remote)"),
     "job.pipeline.dock": ("7", "AutoDock Vina, meeko, gemmi and rdkit are native and not in Pyodide"),
-    "job.pipeline.admet": ("7", "rdkit is not in Pyodide (scikit-learn is)"),
-    "job.research.run": ("6", "pyarrow is in Pyodide 314; the blocker is the data lake snapshot ledger and a long job"),
     "job.skill.run": ("8", "runs a governed skill as a subprocess job"),
     "job.tcmdb.fetch": ("8", "downloads full third-party databases to disk"),
     "job.tcmdb.build": ("8", "builds SQLite stores from those downloads"),
     "skill.retrieve-literature-evidence": ("7", "PaperQA2 and its model calls are not a browser package"),
     "skill.dock-ligands": ("7", "the docking engines above"),
-    "skill.predict-admet": ("7", "rdkit"),
+    "skill.predict-admet": ("7", "rdkit, as a governed skill on the runner; the same pipeline runs in the browser as "
+                                 "job.pipeline.admet, its chemistry in RDKit.js"),
     "skill.predict-protein-structure": ("7", "torch / transformers and a GPU, or a remote structure service"),
-    "skill.rnaseq-differential-expression": ("7", "the RNA-seq pipeline above"),
-    "skill.scrna-cell-atlas": ("6", "the single-cell pipeline above"),
+    "skill.rnaseq-differential-expression": ("7", "the RNA-seq pipeline from FASTQ (salmon / kallisto / hisat2 / "
+                                                  "fastp are native binaries; a transcriptome index needs GBs of "
+                                                  "memory); the count-matrix mode runs as job.pipeline.rnaseq in the "
+                                                  "browser"),
+    "skill.scrna-cell-atlas": ("6", "the single-cell pipeline as a governed skill, a skill.run job on the runner; its "
+                                    "built-in analysis of count tables runs as job.pipeline.scrna in the browser"),
     "system.provider_call": ("8", "ToolUniverse / BioMCP run as local MCP processes"),
-    "system.job_status": ("8", "follows runner jobs"),
     "system.doctor": ("8", "inspects the runner's Python environment"),
+}
+# What a browser job reads and writes (classified by entry.execution.browser_job, from tcmstudio.catalog)
+BROWSER_JOB_NOTES = {
+    "job.research.snapshot": "17 raw files (418 MB) downloaded, relayed or imported into OPFS, read in place by Python "
+                             "through synchronous access handles; integrity, parse, gold check and ledger as on the "
+                             "runner",
+    "job.research.run": "the sixteen-stage workflow and nine exports over the snapshots in OPFS; the governed analysis "
+                        "runs in-process through the PSH broker (a worker cannot start processes) and the artifact "
+                        "says so",
+    "job.pipeline.rnaseq": "the count-matrix mode (a count table and a sample table from the project's files, copied "
+                           "into OPFS): the built-in DESeq2 implementation, VST, PCA and the report, as on the runner; "
+                           "FASTQ (QC, trimming, quantification) and PyDESeq2 need the runner, and so does a matrix "
+                           "of more than 10,000,000 genes x samples (100,000 genes and 200 samples at most; wasm32, "
+                           "4 GB); on two simulated references the numbers matched the native run's within a stated "
+                           "tolerance, and a person's own run is compared with nothing",
+    "job.pipeline.scrna": "count tables (CSV/TSV, gzipped or not) or a sheet of them from the project's files: QC, "
+                          "doublets, built-in Harmony, Leiden, UMAP, markers, annotation, pseudobulk, as on the runner; "
+                          "Scanpy, scVI, 10x HDF5 and .h5ad need the runner, and so do more than 6,000 cells, or a "
+                          "table of more than 66,000,000 cells x genes (a browser worker holds no more: wasm32, "
+                          "4 GB); the UMAP layout amplifies last-digit "
+                          "differences and is not compared with the native run's",
+    "job.admet.models": "the TDC ADMET group archive, through the site's dataset relay or from the project's files, "
+                        "held to its SHA-256: each endpoint's two splits prepared by RDKit.js 2026.9.1 with exact "
+                        "ports of the rest of RDKit's chemistry, then trained with Pyodide's scikit-learn 1.8.0 as on "
+                        "the runner, one endpoint at a time (resumable); the models stay in this browser's private "
+                        "storage and nothing trained is shipped; a training molecule RDKit.js refuses is left out and "
+                        "counted on the card (dropped_unstandardisable), so a model built here can differ from the "
+                        "runner's; compared with native RDKit 2026.9.1 and scikit-learn 1.8.0 in headless Chromium "
+                        "(studio/web/test/runtime/science.mjs --mode admet), the cards (but for the model file's "
+                        "digest, seconds and chemistry) and the domain files were the native run's on a small "
+                        "known-answer archive (locally and in Studio's CI), a synthetic one at the TDC sizes "
+                        "(locally) and the real archive, given as a project file (live-data #24, 2026-10-20: all 22 "
+                        "models, 202 of 81,809 molecules refused and left out of the native run too); a download "
+                        "through the relay in a browser has not been run",
+    "job.pipeline.admet": "a CSV/TSV/.smi file from the project's files or one SMILES: standardisation, descriptors, "
+                          "fingerprints and alerts by RDKit.js 2026.9.1 with exact ports (a molecule that needs a step "
+                          "they lack is refused, named and left for the runner), the applicability-domain search by the "
+                          "WASM SIMD kernel (WebGPU only on a physical adapter this device's own check measured exact "
+                          "and faster), re-checked in Python, and the models built here (job.admet.models), as on the "
+                          "runner; "
+                          f"SDF and .mol need the runner, and so do more than {ADMET_MOLECULES_MAX:,} molecules "
+                          f"(measured in Pyodide under Node: {ADMET_MEASURED}); compared with native RDKit 2026.9.1 "
+                          "in headless Chromium, admet.tsv was the native run's bytes and the predictions exact at "
+                          "full precision apart from values through expit/10** (a few last-bit units, named); locally, "
+                          "in Studio's CI and with the real archive's 22 models on a 39-molecule set (live-data #24, "
+                          "2026-10-20)",
+}
+PYODIDE_NOTES_JOBS = {
+    "system.job_status": "the page answers its own jobs (ids bj-…); a runner job's status needs the runner",
 }
 WEBNN_NOTE = ("No model ships with the site; a packaged ONNX model (embeddings for TCM terms, a text classifier) "
               "could run here through ONNX Runtime Web's WebNN, WebGPU or WASM providers")
@@ -140,6 +196,12 @@ def classify(e: dict) -> tuple[str, str, str, str, str]:
                     checked, GPU.get(eid) or kernel.get("workload", ""))
         return ("2", "js kernel → pyodide", "the original Python", checked,
                 KERNEL.get(eid) or kernel.get("workload", ""))
+    job = (e.get("execution") or {}).get("browser_job")
+    if job and "browser" in exec_:
+        packages = ", ".join(job.get("pyodide_packages") or [])
+        return ("1j", f"pyodide job workers ({packages}) + OPFS → the runner's job service",
+                "the runner, when the browser has no private storage or the user prefers it", checked,
+                BROWSER_JOB_NOTES.get(eid, ""))
     if eid in RUNNER_REASONS:
         cls, why = RUNNER_REASONS[eid]
         return (cls, "runner (native CPython" + (", GPU" if e.get("gpu") else "") + ")",
@@ -154,10 +216,12 @@ def classify(e: dict) -> tuple[str, str, str, str, str]:
         return ("5", "pyodide", "—", checked, WASM_CANDIDATES[eid])
     pk = e.get("pyodide_packages") or []
     note = f"loads {', '.join(pk)} on demand" if pk else ""
-    return ("1", "pyodide", "—", checked, PYODIDE_NOTES.get(eid) or note)
+    return ("1", "pyodide", "—", checked, PYODIDE_NOTES.get(eid) or PYODIDE_NOTES_JOBS.get(eid) or note)
 
 
 def mobile(cls: str, e: dict) -> str:
+    if cls == "1j":
+        return "not yet: a phone's browser storage and memory are not measured for these jobs"
     if cls in ("1", "1g", "2", "3", "5"):
         extra = " + numpy/scipy on demand" if e.get("pyodide_packages") else ""
         return f"yes: phone CPU (Pyodide ~11 MB once{extra})"
@@ -240,13 +304,53 @@ FAMILIES = [
      "through the deployed gateway)", "—"),
     ("Text embeddings, classification, reranking (none exist yet)", "—", "4", "20–120 MB models",
      "small models", "not started: no model is packaged", "P2: one ONNX embedding model, WebNN → WebGPU → WASM"),
-    ("Single-cell and research loop", "job.pipeline.scrna, job.research.run", "6",
-     "100 MB–GBs; hours; the research loop's seeded degree-matched permutation null (1000 per pathway) and "
-     "Brandes betweenness", "no", "runner",
-     "small-dataset browser mode (P3); a browser port of the permutation null must draw exactly what "
-     "Python's MT19937 draws (research code, outside the skill pins) (P2)"),
-    ("RNA-seq quantification, docking, ADMET, structure prediction", "job.pipeline.rnaseq/dock/admet/fold", "7",
-     "GBs; native binaries; GPU", "no", "runner (CPU/GPU)", "remote HPC worker for heavy cases"),
+    ("Research snapshots and the research loop", "job.research.snapshot, job.research.run", "1j",
+     "418 MB of raw files in OPFS (read in place); snapshots of a few MB; minutes of CPU per build",
+     "not yet measured",
+     "browser jobs running the same Python as the runner (the permutation null is CPython's own MT19937 in "
+     "WebAssembly, so it draws exactly what the runner draws); on the planted world the five tables are "
+     "compared byte for byte with the native answer (studio/e2e/science.spec.mjs); on the real 葛根芩连汤 files "
+     "every export was the native run's bytes in live-data #18, #19 and #21 (2026-10-19), a comparison repeated on every "
+     "live-data run",
+     "parallel per-source snapshot builds across job workers"),
+    ("RNA-seq from a count matrix; single-cell from count tables", "job.pipeline.rnaseq (counts), job.pipeline.scrna",
+     "1j", "a count matrix of KB to MB (2,000 genes x 6 samples: under a second natively); count tables of MB (1,356 "
+     "cells: seconds natively); tens of thousands of cells need GBs, so a browser job refuses more than 6,000 cells, a "
+     "table of more than 66,000,000 cells x genes, or more than 10,000,000 genes x samples, for the runner (wasm32 caps "
+     "a worker near 4 GB; measured in Pyodide under Node, not in a browser tab: 5,424 cells of 33,000 genes in four "
+     "tables 1.9 GB, 10 M counts 1.8-2.0 GB)", "not yet measured",
+     "browser jobs running the same Python as the runner with Pyodide's numpy and scipy (the built-in DESeq2 "
+     "implementation; the built-in single-cell analysis and Harmony); compared output by output with the native "
+     "command on omics_counts_world v1 and sc_world v1 (studio/web/test/runtime/science.mjs --mode omics): identical, "
+     "within a stated tolerance (at most 0.133 of it) or, for the UMAP layout and figures, not compared; the genes "
+     "called, each cell's cluster and cell type identical; passed in headless Chromium locally and in Studio's CI (studio #91, 2026-10-19); "
+     "a person's own run is compared with nothing",
+     "PyDESeq2, Scanpy, scVI, 10x HDF5 and .h5ad stay on the runner"),
+    ("Single-cell as a governed skill", "skill.scrna-cell-atlas", "6", "100 MB–GBs; hours", "no",
+     "runner (a skill.run job); on count tables job.pipeline.scrna runs the same pipeline in the browser", "—"),
+    ("ADMET from structure: the model build and the predictions", "job.admet.models, job.pipeline.admet", "1j",
+     f"a run of 20,000 molecules against the 22 models: 1.0 GB and 23 s in Pyodide under Node, so a browser job takes "
+     f"at most {ADMET_MOLECULES_MAX:,}; a model build: the archive's 22 endpoints, up to 13,130 molecules each, "
+     "trained one at a time (the largest at its size: 877 MB and 28 s in Pyodide under Node; all 22 as a browser job "
+     "on GitHub's runner in live-data #24: 1,000 s, the worker's WebAssembly memory at most 964 MiB)",
+     "not yet measured",
+     "browser jobs running bioagent's ADMET pipeline and model build in Pyodide (scikit-learn 1.8.0) with the "
+     "chemistry in RDKit.js 2026.9.1 and exact ports (a molecule they cannot standardise exactly is refused, named "
+     "and counted, never approximated) and the applicability-domain search on the WASM SIMD kernel (WebGPU only where "
+     "this device's own check measured a physical adapter exact and faster), re-checked in Python; compared with "
+     "native RDKit 2026.9.1 and scikit-learn 1.8.0 at one thread in headless Chromium 141 with Pyodide 314.0.7 "
+     "(studio/web/test/runtime/science.mjs --mode admet), the domain files and admet.tsv were the native run's "
+     "bytes, the model cards the native ones but for the model file's digest, seconds and chemistry, and the "
+     "predictions exact at full precision apart from values through expit/10** (a few last-bit units of float64, "
+     "named); locally, on the known-answer archive in Studio's CI (studio #95) and on the real TDC archive, given as "
+     "a project file, in live-data #24 (2026-10-20: all 22 models, 202 of 81,809 molecules refused by the browser "
+     "chemistry and left out of the native run too, every raw model output and domain search on the 16,353 test "
+     "molecules identical)",
+     "SDF and .mol, and the governed skill, stay on the runner; the physical-GPU acceptance for the domain search is "
+     "open (no GPU here or in CI; the device check runs it on real hardware)"),
+    ("RNA-seq from FASTQ (quantification), docking, structure prediction",
+     "job.pipeline.rnaseq (FASTQ)/dock/fold", "7", "GBs; native binaries; GPU", "no", "runner (CPU/GPU)",
+     "remote HPC worker for heavy cases"),
     ("Jobs, MCP providers, environment checks", "job.*, system.provider_call, system.doctor", "8", "—", "no",
      "runner", "—"),
 ]
@@ -261,8 +365,9 @@ def summary(table: list[dict]) -> str:
     lines = ["# Browser compatibility matrix", "",
              "Generated by `studio/scripts/compat_matrix.py` from the tool catalog; one row per entry in "
              "[`matrix.csv`](matrix.csv). `--check` keeps it current (studio/runner/tests).", "",
-             f"Entries: {len(table)}. Running in the browser today (classes 1, 1g, 2, 3, 5): "
-             f"{sum(counts[c] for c in ('1', '1g', '2', '3', '5'))}; with a local kernel (2, 3): "
+             f"Entries: {len(table)}. Running in the browser today (classes 1, 1g, 1j, 2, 3, 5): "
+             f"{sum(counts[c] for c in ('1', '1g', '1j', '2', '3', '5'))}; as browser jobs (1j): {counts['1j']}; "
+             f"with a local kernel (2, 3): "
              f"{counts['2'] + counts['3']}; on the local runner only (6, 7, 8): {sum(counts[c] for c in ('6', '7', '8'))}.", "",
              f"Validation (the `validation` column) is each entry's committed verification record "
              f"(`entry.verification` in the catalog): {checked['a committed record']} entries have one, "

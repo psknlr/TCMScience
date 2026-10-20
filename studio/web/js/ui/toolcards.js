@@ -170,6 +170,8 @@ export function assuranceLabel(assurance) {
 export function deviceLabel(device) {
   const d = String(device || "").toLowerCase();
   if (!d) return "";
+  // a job whose stages computed on more than one ("cpu+webgpu": its Python on the CPU, a search on the GPU)
+  if (d.includes("+")) return d.split("+").map((x) => deviceLabel(x.trim())).filter(Boolean).join(" + ");
   if (d === "cpu") return "CPU";
   if (d === "mps") return "MPS";
   if (d === "webgpu") return "WebGPU";
@@ -448,7 +450,7 @@ export function permissionCard(request, { onDecide, decided = null, catalog } = 
 // ------------------------------------------------------------------------------------------------- jobs
 
 const JOB_STEPS = ["submitted", "running", "collected"];
-const ENDED = ["succeeded", "failed", "cancelled"];
+const ENDED = ["succeeded", "failed", "cancelled", "interrupted"];
 
 /** A job kind's name: the UI's own words, else the runner's title in this language, else the kind itself. */
 export function jobTitle(job) {
@@ -549,7 +551,7 @@ const STAGE_ICON = { succeeded: "check", failed: "x", skipped: "circleDashed", u
  * partial: [{path, bytes}] (the 'artefact' events), jobReceipt (the parsed out/job_receipt.json at its recorded digest,
  * or {changed: true}), fileHref(path)}.
  */
-export function jobCard(job, { files = null, onCancel, onOpenFile, logs = [], partial = [], jobReceipt = null, fileHref = null } = {}) {
+export function jobCard(job, { files = null, onCancel, onResume, onOpenFile, logs = [], partial = [], jobReceipt = null, fileHref = null } = {}) {
   const state = job?.state || "queued";
   const done = state === "succeeded";
   const ended = ENDED.includes(state);
@@ -558,11 +560,11 @@ export function jobCard(job, { files = null, onCancel, onOpenFile, logs = [], pa
     if (s === "submitted") return "done";
     if (s === "running") return state === "queued" ? "todo" : state === "running" ? (verifying ? "done" : "active") : job.started_at ? "done" : "skipped";
     if (state === "succeeded") return "done";
-    if (state === "failed" || state === "cancelled") return "stopped";
+    if (state === "failed" || state === "cancelled" || state === "interrupted") return "stopped";
     return verifying ? "active" : "todo";
   };
   const stepLabel = (s) => {
-    if (s === "collected" && (state === "failed" || state === "cancelled")) return glossary.verdictState(state, undefined, "job");
+    if (s === "collected" && (state === "failed" || state === "cancelled" || state === "interrupted")) return glossary.verdictState(state, undefined, "job");
     if (s === "collected" && verifying) return t("ui.job.step.verifying");
     if (s === "running" && state === "queued") return glossary.verdictState("queued", undefined, "job");
     return t(`ui.job.step.${s}`);
@@ -579,7 +581,7 @@ export function jobCard(job, { files = null, onCancel, onOpenFile, logs = [], pa
   const progress = state === "running" ? progressBlock(job.progress, { kind: job.kind }) : null;
   const pendingNote = !done ? h("p.job__pending", icon("hourglass", { size: 12 }), t(ended ? "ui.job.no_result" : "ui.job.pending_note")) : null;
   const outcome = job.outcome && typeof job.outcome === "object" ? job.outcome : null;
-  const err = state === "failed" && outcome ? h("div.tool-card__error", h("p", outcome.error || t("ui.job.failed")), outcome.problems?.length ? h("ul", outcome.problems.map((p) => h("li", typeof p === "string" ? p : JSON.stringify(p)))) : null) : null;
+  const err = (state === "failed" || state === "interrupted") && outcome?.error ? h("div.tool-card__error", h("p", outcome.error || t("ui.job.failed")), outcome.problems?.length ? h("ul", outcome.problems.map((p) => h("li", typeof p === "string" ? p : JSON.stringify(p)))) : null) : null;
 
   // device, runtime and resources: the device the runner assigned is a selection, never evidence that it computed
   const receiptDevice = jobReceipt?.device && typeof jobReceipt.device === "object" ? jobReceipt.device : null;
@@ -606,7 +608,7 @@ export function jobCard(job, { files = null, onCancel, onOpenFile, logs = [], pa
   // the pipeline's stages, as its own record says them
   const stages = Array.isArray(job.stages) && job.stages.length ? h("ol.job__stages", { role: "list", "aria-label": t("ui.job.stages") }, job.stages.filter((x) => x && x.name).map((x) => h("li", { class: ["job__stage-row", `is-${x.status || "unknown"}`] },
     icon(STAGE_ICON[x.status] || "circle", { size: 12 }),
-    h("span.job__stage-name", jobStageLabel(x.name)),
+    h("span.job__stage-name", x.title && typeof x.title === "object" ? (x.title[lang()] || x.title.en || jobStageLabel(x.name)) : jobStageLabel(x.name)),
     h("span.muted", [x.status ? t(`ui.job.stage_status.${x.status}`) !== `ui.job.stage_status.${x.status}` ? t(`ui.job.stage_status.${x.status}`) : x.status : null, x.required === false ? t("ui.job.optional") : null, x.check ? `${t("ui.job.check")} ${x.check}` : null, x.device ? deviceLabel(x.device) : null, Number.isFinite(x.seconds) ? formatDuration(x.seconds * 1000) : null].filter(Boolean).join(" · "))))) : null;
 
   // written so far, while it is not collected: names and sizes only (no open, no download, not a result)
@@ -642,8 +644,9 @@ export function jobCard(job, { files = null, onCancel, onOpenFile, logs = [], pa
       icon("workflow", { size: 16 }),
       h("div.job__title", h("p.job__kind", jobTitle(job)), h("p.job__id.mono.muted", job.id + (assigned ? ` · ${deviceLabel(assigned)}` : ""))),
       // finished is not released: a neutral ✓ (as a finished call), never the release verdict's jade
-      verdictPill({ tone: { queued: "slate", running: "navy", succeeded: "neutral", failed: "warning", cancelled: "slate" }[state], icon: { queued: "◷", running: "…", succeeded: "✓", failed: "!", cancelled: "■" }[state], label: verifying ? t("ui.job.verifying_pill") : glossary.verdictState(state, undefined, "job") }),
-      !ended && onCancel ? button({ label: t("ui.job.cancel"), size: "sm", variant: "ghost", icon: "circleStop", onClick: () => onCancel(job) }) : null),
+      verdictPill({ tone: { queued: "slate", running: "navy", succeeded: "neutral", failed: "warning", cancelled: "slate", interrupted: "ochre" }[state], icon: { queued: "◷", running: "…", succeeded: "✓", failed: "!", cancelled: "■", interrupted: "⏸" }[state], label: verifying ? t("ui.job.verifying_pill") : glossary.verdictState(state, undefined, "job") }),
+      !ended && onCancel ? button({ label: t("ui.job.cancel"), size: "sm", variant: "ghost", icon: "circleStop", onClick: () => onCancel(job) }) : null,
+      state === "interrupted" && onResume ? button({ label: t("ui.job.resume"), size: "sm", variant: "ghost", icon: "play", onClick: () => onResume(job) }) : null),
     timeline, progress, err, pendingNote, facts, stages, partialList, fileList, limitations, repro,
     logs.length ? disclosure({ summary: t("ui.job.logs", { n: logs.length }), content: () => h("pre.code-block", logs.slice(-200).join("\n")) }) : null);
 }

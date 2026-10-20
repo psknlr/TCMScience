@@ -23,7 +23,7 @@ from typing import Any, Callable, Collection, Iterable, Mapping, Sequence
 
 __all__ = ["IMPLEMENTATION", "READINESS", "OUTCOME", "NEEDS", "REASON_NEED", "STATE_OF_NEED",
            "MAX_REQUEST_BYTES", "requirement", "requirements", "readiness", "selected_engines",
-           "hosts_for", "datasets_for", "refusal_requirements", "audit"]
+           "runner_only", "hosts_for", "datasets_for", "refusal_requirements", "audit"]
 
 #: Implementation states. tested ⇔ some committed verification level is PASS; implemented ⇔
 #: the implementation reference resolves; deprecated only from an explicit mark.
@@ -63,6 +63,7 @@ _RUNNER = "the local runner (tcmstudio serve)"
 _BROWSER = "the browser runtime"
 _NETWORK = "web access for this project"
 _JOBS = "the runner's job service"
+_BROWSER_JOBS = "this browser's job service (job workers and the site's private file storage)"
 _INSTALL = "Install it (pip install …) on the runner machine; Studio never substitutes an approximation."
 _PYODIDE = ("The browser runtime loads the Pyodide packages an entry lists in pyodide_packages before "
             "calling it; or run it on the local runner.")
@@ -134,6 +135,29 @@ def selected_engines(entry: Mapping[str, Any], args: Mapping[str, Any] | None = 
     return out
 
 
+def runner_only(entry: Mapping[str, Any], args: Mapping[str, Any] | None) -> list[str]:
+    """Why a browser job would not run these arguments in the browser: the reasons of the
+    entry's ``execution.browser_job.runner_only`` rules that they meet (an argument
+    ``absent``, one that ``is`` a value, a file name with one of the ``suffix``-es). A
+    kind runs only part of itself in the browser (the count-matrix RNA-seq, the built-in
+    single-cell analysis); the rest of it needs the runner. Empty without arguments."""
+    if args is None:
+        return []
+    out = []
+    for rule in ((entry.get("execution") or {}).get("browser_job") or {}).get("runner_only") or ():
+        value = args.get(rule.get("arg", ""))
+        if "absent" in rule:
+            met = value in (None, "")
+        elif "is" in rule:
+            met = value == rule["is"]
+        else:
+            met = isinstance(value, str) and value.strip().lower().endswith(
+                tuple(str(x).lower() for x in rule.get("suffix") or ()))
+        if met:
+            out.append(str(rule.get("why") or f"{rule.get('arg')} needs the runner"))
+    return out
+
+
 def _dataset_access(key: str) -> str:
     try:
         from bioagent.tcmdb import DATASETS
@@ -195,18 +219,31 @@ def _classify(items: Iterable[str], remedy: str = _JOB_SERVICE
 def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, jobs: bool = True,
                  built: Collection[str] | None = None, args: Mapping[str, Any] | None = None,
                  probe: Probe | None = None, kind_missing: Sequence[str] | None = None,
-                 request_bytes: int | None = None) -> list[tuple[str, dict[str, Any]]]:
+                 request_bytes: int | None = None,
+                 browser_jobs: bool | None = None,
+                 browser_snapshots: bool | None = None,
+                 browser_admet_models: Sequence[str] | None = None
+                 ) -> list[tuple[str, dict[str, Any]]]:
     """Every requirement this entry lacks in ``where``, each with its reason code, in the
     order catalog_search has always named them (runtime, install, web access, job service;
     engines, the request size and datasets in between).
 
-    ``args``: the call's arguments (engines, ``network_if``, ``data_from`` and ``hosts_by``
-    follow them); None asks about the entry as such. ``probe``: asks whether a dependency is
+    ``args``: the call's arguments (engines, ``network_if``, ``network_unless``, ``data_from``
+    and ``hosts_by`` follow them); None asks about the entry as such. ``probe``: asks whether a dependency is
     installed here (the runner's packages; the browser's loaded Pyodide packages and the
     chosen engines are checked only with it); without it, what the catalog's own probe found
     (``available``/``missing``) counts. ``built``: the dataset keys built in this runtime's
     data hub, or None not to judge data. ``kind_missing``: what the runner's job service says
-    this job kind lacks. ``request_bytes``: the size of the call's arguments as JSON."""
+    this job kind lacks. ``request_bytes``: the size of the call's arguments as JSON.
+    ``browser_jobs``: in the browser, whether the page's job service is running (it runs the
+    entries whose ``execution.browser_job`` says so; the page tells the worker in its context);
+    None when not known, which counts as not running. A browser job whose arguments only the
+    runner runs (:func:`runner_only`) needs the runner instead, with the reason.
+    ``browser_snapshots``: whether the research snapshots are built in this browser's private
+    storage (``research.run`` there reads only those); None when the page has not said, which
+    is not judged. ``browser_admet_models``: the ADMET endpoints whose models are built in
+    this browser (``pipeline.admet`` there reads only those: the ones a call names, or any
+    when it names none); None when the page has not said, which is not judged."""
     out: list[tuple[str, dict[str, Any]]] = []
     exec_ = entry.get("exec") or ()
     if where not in exec_:
@@ -215,6 +252,10 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
         else:
             out.append(("no_runtime", requirement("browser_runtime", _BROWSER,
                                                   "Run it from the Studio page, in its browser runtime.")))
+    # a browser job kind that runs these arguments only on the runner (a FASTQ RNA-seq run, Scanpy)
+    beyond = runner_only(entry, args) if where == "browser" and where in exec_ else []
+    out += [("needs_runner", requirement("runner", f"{_RUNNER}: {why}", _remedy("NEEDS_RUNNER")))
+            for why in beyond]
     if probe is not None and where == "runner":
         missing = [d for d in entry.get("heavy") or () if not probe(d)]
     elif entry.get("available") is False:
@@ -258,13 +299,46 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
         # reaches its hosts only when this argument is set (allow_remote: a sequence sent out,
         # a structure fetched); the entry as such needs no network
         needs_net = bool((args or {}).get(entry["network_if"]))
+    elif entry.get("network_unless") and args is not None:
+        # reaches its hosts unless this argument names what it would download (admet.models'
+        # local copy of the archive); the entry as such needs the network
+        needs_net = bool(entry.get("network")) and not args.get(entry["network_unless"])
     else:
         needs_net = bool(entry.get("network"))
     if needs_net and not network:
         out.append(("network_off", requirement("network", _NETWORK, _remedy("NETWORK_OFF"),
                                                hosts_for(entry, args))))
     out += [("needs_job_service", r) for r in other]
-    if entry.get("job") and not jobs and not other:
+    in_page = where == "browser" and bool((entry.get("execution") or {}).get("browser_job")) and not beyond
+    if in_page and entry.get("job") and not browser_jobs and not other:
+        out.append(("needs_job_service", requirement(
+            "job_service", _BROWSER_JOBS,
+            "Use a current Chromium-based browser such as Chrome or Edge, outside a private window "
+            "(the jobs keep their files in the site's private storage; Firefox and Safari have not "
+            "been tested with them), or connect the local runner.")))
+    elif in_page and browser_jobs and browser_snapshots is False and entry.get("id") == "job.research.run":
+        # worded as the page's own catalog words it (web/js/core/catalog.js entryState)
+        out.append(("needs_dataset", requirement(
+            "dataset", "the research snapshots built in this browser",
+            "Build them first in this browser (job.research.snapshot: the NPASS, CMAUP and LOTUS "
+            "files plus STRING and Reactome), or connect a runner that has them.",
+            names=["research snapshots"])))
+    elif (in_page and browser_jobs and browser_admet_models is not None
+          and entry.get("id") == "job.pipeline.admet"):
+        asked = [str(x).strip() for x in ((args or {}).get("endpoints") or [])
+                 if isinstance(x, str)]
+        lack = ([x for x in asked if x not in browser_admet_models] if asked
+                else ([] if browser_admet_models else ["*"]))
+        if lack:
+            # worded as the page's own catalog words it (web/js/core/catalog.js entryState)
+            out.append(("needs_dataset", requirement(
+                "dataset", "the ADMET models built in this browser" if "*" in lack
+                else f"the ADMET models built in this browser for {', '.join(lack)}",
+                "Build them first in this browser (job.admet.models: the TDC ADMET group archive, "
+                "through the site's relay or from a project file, and the models trained here), "
+                "or connect a runner that has them.",
+                names=["ADMET models"])))
+    elif not in_page and entry.get("job") and not jobs and not other:
         # (the job service's own sentence, when it gave one, already says this)
         out.append(("needs_job_service", requirement(
             "job_service", _JOBS, _JOB_SERVICE if where == "runner" else _remedy("NEEDS_RUNNER"))))
@@ -326,7 +400,9 @@ def audit(items: Iterable[Mapping[str, Any]], *, where: str, network: bool, jobs
           built: Collection[str] | None = None, probe: Probe | None = None,
           kind_missing: Mapping[str, Sequence[str]] | None = None, state: str | None = None,
           kind: str | None = None, category: str | None = None,
-          limit: int | None = None) -> dict[str, Any]:
+          limit: int | None = None, browser_jobs: bool = False,
+          browser_snapshots: bool | None = None,
+          browser_admet_models: Sequence[str] | None = None) -> dict[str, Any]:
     """Every entry against this runtime: implementation, readiness with what is missing,
     and the committed verification; counts by readiness, implementation and verification.
     Filters narrow the list, never the counts. Network reachability is never claimed: an
@@ -334,7 +410,9 @@ def audit(items: Iterable[Mapping[str, Any]], *, where: str, network: bool, jobs
     rows = []
     for e in items:
         r = readiness(e, where=where, network=network, jobs=jobs, built=built, probe=probe,
-                      kind_missing=(kind_missing or {}).get(e["id"]))
+                      kind_missing=(kind_missing or {}).get(e["id"]), browser_jobs=browser_jobs,
+                      browser_snapshots=browser_snapshots,
+                      browser_admet_models=browser_admet_models)
         v = e.get("verification") or {}
         rows.append({"id": e["id"], "kind": e["kind"], "category": e.get("category"),
                      "implementation": (e.get("state") or {}).get("implementation", "registered"),

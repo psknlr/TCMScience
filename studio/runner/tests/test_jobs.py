@@ -208,6 +208,180 @@ def test_rnaseq_refuses_a_sheet_whose_files_were_not_uploaded(tmp_path, world):
         assert not any(p.name.startswith("j_") for p in (srv.home / "jobs").iterdir())
 
 
+@pytest.fixture(scope="module")
+def counts_world(tmp_path_factory):
+    if not (HARNESS_TESTS / "omics_world.py").is_file():
+        pytest.skip("BioScience-Harness tests (omics_world) are not beside this checkout")
+    sys.path.insert(0, str(HARNESS_TESTS))
+    try:
+        import omics_world
+    finally:
+        sys.path.remove(str(HARNESS_TESTS))
+    return omics_world.make_counts_world(tmp_path_factory.mktemp("counts-world"), seed=1)
+
+
+def test_an_rnaseq_job_with_counts_runs_the_count_matrix_mode(tmp_path, counts_world):
+    from bioagent.omics import rnaseq_counts
+
+    with running_server(tmp_path / "home") as (srv, c):
+        ids = {p.name: c.upload(p)["id"] for p in (counts_world["counts"], counts_world["samples"])}
+        status, job = c.post("/api/jobs", {
+            "kind": "pipeline.rnaseq", "project_id": "p-counts",
+            "params": {"counts": ids["counts.tsv"], "samples": ids["samples.tsv"],
+                       "contrast": "condition,treated,control", "alpha": 0.05}})
+        assert status == 201, job
+        # each table is one file of its own, recorded as such
+        assert job["inputs"]["counts"]["upload"] == ids["counts.tsv"]
+        assert job["inputs"]["samples"]["upload"] == ids["samples.tsv"]
+        events = c.events(job["id"])
+        assert events[-1][1]["state"] == "succeeded", events[-1][1]["outcome"]
+        final = c.get(f"/api/jobs/{job['id']}")[1]
+        argv = final["command"]
+        assert argv[3:5] == ["bioagent.cli", "rnaseq"] and argv[-1] == "--json"
+        assert any(a.startswith("--counts=") for a in argv)
+        assert not any(a.startswith(("--engine", "--trimmer", "--transcripts")) for a in argv)
+        assert {a["name"] for a in final["artefacts"]} == {"run", "report", "results", "limitations"}
+        # the same collection and validator as a FASTQ run: rnaseq.verify_run checks both modes
+        assert final["outcome"]["checks"] == ["controller_digests", "validator:run"]
+        assert [s["name"] for s in final["stages"]] == list(rnaseq_counts.STAGES)
+        assert final["result"]["input_kind"] == "counts"
+        assert final["result"]["differential_expression"]["tested"] == 1999
+        manifest = srv.jobs.run_manifest(job["id"])
+        assert manifest["pipeline"] == rnaseq_counts.PIPELINE
+        assert manifest["reference_dataset"]["id"] == "omics_counts_world"
+        st = c.call("job_status", {"job_id": job["id"]})
+        res = st["receipt"]["result"]
+        assert (res["outcome"], res["assurance"]) == ("validated", "outputs_verified")
+        assert st["receipt"]["execution"]["implementation"]["pipeline"] == rnaseq_counts.PIPELINE
+
+        # what a count-matrix run does not take is refused at submission, nothing kept
+        fastq = tmp_path / "sheet.csv"
+        fastq.write_text("sample,fastq_1,condition\nctrl1,a.fq.gz,control\n")
+        sheet = c.upload(fastq)["id"]
+        for params, needle in (
+                ({"transcripts": ids["counts.tsv"]}, "a count-matrix run takes no FASTQ reference "
+                                                     "or engine: transcripts"),
+                ({"engine": "salmon", "trimmer": "none"}, "no FASTQ reference or engine: engine, "
+                                                          "trimmer"),
+                ({"samples": sheet}, "with counts this is the sample table"),
+                ({"alpha": 0.9}, "alpha")):
+            before = {p.name for p in (srv.home / "jobs").iterdir()}
+            status, body = c.post("/api/jobs", {"kind": "pipeline.rnaseq", "params": {
+                "counts": ids["counts.tsv"], "samples": ids["samples.tsv"], **params}})
+            assert status == 400 and body["error"]["type"] == "bad_arguments", body
+            assert needle in body["error"]["message"], body["error"]["message"]
+            assert {p.name for p in (srv.home / "jobs").iterdir()} == before
+
+
+def test_the_scrna_command_passes_the_highly_variable_genes(tmp_path):
+    from tcmstudio.kinds import KINDS, BadParams, PrepareContext, StartContext
+
+    table = tmp_path / "ctrl.tsv"
+    table.write_text("gene\tc1\tc2\ng1\t1\t2\n")
+    found = {"ctrl.tsv": (table, {"upload": "u_0000000000000001", "name": "ctrl.tsv",
+                                  "sha256": "0" * 64, "bytes": 18})}
+    ctx = PrepareContext(job_id="j1", job_dir=tmp_path / "job", project_id=None, paths={},
+                         data_env={}, find=found.get, settings={})
+    kind = KINDS["pipeline.scrna"]
+    start = StartContext(job_id="j1", job_dir=tmp_path / "job", project_id=None, paths={},
+                         data_env={}, settings={}, device="cpu", threads=2)
+    argv = kind.command(kind.prepare({"source": "ctrl.tsv", "n_top_genes": 600}, ctx), start)
+    assert "--n-top-genes=600" in argv
+    assert "--n-top-genes=2000" in kind.command(kind.prepare({"source": "ctrl.tsv"}, ctx), start)
+    # a job prepared before the parameter existed still starts, with the command's default
+    old = {k: v for k, v in kind.prepare({"source": "ctrl.tsv"}, ctx).items() if k != "n_top_genes"}
+    assert "--n-top-genes=2000" in kind.command(old, start)
+    for bad, needle in (({"n_top_genes": 20}, "n_top_genes: between 50 and 10000"),
+                        ({"resolution": 7}, "resolution: between 0.05 and 5")):
+        with pytest.raises(BadParams, match=needle):
+            kind.prepare({"source": "ctrl.tsv", **bad}, ctx)
+
+
+def _admet_cards(models: Path, endpoints: list[str], archive_sha: str) -> None:
+    """A model cache's cards and files as a build leaves them (no RDKit or scikit-learn)."""
+    import hashlib
+    models.mkdir(parents=True)
+    cards = {}
+    for ep in endpoints:
+        model, domain = f"model {ep}".encode(), f"domain {ep}".encode()
+        (models / f"{ep}.pkl").write_bytes(model)
+        (models / f"{ep}_domain.npy").write_bytes(domain)
+        cards[ep] = {"endpoint": ep, "archive_sha256": archive_sha, "archive_is_pinned": False,
+                     "model_file": f"{ep}.pkl", "model_sha256": hashlib.sha256(model).hexdigest(),
+                     "domain_file": f"{ep}_domain.npy",
+                     "domain_sha256": hashlib.sha256(domain).hexdigest(), "metric": "auroc",
+                     "test_score": 0.9, "train": 80, "test": 25, "dropped_unreadable": 0,
+                     "dropped_unstandardisable": 0}
+    (models / "model_cards.json").write_text(json.dumps(cards))
+
+
+def test_the_admet_model_build_job(tmp_path):
+    """admet.models: ``bioagent admet --build-models`` into the data lake's ADMET cache (where
+    pipeline.admet reads the models), from a local archive or the pinned download; checked
+    after it ends against the cards, each model trained on that archive."""
+    import hashlib
+
+    from tcmstudio.kinds import KINDS, BadParams, PrepareContext, StartContext
+
+    archive = tmp_path / "tdc.zip"
+    archive.write_bytes(b"PK\x05\x06" + b"\0" * 18)
+    found = {"tdc.zip": (archive, {"upload": "u_0000000000000001", "name": "tdc.zip",
+                                   "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+                                   "bytes": 22})}
+    lake = tmp_path / "lake"
+    ctx = PrepareContext(job_id="j1", job_dir=tmp_path / "job", project_id=None, paths={},
+                         data_env={"BIOAGENT_DATA_LAKE": str(lake)}, find=found.get, settings={})
+    start = StartContext(job_id="j1", job_dir=tmp_path / "job", project_id=None, paths={},
+                         data_env={}, settings={}, device="cpu", threads=2)
+    kind = KINDS["admet.models"]
+    local = kind.prepare({"archive": "tdc.zip", "endpoints": ["herg", "ames", "herg"],
+                          "max_iter": 100, "seed": 3, "rebuild": True}, ctx)
+    assert local == {"endpoints": ["herg", "ames"], "max_iter": 100, "seed": 3, "rebuild": True,
+                     "archive": str(archive), "cache": str(lake / "admet")}
+    argv = kind.command(local, start)
+    assert argv[4:] == ["admet", "--build-models", f"--cache={lake / 'admet'}", "--max-iter=100",
+                        "--seed=3", f"--archive={archive}", "--rebuild", "--endpoint=herg",
+                        "--endpoint=ames"]
+    pinned = kind.prepare({}, ctx)
+    assert pinned == {"endpoints": [], "max_iter": 600, "seed": 0, "rebuild": False,
+                      "archive": None, "cache": str(lake / "admet")}
+    assert kind.command(pinned, start)[4:] == ["admet", "--build-models", f"--cache={lake / 'admet'}",
+                                               "--max-iter=600", "--seed=0"]
+    # the download needs the network; a local archive does not
+    assert kind.needs_network(pinned) and not kind.needs_network(local)
+    assert list(kind.heavy_deps()) == ["rdkit", "scikit-learn"]
+    for bad, needle in (({"endpoints": ["herg_typo"]}, "endpoints: no TDC ADMET endpoint herg_typo"),
+                        ({"max_iter": 5}, "max_iter: between 10 and 5000"),
+                        ({"seed": 2**31}, "seed: between 0 and 2147483647"),
+                        ({"archive": "missing.zip"}, "archive: 'missing.zip' is neither an upload id")):
+        with pytest.raises(BadParams, match=needle):
+            kind.prepare(bad, ctx)
+    # after the build: every endpoint asked for held to its card, trained on the build's archive
+    models = lake / "admet" / "models"
+    sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+    assert kind.verify(local, {}) == ["herg: no model card", "ames: no model card"]
+    _admet_cards(models, ["herg", "ames"], sha)
+    assert kind.verify(local, {}) == []
+    result = kind.result(tmp_path / "job", local)
+    assert result["models"] == str(models) and list(result["endpoints"]) == ["herg", "ames"]
+    assert result["endpoints"]["herg"]["test_score"] == 0.9 and result["endpoints"]["herg"]["card_sha256"]
+    (models / "ames.pkl").write_bytes(b"changed")
+    assert kind.verify(local, {}) == ["ames: its model file ames.pkl does not match its card"]
+    # the pinned download: trained on TDC's archive, all 22 endpoints
+    problems = kind.verify(pinned, {})
+    assert problems[0] == "caco2_wang: no model card"
+    assert sum(1 for x in problems if x.endswith(": no model card")) == 20
+    assert f"herg: trained on another archive ({sha[:12]}), not bd0005246cb6" in problems
+    # progress: the endpoints finished of those asked for, then the runner's check of the cards
+    (tmp_path / "job").mkdir(exist_ok=True)
+    (tmp_path / "job" / "stdout.log").write_text("  herg: auroc 0.812 on 131 test molecules (9.2 s)\n")
+    assert kind.progress(tmp_path / "job", local) == {
+        "fraction": 0.333, "message": "herg: auroc 0.812 on 131 test molecules (9.2 s)"}
+    (tmp_path / "job" / "stdout.log").write_text("  herg: auroc 0.812 on 131 test molecules (9.2 s)\n"
+                                                  "  ames: kept, its model matches its card\n")
+    assert kind.progress(tmp_path / "job", local)["fraction"] == 0.667
+
+
 # --------------------------------------------------------- the dispatcher and skill.run
 
 def test_run_pipeline_and_job_status_through_the_dispatcher(tmp_path):

@@ -29,6 +29,11 @@ release (``release_covered``: a whole-token match, never a dataset with no relea
 rolling one); without one it is "unknown — downloading is not permission to
 redistribute". Nothing here copies a file
 anywhere but the runner's data directory; there is no object storage and no shared bucket.
+
+:func:`registry_document` is the same knowledge for the browser: ``runtime/datasets.json``
+(``tcmstudio.datasets/1``), which the site build writes, lists the raw files the browser's
+research snapshot job acquires, with their reviewed URLs, sizes and checksums and their
+licences said the same way.
 """
 
 from __future__ import annotations
@@ -42,10 +47,11 @@ from typing import Any, Mapping
 
 from .jobs import BadJobParams, JobConflict, JobError, JobService, UnknownJob
 
-__all__ = ["DatasetAPI", "UnknownDataset", "REDISTRIBUTION_UNKNOWN", "licence_of",
-           "release_covered"]
+__all__ = ["DatasetAPI", "UnknownDataset", "REDISTRIBUTION_UNKNOWN", "REGISTRY_SCHEMA",
+           "licence_of", "registry_document", "release_covered"]
 
 REDISTRIBUTION_UNKNOWN = "unknown — downloading is not permission to redistribute"
+REGISTRY_SCHEMA = "tcmstudio.datasets/1"
 _BODY = ("dataset", "include_optional", "project_id", "submission_id")
 _KINDS = ("tcmdb.fetch",)
 _RUNNER = types.SimpleNamespace(where="runner")
@@ -111,6 +117,13 @@ def release_covered(version: Any, covered: Any) -> bool:
     return False
 
 
+def _licence_record(key: str, version: Any) -> tuple[Any, bool]:
+    """The reviewed licence record of dataset ``key`` (``data.<key>``) or None, and whether
+    its version names this release (``release_covered``)."""
+    rec = _data_records().get(f"data.{key}")
+    return rec, rec is not None and release_covered(version, rec.version)
+
+
 def licence_of(spec: Any, *, record: bool = False) -> dict[str, Any]:
     """The dataset's licence as its spec states it, its reuse class, and what is known about
     redistribution: a reviewed record's statement when the record names this dataset's
@@ -120,8 +133,7 @@ def licence_of(spec: Any, *, record: bool = False) -> dict[str, Any]:
     out: dict[str, Any] = {"license": spec.license, "licence_class": licence_class(spec.license),
                            "commercial_use": spec.commercial_use,
                            "redistribution": REDISTRIBUTION_UNKNOWN}
-    rec = _data_records().get(f"data.{spec.key}")
-    applies = rec is not None and release_covered(spec.version, rec.version)
+    rec, applies = _licence_record(spec.key, spec.version)
     if applies:
         out["redistribution"] = rec.redistribution
     if record and rec is not None:
@@ -131,6 +143,79 @@ def licence_of(spec: Any, *, record: bool = False) -> dict[str, Any]:
             "retention": rec.retention, "redistribution": rec.redistribution,
             "checked": rec.checked.as_dict(), "applies": applies}
     return out
+
+
+def registry_document() -> dict[str, Any]:
+    """``runtime/datasets.json``: the raw files the browser's jobs acquire.
+
+    Two groups. ``research``: the files ``bioagent.sources.pipeline.required_files`` names for
+    the research sources with the network ones (STRING, Reactome, UniProt), in its order, so
+    the browser acquires exactly what ``bioagent snapshots build`` reads. Each file carries
+    its reviewed URL and host, its reviewed size and checksum (null where there is none:
+    the build verifies it by size, or records its SHA-256 for review), whether the
+    acquisition table lists it (``reviewed``), its project, format and licence as the spec
+    states it, and ``redistribution`` as :func:`licence_of` says it: the licence record of
+    its project (``data.<project>``) when that record names this release, else unknown.
+    ``relay`` lets the site's relay fetch it from that URL for a browser the host does not
+    answer directly; ``redirect_hosts`` are the hosts besides its own a download of it may
+    be redirected to, none reviewed so far. ``rate_rps`` is the pace bioagent's acquisition
+    keeps with the file's host (requests a second: a source card's rate, a robots.txt
+    Crawl-delay, else one a second), which the relay keeps too. ``admet``: the TDC ADMET
+    group archive the browser's ADMET model build reads (:func:`_admet_group`). Nothing in it
+    depends on this machine: the same code gives the same document."""
+    import urllib.parse
+
+    from bioagent.acquisition.downloader import PACER, _host_rates
+    from bioagent.acquisition.sources import ACQUIRABLE
+    from bioagent.sources.pipeline import RESEARCH_SOURCES, required_files
+
+    rates = _host_rates()
+    files = []
+    for a in required_files(RESEARCH_SOURCES, network=True):
+        rec, applies = _licence_record(a.source_project.lower(), a.version)
+        host = urllib.parse.urlsplit(a.url).hostname or a.host
+        files.append({
+            "name": a.filename, "url": a.url, "host": host,
+            "bytes": a.expected_bytes, "checksum": a.checksum, "reviewed": a in ACQUIRABLE,
+            "project": a.source_project, "fmt": a.fmt or None, "license": a.license,
+            "redistribution": rec.redistribution if applies else REDISTRIBUTION_UNKNOWN,
+            "relay": True, "redirect_hosts": [],
+            "rate_rps": float(rates.get(host, PACER.default_rps))})
+    return {"schema": REGISTRY_SCHEMA, "groups": {"research": {
+        "title": {"zh": "研究数据快照的原始文件", "en": "Raw files of the research snapshots"},
+        "sources": list(RESEARCH_SOURCES), "network": True, "files": files},
+        "admet": _admet_group(rates, PACER.default_rps)}}
+
+
+#: The pinned TDC ADMET group archive's size, and the host Harvard Dataverse redirects its download to.
+TDC_ADMET_BYTES = 1_472_501
+TDC_ADMET_STORAGE = "dvn-cloud-iqss.s3.amazonaws.com"
+
+
+def _admet_group(rates: Mapping[str, float], default_rps: float) -> dict[str, Any]:
+    """The ``admet`` group: the TDC ADMET benchmark group archive the browser's model build
+    (admet.models) trains on, at the URL and with the SHA-256 ``bioagent.admet.models``
+    downloads and pins natively (it is not in the acquisition table, so ``reviewed`` is
+    false; the pin is the checksum) and the pinned archive's size. Its licence is TDC's
+    per-dataset terms, which no licence record here has read, so its redistribution is
+    unknown. Harvard Dataverse answers the download with a 303 to a signed URL on its S3
+    storage, ``TDC_ADMET_STORAGE`` (seen in the live-data workflow's ``admet`` job,
+    2026-10-20: the 1,472,501 bytes at the pinned SHA-256 came from there); a redirect to
+    any other host is refused, naming the hosts allowed."""
+    import urllib.parse
+
+    from bioagent.admet.models import TDC_ADMET_SHA256, TDC_ADMET_URL
+
+    host = urllib.parse.urlsplit(TDC_ADMET_URL).hostname or ""
+    return {"title": {"zh": "ADMET 模型的训练数据（TDC ADMET 基准组）",
+                      "en": "Training data of the ADMET models (the TDC ADMET benchmark group)"},
+            "sources": ["tdc"], "network": True, "files": [{
+                "name": "tdc_admet_group.zip", "url": TDC_ADMET_URL, "host": host, "bytes": TDC_ADMET_BYTES,
+                "checksum": f"sha256:{TDC_ADMET_SHA256}", "reviewed": False, "project": "TDC",
+                "fmt": "zip", "license": "LicenseRef-TDC-per-dataset",
+                "redistribution": REDISTRIBUTION_UNKNOWN,
+                "relay": True, "redirect_hosts": [TDC_ADMET_STORAGE],
+                "rate_rps": float(rates.get(host, default_rps))}]}
 
 
 def _hosts(spec: Any) -> list[str]:

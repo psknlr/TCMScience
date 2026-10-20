@@ -36,7 +36,7 @@ class FakeCaches {
 }
 
 /** Load sw.js with a manifest of `files` ({path: body}); `net` answers fetches. → the worker's handlers and state. */
-function load({ files = {}, served = files, manifest = true, version = "v1" } = {}) {
+function load({ files = {}, served = files, manifest = true, version = "v1", extra = {} } = {}) {
   const handlers = {};
   const caches = new FakeCaches();
   const fetched = [];
@@ -44,7 +44,12 @@ function load({ files = {}, served = files, manifest = true, version = "v1" } = 
     const url = typeof input === "string" ? new URL(input, ORIGIN).href : input.url;
     fetched.push(url);
     const path = url.startsWith(ORIGIN) ? new URL(url).pathname : url;
-    if (path in served) return new Response(served[path], { status: 200, headers: { "content-type": "text/plain", "cross-origin-opener-policy": "same-origin" } });
+    if (path in served) {
+      const r = new Response(served[path], { status: 200, headers: { "content-type": "text/plain", "cross-origin-opener-policy": "same-origin" } });
+      // as fetch() gives them: a same-origin response is "basic", another origin's (CORS) "cors"
+      Object.defineProperty(r, "type", { value: url.startsWith(ORIGIN) ? "basic" : "cors" });
+      return r;
+    }
     if (url.startsWith(INDEX) || url.includes("@fontsource")) {
       const r = new Response(`cdn:${url}`, { status: 200 });
       Object.defineProperty(r, "type", { value: "cors" });
@@ -52,7 +57,7 @@ function load({ files = {}, served = files, manifest = true, version = "v1" } = 
     }
     return new Response("not found", { status: 404 });
   };
-  const precache = { version, index_url: INDEX, files: Object.entries(files).map(([path, body]) => ({ path, sha256: sha(body) })) };
+  const precache = { version, index_url: INDEX, files: Object.entries(files).map(([path, body]) => ({ path, sha256: sha(body) })), ...extra };
   const code = manifest ? SOURCE.replace(MARKER, `const PRECACHE = ${JSON.stringify(precache)};`) : SOURCE;
   const self = {
     location: new URL(`${ORIGIN}/sw.js`),
@@ -134,6 +139,38 @@ test("Pyodide and the web fonts: fetched once, then kept (their URLs are version
   await fetchVia(sw, font);
   await fetchVia(sw, font);
   assert.equal(sw.fetched.filter((u) => u === font).length, 1);
+});
+
+// RDKit.js's wasm as npm ships it (the devDependency): the bytes the chemistry is pinned to
+const RDKIT_URL = "https://cdn.jsdelivr.net/npm/@rdkit/rdkit@2026.9.1/dist/RDKit_minimal.wasm";
+const RDKIT_BYTES = readFileSync(new URL("../../node_modules/@rdkit/rdkit/dist/RDKit_minimal.wasm", import.meta.url));
+
+test("RDKit.js's wasm: kept by its exact URL once its bytes are the pinned build's; other bytes are passed on, never kept", async () => {
+  const sw = load({ files: SHELL, served: { ...SHELL, [RDKIT_URL]: RDKIT_BYTES } });
+  for (let i = 0; i < 2; i++) assert.equal(sha(new Uint8Array(await (await fetchVia(sw, RDKIT_URL)).arrayBuffer())), "594ceaed387adc70ea13bfbb2e8eace916f6c782254ed5a6f0f0a0a7a4fe4061");
+  assert.equal(sw.fetched.filter((u) => u === RDKIT_URL).length, 1, "the second came from the cache");
+  assert.deepEqual([...sw.caches.stores.keys()], ["tcmstudio-cdn-rdkit-594ceaed387adc70"], "under the CDN prefix core/offline.js stands down");
+  assert.equal(await fetchVia(sw, `${RDKIT_URL}?v=2`), null, "only the exact URL");
+  assert.equal(await fetchVia(sw, "https://cdn.jsdelivr.net/npm/@rdkit/rdkit@2026.9.0/dist/RDKit_minimal.wasm"), null, "nor another version");
+  // a response whose bytes are not the pinned build (a proxy's page, a truncated body) is served once and not kept
+  const bad = load({ files: SHELL, served: { ...SHELL, [RDKIT_URL]: "<html>blocked</html>" } });
+  for (let i = 0; i < 2; i++) assert.equal(await (await fetchVia(bad, RDKIT_URL)).text(), "<html>blocked</html>");
+  assert.equal(bad.fetched.filter((u) => u === RDKIT_URL).length, 2, "never answered from the cache");
+  assert.deepEqual(await (await bad.caches.open("tcmstudio-cdn-rdkit-594ceaed387adc70")).keys(), []);
+});
+
+test("RDKit.js's wasm from the mirror the build names (TCMSTUDIO_RDKIT_URL): that URL is kept, held to the build's SHA-256", async () => {
+  const body = "wasm bytes of a local mirror";
+  const sw = load({ files: SHELL, served: { ...SHELL, "/mirror/RDKit_minimal.wasm": body, [RDKIT_URL]: RDKIT_BYTES }, extra: { rdkit: { url: "/mirror/RDKit_minimal.wasm", sha256: sha(body) } } });
+  for (let i = 0; i < 2; i++) assert.equal(await (await fetchVia(sw, "/mirror/RDKit_minimal.wasm")).text(), body);
+  assert.equal(sw.fetched.filter((u) => u.endsWith("/mirror/RDKit_minimal.wasm")).length, 1);
+  assert.equal(await fetchVia(sw, RDKIT_URL), null, "the build names another URL: the pinned one is the network's");
+  // an activation keeps the build's RDKit cache and removes another build's
+  await sw.caches.open("tcmstudio-cdn-rdkit-0000000000000000");
+  const e = event("activate");
+  sw.handlers.activate(e);
+  await e.waited;
+  assert.deepEqual((await sw.caches.keys()).filter((n) => n.startsWith("tcmstudio-cdn-rdkit-")), [`tcmstudio-cdn-rdkit-${sha(body).slice(0, 16)}`]);
 });
 
 test("activation deletes older versions of its own caches and nothing else", async () => {

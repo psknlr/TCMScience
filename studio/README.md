@@ -41,12 +41,39 @@ Python 逐字节对比过的只是其中一部分：7 个内核工具、`benjami
 情况见 [docs/compat/summary.md](docs/compat/summary.md)，其 validation 列来自目录中每个条目已提交的验证记录）。注册的在线数据库
 可在批准联网后经同源网关调用。大型流程和原生引擎仍显示各自的依赖。
 
-浏览器模式支持有限的种子语料网络假说流程。完整的数据驱动网络药理学分析需要经过验证的外部数据快照和合适的科学计算后端
-（Runner 上的研究任务 `research.run`）。提供 WebNN 能力检测；只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持
+完整的数据驱动网络药理学研究已实现为浏览器任务：`research.snapshot` 与 `research.run`，Runner 的同一套 Python
+在 Pyodide 任务工作线程中执行，原始文件保存在本站私有存储（OPFS）中（[docs/BROWSER_JOBS.md](docs/BROWSER_JOBS.md)）。它已在
+已知答案（模拟世界）和解析器测试的夹具文件上检验；在浏览器中用真实的 17 个文件构建并研究、与原生运行逐个导出文件比对，
+已在 `live-data` #18、#19 与 #21 中通过（运行 39251758718、39258060948 与 39286930354，提交 43918ac、53bdbb0 与 65fa6aa，2026-10-19，GitHub 运行器上的无头 Chromium，Pyodide 314.0.7 及其 pyarrow 22.0.0）：17 个原始文件导入本站私有存储，`research.snapshot` 与 `research.run` 作为浏览器任务成功运行，每个导出文件与同一批文件上的原生运行逐字节一致（五张表、`provenance.json`、`limitations.md`、`report.html`；`run_manifest.json` 除执行块外一致）。该次运行：4 味药材、1,792 个成分、370 个实测人类靶点、237 个节点 624 条边的 STRING 网络、检验 959 条 Reactome 通路，BH 校正后无一显著（因此真实数据上未抽取置换零分布；模拟世界检验了它）。种子 Skill
+仍是有限的种子语料网络假说分析。
+
+从计数矩阵出发的 RNA-seq 差异表达（`pipeline.rnaseq` 的计数矩阵模式）和从计数表出发的单细胞分析（`pipeline.scrna`，
+内置分析与 Harmony）也已实现为浏览器任务：Runner 的同一套 Python 配 Pyodide 的 numpy 与 scipy，输入是项目里的文件，复制到
+任务的私有存储并按记录的 SHA-256 核对（[docs/BROWSER_JOBS.md §3.1](docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)）。
+在两个已知答案参考上与原生命令逐个输出比对：逐字节一致、数值在给定容差内（最大用到容差的 0.133），或不比较并说明原因
+（UMAP 布局与图；用户自己的运行不做比较）；显著基因、每个细胞的聚类与细胞类型完全相同，预设答案在浏览器写出的文件上成立。已在本地无头 Chromium
+（Pyodide 314.0.7）中测试，并在 Studio 的 CI（`studio` #91，2026-10-19，使用 jsDelivr 上 Pyodide 的 numpy 与 scipy）中通过。从 FASTQ 出发的运行、PyDESeq2、Scanpy、scVI、10x HDF5 与 `.h5ad`，以及
+超过 6,000 个细胞、单个表超过 66,000,000 个细胞 × 基因或计数矩阵超过 10,000,000 个基因 × 样本的输入（限值依据 Node 下
+Pyodide 314.0.7 中的运行设定，不是在浏览器标签页中测得），会被拒绝并说明原因，需要本机 Runner。
+
+ADMET 的模型构建（`admet.models`）与预测（`pipeline.admet`，从 CSV/TSV/`.smi` 文件或单个 SMILES）同样已实现为浏览器任务：
+就是 `bioagent.admet` 本身，Pyodide 的 scikit-learn 1.8.0，化学用 RDKit.js 2026.9.1 加精确移植（无法精确标准化的分子被拒绝、
+点名、交给 Runner），适用域检索用 Tanimoto 内核（WebAssembly SIMD，或仅在本设备自身的检查测得实体适配器既精确又更快时才用 GPU）。模型在
+浏览器中由 TDC 归档（经本站中转或作为项目文件）训练并保存在私有存储中，不分发任何训练好的模型。与原生命令（RDKit 2026.9.1、scikit-learn
+1.8.0、单线程）在已知答案归档与 TDC 规模的合成归档上比对，适用域文件与 `admet.tsv` 是原生运行的字节，模型卡除模型文件摘要、秒数与化学名称外与原生一致，预测在全精度下一致，
+只有既定末位规则内的差异。已在本地无头 Chromium（Pyodide 314.0.7）中测试，并已在 Studio 的 CI（`studio` #95，2026-10-20，
+已知答案归档）中通过；在真实 TDC 归档上已在 `live-data` #24 中通过（运行 39386727431，提交 0882e95，2026-10-20，GitHub 运行器上的
+无头 Chromium；CI 中归档作为项目文件交给页面，因此在浏览器中经本站中转下载尚未运行过）：22 张模型卡（除摘要、秒数与化学名称外）和
+适用域文件都与原生一致，81,809 个分子中有 202 个（0.25%）被浏览器的化学步骤拒绝、原生构建同样不用它们，16,353 个测试集预测的模型
+原始输出与适用域检索完全一致，36 个最终预测相差 1 个 float64 末位单位。未在实体 GPU 上运行，故 P3 的验收（实体 GPU、实测性能）仍未满足
+（[docs/BROWSER_JOBS.md §3.2](docs/BROWSER_JOBS.md#32-admet)）。SDF 或 `.mol` 文件、超过 20,000 个分子，以及受治理的
+`predict-admet` Skill 都需要 Runner。
+
+提供 WebNN 能力检测；只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持
 真正的 NPU 加速，目前没有任何工作负载具备这两者。
 
 **2. 加上本机 Runner。** Runner 连接后，工具都在它上面运行（`计算 → 自动`）：本机 CPython，项目各自的持久审计链，你的设备。
-它还能运行需本地 Python/MCP 进程的第三方封装、RNA-seq / 单细胞 / 结构预测等后台任务和原生 GPU 引擎。
+它还能运行需本地 Python/MCP 进程的第三方封装、从 FASTQ 出发的 RNA-seq、Scanpy / scVI 单细胞、结构预测等后台任务和原生 GPU 引擎。
 每个项目第一次在 Runner 上运行工具、每个任务、每次联网，都先请你批准（允许一次 / 本项目允许 / 拒绝）。
 
 **3. 完全本地。** Runner 自带网页：打开 `http://127.0.0.1:8765/`，在「设置 → 模型」里选本地模型，模型调用经 Runner 转发到
@@ -162,8 +189,10 @@ tcmstudio serve
 - 种子语料是示范性的：没有记载不等于安全，未显著不等于无关；古籍记载是出处，不是临床证据；预测不等于实测，网络药理最多支持
   机制**假说**。
 - 「已准予发布」只表示内核的六项发布检查通过，不表示结论正确；证据种类是类型，不是等级。
-- 浏览器里的 Python 在 CPU 上单线程运行；本机内核只覆盖 7 个序列工具（比对、编辑距离和三项整数计数），WebGPU 只用于
-  其中的整数计数，不代表所有 Python 引擎都能使用 GPU。提供 WebNN 能力检测，但浏览器能创建 WebNN 的「npu」上下文不等于有
+- 浏览器里的 Python 在 CPU 上单线程运行；本机内核覆盖 7 个序列工具（比对、编辑距离和三项整数计数）与 ADMET 的适用域检索
+  （Tanimoto），不代表所有 Python 引擎都能使用 GPU。WebGPU 只用于其中的整数计数（调度器预计更快、且适配器未被识别为软件渲染器时）和
+  ADMET 适用域检索（仅在本设备自身的检查测得实体适配器既精确又更快时）——两者都只在软件适配器上测试过、从未在硬件 GPU 上运行；本处
+  只有软件适配器，它精确但绝不算作加速，故 P3 的实体 GPU 验收仍未满足。提供 WebNN 能力检测，但浏览器能创建 WebNN 的「npu」上下文不等于有
   NPU：只有具备经验证的执行提供程序和硬件执行证据的工作负载才支持真正的 NPU 加速，目前没有这样的工作负载，Studio 不使用也
   不声称 NPU 加速。
 - 浏览器模式的网络药理学只是有限的种子语料网络假说流程，不是完整的数据驱动分析；没有部署任何远程计算环境。
@@ -247,9 +276,44 @@ clinical tool or identifying details), and counts anonymous usage you can switch
   TCM lookups, ranked formula search and three of the four pinned skills, by the manual runtime check; CI's end-to-end specs
   compare one governed skill's content and output hashes). Per entry: [docs/compat/summary.md](docs/compat/summary.md), whose
   validation column is each entry's committed verification record.
-- **Network pharmacology in the browser.** Browser mode supports a limited seed-corpus network hypothesis workflow. Full
-  data-driven network pharmacology analysis requires verified external data snapshots and an appropriate scientific
-  execution backend (the runner's `research.run` job).
+- **Network pharmacology in the browser.** The full data-driven research loop runs as browser jobs: `research.snapshot`
+  (the 17 raw files downloaded, relayed or imported into the site's private storage, verified and built into snapshots)
+  and `research.run` (the sixteen stages and nine exports), the runner's own Python in Pyodide job workers. On the planted
+  world a job worker writes the native bytes; the real 葛根芩连汤 comparison in the live-data workflow passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, commits 43918ac, 53bdbb0 and 65fa6aa, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it)
+  ([docs/BROWSER_JOBS.md](docs/BROWSER_JOBS.md)). The seed skill remains a limited seed-corpus network hypothesis
+  workflow.
+- **RNA-seq and single-cell in the browser.** RNA-seq differential expression from a count matrix (`pipeline.rnaseq` in
+  its count-matrix mode) and single-cell analysis of count tables (`pipeline.scrna`, the built-in analysis and Harmony)
+  also run as browser jobs: the runner's Python with Pyodide's numpy and scipy, the inputs files of the project, copied
+  into the job's private storage and checked against their recorded SHA-256
+  ([docs/BROWSER_JOBS.md §3.1](docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)). On two known-answer
+  references, compared output by output with the native command: identical bytes, numbers within a stated tolerance
+  (at most 0.133 of it), or not compared, with the reason (the UMAP layout and figures; a person's own run is not
+  compared); the genes called and each
+  cell's cluster and cell type identical, the planted answers found on the browser's files. Tested locally in headless
+  Chromium (Pyodide 314.0.7), and passed in Studio's CI (`studio` #91, 2026-10-19, Pyodide's numpy and scipy from
+  jsDelivr). A FASTQ run, PyDESeq2, Scanpy, scVI, 10x HDF5 and `.h5ad`, and
+  inputs above 6,000 cells, a table above 66,000,000 cells × genes or a count matrix above 10,000,000 genes × samples
+  (limits set from runs in Pyodide 314.0.7 under Node, not in a browser tab) are refused with the reason and need the local
+  runner.
+- **ADMET in the browser.** The model build (`admet.models`) and the predictions (`pipeline.admet`, from a CSV/TSV/`.smi`
+  file or one SMILES) also run as browser jobs: `bioagent.admet` itself, scikit-learn 1.8.0 in Pyodide, the chemistry in
+  RDKit.js 2026.9.1 with exact ports (a molecule it cannot standardise exactly is refused, named and left to the runner),
+  and the applicability-domain search on the Tanimoto kernel (WebAssembly SIMD, or WebGPU only where this device's own
+  check measured a physical adapter exact and faster). The models are built in the browser from the TDC archive (through the site's relay
+  or a project file) and kept in private storage; nothing trained is shipped. Compared with the native command (RDKit
+  2026.9.1, scikit-learn 1.8.0, one thread) on a known-answer archive and a synthetic one at the TDC sizes, the domain
+  files and `admet.tsv` were the native run's bytes, the model cards the native ones but for the model file's digest,
+  the seconds and the chemistry's name, and the predictions exact at full precision apart from a named
+  last-bit rule. Tested locally in headless Chromium (Pyodide 314.0.7), and passed in Studio's CI (`studio` #95,
+  2026-10-20, on the known-answer archive) and on the real TDC archive in `live-data` #24 (run 39386727431, commit
+  0882e95, 2026-10-20, headless Chromium on GitHub's runner; in CI the archive was given to the page as a project file,
+  so a relayed download in a browser has not been run): the 22 model cards (but for their digests, the seconds and the
+  chemistry's name) and domain files the native ones, 202 of the 81,809 molecules (0.25%) refused by the browser's
+  chemistry and left out of the native build too, and of 16,353 test-set predictions the raw model outputs and the
+  domain search identical, 36 final ones 1 unit apart in the last place of float64. Not run on a physical GPU, so P3's
+  acceptance (a physical GPU, measured) stays open ([docs/BROWSER_JOBS.md §3.2](docs/BROWSER_JOBS.md#32-admet)). An SDF
+  or `.mol` file, more than 20,000 molecules, and the governed `predict-admet` skill need the runner.
 - **NPU.** WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified
   execution provider and hardware-backed execution evidence; no workload has either today.
 - **Add the local runner**: in a virtual environment (Ubuntu 23.04+, Debian 12 and Homebrew Python refuse a
@@ -279,7 +343,8 @@ Deployment: [edge/SETUP.md](edge/SETUP.md).
 
 Browser database access: [docs/BROWSER_ACCESS.md](docs/BROWSER_ACCESS.md), and each connector operation by verification level:
 [docs/compat/connectors.md](docs/compat/connectors.md). Local computation in the browser (exact JavaScript and WebAssembly SIMD
-kernels for seven sequence tools; WebGPU counts where the scheduler expects them to be faster, on any adapter not identified
-as a software renderer (a physical one, or an unidentified one, which is never counted as a GPU), never yet run on a
-hardware GPU; offline use; what was measured and what is only planned): [docs/BROWSER_COMPUTE.md](docs/BROWSER_COMPUTE.md).
+kernels for seven sequence tools and the ADMET applicability-domain search (Tanimoto); WebGPU counts where the scheduler
+expects them to be faster, on any adapter not identified as a software renderer (a physical one, or an unidentified one,
+which is never counted as a GPU), and WebGPU for the domain search only where this device's own check measured a physical
+adapter exact and faster, neither yet run on a hardware GPU, so P3's physical-GPU acceptance stays open; offline use; what was measured and what is only planned): [docs/BROWSER_COMPUTE.md](docs/BROWSER_COMPUTE.md).
 Remote compute: [docs/REMOTE_COMPUTE.md](docs/REMOTE_COMPUTE.md) (designed, not deployed).

@@ -328,8 +328,8 @@ query, unresolved: the `dataset` argument names the store), `connector {key, nam
 transport, rate_note, docs, domain}`, `skill {…§2, risk, min_autonomy, set}`, `phi:true` (clinic entries that carry
 patient data), `duration` (jobs), and on every entry `implementation`, `state`, `verification` and `approvals`
 (CONTRACTS §2; with `execution.engines`, `hosts_by` and per-entry `limits` where they apply; the document adds
-`limits` and `verification_records`). 650 entries: native 150, skill 11, connector 444, clinic 5
-(template/assess/check/followup/verify), tcmdb 15, study 4, job 11, system 10. `clinic.sign`, `clinic.agreement`,
+`limits` and `verification_records`). 651 entries: native 150, skill 11, connector 444, clinic 5
+(template/assess/check/followup/verify), tcmdb 15, study 4, job 12, system 10. `clinic.sign`, `clinic.agreement`,
 registry release/promotion and any shell are not entries; called by name they are `refused` with code `HUMAN_ONLY`.
 
 **browser-runtime.**

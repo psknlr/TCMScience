@@ -86,6 +86,13 @@ class Context:
     tcmdb_root: str | None = None
     durable: bool | None = None
     capabilities: Mapping[str, Any] | None = None
+    #: in the browser: whether the page's job service is running (it, not this worker, runs the
+    #: job kinds whose catalog entry carries execution.browser_job)
+    browser_jobs: bool = False
+    #: in the browser: whether the research snapshots are built in its private storage (None: not said)
+    browser_snapshots: bool | None = None
+    #: in the browser: the ADMET endpoints whose models are built in its private storage (None: not said)
+    browser_admet_models: tuple[str, ...] | None = None
 
     @property
     def profile(self) -> str:
@@ -134,6 +141,13 @@ class Context:
             ctx.capabilities = value["capabilities"]
         if value.get("jobs") is not None:
             ctx.jobs = value["jobs"]
+        if value.get("browser_jobs") is not None:
+            ctx.browser_jobs = _truthy(value["browser_jobs"])
+        if isinstance(value.get("browser_snapshots"), bool):
+            ctx.browser_snapshots = value["browser_snapshots"]
+        models = value.get("browser_admet_models")
+        if isinstance(models, (list, tuple)) and all(isinstance(m, str) for m in models):
+            ctx.browser_admet_models = tuple(models)
         return ctx, notes
 
 
@@ -730,16 +744,36 @@ def _validation_record(v: ValidationResult, schema: str, phi: bool,
     return out
 
 
+def _kind_check(entry: Mapping[str, Any], args: Mapping[str, Any]) -> str | None:
+    """A job kind's refusal of these parameters alone (``kinds.Kind.check``), or None."""
+    if entry["kind"] != "job":
+        return None
+    from .kinds import KINDS, BadParams
+    spec = KINDS.get(entry["id"].split(".", 1)[1])
+    try:
+        if spec is not None and spec.check is not None:
+            spec.check(args)
+    except BadParams as exc:
+        return str(exc)
+    return None
+
+
 def _preflight(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) -> Outcome | None:
     """Can this entry run here, now? Missing runtime, dependency (the chosen engine's too) or
     web access, or a request too large for the browser, is a plain 'unavailable' /
     'network_off' with the remedy, every missing requirement (error.requires) and the reason
     code (error.reason); nothing is approximated. capability.requirements decides; datasets
     and the job service are left to the call itself (a lookup with no store says not_loaded,
-    a job without the service says so), and a connector reports web access itself."""
+    a job without the service says so), and a connector reports web access itself. Before
+    all of it, parameters a job kind refuses on their own (kinds.Kind.check) are
+    'bad_arguments' in the kind's words, wherever the call would run."""
     kind = entry["kind"]
     title = entry["title"]["en"]
     zh = entry["title"]["zh"]
+    problem = _kind_check(entry, args)
+    if problem:
+        # arguments no engine could run (a count matrix with a FASTQ engine): not a missing tool
+        return _failure(kind, "bad_arguments", problem, _signature(entry["parameters"]))
     size = None
     if ctx.where == "browser":
         try:
@@ -757,6 +791,16 @@ def _preflight(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) 
     requires = [r for _, r in found]
     need = req["need"]
     common = {"requires": requires, "reason": reason}
+    beyond = (capability.runner_only(entry, args)
+              if ctx.where == "browser" and "browser" in (entry.get("exec") or ()) else [])
+    if need == "runner" and beyond:
+        # a browser job kind that runs these arguments only on the runner
+        return _failure(kind, "unavailable",
+                        f"{title} runs in the browser only in part; these arguments need the "
+                        f"local runner: {'; '.join(beyond)}.", req["remedy"],
+                        summary=f"{zh}：这些参数需要本机 Runner，浏览器中不可运行",
+                        summary_en=f"{title}: with these arguments it needs the local runner; "
+                                   "it cannot run them in the browser", **common)
     if need in ("runner", "browser_runtime"):
         runner = need == "runner"
         where = "the local runner" if runner else "the browser runtime"
@@ -3615,6 +3659,9 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
                            kind=args.get("kind"), runnable_now=bool(args.get("runnable_now")),
                            limit=int(args.get("limit") or 10), where=ctx.where,
                            network=ctx.network, jobs=ctx.jobs is not None,
+                           browser_jobs=ctx.browser_jobs,
+                           browser_snapshots=ctx.browser_snapshots,
+                           browser_admet_models=ctx.browser_admet_models,
                            items=_searchable(ctx.where), built=_built(ctx),
                            kind_missing=_kind_missing(ctx))
         view = {"matched": [{k: m[k] for k in ("id", "title", "summary", "parameters",
@@ -3826,7 +3873,9 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
     # capability audit judge it: runtime, dependencies, built datasets, web access, jobs
     kind_missing = _kind_missing(ctx)
     states = [capability.readiness(e, where=ctx.where, network=ctx.network,
-                                   jobs=ctx.jobs is not None,
+                                   jobs=ctx.jobs is not None, browser_jobs=ctx.browser_jobs,
+                                   browser_snapshots=ctx.browser_snapshots,
+                                   browser_admet_models=ctx.browser_admet_models,
                                    built=built if hub_root is not None else None,
                                    kind_missing=kind_missing.get(e["id"]))["state"]
               for e in items]
@@ -3881,6 +3930,8 @@ def _capability_audit(args: Mapping[str, Any], ctx: Context, g: dict[str, Any]) 
     from .catalog import verification_records
     result = capability.audit(
         _searchable(ctx.where), where=ctx.where, network=ctx.network, jobs=ctx.jobs is not None,
+        browser_jobs=ctx.browser_jobs, browser_snapshots=ctx.browser_snapshots,
+        browser_admet_models=ctx.browser_admet_models,
         built=_built(ctx), kind_missing=_kind_missing(ctx), state=args.get("state") or None,
         kind=args.get("kind") or None, category=args.get("category") or None,
         limit=int(args.get("limit") or 100))

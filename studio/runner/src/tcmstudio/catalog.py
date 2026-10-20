@@ -24,7 +24,7 @@ import shutil
 import types
 import typing
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from . import capability
 from .core_tools import (B, B_R, CATEGORY_IDS, CLAIM_KINDS, CORE_TOOLS, ENTRY_KINDS,
@@ -1238,8 +1238,12 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
     "pipeline.rnaseq": {
         "title": ("RNA-seq 差异表达流程", "RNA-seq pipeline"), "category": "omics",
         "summary": "FASTQ + sample sheet → QC, trimming, quantification (built-in k-mer EM, "
-                   "salmon, kallisto or HISAT2), DESeq2-method differential expression, report.",
-        "parameters": obj({"samples": S(f"sample sheet CSV: {_UPLOAD}"),
+                   "salmon, kallisto or HISAT2), DESeq2-method differential expression, report; "
+                   "or a count matrix + sample table → the same test, tables and report.",
+        "parameters": obj({"samples": S(f"sample sheet CSV (FASTQ), or with counts the sample "
+                                        f"table (sample and the design columns): {_UPLOAD}"),
+                           "counts": S("a gene × sample count table (TSV/CSV; integers) — the "
+                                       "count-matrix mode, with `samples` as the sample table"),
                            "transcripts": S(f"transcriptome FASTA: {_UPLOAD}"),
                            "annotation": S(f"GTF or tx2gene table: {_UPLOAD}"),
                            "genome": S(f"genome FASTA (hisat2): {_UPLOAD}"),
@@ -1252,18 +1256,22 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
                            "alpha": N(minimum=0.0001, maximum=0.5, default=0.05)},
                           required=("samples",)),
         "optional": ["pydeseq2", "salmon", "kallisto", "hisat2", "fastp"], "duration": "hours",
-        "tags": ("转录组", "差异表达", "RNA-seq", "FASTQ")},
+        "tags": ("转录组", "差异表达", "RNA-seq", "FASTQ", "计数矩阵", "count matrix")},
     "pipeline.scrna": {
         "title": ("单细胞分析流程", "Single-cell pipeline"), "category": "omics",
         "summary": "Count matrices → QC, doublets, integration (Harmony or scVI), Leiden "
                    "clusters, markers, annotation, PAGA, pseudotime, pseudobulk, report.",
-        "parameters": obj({"source": S(f"10x directory, .h5, .h5ad, CSV or sheet: {_UPLOAD}"),
+        "parameters": obj({"source": S("a count table (CSV/TSV/TXT, .gz or not; genes in rows), "
+                                       "a 10x .h5, an .h5ad, or a sample sheet (sample, path) "
+                                       f"of them: {_UPLOAD}"),
                            "doublets": S(enum=["remove", "flag", "off"], default="remove"),
                            "analysis_backend": S(enum=["builtin", "scanpy"], default="builtin"),
                            "integration": S(enum=["none", "harmony", "scvi"], default="harmony"),
                            "resolution": N(minimum=0.05, maximum=5, default=1.0),
                            "markers": S(f"marker table: {_UPLOAD}"), "root": S("root cell type"),
-                           "contrast": S("pseudobulk contrast"), "seed": I(default=0)},
+                           "contrast": S("pseudobulk contrast"), "seed": I(default=0),
+                           "n_top_genes": I("highly variable genes", minimum=50, maximum=10000,
+                                            default=2000)},
                           required=("source",)),
         # bioagent runs scVI on the CPU by design, and the runner gives this kind no GPU (/api/kinds says the same)
         "optional": ["scanpy", "harmonypy", "leidenalg", "scvi-tools"], "gpu": False,
@@ -1305,12 +1313,32 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
     "pipeline.admet": {
         "title": ("ADMET 预测流程", "ADMET"), "category": "structure_molecules",
         "summary": "ADMET: standardisation, descriptors, Lipinski/Veber/Egan/Ghose, PAINS/Brenk/"
-                   "NIH alerts, and 22 TDC-trained endpoints once the models are built. "
-                   "Predicted, not measured.",
+                   "NIH alerts, and 22 TDC-trained endpoints once the models are built where it "
+                   "runs (job.admet.models). Predicted, not measured.",
         "parameters": obj({"molecules": S(f"CSV name,smiles / SDF / .smi ({_UPLOAD}) or one SMILES"),
                            "endpoints": arr(S())}, required=("molecules",)),
         "heavy": ["rdkit", "scikit-learn"], "duration": "minutes",
         "tags": ("ADMET", "成药性", "毒性预测")},
+    "admet.models": {
+        "title": ("构建 ADMET 模型", "Build the ADMET models"), "category": "structure_molecules",
+        "summary": "Train the models pipeline.admet predicts with, where they will run: one "
+                   "gradient-boosted model per TDC endpoint (22), trained on the TDC ADMET "
+                   "benchmark group's train_val split and scored on its scaffold-split test set, "
+                   "with a model card and an applicability domain each. The archive is "
+                   "downloaded once from Harvard Dataverse and held to its pinned SHA-256, or "
+                   "read from a local copy (archive). Nothing trained is shipped; a finished "
+                   "endpoint whose model still matches its card is kept unless rebuild.",
+        "parameters": obj({"endpoints": arr(S(), "only these TDC endpoints (default: all 22), "
+                                                 "e.g. [caco2_wang, herg]"),
+                           "archive": S(f"a local copy of the TDC ADMET group zip: {_UPLOAD}"),
+                           "max_iter": I("boosting iterations at most (early stopping usually "
+                                         "ends sooner)", minimum=10, maximum=5000, default=600),
+                           "seed": I("the models' random state", minimum=0, maximum=2**31 - 1,
+                                     default=0),
+                           "rebuild": B("train every endpoint asked for again", default=False)}),
+        "heavy": ["rdkit", "scikit-learn"], "network": True, "network_unless": "archive",
+        "duration": "hours", "hosts": ["dataverse.harvard.edu"],
+        "tags": ("ADMET", "模型训练", "TDC", "model build", "训练")},
     "research.run": {
         "title": ("研究闭环", "Research loop"), "category": "netpharm",
         "summary": "Closed research loop on ledger snapshots: frozen protocol → retrieve → "
@@ -1401,6 +1429,88 @@ def _dataset_hosts(keys: Iterable[str]) -> dict[str, list[str]]:
             for d in DATASETS if d.key in wanted}
 
 
+#: Job kinds the page's browser job service also runs (studio/web/js/scientific/pipelines: the same Python, in
+#: job workers, with the files in the site's private storage; studio/docs/BROWSER_JOBS.md). Every other kind runs
+#: only on the runner's job service. A kind is listed here only once its browser handler exists and the browser
+#: parity tests run it (studio/web/test/runtime/science.mjs: research.snapshot as a job on fixture files, research.run
+#: as a job on the planted world, with --mode omics pipeline.rnaseq on the count-matrix reference and
+#: pipeline.scrna on the single-cell reference as count tables, and with --mode admet admet.models on the small TDC-
+#: shaped archive and pipeline.admet on a molecule set, each compared with the native run;
+#: studio/e2e/science.spec.mjs; the live-data 葛根芩连汤 comparison).
+BROWSER_JOB_KINDS = ("research.snapshot", "research.run", "pipeline.rnaseq", "pipeline.scrna", "admet.models",
+                     "pipeline.admet")
+#: The browser's chemistry for the ADMET jobs: RDKit.js, the version registry/scientific_environments.json pins for
+#: rdkit (studio/web/js/scientific/chem/rdkit.js RDKIT holds the pin; the tests hold the two to each other).
+RDKIT_JS = {"engine": "rdkit.js", "package": "@rdkit/rdkit", "version": "2026.9.1", "release": "2026.09.1"}
+_ADMET_PACKAGES = ["numpy", "scipy", "scikit-learn"]
+
+
+def _admet_molecules_max() -> int:
+    from .browser_jobs import ADMET_MOLECULES_MAX       # the standard library only
+    return ADMET_MOLECULES_MAX
+
+_WORKERS = ("one job worker per job, one job at a time in a tab (the pool is sized one per spare CPU core, at "
+            "most one per 1.5 GB of device memory, at most 4)")
+
+
+def _browser_job(packages: list[str], **extra: Any) -> dict[str, Any]:
+    return {"service": "studio-jobs/1", "runtime": "pyodide", "workers": _WORKERS,
+            "storage": "origin private file system", "pyodide_packages": packages, **extra}
+
+
+#: How each browser job kind runs, as the catalog states it (entry.execution.browser_job). The pipelines run a
+#: subset of their kind in the browser: ``runner_only`` lists the arguments that take a call to the runner, each
+#: with the reason (capability.runner_only reads it, and the page's router may: {arg, absent: true | is: value |
+#: suffix: [...], why}).
+_BROWSER_JOBS: dict[str, dict[str, Any]] = {
+    "research.snapshot": _browser_job(["pyarrow"]),
+    "research.run": _browser_job(["pyarrow"]),
+    "pipeline.rnaseq": _browser_job(
+        ["numpy", "scipy"],
+        inputs="a count matrix and a sample table, from the project's files (FASTQ needs the runner)",
+        engines=["builtin"],
+        runner_only=[
+            {"arg": "counts", "absent": True,
+             "why": "without counts this is the FASTQ run (QC, trimming, quantification), which runs on the "
+                    "runner; this browser runs the count-matrix mode (counts and a sample table)"},
+            {"arg": "de_backend", "is": "pydeseq2",
+             "why": "PyDESeq2 is not in this browser's Python; the built-in DESeq2 implementation is"}]),
+    "pipeline.scrna": _browser_job(
+        ["numpy", "scipy"],
+        inputs="count tables (CSV/TSV, .gz or not) or a sample sheet of them, from the project's files (10x "
+               "HDF5, .h5ad and directories need the runner)",
+        engines=["builtin", "builtin-harmony"],
+        runner_only=[
+            {"arg": "analysis_backend", "is": "scanpy",
+             "why": "Scanpy, anndata, leidenalg and umap-learn are not in this browser's Python; the built-in "
+                    "analysis is"},
+            {"arg": "integration", "is": "scvi",
+             "why": "scVI (scvi-tools and torch) is not in this browser's Python; built-in Harmony is"},
+            {"arg": "source", "suffix": [".h5", ".h5ad"],
+             "why": "a 10x HDF5 or .h5ad source is not yet supported in the browser (its readers, h5py and "
+                    "anndata, are not loaded by this job); count tables (CSV/TSV) run here"}]),
+    "admet.models": _browser_job(
+        _ADMET_PACKAGES,
+        inputs="the TDC ADMET group archive, through the site's dataset relay (group admet) or a project file, held "
+               "to its SHA-256; the models stay in this browser's private storage, shared by its ADMET runs",
+        engines=["scikit-learn HistGradientBoosting"], chemistry=dict(RDKIT_JS),
+        models="built here from the archive, never shipped; each card names the chemistry it was built with and the "
+               "training molecules RDKit.js refused (dropped_unstandardisable), so a model built in a browser may have "
+               "been trained on fewer molecules than the runner's"),
+    "pipeline.admet": _browser_job(
+        _ADMET_PACKAGES,
+        inputs="a CSV/TSV (name,smiles) or .smi file from the project's files, or one SMILES (SDF and .mol need the "
+               "runner), and the models built in this browser (job.admet.models)",
+        engines=["scikit-learn HistGradientBoosting"], chemistry=dict(RDKIT_JS),
+        # measured in Pyodide (tcmstudio.browser_jobs.ADMET_MOLECULES_MAX): more is refused for memory
+        limits={"molecules": _admet_molecules_max()},
+        runner_only=[
+            {"arg": "molecules", "suffix": [".sdf", ".sdf.gz", ".mol"],
+             "why": "an SDF or .mol file is read with RDKit's SDMolSupplier, which the browser's chemistry (RDKit.js) "
+                    "does not port; CSV, TSV and .smi files and one SMILES run here"}]),
+}
+
+
 def _job_entries() -> list[dict[str, Any]]:
     _, keys, fetchable = _tcmdb_vocab()
     out = []
@@ -1421,13 +1531,16 @@ def _job_entries() -> list[dict[str, Any]]:
             if groups:
                 params["properties"]["group"]["enum"] = groups
         zh, en = spec["title"]
+        browser = kind in BROWSER_JOB_KINDS
         out.append(_entry(
             f"job.{kind}", "job", zh, en, spec["category"], spec["summary"], params,
-            exec_=R, network=bool(spec.get("network")), confirm=True, job=True,
+            exec_=B_R if browser else R, network=bool(spec.get("network")), confirm=True, job=True,
             gpu=bool(spec.get("gpu")), heavy=spec.get("heavy", ()),
             tags=[kind, "job", "任务", "后台任务", *spec.get("tags", ())],
             hosts=spec.get("hosts"), hosts_by=hosts_by, optional=spec.get("optional"),
-            network_if=spec.get("network_if"), duration=spec.get("duration")))
+            network_if=spec.get("network_if"), network_unless=spec.get("network_unless"),
+            duration=spec.get("duration"),
+            execution={"browser_job": copy.deepcopy(_BROWSER_JOBS[kind])} if browser else None))
     return out
 
 
@@ -1488,9 +1601,11 @@ def _system_entries() -> list[dict[str, Any]]:
                     "limit": I(minimum=1, maximum=25, default=10)}),
                example={"query": "十八反"}, tags=(*tags, "检索", "目录")),
         _entry("system.job_status", "system", "任务状态", "Job status", "system",
-               "State, progress and (once succeeded) outcome and files of a runner job.",
+               "State, progress and (once succeeded) outcome and files of a job: the runner's, "
+               "or (an id starting bj-) one this browser's job service runs; the page answers "
+               "those itself.",
                obj({"job_id": S(), "wait_s": I(minimum=0, maximum=60, default=0)},
-                   required=("job_id",)), exec_=R, tags=(*tags, "任务", "进度")),
+                   required=("job_id",)), exec_=B_R, tags=(*tags, "任务", "进度")),
         _entry("system.doctor", "system", "安装诊断", "Installation check", "system",
                "What this installation can do: backends, datasets, connectors, native tools, "
                "PSH isolation, problems with remedies (bioagent doctor).",
@@ -1768,22 +1883,29 @@ def _score(e: Mapping[str, Any], tokens: list[str], full: str) -> float:
 
 def runnable_here(e: Mapping[str, Any], *, where: str, network: bool = False,
                   jobs: bool = False, built: Iterable[str] | None = None,
-                  kind_missing: Mapping[str, list[str]] | None = None) -> bool:
+                  kind_missing: Mapping[str, list[str]] | None = None,
+                  browser_jobs: bool = False, browser_snapshots: bool | None = None,
+                  browser_admet_models: Sequence[str] | None = None) -> bool:
     """Whether ``e`` is ready in ``where`` (capability.readiness)."""
     return not _needs(e, where=where, network=network, jobs=jobs, built=built,
-                      kind_missing=kind_missing)
+                      kind_missing=kind_missing, browser_jobs=browser_jobs,
+                      browser_snapshots=browser_snapshots,
+                      browser_admet_models=browser_admet_models)
 
 
 def _needs(e: Mapping[str, Any], *, where: str, network: bool, jobs: bool,
            built: Iterable[str] | None = None,
-           kind_missing: Mapping[str, list[str]] | None = None) -> list[str]:
+           kind_missing: Mapping[str, list[str]] | None = None,
+           browser_jobs: bool = False, browser_snapshots: bool | None = None,
+           browser_admet_models: Sequence[str] | None = None) -> list[str]:
     """What the model reads for an entry that cannot run now: the details of its missing
     requirements (unchanged words: 'the local runner (tcmstudio serve)', 'install: …',
     'web access for this project', 'the runner's job service')."""
     return [r["detail"] for _, r in capability.requirements(
         e, where=where, network=network, jobs=jobs,
         built=list(built) if built is not None else None,
-        kind_missing=(kind_missing or {}).get(e["id"]))]
+        kind_missing=(kind_missing or {}).get(e["id"]), browser_jobs=browser_jobs,
+        browser_snapshots=browser_snapshots, browser_admet_models=browser_admet_models)]
 
 
 def catalog_search(query: str = "", category: str | None = None, kind: str | None = None,
@@ -1791,7 +1913,10 @@ def catalog_search(query: str = "", category: str | None = None, kind: str | Non
                    network: bool = False, jobs: bool = False,
                    items: list[dict[str, Any]] | None = None,
                    built: Iterable[str] | None = None,
-                   kind_missing: Mapping[str, list[str]] | None = None) -> dict[str, Any]:
+                   kind_missing: Mapping[str, list[str]] | None = None,
+                   browser_jobs: bool = False,
+                   browser_snapshots: bool | None = None,
+                   browser_admet_models: Sequence[str] | None = None) -> dict[str, Any]:
     """Ranked entries for a query (ids, titles, tags, summaries; Chinese substrings count),
     each with its full parameter schema so the model can call it. ``built`` (the datasets
     built here) and ``kind_missing`` (what the job service says a kind lacks, by entry id)
@@ -1809,7 +1934,10 @@ def catalog_search(query: str = "", category: str | None = None, kind: str | Non
         if kind and e["kind"] != kind:
             continue
         if runnable_now and not runnable_here(e, where=where, network=network, jobs=jobs,
-                                              built=built, kind_missing=kind_missing):
+                                              built=built, kind_missing=kind_missing,
+                                              browser_jobs=browser_jobs,
+                                              browser_snapshots=browser_snapshots,
+                                              browser_admet_models=browser_admet_models):
             continue
         s = _score(e, tokens, full) if tokens else 1.0
         # A lone shared character pair (a bigram such as 分析) is noise, not a match.
@@ -1819,7 +1947,9 @@ def catalog_search(query: str = "", category: str | None = None, kind: str | Non
     matched = []
     for s, e in scored[:limit]:
         needs = _needs(e, where=where, network=network, jobs=jobs, built=built,
-                       kind_missing=kind_missing)
+                       kind_missing=kind_missing, browser_jobs=browser_jobs,
+                       browser_snapshots=browser_snapshots,
+                       browser_admet_models=browser_admet_models)
         run = not needs
         matched.append({"id": e["id"], "kind": e["kind"], "category": e["category"],
                         "title": dict(e["title"]), "summary": e["summary"],

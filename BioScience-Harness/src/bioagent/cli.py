@@ -375,7 +375,7 @@ def _cmd_research(a) -> int:
     from .analysis.network_pharmacology import Parameters
     from .research import (QuestionRefused, ResearchRefused, default_protocol,
                            parse_question, run_research)
-    from .research.workflow import failed_stages
+    from .research.loop import research_summary
 
     try:
         question = parse_question(a.question, disease=a.disease, formula=a.formula)
@@ -390,34 +390,8 @@ def _cmd_research(a) -> int:
     except (QuestionRefused, ResearchRefused, ValueError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
-    summary = {"run_id": run.run_id, "released": run.released,
-               "hypotheses": list(run.hypotheses),
-               "refuted": list(run.refuted), "deviations": list(run.deviations),
-               "rebuttals_not_run": run.rebuttal.get("not_run", []),
-               "resumed_stages": list(run.resumed_stages),
-               "states": run.verdict.states if run.verdict else {},
-               "snapshots": dict(run.snapshots), "audit_head": run.audit_head,
-               **{k: (run.artifact.provenance.get(k) if run.artifact else None)
-                  for k in ("compiled_program", "governed_execution", "tool_calls")},
-               "output_dir": run.output_dir}
-    # the sixteen workflow stages and how far the data reached, from the run's manifest
-    try:
-        manifest = _json.loads((Path(run.output_dir) / "run_manifest.json").read_text(
-            encoding="utf-8"))
-        unread = None
-    except (OSError, ValueError) as exc:
-        manifest, unread = {}, f"run_manifest.json could not be read ({exc})"
-    summary["formula"] = question.formula_id
-    summary["coverage"] = {k: ({n: x for n, x in v.items() if n not in ("groups", "rule")}
-                               if k == "identity" and isinstance(v, dict) else v)
-                           for k, v in (manifest.get("coverage") or {}).items()}
-    summary["stages"] = [{"n": s.get("n"), "id": s.get("id"), "status": s.get("status"),
-                          "reason": str(s.get("reason") or "")[:240]}
-                         for s in manifest.get("stages") or ()]
-    summary["exports"] = sorted(manifest.get("outputs") or ())
-    summary["complete"] = manifest.get("complete")
-    summary["problems"] = list(manifest.get("problems") or ())
-    failed = failed_stages(manifest.get("stages") or ()) or ([unread] if unread else [])
+    # the run, its sixteen workflow stages and how far the data reached (from its manifest)
+    summary, failed = research_summary(run, question)
     print(_json.dumps(summary, indent=2, ensure_ascii=False))
     if failed:
         for line in failed:

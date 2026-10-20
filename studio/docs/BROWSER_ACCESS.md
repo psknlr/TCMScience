@@ -19,7 +19,7 @@ rate limits. `/api/sources/health` reports the deployed manifest counts and limi
 
 What has been verified, per operation, is reported by level in
 [compat/connectors.md](compat/connectors.md) (generated; its `--check` is a step of CI's
-`validation` job that is defined and has not run yet, so it is checked locally): every
+`validation` job, which passed in `ci` #317 on 2026-10-19): every
 operation's request reaches a mock transport as the live verification sends it and
 is refused offline (both checked offline by that check), and every operation
 answered from its real upstream in a maintainer's run through the runner's HTTP
@@ -42,7 +42,20 @@ unavailable due to its own login, API terms, outage or unsupported response size
 Some registered upstream sources offer HTTP only. Those exact public endpoints
 remain accessible, but credential headers are stripped from their unencrypted
 transport. HTTPS-to-HTTP redirects are refused. Credentials never cross hosts.
-Bulk downloads and large model assets are outside this bounded query gateway.
+Bulk downloads and large model assets are outside this bounded query gateway. The
+research files the browser's own research jobs read (NPASS, CMAUP, LOTUS, STRING,
+Reactome, UniProt: 17 files, 418 MB) have a separate route: a direct download when the
+host allows a web page to make one, else the dataset relay
+(`/api/datasets/files/<group>/<name>`), which serves only the exact URLs of the build's
+`runtime/datasets.json`, streams the body without storing it, passes `Range`/`If-Range`
+through so a download resumes, and is rate-limited like this gateway; or an import of
+files obtained elsewhere ([BROWSER_JOBS.md](BROWSER_JOBS.md) §2). The ADMET model build
+(`admet.models`) reads the TDC ADMET group archive by the same route — the relay's
+`admet` group, whose download is held to its pinned SHA-256, or a project file, whose
+SHA-256 is compared with the pin; the models are trained in
+the page and kept in its private storage, never shipped
+([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)). In CI the archive was given to the
+page as a project file; a download through the relay in a browser has not been run.
 
 The repository formula workbook is indexed in full, preserving all seven columns,
 duplicate names and source versions. Its compressed SQLite asset is verified against
@@ -95,10 +108,54 @@ provider and hardware-backed execution evidence; no workload has either, so none
 used or claimed, and a context the browser creates for an "npu" request is not
 evidence of an NPU.
 
-Browser mode supports a limited seed-corpus network hypothesis workflow. Full
-data-driven network pharmacology analysis requires verified external data snapshots
-and an appropriate scientific execution backend: the runner's `research.run` job
-([docs/analysis-pipelines.md](../../docs/analysis-pipelines.md)).
+The full data-driven network pharmacology analysis is implemented as browser jobs:
+`research.snapshot` builds verified snapshots from the 17 raw files kept in the site's
+private storage, and `research.run` runs the sixteen-stage workflow on them, both with
+the runner's own Python in job workers ([BROWSER_JOBS.md](BROWSER_JOBS.md),
+[docs/analysis-pipelines.md](../../docs/analysis-pipelines.md)). It is checked on a known
+answer (the planted world) and on the parser tests' fixture files; the build and run on
+the real 17 files in a browser, compared export by export with the native run, passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, commits 43918ac, 53bdbb0 and 65fa6aa, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it). The pinned seed skill
+remains a limited seed-corpus network hypothesis workflow.
+
+RNA-seq differential expression from a count matrix (`pipeline.rnaseq` with `counts` and a sample table) and
+single-cell analysis of count tables (`pipeline.scrna`) are implemented as browser jobs too, with Pyodide's numpy and
+scipy ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)). Their inputs are files
+of the person's own project: copied from the page's storage into the job's private storage and checked against their
+recorded SHA-256, they are computed on in the page and never sent through the gateway or the relay (what the model
+reads of a job, its status and summary, reaches the model like any tool result). A FASTQ
+run, PyDESeq2, Scanpy, scVI, 10x HDF5 and `.h5ad` inputs, and inputs above 6,000 cells, a table above 66,000,000
+cells × genes or a count matrix above 10,000,000 genes × samples (a browser worker's wasm32 memory holds about 4 GB;
+measured in Pyodide 314.0.7 under Node, not in a browser tab) are refused in the browser with the reason and need the
+runner. On two known-answer references, compared with the native command on the same files, every output was
+identical, within a stated tolerance, or (the UMAP layout and figures) not compared, and the known answers held (a
+person's own run is compared with nothing): tested locally
+in headless Chromium with Pyodide 314.0.7, and in Studio's CI with Pyodide's numpy and scipy from jsDelivr (`studio`
+#91, 2026-10-19).
+
+ADMET (`admet.models` and `pipeline.admet`) is implemented as browser jobs too
+([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)). The molecules a prediction run reads are a project file (CSV, TSV
+or `.smi`) or one SMILES: their chemistry (standardisation, the fingerprint, the descriptors and the alerts) is
+computed in the page by RDKit.js 2026.9.1 with exact ports of what it lacks, and the applicability-domain search on
+this device's own kernels; no molecule is sent to the gateway or the dataset relay. The language model (through `/v1`)
+reads the job's status, summary and limitations as it reads any tool result, and those can name a molecule (a refused
+one, for example). The data a build fetches is the TDC ADMET group archive it trains on, through the dataset relay's
+`admet` group (the download held to its pinned SHA-256) or from a project file (its SHA-256 compared with the pin);
+the code fetched is RDKit.js's wasm (7,379,879 bytes, from jsDelivr at its exact version, checked against its pin) and
+Pyodide's numpy, scipy and scikit-learn. The models are built in the page and kept in its private storage, never
+shipped. A molecule the browser chemistry cannot
+standardise exactly is refused and named, not approximated, and so are an SDF or `.mol` file and more than 20,000
+molecules; the runner runs those. Compared with the native command (RDKit 2026.9.1, scikit-learn 1.8.0) in headless
+Chromium 141 locally, on a small known-answer archive and a synthetic one at the TDC sizes, the domain files and
+`admet.tsv` were the native run's bytes, the model cards the native ones but for the model file's digest, the seconds
+and the chemistry's name, and the predictions exact at full precision apart from a named last-bit rule. The same
+comparison passed on the known-answer archive in Studio's CI (`studio` #95, 2026-10-20) and on the real TDC archive in
+`live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20): all 22 models built in the browser, 202 of the 81,809
+molecules (0.25%) refused by the browser chemistry and left out of the native run too, every raw model output and
+domain search on the 16,353 test molecules identical, and 36 final predictions differed by 1 unit in the last place of
+float64 (through `10 **` or `expit`). There the archive was given to the page as a project file, so a download through
+the relay in a browser has not been run, nor has a run in a tab on a person's machine (CI is headless Chromium on a
+virtual machine); the domain search has not run on a physical GPU, so P3's acceptance criterion (a physical GPU,
+measured) is not met. Structure prediction, docking and the governed `predict-admet` skill run on the runner.
 
 The sync HTTP adapter executes in a dedicated Worker; it cannot block the page's
 UI thread. See [Pyodide HTTP APIs](https://pyodide.org/en/stable/usage/api/python-api/http.html),

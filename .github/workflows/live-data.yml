@@ -9,8 +9,19 @@ name: live-data
 # 葛根芩连汤 goes through the research job's own commands on the same files (the
 # research.snapshot build, then research.run with --formula), its nine exports are
 # uploaded, and the analysis is recomputed from the saved exports and the snapshots and
-# compared digest for digest; and the twelve regression scenarios run live against the hub
-# those files built.
+# compared digest for digest; then the same research runs again in headless Chromium as the
+# browser's own jobs (research.snapshot and research.run in Pyodide job workers, the raw files
+# imported into the page's private storage, no runner), and every export is compared with the
+# native run's; and the twelve regression scenarios run live against the hub those files built.
+#
+# A second job does the same for ADMET: the TDC ADMET benchmark group archive is downloaded
+# natively from Harvard Dataverse (bioagent's fetch_archive, held to its pinned SHA-256), its
+# redirect chain printed (the dataset registry's redirect_hosts are reviewed from it), and all
+# 22 models are built natively and in headless Chromium (admet.models as a browser job, the
+# archive imported as a project file: RDKit.js chemistry, scikit-learn 1.8.0 in Pyodide), the
+# native ones on the molecules the browser chemistry kept; their cards, domains and test-set
+# predictions are compared exactly, then pipeline.admet runs on a molecule set, and the
+# browser's refusal counts, times and memory are reported.
 #
 # Network-enabled, so not on every push: by hand, weekly, and on a push that changes how
 # data are acquired, built, analysed or validated. --strict makes a file that could not be
@@ -32,6 +43,19 @@ on:
       - "BioScience-Harness/src/bioagent/analysis/np_exports.py"
       - "BioScience-Harness/src/bioagent/data/benchmark_guizhi_palpitations.json"
       - "BioScience-Harness/src/bioagent/data/formula_errata.json"
+      - "studio/runner/src/tcmstudio/browser_jobs.py"
+      - "studio/runner/src/tcmstudio/datasets.py"
+      - "studio/runner/src/tcmstudio/kinds.py"
+      - "studio/runner/src/tcmstudio/webbuild.py"
+      - "studio/web/js/core/util.js"
+      - "studio/web/js/scientific/**"
+      - "studio/web/js/runtime/pyboot.js"
+      - "studio/web/test/runtime/science*"
+      - "studio/web/test/runtime/compare.mjs"
+      - "studio/web/test/runtime/run.mjs"
+      - "BioScience-Harness/src/bioagent/admet/**"
+      - "studio/web/test/runtime/admet*"
+      - "studio/web/test/runtime/gpu-science.mjs"
       - ".github/workflows/live-data.yml"
 
 permissions:
@@ -127,6 +151,53 @@ jobs:
           for line in doc.get("problems") or ():
               print(f"- {line}")
           PY
+      - uses: actions/setup-node@v4
+        if: steps.gqd.outcome == 'success'
+        with:
+          node-version: "22"
+      - name: "The same research in a browser: research.snapshot and research.run as browser jobs, compared with the native run"
+        id: browser_gqd
+        if: steps.gqd.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 120
+        run: |
+          set -euo pipefail
+          (cd studio && (npm ci || npm install) && npx playwright install --with-deps chromium)
+          # the site with its test pages (build_web.py --dev); Pyodide and its pyarrow come from jsDelivr as on
+          # science.impf.ai. The page imports the raw files tier 3 verified, then runs both jobs through the browser
+          # job service; science.mjs compares every export with the native run's ($RUNNER_TEMP/gqd/out): the five
+          # tables must be the same bytes, the manifest the same apart from its execution block
+          python studio/scripts/build_web.py --out "$RUNNER_TEMP/site" --dev
+          node studio/web/test/runtime/science.mjs --mode gqd --site "$RUNNER_TEMP/site" \
+            --raw "$RUNNER_TEMP/work/raw" --native-out "$RUNNER_TEMP/gqd/out" \
+            --json "$RUNNER_TEMP/reports/browser_gqd.json" --timeout-min 110
+      - name: The browser run, in the summary
+        if: always() && steps.browser_gqd.outcome != 'skipped'
+        run: |
+          report="$RUNNER_TEMP/reports/browser_gqd.json"
+          test -f "$report" || { echo "no browser report"; exit 0; }
+          python - "$report" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          doc = json.load(open(sys.argv[1], encoding="utf-8"))
+          page = doc.get("page") or {}
+          print("### 葛根芩连汤 as browser jobs (Chromium, Pyodide job workers, no runner)\n")
+          print("| Check | Result | Detail | ms |\n|---|---|---|---:|")
+          for c in page.get("checks") or ():
+              detail = str(c.get("detail") or "").replace("|", "/")[:160]
+              print(f"| {c['label']} | {'ok' if c['ok'] else 'FAILED'} | {detail} | {c.get('ms') or ''} |")
+          print("\n| Export | Status | Compared with the native run |\n|---|---|---|")
+          for r in doc.get("comparison") or ():
+              why = str(r.get("why") or "").replace("|", "/")[:300]
+              print(f"| {r['name']} | {r.get('status', '')} | {why} |")
+          if doc.get("comparison"):
+              print("\nevery export identical (the manifest apart from its execution block)" if doc.get("identical")
+                    else "\nnot every export is identical bytes: the rows above say which are within tolerance and what was set aside")
+          receipt = page.get("receipt") or {}
+          if receipt:
+              print(f"\nreceipt: placement {receipt.get('placement')}, runtime {receipt.get('runtime')}, "
+                    f"device {json.dumps(receipt.get('device'), ensure_ascii=False)}")
+          print(f"\nverdict: {'all checks passed' if doc.get('ok') else 'FAILED'}")
+          PY
       - uses: actions/upload-artifact@v4
         if: always() && steps.gqd.outcome != 'skipped'
         with:
@@ -171,5 +242,125 @@ jobs:
       - name: The verdict
         if: always()
         run: |
-          echo "tier 3 (data): ${{ steps.data.outcome }}; tier 4 (benchmark): ${{ steps.benchmark.outcome }}; research job (葛根芩连汤): ${{ steps.gqd.outcome }}; scenarios: ${{ steps.scenarios.outcome }}"
-          test "${{ steps.data.outcome }}" = success && test "${{ steps.benchmark.outcome }}" = success && test "${{ steps.gqd.outcome }}" = success && test "${{ steps.scenarios.outcome }}" = success
+          echo "tier 3 (data): ${{ steps.data.outcome }}; tier 4 (benchmark): ${{ steps.benchmark.outcome }}; research job (葛根芩连汤): ${{ steps.gqd.outcome }}; the same in a browser: ${{ steps.browser_gqd.outcome }}; scenarios: ${{ steps.scenarios.outcome }}"
+          test "${{ steps.data.outcome }}" = success && test "${{ steps.benchmark.outcome }}" = success && test "${{ steps.gqd.outcome }}" = success && test "${{ steps.browser_gqd.outcome }}" = success && test "${{ steps.scenarios.outcome }}" = success
+
+  admet:
+    name: "ADMET on the real TDC archive: the 22 models built natively and in a browser, compared"
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: python -m pip install --upgrade pip
+      # the native side at the browser's pins: RDKit 2026.9.1 (RDKit.js 2026.9.1) and scikit-learn 1.8.0 (Pyodide's)
+      - run: pip install -e PSH-Harness -e BioScience-Harness -e studio/runner rdkit==2026.9.1 scikit-learn==1.8.0
+      - name: The archive's redirect chain (the dataset registry's redirect_hosts are reviewed from it)
+        id: redirects
+        continue-on-error: true
+        # what the site's dataset relay would be redirected through when a browser fetches the archive: every hop's
+        # status and Location, with the user agent bioagent sends (Dataverse refuses Python's default one); a HEAD
+        # first, then a GET whose body is discarded when the HEAD does not end in 200
+        run: |
+          set -uo pipefail
+          mkdir -p "$RUNNER_TEMP/reports"
+          url="$(python -c 'from bioagent.admet.models import TDC_ADMET_URL; print(TDC_ADMET_URL)')"
+          ua="$(python -c 'from bioagent.backends.http import user_agent; print(user_agent())')"
+          out="$RUNNER_TEMP/reports/admet_redirects.txt"
+          echo "HEAD $url" | tee "$out"
+          curl -sIL -A "$ua" --max-time 300 "$url" | tr -d '\r' | tee -a "$out" | grep -iE '^(HTTP/|location:|content-length:|content-type:)' || true
+          if ! tail -n 40 "$out" | grep -E '^HTTP/' | tail -n 1 | grep -q ' 200'; then
+            echo "GET $url (the HEAD did not end in 200)" | tee -a "$out"
+            curl -sSL -A "$ua" --max-time 900 -D - -o /dev/null "$url" | tr -d '\r' | tee -a "$out" | grep -iE '^(HTTP/|location:|content-length:|content-type:)' || true
+          fi
+          hosts="$(grep -iE '^location:[[:space:]]*[a-z]+://' "$out" | sed -E 's/^[Ll]ocation:[[:space:]]*//' | sed -E 's#^[a-z]+://([^/:]+).*#\1#' | sort -u | tr '\n' ' ')"
+          echo "redirect hosts: ${hosts:-none}" | tee -a "$out"
+          {
+            echo "### The TDC ADMET archive's redirect chain"
+            echo
+            echo "\`$url\` → redirect hosts: ${hosts:-none} (studio/runner/src/tcmstudio/datasets.py \`redirect_hosts\` are reviewed from these)"
+            echo
+            echo '```'
+            grep -iE '^(HEAD|GET|HTTP/|location:|content-length:)' "$out"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: The real archive, downloaded natively and held to its pinned SHA-256
+        id: archive
+        run: |
+          python - "$RUNNER_TEMP/admet" <<'PY'
+          import hashlib, sys
+          from pathlib import Path
+          from bioagent.admet.models import TDC_ADMET_SHA256, fetch_archive
+          path = fetch_archive(Path(sys.argv[1]))
+          data = path.read_bytes()
+          sha = hashlib.sha256(data).hexdigest()
+          print(f"{path}: {len(data):,} bytes, SHA-256 {sha}")
+          sys.exit(0 if sha == TDC_ADMET_SHA256 else 1)
+          PY
+      - name: "All 22 models natively and in a browser (the archive a project file), the molecule set predicted, compared"
+        id: browser_admet
+        timeout-minutes: 225
+        # science.mjs --mode admet --archive: admet.models as a browser job on the real archive (RDKit.js and Pyodide
+        # from jsDelivr as on science.impf.ai), the same browser chemistry once more on every split (the training
+        # molecules it refused, held to the cards' counts), the 22 models built natively on the molecules it kept
+        # (one thread), then each card (apart from file digests, seconds and the chemistry's name), each domain and
+        # each test split's predictions at full precision compared (the raw outputs exactly; a value through exp or
+        # pow within compare.mjs's named last-bit rule); pipeline.admet on the molecule set, and once more with the
+        # domain search forced onto SwiftShader's WebGPU. The page's limit (180 minutes) leaves the step's last 45 for
+        # the native side, which runs after the page (the 22 models at one thread: 443 s locally on a synthetic archive of
+        # the TDC group's sizes)
+        run: |
+          set -euo pipefail
+          (cd studio && (npm ci || npm install) && npx playwright install --with-deps chromium)
+          python studio/scripts/build_web.py --out "$RUNNER_TEMP/site" --dev
+          node studio/web/test/runtime/science.mjs --mode admet --archive "$RUNNER_TEMP/admet/tdc_admet_group.zip" \
+            --site "$RUNNER_TEMP/site" --json "$RUNNER_TEMP/reports/browser_admet.json" --timeout-min 180
+      - name: The ADMET comparison, the refusals, times and memory, in the summary
+        if: always() && steps.browser_admet.outcome != 'skipped'
+        run: |
+          report="$RUNNER_TEMP/reports/browser_admet.json"
+          test -f "$report" || { echo "no browser ADMET report"; exit 0; }
+          python - "$report" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          doc = json.load(open(sys.argv[1], encoding="utf-8"))
+          admet = doc.get("admet") or {}
+          page = (doc.get("page") or {}).get("admet") or {}
+          print("### ADMET on the real TDC archive: the browser's models against native ones\n")
+          print("| Row | Status | Compared |\n|---|---|---|")
+          for r in admet.get("rows") or ():
+              why = str(r.get("why") or "").replace("|", "/")[:300]
+              print(f"| {r['name']} | {r.get('status', '')} | {why} |")
+          print("\n| Endpoint | Training molecules | Refused by the browser chemistry | Not read | Steps |\n|---|---:|---:|---:|---|")
+          for e, r in (page.get("rechem") or {}).items():
+              steps = {}
+              for k in ("train_val", "test"):
+                  for row in r[k]["refused"]:
+                      steps[row[2]] = steps.get(row[2], 0) + 1
+              print(f"| {e} | {r['train_val']['n'] + r['test']['n']} | {len(r['train_val']['refused']) + len(r['test']['refused'])} "
+                    f"| {len(r['train_val']['unreadable']) + len(r['test']['unreadable'])} | {', '.join(f'{k}: {v}' for k, v in steps.items()) or '-'} |")
+          t = admet.get("times") or {}
+          if t:
+              mib = lambda b: f"{b / 2**20:.0f} MiB" if b else "not reported"
+              m, p = t.get("models") or {}, t.get("pipeline") or {}
+              print(f"\nadmet.models: browser job {m.get('browser_job_s')} s (chemistry {sum(v or 0 for v in (m.get('chemistry_s') or {}).values()):.1f} s, "
+                    f"training {sum(v or 0 for v in (m.get('train_s') or {}).values()):.1f} s; worker memory {mib(m.get('wasm_peak_bytes'))}); native build {m.get('native_s')} s")
+              print(f"\npipeline.admet: browser job {p.get('browser_job_s')} s (worker memory {mib(p.get('wasm_peak_bytes'))}); native {p.get('native_s')} s")
+          print(f"\nverdict: {'all checks passed' if doc.get('ok') else 'FAILED'}")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: admet-live-reports
+          path: ${{ runner.temp }}/reports
+          if-no-files-found: warn
+          retention-days: 30
+      - name: The verdict
+        if: always()
+        run: |
+          echo "redirect chain: ${{ steps.redirects.outcome }}; archive: ${{ steps.archive.outcome }}; the models natively and in a browser: ${{ steps.browser_admet.outcome }}"
+          test "${{ steps.archive.outcome }}" = success && test "${{ steps.browser_admet.outcome }}" = success

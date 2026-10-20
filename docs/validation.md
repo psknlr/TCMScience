@@ -28,12 +28,12 @@ on `FAIL`; the live-data workflow uses it.
 | Tier | What runs | Where | Command |
 |---|---|---|---|
 | 1 Unit | functions and their contracts | `ci.yml`: `psh`, `bioscience` (`-m unit`), `studio.yml` | `pytest` |
-| 2 Integration | every registered capability through the Studio dispatcher with its reference output; the twelve research scenarios; the benchmark as far as it goes offline | `ci.yml`: `validation`, every push (no run has run its jobs since `ci` #281: [below](#not-verified-here-and-why)) | `tcmstudio validate --out DIR`; `bioagent validate benchmark --out DIR` |
+| 2 Integration | every registered capability through the Studio dispatcher with its reference output; the twelve research scenarios; the benchmark as far as it goes offline | `ci.yml`: `validation`, every push (passed in `ci` #317, 2026-10-19: [below](#not-verified-here-and-why)) | `tcmstudio validate --out DIR`; `bioagent validate benchmark --out DIR` |
 | 3 Real data | the reviewed research files from their servers (NPASS, CMAUP, LOTUS, STRING, Reactome, UniProt), verified, built into the data hub and the research snapshots, queried, rebuilt | `live-data.yml`: by hand, weekly, and on a push that changes acquisition, sources, research, analysis or validation | `bioagent validate data --out DIR --work W --live --strict` |
-| 4 End-to-end research | the Guizhi Decoction and palpitations benchmark on those files, its literature queried live, run twice and compared; 葛根芩连汤 through the research job (sixteen stages, nine exports, then `np_exports verify`): defined, not yet executed | `live-data.yml` | `bioagent validate benchmark --out DIR --raw W/raw --live --repeat --strict` |
+| 4 End-to-end research | the Guizhi Decoction and palpitations benchmark on those files, its literature queried live, run twice and compared; 葛根芩连汤 through the research job (sixteen stages, nine exports, then `np_exports verify`): passed in `live-data` #16 and #17 (2026-10-19) | `live-data.yml` | `bioagent validate benchmark --out DIR --raw W/raw --live --repeat --strict` |
 | 5 Performance and reliability | each record's runtime; resumed downloads (a byte-range request on a partial file); rebuild and repeat digests; the agent's failure budget | inside tiers 2–4, and the agent tests | — |
 | Browser (Pyodide) | the real Pyodide runtime in Chromium: one governed skill's content and output hashes against native CPython (`browser.spec.mjs`), the source gateway's code with a mocked upstream, and the distance matrix with acceleration `auto` (WebGPU or WebAssembly SIMD, whichever the runtime picks; CI's headless Chromium has at most a software adapter, which the runtime refuses, so there it is the CPU), the CPU kernel and the reference Python giving the same result (`browser-access.spec.mjs`), a phone emulation (`mobile.spec.mjs`); and the runtime check, which compares about twenty envelopes with native CPython field by field | the specs: `studio.yml`'s build job, where an unreachable Pyodide CDN fails them (outside CI they skip, with the reason); the runtime check: by hand only, not in CI | `npm run test:e2e`; `npm run test:runtime` |
-| Connectors | every operation by level ([below](#connector-verification-levels)) | `ci.yml` `validation` (every push) for the offline levels, and `connectors-live.yml` monthly and on demand for the live one, as a report: both defined and not yet executed ([below](#not-verified-here-and-why)), so the offline levels are checked locally | `python3 studio/scripts/connector_coverage.py --check` |
+| Connectors | every operation by level ([below](#connector-verification-levels)) | `ci.yml` `validation` (every push) for the offline levels, and `connectors-live.yml` monthly and on demand for the live one, as a report. The offline levels passed in `ci` #317 (2026-10-19); `connectors-live.yml` has not run yet ([below](#not-verified-here-and-why)) | `python3 studio/scripts/connector_coverage.py --check` |
 
 The specialised CI jobs stay as they were and remain part of the picture: the analysis
 pipelines with the standard tools, docking and ADMET with their engines, the structure
@@ -211,21 +211,44 @@ failures and the ways on.
 
 ## Not verified here, and why
 
-- **CI runs since 2026-10-11**: every `ci` run from #282 and every `live-data` run from #11
-  (2026-10-11, 20:06 UTC) to 2026-10-19 ended within about a minute, almost all within
-  five seconds, without running its jobs: a condition of the repository's Actions account,
-  not a test result. The last runs that ran their jobs are `ci` #281 and `live-data` #10
-  (2026-10-11). What was added since has therefore not run on GitHub: the pipeline stage
-  and reference tests in the engine jobs, the 葛根芩连汤 real-data step of `live-data.yml`,
-  the connector coverage check and the monthly live connector run. They are defined, not
-  executed.
-- **The 葛根芩连汤 real-data case**: the research job on the tier-3 files, its nine exports
-  uploaded and re-checked with `np_exports verify`, is defined in `live-data.yml` and has
-  never run. The README's headline figures for this formula come from runs outside CI and
-  are not regression-checked.
-- **The verified transfer, live**: `acquisition.transfer.VerifiedTransfer` (resume only onto
-  the same remote file, archives read through before a file is kept) is tested against
-  loopback servers only; its first contact with the real servers will be the live tier.
+- **CI from 2026-10-11 to 2026-10-19**: every `ci` run from #282 to #311 and every
+  `live-data` run from #11 to #15 (2026-10-11, 20:06 UTC, to 2026-10-19, 04:24 UTC) ended
+  within about a minute, almost all within five seconds, without running its jobs: a
+  condition of the repository's Actions account, not a test result. Jobs run again since
+  2026-10-19 (`ci` #312 onwards). `ci` #317 (run 39236311752, commit e73a1c2) passed every
+  job a push runs: the PSH and BioScience-Harness unit tiers on Python 3.11 and 3.12, the
+  engine jobs (the analysis pipelines with their command-line tools and R's DESeq2, docking
+  with real Vina and ADMET, OpenMM and ProteinMPNN, scVI), the MCP, tool-provider and
+  literature jobs, the deployed-ToolsAgent job, the end-to-end cases, and this offline tier
+  with the connector coverage check. The two manual jobs (live connector verification,
+  PaperQA2 synthesis) were skipped, and every job ran on a CPU runner: no job ran on a GPU.
+  `live-data` #16 and #17 (2026-10-19) succeeded: tier 3, tier 4, the 葛根芩连汤 research job
+  and the scenario step each reported success. A step's success is not every record's PASS:
+  in #17 three of the twelve scenarios were `BLOCKED` (docking, ADMET and transcriptomics:
+  their packages are not installed on that runner) and three tier-3 files `UNVERIFIED`
+  (below). These are test results on GitHub's runners, not a deployment verification, and
+  the engine jobs run each engine on a small reference or fixture, not every engine path
+  on real data. The monthly live connector run (`connectors-live.yml`) has not run yet.
+- **The 葛根芩连汤 real-data case**: passed in `live-data` #16 and #17 (2026-10-19). The step
+  builds the research snapshots from the tier-3 files (`bioagent snapshots build`), runs
+  `bioagent research … --formula 葛根芩连汤` with NPASS, CMAUP and LOTUS as activity sources
+  and STRING optional, and fails unless both commands exit as the job counts success (the
+  research command 0, or 1 for a release not authorised), the nine exports exist and are
+  not empty, and `np_exports verify` exits 0. It asserts no figure: the README's headline
+  figures for this formula come from runs outside CI and are not regression-checked. The
+  same research as browser jobs (`research.snapshot` and `research.run` in headless
+  Chromium, Pyodide job workers, no runner), compared export by export with this run,
+  passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, 2026-10-19): every export the
+  native run's bytes, `run_manifest.json` apart from its execution block.
+- **The verified transfer, live**: tier 3 downloads through
+  `acquisition.transfer.VerifiedTransfer` (resume only onto the same remote file, archives
+  read through before a file is kept). In `live-data` #17 (2026-10-19) it fetched the 17
+  files from their servers: 14 PASS against a reviewed checksum or size and 3 UNVERIFIED
+  (no reviewed checksum or size, below); a resume onto a partial file passed on one file
+  each from Zenodo, STRING and bidd.group, and was not applicable to Reactome's and
+  UniProt's files. The committed download record
+  (`bioagent/data/live_download_verification.json`) is still the one from 2026-10-11: the
+  workflow prints the new record and commits nothing.
 - **Browser runtime parity beyond a subset**: the runtime check compares about twenty
   envelopes with native CPython, by hand; no test compares every browser entry, and the
   network-pharmacology seed skill has never been run in Pyodide by a test.

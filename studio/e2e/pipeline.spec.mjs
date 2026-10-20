@@ -108,7 +108,7 @@ test("a change to anything the site bundles or tcmstudio imports runs the workfl
 
 test("the check after a deployment requires Tao-S1 only when its key was put and RELAY is not off", async () => {
   const secrets = runOf("Are the secrets set?");
-  const check = runOf("Check the site, source gateway, telemetry and admin gate, and one tiny Tao-S1 call");
+  const check = runOf("Check the site, source gateway, dataset relay, telemetry and admin gate, and one tiny Tao-S1 call");
   const toml = readFileSync(path.join(STUDIO, "edge", "wrangler.toml"), "utf8");
   expect(toml).toMatch(/^RELAY = .*$/m);
   // the relay's own reading of RELAY decides what "off" is
@@ -125,7 +125,11 @@ test("the check after a deployment requires Tao-S1 only when its key was put and
     expect(c.calls[0]).toMatch(/^node studio\/edge\/scripts\/check\.mjs --url https:\/\/science\.impf\.ai /);
     // the telemetry routes and the admin gate are checked on every deployment, whatever is paused
     expect(c.calls[0]).toMatch(/ --require-telemetry\b/);
-    return { ...s.outputs, required: / --require-model\b/.test(c.calls[0]), requiredSources: / --require-sources\b/.test(c.calls[0]), stdout: s.stdout };
+    return {
+      ...s.outputs, required: / --require-model\b/.test(c.calls[0]), requiredSources: / --require-sources\b/.test(c.calls[0]),
+      // the dataset relay is probed (a warning, never a failed deployment) while the sources are on; never required
+      datasets: / --datasets\b/.test(c.calls[0]), requiredDatasets: / --require-datasets\b/.test(c.calls[0]), stdout: s.stdout,
+    };
   };
 
   for (const value of ["on", "off", "OFF", "0", "1", "false", "true", "no", "yes", "offline"]) {
@@ -153,6 +157,8 @@ test("the check after a deployment requires Tao-S1 only when its key was put and
       const r = deploy('"on"', "sk-test", sources);
       expect(r.sources_off, `SOURCES = ${sources}`).toBe(off ? "1" : "0");
       expect(r.requiredSources, `SOURCES = ${sources}: --require-sources`).toBe(!off);
+      expect(r.datasets, `SOURCES = ${sources}: the dataset relay probe`).toBe(!off);
+      expect(r.requiredDatasets, "the relay probe never fails a deployment").toBe(false);
       expect(r.required, "source pause never relaxes Tao-S1 validation when its key was put").toBe(true);
       if (off) expect(r.stdout).toMatch(/::notice::SOURCES is off/);
     }

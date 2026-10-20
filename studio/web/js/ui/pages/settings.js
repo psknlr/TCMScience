@@ -6,7 +6,7 @@
 import { lang, setLang, t } from "../../core/i18n.js";
 import { activeProvider, localFix, newCustomProvider, PRESETS, testConnection } from "../../core/providers.js";
 import { clearKeys } from "../../core/settings.js";
-import { cssEscape, debounce, fill, formatDuration, formatNumber, h } from "../dom.js";
+import { cssEscape, debounce, fill, formatDateTime, formatDuration, formatNumber, h } from "../dom.js";
 import { icon } from "../icons.js";
 import { confirmDialog, toast } from "../overlay.js";
 import { computePanel, detectLocalModels, relayErrorLine } from "../panels.js";
@@ -339,6 +339,18 @@ function computeTab(app, rerender, { jobs: tracker } = {}) {
   } else {
     jobsBox.append(h("p.muted.small", t("ui.jobs.needs_runner")));
   }
+  // this browser's own jobs (research.snapshot, research.run, pipeline.rnaseq, pipeline.scrna, admet.models,
+  // pipeline.admet, the self-test): followed, cancelled and resumed here
+  const browserJobs = h("div.jobs-list");
+  const service = app.runtimes.jobs?.status === "ready" ? app.runtimes.jobs.service : null;
+  if (service) {
+    browserJobs.append(h("p.muted.small", spinner({ size: 12 }), " ", t("ui.files.loading")));
+    service.list({ limit: 20 }).then((list) => {
+      fill(browserJobs, list.length ? h("div.stack", list.map((j) => (tracker ? tracker.node(j, { fresh: true }) : null))) : h("p.muted.small", t("ui.jobs.browser_none")));
+    }).catch((err) => fill(browserJobs, h("p.muted.small", err?.message || String(err))));
+  } else {
+    browserJobs.append(h("p.muted.small", t("ui.jobs.browser_unavailable", { reason: app.runtimes.jobs?.reason || t("ui.bresearch.no_service") })));
+  }
   return h("div.stack.stack--xl",
     section({ title: t("ui.compute.title"), children: computePanel(app, { compact: false }) }),
     section({ title: t("ui.browser.acceleration"), children: selectField({
@@ -346,8 +358,97 @@ function computeTab(app, rerender, { jobs: tracker } = {}) {
       options: [{ value: "auto", label: t("ui.browser.acceleration_auto") }, { value: "cpu", label: t("ui.browser.acceleration_cpu") }, { value: "reference", label: t("ui.browser.acceleration_reference") }],
       help: t("ui.browser.acceleration_help"), onChange: (v) => app.setSetting({ browserAcceleration: v }),
     }) }),
+    section({ title: t("ui.devicecheck.title"), children: deviceCheckPanel(app, rerender) }),
     section({ title: t("ui.web.label"), children: switchControl({ label: t("ui.web.default_label"), description: t("ui.web.default_desc"), checked: app.state.settings.web, onChange: (v) => app.setSetting({ web: v }) }) }),
-    section({ title: t("ui.jobs.title"), children: jobsBox }));
+    section({ title: t("ui.jobs.title"), children: jobsBox }),
+    section({ title: t("ui.jobs.browser_title"), children: browserJobs }));
+}
+
+/**
+ * "Check this device": compute/device-check.js run here (a physical adapter only: a software renderer is refused, as it
+ * is for the jobs), its report kept as this device's calibration, and its verdicts shown: the adapter and whether it is
+ * physical, the known-answer test, and at each size whether every backend was exact and whether the GPU was faster.
+ * What is shown before a check: the calibration kept for this device, if any. The state lives on app.state, so a
+ * re-render of the tab keeps a check that is running and the last report.
+ */
+function deviceCheckPanel(app, rerender) {
+  const st = (app.state.deviceCheck ||= { running: false, stage: null, report: null, error: null, current: null, currentP: null });
+  const progress = h("p.muted.small", { "aria-live": "polite" }, st.running ? h("span", spinner({ size: 12 }), " ", t("ui.devicecheck.running", { stage: st.stage || "" })) : null);
+  st.progressEl = progress;
+  const kept = h("p.muted.small");
+  const shown = st.report || st.current;
+  if (!st.running && !st.report) {
+    // the calibration kept for this device: its fingerprint needs the adapter the browser offers now (asked for, no device)
+    st.currentP ||= import("../../compute/calibration.js").then(({ currentCalibration }) => currentCalibration()).then((c) => {
+      st.current = c.calibration || null;
+      return st.current;
+    }).catch(() => null);
+    if (!st.current) {
+      kept.append(spinner({ size: 12 }), " ", t("ui.files.loading"));
+      st.currentP.then((c) => {
+        if (c && kept.isConnected) rerender();
+        else fill(kept, c ? lastLine(c) : t("ui.devicecheck.none"));
+      });
+    } else fill(kept, lastLine(st.current));
+  }
+  const run = async () => {
+    if (st.running) return;
+    Object.assign(st, { running: true, stage: t("ui.devicecheck.stage.gpu"), report: null, error: null });
+    rerender();
+    try {
+      const { deviceCheck } = await import("../../compute/device-check.js");
+      st.report = await deviceCheck({
+        onProgress: ({ stage, size }) => {
+          st.stage = stage === "size" && size ? t("ui.devicecheck.stage.size", { queries: formatNumber(size.queries), refs: formatNumber(size.refs) }) : t(`ui.devicecheck.stage.${stage === "done" ? "done" : "gpu"}`);
+          if (st.progressEl?.isConnected) fill(st.progressEl, h("span", spinner({ size: 12 }), " ", t("ui.devicecheck.running", { stage: st.stage })));
+        },
+      });
+      st.current = st.report;
+    } catch (err) {
+      st.error = String(err?.message || err);
+    }
+    st.running = false;
+    rerender();
+  };
+  return h("div.stack",
+    h("p.field__help", t("ui.devicecheck.help")),
+    h("div.row", button({ label: t("ui.devicecheck.run"), icon: "cpu", size: "sm", disabled: st.running, onClick: run })),
+    progress,
+    st.error ? notice({ tone: "warn", title: t("ui.devicecheck.failed", { error: st.error }) }) : null,
+    st.report || (shown && !st.running) ? deviceReport(shown) : kept);
+}
+
+/** The kept calibration in one line: when, and its verdict. */
+function lastLine(report) {
+  return t("ui.devicecheck.last", { at: formatDateTime(report.measured_at), verdict: [report.verdict, report.label].filter(Boolean).join(" · ") });
+}
+
+/** A device check report (tcmstudio.device-check/1) as the person reads it. */
+export function deviceReport(report) {
+  const a = report?.device?.adapter || null;
+  const kernel = report?.kernels?.["tanimoto.best"] || {};
+  const ka = kernel.known_answer;
+  const ms = (x) => (Number.isFinite(x?.ms) ? t("ui.devicecheck.ms", { ms: formatNumber(Math.round(x.ms * 10) / 10) }) : t("ui.devicecheck.not_measured"));
+  const name = a ? [a.vendor, a.architecture, a.description].filter(Boolean).join(" ") : "";
+  const sizes = (kernel.sizes || []).map((row) => {
+    const exact = Object.entries(row.exact || {}).filter(([, v]) => v !== null);
+    const verdict = row.accelerated === true ? "faster" : row.accelerated === false ? "slower" : "none";
+    return [t("ui.devicecheck.size", { queries: formatNumber(row.queries), refs: formatNumber(row.refs) }), h("span",
+      h("span", t("ui.devicecheck.timings", { gpu: ms(row.timings?.webgpu), wasm: ms(row.timings?.["wasm-simd"]), js: ms(row.timings?.js) })),
+      h("span.muted", ` · ${exact.length && exact.every(([, v]) => v === true) ? t("ui.devicecheck.exact") : exact.length ? t("ui.devicecheck.not_exact") : t("ui.devicecheck.not_measured")}`),
+      h("span", ` · ${t(`ui.devicecheck.verdict.${verdict}`)}`),
+      row.reason ? h("span.muted", { lang: "en" }, ` (${String(row.reason).slice(0, 300)})`) : null)];
+  });
+  return keyValue([
+    [t("ui.devicecheck.adapter"), a
+      ? h("span", h("span", name || t("ui.compute.ev.adapter_unnamed")), h("span.muted", ` · ${t(`ui.compute.ev.adapter.${["physical", "software", "unidentified"].includes(a.kind) ? a.kind : "unidentified"}`)}`))
+      : h("span", t("ui.devicecheck.adapter_none"), report?.device?.gpu_error?.message ? h("span.muted", { lang: "en" }, ` (${String(report.device.gpu_error.message).slice(0, 200)})`) : null)],
+    [t("ui.devicecheck.known_answer"), ka ? (ka.ok ? t("ui.devicecheck.ka_ok", { ms: formatNumber(Math.round(ka.ms)) }) : t("ui.devicecheck.ka_failed", { reason: String(ka.reason || "") })) : t("ui.devicecheck.ka_none")],
+    ...sizes,
+    [t("ui.devicecheck.label"), h("span", { lang: "en" }, [report?.verdict, report?.label].filter(Boolean).join(" · "), report?.verdict_reason ? h("span.muted", ` (${String(report.verdict_reason).slice(0, 400)})`) : null)],
+    report?.id ? [t("ui.devicecheck.report"), h("span", h("code", String(report.id).slice(0, 12)), h("span.muted", ` · ${formatDateTime(report.measured_at)}`),
+      report.stored ? h("span.muted", ` · ${report.stored.ok ? t("ui.devicecheck.stored") : t("ui.devicecheck.not_stored", { error: String(report.stored.error || "") })}`) : null)] : null,
+  ]);
 }
 
 // ------------------------------------------------------------------------------------------------- general

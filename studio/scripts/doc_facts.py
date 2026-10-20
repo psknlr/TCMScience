@@ -104,7 +104,7 @@ ANCHORS: tuple[tuple[str, str, tuple[str | None, ...]], ...] = (
     ("studio/docs/ARCHITECTURE.md", rf"reach every other entry \({_N}\)", ("entries",)),
     ("studio/docs/BROWSER_COMPUTE.md", rf"has \*\*{_N} entries\*\* \({_N} core tools\); \*\*{_N} run in the browser\*\*",
      ("entries", "core", "browser")),
-    ("studio/docs/BROWSER_COMPUTE.md", r"^\| (1g|[1-8]) \| [^|\n]+\| (\d+) \|$", (None, "class.{}")),
+    ("studio/docs/BROWSER_COMPUTE.md", r"^\| (1g|1j|[1-8]) \| [^|\n]+\| (\d+) \|$", (None, "class.{}")),
     ("studio/docs/BROWSER_COMPUTE.md", rf"Exact CPU kernels for {_N} tools", ("kernel_tools",)),
     ("studio/docs/BROWSER_COMPUTE.md", rf"compatibility matrix of all {_N} catalog entries", ("entries",)),
     ("studio/docs/CONTRACT_NOTES.md",

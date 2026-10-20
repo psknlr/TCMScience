@@ -23,7 +23,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STUDIO = path.resolve(HERE, "../../..");
 const PYTHON = process.env.PYTHON || "python3";
 
-const MIME = {
+export const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml",
   ".png": "image/png", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2", ".wasm": "application/wasm",
@@ -73,7 +73,7 @@ export function parseHeaders(text) {
   return rules.map((r) => ({ ...r, re: new RegExp(`^${r.pattern.split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/:\w+/g, "[^/]+")).join(".*")}$`) }));
 }
 
-function headersFor(rules, pathname) {
+export function headersFor(rules, pathname) {
   const h = new Map();
   for (const r of rules) {
     if (!r.re.test(pathname)) continue;

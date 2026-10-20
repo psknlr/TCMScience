@@ -149,6 +149,8 @@ export const STATES = {
     succeeded: { zh: "已完成（输出哈希已核验）", en: "Finished (output hashes verified)" },
     failed: { zh: "未完成", en: "Failed" },
     cancelled: { zh: "已取消", en: "Cancelled" },
+    // a browser job whose page closed while it ran: nothing runs in the background, it can be resumed
+    interrupted: { zh: "已中断（页面关闭，可继续）", en: "Interrupted (the page closed; it can be resumed)" },
   },
   retraction: {
     not_retracted: { zh: "未撤稿", en: "Not retracted" },

@@ -128,7 +128,7 @@ def run_case(work_dir: str | Path, *, open_targets: str | Path = OPEN_TARGETS,
             if not admet.models_built else
             f"{len(admet.cards)} endpoints predicted from TDC models; outside the "
             f"applicability domain: {', '.join(outside) or 'none'}",
-            {"molecule": {k: molecule.get(k) for k in ("name", "smiles", "properties",
+            {"molecule": {k: molecule.get(k) for k in ("name", "smiles", "descriptors",
                                                          "rules", "alerts", "predictions")
                           if k in molecule},
              "models_built": admet.models_built,

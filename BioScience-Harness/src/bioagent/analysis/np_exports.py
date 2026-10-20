@@ -33,8 +33,9 @@ saved tables. ``python -m bioagent.analysis.np_exports verify RUN --snapshots S 
 exits 0 when every check passed, 1 when one failed, 3 when none failed but one could not be
 made (no snapshots given; an empty enrichment table, nothing to recompute).
 
-The HTML renderer is the pipelines' (``omics.rnaseq._html``), imported only when a report
-is written, so importing this module pulls in nothing heavy.
+The HTML renderer is the pipelines' (:mod:`bioagent.report_html`, standard library only),
+imported when a report is written: neither importing this module nor writing the exports
+loads numpy or scipy, so they run where those are not installed (the browser's Python).
 """
 
 from __future__ import annotations
@@ -327,7 +328,7 @@ def _report_md(result: Mapping[str, Any], formula: Mapping[str, Any],
 
 
 def _html(md: str) -> str:
-    from ..omics.rnaseq import _html as render        # numpy comes with it: only here
+    from ..report_html import render                  # the pipelines' renderer: no numpy
     return render(md, {})
 
 

@@ -108,9 +108,10 @@ function readinessReason(r) {
     if (q?.need === "remote_backend") return { label: t("ui.catalog.readiness.remote_backend"), icon: "globe" };
     if (q) return { label: t("ui.catalog.readiness.compute_setting"), icon: "sliders" };
   }
-  // needs_runner is also the state of a connected runner whose job service cannot start: said as that, not "connect"
+  // needs_runner is also the state of a job service that is not running (a connected runner's that cannot start, or
+  // this browser's for the kinds it runs): said as that, by its place, not "connect"
   if (r.state === "needs_runner" && r.requires.some((x) => x.need === "job_service") && !r.requires.some((x) => x.need === "runner")) {
-    return { label: t("ui.catalog.readiness.job_service"), icon: READINESS_ICON.needs_runner || "circleDashed" };
+    return { label: t(r.where === "browser" ? "ui.catalog.readiness.job_service_browser" : "ui.catalog.readiness.job_service"), icon: READINESS_ICON.needs_runner || "circleDashed" };
   }
   return { label: t(`ui.catalog.readiness.${r.state}`), icon: READINESS_ICON[r.state] || "circleDashed" };
 }
@@ -219,12 +220,12 @@ const NEED_ICON = { runner: "laptop", browser_runtime: "globe", dependency: "box
  * the remedy in the need's own words only when the requirement carries that need's default remedy (core/catalog.js
  * requirement()); a remedy of its own (the runner's "Place its files by hand …" for a dataset that cannot be
  * downloaded, a preference that leaves the browser out) is shown as written, marked English, never replaced by a
- * generic sentence that may not apply.
+ * generic sentence that may not apply. where: the runtime it is a reason of ("browser" names this browser's job service).
  */
-export function requirementView(r) {
+export function requirementView(r, where) {
   const need = typeof r?.need === "string" ? r.need : "dependency";
   const names = Array.isArray(r?.names) ? r.names.filter(Boolean) : [];
-  const key = `ui.need.${need}`;
+  const key = need === "job_service" && where === "browser" ? "ui.need.job_service_browser" : `ui.need.${need}`;
   const label = t(key) !== key ? t(key) : need;
   const base = requirement(need, { names });
   const remedyKey = `ui.need.remedy.${need}`;
@@ -348,6 +349,9 @@ export function mountCatalog(app, main) {
       web: typeof app.webOn === "function" ? app.webOn() : undefined,
       built: dataKnown && Array.isArray(bd.built) ? bd.built : [], dataKnown,
       compute: typeof app.compute === "function" ? app.compute() : app.state.settings?.compute,
+      // the browser's job service: which job kinds it runs here, whether the research snapshots are built in it, and
+      // which ADMET models
+      jobs: app.runtimes?.jobs ? { status: app.runtimes.jobs.status, kinds: app.runtimes.jobs.kinds?.() || [], snapshots: app.state.browserJobs?.snapshots ?? null, admet_models: app.state.browserJobs?.admet ?? null } : undefined,
     };
   };
   let fieldsCache = null;
@@ -539,7 +543,7 @@ export function mountCatalog(app, main) {
       h("p.readiness__head", icon(r.ok ? "check" : readinessReason(r).icon, { size: 14 }),
         h("span", whereLabel(r.where, remote)), h("span.muted", ` · ${r.ok ? t("ui.catalog.readiness.ready") : readinessReason(r).label}`),
         r.derived ? h("span.muted", ` · ${t("ui.catalog.derived")}`) : null),
-      r.requires.length ? h("ul.needs", { role: "list" }, r.requires.map(requirementView)) : null,
+      r.requires.length ? h("ul.needs", { role: "list" }, r.requires.map((q) => requirementView(q, r.where))) : null,
       r.unchecked ? h("p.need__remedy.readiness__unchecked", icon("database", { size: 12 }), " ",
         r.unchecked.length ? h("code", r.unchecked.join(", ")) : null, r.unchecked.length ? " " : null, t("ui.catalog.data_unchecked_note")) : null));
     let line = null;
@@ -597,9 +601,24 @@ export function mountCatalog(app, main) {
       e.gpu ? [t("ui.catalog.gpu"), t("ui.catalog.gpu_yes")] : null,
       (e.heavy || []).length ? [t("ui.catalog.heavy"), h("code.kv__code", e.heavy.join(", "))] : null,
       (e.pyodide_packages || []).length ? [t("ui.catalog.pyodide_packages"), h("code.kv__code", e.pyodide_packages.join(", "))] : null,
+      ...browserJobRows(e),
     ];
     if (!rows.some(Boolean)) return null;
     return h("section.entry__sec", h("h3", t("ui.catalog.sec.backends")), keyValue(rows));
+  }
+
+  /** A browser job kind's own words (entry.execution.browser_job): the packages its job worker loads, the chemistry it
+   * runs in the page (the ADMET kinds: RDKit.js and its ports), and what it reads here; the rest needs the runner. */
+  function browserJobRows(e) {
+    const bj = e.execution?.browser_job;
+    if (!bj || typeof bj !== "object") return [];
+    const words = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? [v.engine || v.name, v.version].filter(Boolean).join(" ") : "");
+    const packages = Array.isArray(bj.pyodide_packages) ? bj.pyodide_packages : Array.isArray(bj.packages) ? bj.packages : [];
+    return [
+      packages.length && !(e.pyodide_packages || []).length ? [t("ui.catalog.browser_job"), h("code.kv__code", packages.join(", "))] : null,
+      words(bj.chemistry) ? [t("ui.catalog.browser_chemistry"), h("span", { lang: "en" }, words(bj.chemistry))] : null,
+      typeof bj.inputs === "string" && bj.inputs ? [t("ui.catalog.browser_inputs"), h("span", { lang: "en" }, bj.inputs)] : null,
+    ];
   }
 
   /** 限制: the largest request one call takes, per runtime (the entry's own, else the catalog's). */

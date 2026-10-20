@@ -1,7 +1,7 @@
 {
   "schema": "bioagent.pipeline-references/1",
-  "version": "2026.10.1",
-  "about": "One reference dataset per analysis pipeline, with the parameters it is run with and the outputs expected from it. A simulated dataset is labelled 'simulated, known answer' and is not public data. Each entry says where it is checked: the built-in RNA-seq and single-cell references and the stored structure model are re-run by tests/test_pipeline_references.py wherever the tests run; the others need an engine or a download and are checked only where those exist (status says which). Content digests are SHA-256 of a file's decompressed text (FASTQ, FASTA, GTF), or of a count matrix as read (barcodes, genes and counts in sorted CSR form), so the compressor's clock does not move them. Output digests are compared only under the numpy and scipy they were recorded with; the expected values always.",
+  "version": "2026.10.2",
+  "about": "One reference dataset per analysis pipeline, with the parameters it is run with and the outputs expected from it. A simulated dataset is labelled 'simulated, known answer' and is not public data. Each entry says where it is checked: the built-in RNA-seq (FASTQ and count-matrix) and single-cell references and the stored structure model are re-run by tests/test_pipeline_references.py wherever the tests run; the others need an engine or a download and are checked only where those exist (status says which). Content digests are SHA-256 of a file's decompressed text (FASTQ, FASTA, GTF), of a count matrix as read (barcodes, genes and counts in sorted CSR form), or of a bulk count table and its sample table in canonical form (tab-separated, integer counts), so the compressor's clock and the file format do not move them. Output digests are compared only under the numpy and scipy they were recorded with; the expected values always.",
   "references": [
     {
       "id": "omics_world",
@@ -48,6 +48,42 @@
         "outputs_recorded_with": {"python": "3.13.16", "numpy": "2.5.4", "scipy": "1.18.1", "machine": "x86_64", "cpu_features": "e905ca5f201dc121"}
       },
       "status": "checked here: built-in engines only, no optional package",
+      "check": "BioScience-Harness/tests/test_pipeline_references.py"
+    },
+    {
+      "id": "omics_counts_world",
+      "version": "1",
+      "pipeline": "bioagent.omics.rnaseq_counts",
+      "kind": "simulated",
+      "label": "simulated, known answer",
+      "statement": "It is simulated by BioScience-Harness/tests/omics_world.py, not public data.",
+      "source": {
+        "generator": "BioScience-Harness/tests/omics_world.py:make_counts_world",
+        "arguments": {"seed": 1},
+        "describes": "a count matrix of 2,000 genes x 6 samples (3 control, 3 treated): log-normal gene means, per-sample size factors 0.7-1.3, negative-binomial counts with the dispersion trend 0.05 + 1/mean times a per-gene log-normal factor; 40 genes four-fold up and 40 four-fold down in treated samples, drawn from the genes with a mean of at least 50",
+        "generated_with": {"python": "3.13.16", "numpy": "2.5.4"}
+      },
+      "licence": "generated here; no third-party data",
+      "sha256": "0b83afbbc630b05f08c099c824da09fc069dca0011a50f89c7c01d1b099be4d7",
+      "inputs": {
+        "counts": "de1c14615d99eb5ea079cedd840ce0b4b0c7f67641aa0d09d67a7fe483e57e2d",
+        "samples": "0701635b18cba8ada7b7ff21ef6ba6f7eac7ec82cf572e3a06ecf0134592747c"
+      },
+      "parameters": {"de_backend": "builtin", "design": "~ condition",
+                     "contrast": ["condition", "treated", "control"], "alpha": 0.05},
+      "expected": {
+        "values": {"planted_up_found_at_least": 38, "planted_down_found_at_least": 38,
+                   "planted_in_the_wrong_direction": 0, "false_discoveries_at_most": 15,
+                   "tested": 1999, "complete": true},
+        "found_means": "called at FDR < alpha with a log2 fold change beyond 1 in the planted direction; when recorded all 40 and 40 were, with 10 false discoveries among 90 calls",
+        "outputs": {"deseq2_results.tsv": "cbd41645fcfb7170f618a5005a6d24bc0343f59514cfc30bfe35de6a3dd9cda8",
+                    "de_diagnostics.tsv": "9364f8a390adc0ef48478a9d10ea98571d2c147e75a07b47b694cf93d4b63790",
+                    "vst.tsv": "efbde40533c6b66c699b0daa0a19c1753202ac0c8b57541fb62d01af4435c41c",
+                    "counts.tsv": "de1c14615d99eb5ea079cedd840ce0b4b0c7f67641aa0d09d67a7fe483e57e2d",
+                    "report.md": "d169b106ce7571468e5e9a655a11d3e625c9496186ce6ef69925984b8dd6cf6c"},
+        "outputs_recorded_with": {"python": "3.13.16", "numpy": "2.5.4", "scipy": "1.18.1", "machine": "x86_64", "cpu_features": "e905ca5f201dc121"}
+      },
+      "status": "checked here: the built-in DESeq2 implementation, no optional package",
       "check": "BioScience-Harness/tests/test_pipeline_references.py"
     },
     {

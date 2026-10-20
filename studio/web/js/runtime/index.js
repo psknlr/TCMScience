@@ -1,5 +1,6 @@
-// The two runtimes a tool call can go to: the browser (Pyodide in a Web Worker, ./browser.js) and the local runner
-// (./runner.js). Both implement the RuntimeClient interface of CONTRACTS §6.
+// The runtimes a tool call can go to: the browser (Pyodide in a Web Worker, ./browser.js) and the local runner
+// (./runner.js), both implementing the RuntimeClient interface of CONTRACTS §6; and the browser's job service
+// (../scientific/runtime/jobs-runtime.js), which runs the job kinds marked execution.browser_job in job workers.
 
 import { Emitter } from "../core/events.js";
 import { t } from "../core/i18n.js";
@@ -14,7 +15,8 @@ export { RunnerRuntime } from "./runner.js";
  * The runner is probed in the background only when that cannot surprise the user with the browser's local-network
  * prompt: the page is served by the runner itself, or it was paired before (a token is saved).
  * opts: {runner: RunnerRuntime options, browser: BrowserRuntime options, autoConnect: false to never probe,
- * importBrowser: () => module (tests)}.
+ * importBrowser: () => module (tests), jobs: false for no job service, jobsOptions: createJobsRuntime's options (files:
+ * the page's project file store)}.
  */
 export async function createRuntimes(settings = {}, opts = {}) {
   const browser = await createBrowserRuntime(settings, opts);
@@ -22,7 +24,19 @@ export async function createRuntimes(settings = {}, opts = {}) {
   if (opts.autoConnect !== false && shouldAutoConnect(settings, opts.location ?? globalThis.location)) {
     runner.start().catch(() => { /* the status says why; the UI offers Connect */ });
   }
-  return { browser, runner };
+  const jobs = opts.jobs === false ? null : await createJobs(opts);
+  return { browser, runner, ...(jobs ? { jobs } : {}) };
+}
+
+/** The browser's job service, or null when its module cannot load (the router then has no browser place for jobs). */
+async function createJobs(opts) {
+  try {
+    const mod = opts.importJobs ? await opts.importJobs() : await import("../scientific/runtime/jobs-runtime.js");
+    return await mod.createJobsRuntime({ ...(opts.jobsOptions || {}) });
+  } catch (err) {
+    console.warn("[tcmstudio] browser job service unavailable", err);
+    return null;
+  }
 }
 
 export function shouldAutoConnect(settings = {}, location = globalThis.location) {

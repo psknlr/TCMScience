@@ -65,6 +65,95 @@ def test_normalised_values_are_refused(tmp_path):
         io.read_counts(p)
 
 
+@pytest.mark.parametrize("name, line_end", [("t.tsv", "\n"), ("t.csv.gz", "\r\n")])
+def test_a_table_read_a_row_at_a_time_is_the_matrix_parsed_whole(tmp_path, name, line_end):
+    """The reader keeps each row's non-zero counts only; the matrix is the one a parse of the
+    whole table gives (cells in rows, sorted CSR, float32), and a blank line is skipped."""
+    import csv
+    import gzip
+
+    rng = np.random.default_rng(3)
+    values = np.where(rng.random((40, 25)) < 0.3, rng.integers(1, 9, (40, 25)), 0)
+    values[5] = 0                                          # a gene with no counts at all
+    cells = [f"c{i}" for i in range(25)]
+    cells[3] = "c,3"                                       # a quoted header cell in the CSV
+    sep = "\t" if name.startswith("t.tsv") else ","
+    lines = [sep.join(['"gene"' if sep == "," else "gene"]
+                      + [f'"{c}"' if sep in c else c for c in cells])]
+    lines += [sep.join([f"G{g}"] + [str(v) for v in row]) for g, row in enumerate(values)]
+    lines.insert(7, "")
+    text = line_end.join(lines) + line_end
+    p = tmp_path / name
+    p.write_bytes(gzip.compress(text.encode(), mtime=0) if name.endswith(".gz")
+                  else text.encode())
+    m = io.read_counts(p)
+    whole = list(csv.reader(text.replace("\r\n", "\n").split("\n")[:-1], delimiter=sep))
+    expected = sparse.csr_matrix(np.array([[float(v) for v in r[1:]] for r in whole[1:] if r],
+                                          dtype=np.float64).T)
+    assert list(m.cells) == cells and list(m.gene_ids) == [f"G{g}" for g in range(40)]
+    assert m.counts.dtype == np.float32 and m.counts.has_sorted_indices
+    assert (m.counts != expected.astype(np.float32)).nnz == 0
+    assert m.counts.nnz == np.count_nonzero(values)
+
+
+def test_a_table_row_of_the_wrong_length_is_refused_with_the_counts(tmp_path):
+    p = tmp_path / "t.tsv"
+    p.write_text("gene\tc1\tc2\nG1\t1\t2\nG2\t3\n")
+    with pytest.raises(io.ScIOError, match=r"rows have 1 values for 2 cells"):
+        io.read_counts(p)
+
+
+def test_a_corrupt_file_of_a_cell_ranger_directory_is_refused(world, tmp_path):
+    """A 10x directory whose gzip is corrupt is refused with the reason, as a table is."""
+    d = tmp_path / "ctrl1"
+    shutil.copytree(world.root / "ctrl1", d)
+    raw = (d / "barcodes.tsv.gz").read_bytes()
+    (d / "barcodes.tsv.gz").write_bytes(raw[:20] + bytes(b ^ 0xFF for b in raw[20:60])
+                                        + raw[60:])
+    with pytest.raises(io.ScIOError, match=r"cannot be read to its end"):
+        io.read_counts(d)
+
+
+@pytest.mark.parametrize("how", ["corrupt", "truncated"])
+def test_a_gzipped_table_that_cannot_be_read_to_its_end_is_refused(tmp_path, capsys, how):
+    """A corrupt deflate stream (zlib.error) or one cut short (EOFError) is refused with the
+    reason, as a FASTQ file is (omics.fastq), never a traceback."""
+    import gzip
+    import zlib
+
+    from bioagent import cli
+    text = "gene\t" + "\t".join(f"c{i}" for i in range(60)) + "\n" + "".join(
+        f"G{g}\t" + "\t".join(str((g + i) % 4) for i in range(60)) + "\n" for g in range(300))
+    raw = gzip.compress(text.encode(), mtime=0)
+    data = (raw[:len(raw) // 2] if how == "truncated"
+            else raw[:20] + bytes(b ^ 0xFF for b in raw[20:60]) + raw[60:])
+    if how == "corrupt":
+        with pytest.raises(zlib.error):
+            gzip.decompress(data)
+    p = tmp_path / "t.tsv.gz"
+    p.write_bytes(data)
+    with pytest.raises(io.ScIOError) as exc:
+        io.read_counts(p)
+    assert str(exc.value).startswith(f"{p} cannot be read to its end ("
+                                     + ("error: " if how == "corrupt" else "EOFError: "))
+    assert cli.main(["scrna", str(p), "--out", str(tmp_path / "o")]) == 1
+    assert capsys.readouterr().err.startswith(f"refused: {p} cannot be read to its end")
+
+
+def test_a_sheet_row_that_names_no_path_is_refused(tmp_path, capsys):
+    """An empty path cell is the sheet's mistake, said with its line; it does not name the
+    sheet's own directory (a Cell Ranger directory, to the reader)."""
+    from bioagent import cli
+    (tmp_path / "a.tsv").write_text("gene\tc1\tc2\nG1\t1\t2\n")
+    sheet = tmp_path / "sheet.csv"
+    sheet.write_text("sample,path,condition\nA,a.tsv,control\n\nB,,treated\n")
+    with pytest.raises(S.ScError) as exc:
+        S.read_sheet(sheet)
+    assert str(exc.value) == f"line 4 of {sheet} names no path"
+    assert cli.main(["scrna", str(sheet), "--out", str(tmp_path / "o")]) == 1
+    assert capsys.readouterr().err == f"refused: line 4 of {sheet} names no path\n"
+
+
 # ---------------------------------------------------------------- QC and doublets
 
 def test_low_quality_cells_are_removed(matrix, world):
@@ -276,6 +365,66 @@ def test_a_single_batch_has_nothing_to_integrate(world, tmp_path):
     assert "one batch only" in stages["integrate"]["reason"]
     assert stages["pseudobulk_de"]["status"] == "not_applicable"       # one condition
     assert run.complete
+
+
+def test_the_layout_says_how_it_started(removed):
+    assert removed.analysis["layout"] == {"start": "spectral"}
+    assert removed.manifest["analysis"]["layout"] == {"start": "spectral"}
+    assert not any("random positions" in w for w in removed.warnings)
+    assert "random positions" not in (removed.out_dir / "limitations.md").read_text()
+
+
+def test_a_failed_spectral_start_is_recorded_not_hidden(world, tmp_path, monkeypatch):
+    """When ARPACK does not converge the layout still starts from random positions, as
+    umap-learn's does; the record, the warnings, the report and limitations.md say so."""
+    import csv
+    from scipy.sparse.linalg import ArpackNoConvergence
+
+    from bioagent.omics.sc import umap
+
+    def no_convergence(*args, **kwargs):
+        raise ArpackNoConvergence("No convergence (1201 iterations)", [], [])
+    monkeypatch.setattr(umap, "eigsh", no_convergence)
+    rows = list(csv.DictReader(open(world.sheet)))
+    sheet = tmp_path / "two.csv"
+    sheet.write_text("sample,path,condition,batch\n" + "".join(
+        f"{r['sample']},{world.root / r['path']},{r['condition']},{r['batch']}\n"
+        for r in rows[:2]))
+    run = S.run_scrna(sheet, S.ScConfig(n_top_genes=600), tmp_path / "out")
+    why = ("the spectral start failed (ArpackNoConvergence: ARPACK error -1: No convergence "
+           "(1201 iterations))")
+    assert run.manifest["analysis"]["layout"] == {"start": f"random: {why}"}
+    assert f"the UMAP layout started from random positions: {why}" in run.warnings
+    assert f"- the UMAP layout started from random positions: {why}" in \
+        (run.out_dir / "report.md").read_text()
+    lines = (run.out_dir / "limitations.md").read_text().splitlines()
+    assert any(line.startswith(f"The UMAP layout started from random positions: {why}. Only "
+                               "the UMAP coordinates") for line in lines)
+    neighbors = next(s for s in run.manifest["stages"] if s["name"] == "neighbors")
+    assert neighbors["status"] == "succeeded" and "start was random" in neighbors["reason"]
+    assert run.complete and S.verify_run(run.out_dir)[0]
+
+
+def test_running_out_of_memory_is_not_a_random_start(monkeypatch):
+    """A MemoryError in the eigensolver is the run's, raised as it is: a random start is only
+    for an eigensolver that failed (a browser worker turns it into a refusal for memory)."""
+    from scipy.sparse.linalg import ArpackNoConvergence
+
+    from bioagent.omics.sc import umap
+
+    ring = sparse.diags([np.ones(19), np.ones(19)], [1, -1], shape=(20, 20), format="csr")
+
+    def out_of_memory(*args, **kwargs):
+        raise MemoryError
+    monkeypatch.setattr(umap, "eigsh", out_of_memory)
+    with pytest.raises(MemoryError):
+        umap.umap_layout(ring, n_epochs=5)
+
+    def no_convergence(*args, **kwargs):
+        raise ArpackNoConvergence("No convergence (100 iterations)", [], [])
+    monkeypatch.setattr(umap, "eigsh", no_convergence)
+    layout, start = umap.umap_layout(ring, n_epochs=5)
+    assert layout.shape == (20, 2) and start.startswith("random: the spectral start failed")
 
 
 def test_verify_run_checks_the_tables_against_the_record(removed, tmp_path):

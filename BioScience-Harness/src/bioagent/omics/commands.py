@@ -18,9 +18,15 @@ COMMANDS = ("rnaseq", "scrna")
 
 def register(sub: argparse._SubParsersAction) -> None:
     r = sub.add_parser("rnaseq", help="RNA-seq from FASTQ to a differential-expression "
-                                      "report (QC, trimming, quantification, DESeq2)")
+                                      "report (QC, trimming, quantification, DESeq2), or "
+                                      "from a count matrix (--counts)")
     r.add_argument("--samples", default="",
-                   help="sample sheet: sample,fastq_1,fastq_2 and the design columns")
+                   help="sample sheet: sample,fastq_1,fastq_2 and the design columns; with "
+                        "--counts, the sample table (sample and the design columns)")
+    r.add_argument("--counts", default="",
+                   help="a gene x sample count table (TSV/CSV, integers; gene_id, gene_name?, "
+                        "one column per sample): the count-matrix mode, which takes no FASTQ "
+                        "reference, engine or trimmer")
     r.add_argument("--transcripts", default="", help="transcriptome FASTA")
     r.add_argument("--annotation", default="",
                    help="GTF, or a transcript,gene[,name] table (gene-level results)")
@@ -31,18 +37,21 @@ def register(sub: argparse._SubParsersAction) -> None:
                         "(default: the last design factor's two levels)")
     r.add_argument("--covariate", action="append", default=[],
                    help="a numeric design variable; every other one is a factor")
-    r.add_argument("--engine", default="auto",
-                   choices=("auto", "builtin", "salmon", "kallisto", "hisat2"))
-    r.add_argument("--trimmer", default="auto", choices=("auto", "builtin", "fastp", "none"))
+    # the FASTQ-only options default to None, so the count-matrix mode can tell one given
+    r.add_argument("--engine", default=None,
+                   choices=("auto", "builtin", "salmon", "kallisto", "hisat2"),
+                   help="quantification (default auto)")
+    r.add_argument("--trimmer", default=None, choices=("auto", "builtin", "fastp", "none"),
+                   help="trimming (default auto)")
     r.add_argument("--de-backend", default="builtin", choices=("builtin", "pydeseq2"),
                    help="the DESeq2 implementation; one that is not installed is refused, "
                         "not replaced")
     r.add_argument("--alpha", type=float, default=0.05, help="FDR level")
-    r.add_argument("--fragment-mean", type=float, default=200.0,
-                   help="single-end reads: assumed fragment length")
-    r.add_argument("--fragment-sd", type=float, default=30.0)
-    r.add_argument("--strand", type=int, default=0, choices=(0, 1, 2),
-                   help="featureCounts strandedness (hisat2 engine)")
+    r.add_argument("--fragment-mean", type=float, default=None,
+                   help="single-end reads: assumed fragment length (default 200)")
+    r.add_argument("--fragment-sd", type=float, default=None, help="(default 30)")
+    r.add_argument("--strand", type=int, default=None, choices=(0, 1, 2),
+                   help="featureCounts strandedness (hisat2 engine; default 0)")
     r.add_argument("--threads", type=int, default=2)
     r.add_argument("--out", default="", help="output directory")
     r.add_argument("--verify", default="",
@@ -152,6 +161,21 @@ def _complete(stages: list) -> int:
     return 1
 
 
+def _contrast(text: str) -> tuple[str, str, str] | None:
+    """``--contrast`` as (factor, numerator, denominator); None when it is not given."""
+    if not text:
+        return None
+    parts = [p.strip() for p in text.split(",")]
+    if len(parts) != 3:
+        raise ValueError("--contrast is factor,numerator,denominator")
+    return (parts[0], parts[1], parts[2])
+
+
+#: Options of the FASTQ mode only, which a count-matrix run refuses rather than ignores.
+_FASTQ_ONLY = ("transcripts", "annotation", "genome", "engine", "trimmer", "fragment_mean",
+               "fragment_sd", "strand")
+
+
 def _rnaseq(a: argparse.Namespace) -> int:
     from .rnaseq import RNASeqConfig, RNASeqError, run_rnaseq, verify_run
 
@@ -160,23 +184,23 @@ def _rnaseq(a: argparse.Namespace) -> int:
         print("verified: every input and output matches run.json" if ok
               else "NOT VERIFIED:\n" + "\n".join(f"  - {p}" for p in problems))
         return 0 if ok else 1
+    if a.counts:
+        return _rnaseq_counts(a)
     if not (a.samples and a.out):
         print("--samples and --out are required (or --verify DIR)", file=sys.stderr)
         return 2
-    contrast = None
-    if a.contrast:
-        parts = [p.strip() for p in a.contrast.split(",")]
-        if len(parts) != 3:
-            print("--contrast is factor,numerator,denominator", file=sys.stderr)
-            return 2
-        contrast = (parts[0], parts[1], parts[2])
+    try:
+        contrast = _contrast(a.contrast)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
     config = RNASeqConfig(
         transcripts=a.transcripts or None, annotation=a.annotation or None,
-        genome=a.genome or None, design=a.design, contrast=contrast, engine=a.engine,
-        trimmer=a.trimmer, de_backend=a.de_backend, alpha=a.alpha,
-        fragment_mean=a.fragment_mean,
-        fragment_sd=a.fragment_sd, covariates=tuple(a.covariate), strand=a.strand,
-        threads=a.threads)
+        genome=a.genome or None, design=a.design, contrast=contrast,
+        engine=a.engine or "auto", trimmer=a.trimmer or "auto", de_backend=a.de_backend,
+        alpha=a.alpha, fragment_mean=200.0 if a.fragment_mean is None else a.fragment_mean,
+        fragment_sd=30.0 if a.fragment_sd is None else a.fragment_sd,
+        covariates=tuple(a.covariate), strand=a.strand or 0, threads=a.threads)
     try:
         run = run_rnaseq(a.samples, config, a.out)
     except (RNASeqError, ValueError, RuntimeError) as exc:
@@ -188,6 +212,50 @@ def _rnaseq(a: argparse.Namespace) -> int:
         return _complete(run.stages)
     de = summary["differential_expression"]
     print(f"{len(run.samples)} samples, engine {run.engine}, trimming {run.trimmer}, "
+          f"test {de['backend']} ({de['version']})")
+    print(f"{de['tested']} genes tested: {de['significant']} differ at FDR < {de['alpha']:g} "
+          f"({de['up']} up, {de['down']} down in {run.contrast[1]} vs {run.contrast[2]})")
+    for w in run.warnings:
+        print(f"warning: {w}")
+    print(f"report: {Path(a.out) / 'report.html'}")
+    return _complete(run.stages)
+
+
+def _rnaseq_counts(a: argparse.Namespace) -> int:
+    """``bioagent rnaseq --counts FILE --samples FILE --out DIR``: the count-matrix mode.
+    An option of the FASTQ mode is refused (exit 2), never ignored; then the exit codes
+    are the FASTQ mode's: 0 complete, 1 incomplete or refused."""
+    from .rnaseq import RNASeqError
+    from .rnaseq_counts import RNASeqCountsConfig, run_rnaseq_counts
+
+    given = [f"--{name.replace('_', '-')}" for name in _FASTQ_ONLY
+             if getattr(a, name) not in (None, "")]
+    if given:
+        print("refused: a count-matrix run takes no FASTQ reference or engine: "
+              + ", ".join(given), file=sys.stderr)
+        return 2
+    if not (a.samples and a.out):
+        print("--counts needs --samples (the sample table) and --out", file=sys.stderr)
+        return 2
+    try:
+        contrast = _contrast(a.contrast)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    config = RNASeqCountsConfig(design=a.design, contrast=contrast, de_backend=a.de_backend,
+                                alpha=a.alpha, covariates=tuple(a.covariate),
+                                threads=a.threads)
+    try:
+        run = run_rnaseq_counts(a.counts, a.samples, config, a.out)
+    except (RNASeqError, ValueError, RuntimeError, OSError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+    summary = run.summary()
+    if a.json:
+        print(json.dumps(summary, indent=1, ensure_ascii=False, default=str))
+        return _complete(run.stages)
+    de = summary["differential_expression"]
+    print(f"{len(run.samples)} samples, {summary['genes']:,} genes from a count matrix, "
           f"test {de['backend']} ({de['version']})")
     print(f"{de['tested']} genes tested: {de['significant']} differ at FDR < {de['alpha']:g} "
           f"({de['up']} up, {de['down']} down in {run.contrast[1]} vs {run.contrast[2]})")

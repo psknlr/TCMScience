@@ -10,6 +10,15 @@
 // back to the browser or the runner. A value this page does not know is reported (unknown_compute), never read as auto.
 // A placement that finds no place says why with Requirements {need, detail, remedy, names?} (core/catalog.js).
 //
+// A job runs in the browser only through the page's job service, for a kind it runs (studio/web/js/scientific): the
+// kind is the call's own (job.pipeline.scrna), or the one its arguments reach (run_pipeline {pipeline: "scrna"}). A
+// call of such a kind that needs the runner for what its arguments ask (a FASTQ RNA-seq run, Scanpy, a 10x HDF5 file)
+// has no browser place: it goes to a connected runner, and is otherwise needs_runner with the reason the job service
+// gives (the catalog's runner_only rules, when the job service's module did not load), or compute_browser when only
+// the compute setting keeps it from a connected runner. Without a call's arguments nothing is judged: a kind is ready
+// where its job service runs it. A run_pipeline call the runner's schema refuses (no pipeline of the catalog, arguments
+// that are not an object, the kind's parameters given beside them) is bad_arguments before it is placed or approved.
+//
 // Approvals (DESIGN §3.3, ARCHITECTURE decision 5): entries marked confirm (jobs among them), network entries (which
 // also need the project's web access on; the grant is for the hosts the call reaches, and a call whose hosts are not
 // known in advance is asked about every time), sending data to a third party (allow_remote), and the first runner
@@ -19,10 +28,20 @@
 // Every envelope the router returns records how it was placed and approved (receipt.execution.placement / .approvals);
 // one decided here also has the page's receipt (core/receipt.js: where "page", decided_by "router", not executed).
 
-import { COMPUTE_VALUES, isLocalTool, localCall, requirement, runnerLacks, unknownCompute } from "./catalog.js";
+import { COMPUTE_VALUES, isLocalTool, localCall, networkByFlag, pipelineArguments, requirement, runnerLacks, runnerOnly as runnerOnlyRules, unknownCompute } from "./catalog.js";
 import { t } from "./i18n.js";
 import { baseReceipt, pageOutcome } from "./receipt.js";
 import { canonicalJson, clip, flagArgument, isAbort, isLoopbackUrl, isPlainObject, objectArgument, sha256Hex, utf8Bytes } from "./util.js";
+
+/** The family run_pipeline maps to: job.pipeline.<pipeline>. */
+const PIPELINE = "job.pipeline.";
+/** A browser job's id (studio/web/js/scientific/runtime/jobs-runtime.js): its status is the page's to answer. */
+const BROWSER_JOB_ID = /^bj-[0-9a-f]{8,}$/;
+/** What a browser that cannot run jobs lacks (the job workers keep their files in the site's private storage). */
+const BROWSER_JOBS_NEED = {
+  detail: "this browser's job service (job workers and the site's private file storage)",
+  remedy: "Use a current Chromium-based browser such as Chrome or Edge, outside a private window (Firefox and Safari have not been tested with these jobs), or connect the local runner.",
+};
 
 export const TEXT_LIMIT = 16000;
 const RUNNER_KEY = "runner";
@@ -121,11 +140,12 @@ export class ToolRouter {
     return this.placement(toolOrEntry, args).where;
   }
 
-  /** Where a call would run, resolving call_tool to the entry it names. */
+  /** Where a call would run, resolving call_tool to the entry it names (its arguments read as call() reads them). */
   whereCall(name, args = {}) {
-    const input = isPlainObject(args) ? args : {};
+    const input = this.#input(name, args);
     const r = this.resolve(name, input);
-    return r.error ? null : this.placement(r.target, entryArgs(name, input)).where;
+    if (r.error || callToolArgumentsProblem(name, args) || this.#badPipeline(r.target, entryArgs(name, input))) return null;
+    return this.placement(r.target, entryArgs(name, input)).where;
   }
 
   /**
@@ -149,10 +169,23 @@ export class ToolRouter {
     if (!target) return none("not_found", { name: String(asked?.name || asked?.id || asked) }, []);
     const name = target.name || target.id;
     const label = { name };
-    const exec = Array.isArray(target.exec) ? target.exec : [];
+    let exec = Array.isArray(target.exec) ? target.exec : [];
     const browserUp = this.#browserUp();
     const runnerUp = this.#runnerUp();
-    const canB = exec.includes("browser") && browserUp;
+    const reached = this.#effective(target, args);
+    // a job tool that reaches one entry of a family by its arguments (run_pipeline → job.pipeline.<pipeline>) runs
+    // only where that entry runs too
+    if (target.job && reached.entry !== target && Array.isArray(reached.entry?.exec)) exec = exec.filter((x) => reached.entry.exec.includes(x));
+    // a job runs in the browser only through the page's job service, and only a kind it implements; and not a call
+    // whose arguments need the runner (the job service says why)
+    const kind = target.job ? jobKind(target, reached.entry) : null;
+    const jobsHere = !target.job || this.#jobsUp(kind);
+    // only a call's arguments are judged, once they are known (tcmstudio.capability.runner_only(entry, None) is empty):
+    // an entry placed without a call (the catalog page, catalog_search) is ready where its job service runs it, and a
+    // family's core tool knows them when its `arguments` is an object
+    const known = isPlainObject(args) && (reached.entry === target || objectArgument(args.arguments) !== null);
+    const tied = target.job && exec.includes("browser") && known ? this.#needsRunner(kind, reached.args, reached.entry) : null;
+    const canB = exec.includes("browser") && browserUp && jobsHere && !tied;
     const runnerHasIt = exec.includes("runner") && target.available !== false;
     const canR = runnerHasIt && runnerUp;
     const compute = this.#compute();
@@ -187,9 +220,20 @@ export class ToolRouter {
     };
     const inBrowser = () => this.#tooLarge(target, args, label, compute, exec) || ok("browser");
     const onRunner = () => this.#engineMissing(target, args, label) || ok("runner");
+    const noJobs = () => none("needs_job_service", label, [requirement("job_service", BROWSER_JOBS_NEED)], "core.router.needs_browser_jobs");
+    const runnerOnly = () => none("needs_runner", { ...label, reason: tied.detail }, [
+      requirement("runner", tied),
+      ...(compute === "browser" ? [requirement("compute_setting")] : []),
+    ], "core.router.needs_runner_args");
+    // the runner is connected: only the compute setting keeps these arguments from it (and what it lacks there, if any)
+    const browserOnly = () => none("compute_browser", { ...label, reason: tied.detail }, [
+      requirement("compute_setting"), ...(runnerHasIt ? [] : runnerLacks(target)),
+    ], "core.router.browser_only_setting_args");
     if (compute === "browser") {
       if (canB) return inBrowser();
+      if (tied) return runnerUp && exec.includes("runner") ? browserOnly() : runnerOnly();
       if (!exec.includes("browser")) return none("compute_browser", label, [requirement("compute_setting")]);
+      if (browserUp && !jobsHere) return noJobs();
       return none("no_runtime", label, [requirement("browser_runtime")]);
     }
     if (compute === "runner") {
@@ -201,6 +245,9 @@ export class ToolRouter {
     // the browser otherwise (ARCHITECTURE, placement rules)
     if (canR) return onRunner();
     if (canB) return inBrowser();
+    // the runner it needs is connected but lacks what the entry needs there: that, not "connect the runner"
+    if (tied) return missing() || runnerOnly();
+    if (exec.includes("browser") && browserUp && !jobsHere && !runnerUp) return noJobs();
     if (exec.includes("runner") && !runnerUp) return none("needs_runner", label, [requirement("runner")]);
     return missing() || none("no_runtime", label, [requirement("browser_runtime")]);
   }
@@ -260,7 +307,8 @@ export class ToolRouter {
     if (prefix === "job.pipeline." && typeof a.pipeline === "string") id = `${prefix}${a.pipeline}`;
     else if (prefix === "connector." && typeof a.connector === "string" && typeof a.operation === "string") id = `${prefix}${a.connector}.${a.operation}`;
     const entry = id ? this.catalog?.byId?.[id] : null;
-    return entry ? { entry, args: isPlainObject(a.arguments) ? a.arguments : {} } : { entry: target, args: a };
+    // its arguments as the dispatcher reads an object field: an object, or the JSON text of one
+    return entry ? { entry, args: objectArgument(a.arguments) || {} } : { entry: target, args: a };
   }
 
   /** What a call resolves to: the core tool, the entry it reaches (call_tool → arguments.tool), and its flags. */
@@ -323,13 +371,7 @@ export class ToolRouter {
 
   async #call(name, args, ctx = {}) {
     const { projectId = null, conversationId = null, signal, onApproval, callId = null } = ctx;
-    let input = isPlainObject(args) ? args : {};
-    // call_tool's arguments as JSON text run as the object they spell (the dispatcher parses them): they are read, and
-    // approved, as that object here too
-    if (name === "call_tool" && typeof input.arguments === "string") {
-      const parsed = objectArgument(input.arguments);
-      if (parsed) input = { ...input, arguments: parsed };
-    }
+    const input = this.#input(name, args);
     const r = this.resolve(name, input);
     if (r.renamed && !r.error) {
       const env = await this.call(r.renamed.name, r.renamed.args, ctx);
@@ -356,6 +398,32 @@ export class ToolRouter {
       }), this.#provenance({ where: null, reason: "not_found" }));
     }
     const callArgs = entryArgs(name, input);
+    const problem = callToolArgumentsProblem(name, args);
+    const bad = problem ? { message: problem, hint: 'Pass the arguments as a JSON object, e.g. {"name": "黄芪"}.' } : this.#badPipeline(r.target, callArgs);
+    if (bad) {
+      // as the runner's schema check refuses it: before it is placed, and before anyone is asked to approve it
+      return stamp(await synthEnvelope({
+        tool: name, via: r.entry?.id, args: input, status: "failed", kind: "job",
+        summary: t("core.router.bad_arguments", { name: r.label, problem: bad.message }),
+        text: `Not run: ${bad.message}. Call it again with these arguments corrected.`,
+        error: { type: "bad_arguments", message: bad.message, hint: bad.hint },
+      }), this.#provenance({ where: null, reason: null }));
+    }
+    const browserJob = browserJobStatusId(name, input);
+    if (browserJob && (r.target?.id === "system.job_status" || r.target?.maps_to === "system.job_status")) {
+      const jobs = this.runtimes.jobs;
+      const place = { where: "browser", reason: "ok" };
+      if (!jobs || jobs.status !== "ready") {
+        return stamp(await synthEnvelope({
+          tool: name, via: "system.job_status", args: input, status: "failed", kind: "system",
+          summary: t("core.router.needs_browser_jobs", { name: r.label }),
+          text: `Not run: ${browserJob} is a job of this browser's job service, which is not running here.`,
+          error: { type: "unavailable", message: t("core.router.needs_browser_jobs", { name: r.label }), hint: BROWSER_JOBS_NEED.remedy, reason: "needs_job_service", requires: [requirement("job_service", BROWSER_JOBS_NEED)] },
+        }), this.#provenance({ where: null, reason: "needs_job_service" }));
+      }
+      const env = await jobs.call(name, input, { project_id: projectId, conversation_id: conversationId, signal });
+      return stamp(await normalizeEnvelope(env, { tool: name, where: "browser", entry: r.entry }), this.#provenance(place));
+    }
     const place = this.#place(r.target, callArgs, r.target);
 
     if (isLocalTool(r.target.name)) {
@@ -380,7 +448,9 @@ export class ToolRouter {
       }), this.#provenance(place));
     }
 
-    const flags = { network: Boolean(r.target.network), confirm: Boolean(r.target.confirm), job: Boolean(r.target.job) };
+    // an entry with network_unless reaches nothing when the call gives that argument (admet.models with its archive as a
+    // project file): no web access needed, and no network approval asked
+    const flags = { network: networkByFlag(r.target, callArgs), confirm: Boolean(r.target.confirm), job: Boolean(r.target.job) };
     if (flags.network && !(await this.#webOn(projectId))) {
       // the hosts it would reach, as the network approval names them (the core tool's when the entry names none)
       const { entry: reached, args: reachedArgs } = this.#effective(r.target, callArgs);
@@ -404,12 +474,16 @@ export class ToolRouter {
     }
     const prov = this.#provenance(place, granted);
 
-    const rt = this.runtimes[place.where];
+    const rt = place.where === "browser" && r.target.job ? this.runtimes.jobs : this.runtimes[place.where];
     if (signal?.aborted) return stamp(await cancelled(name, r, input, "not_executed"), prov);
     try {
       const env = await raceAbort(rt.call(name, input, {
         project_id: projectId, conversation_id: conversationId, approvals: granted.map((g) => g.reason), signal,
         network: await this.#webOn(projectId), acceleration: this.settings.browserAcceleration || "auto",
+        browser_jobs: this.runtimes.jobs?.status === "ready",
+        browser_snapshots: typeof this.runtimes.jobs?.snapshots === "boolean" ? this.runtimes.jobs.snapshots : null,
+        // the ADMET endpoints whose models are built in this browser (job.admet.models), when the page has looked
+        browser_admet_models: Array.isArray(this.runtimes.jobs?.admetModels) ? [...this.runtimes.jobs.admetModels] : null,
       }), signal);
       return stamp(await normalizeEnvelope(env, { tool: name, where: place.where, entry: r.entry }), prov);
     } catch (err) {
@@ -422,6 +496,19 @@ export class ToolRouter {
         error: { type: "runtime_error", message, hint: "" },
       }), prov);
     }
+  }
+
+  /**
+   * A call's arguments as they are read: call_tool's arguments as JSON text run as the object they spell (the
+   * dispatcher parses them), so they are read, and approved, as that object here too; so are those of a core tool that
+   * maps to a family (run_pipeline's).
+   */
+  #input(name, args) {
+    const input = isPlainObject(args) ? args : {};
+    const family = String(this.catalog?.coreTool?.(name)?.maps_to || "").endsWith(".*");
+    if ((name !== "call_tool" && !family) || typeof input.arguments !== "string") return input;
+    const parsed = objectArgument(input.arguments);
+    return parsed ? { ...input, arguments: parsed } : input;
   }
 
   /** receipt.execution additions: how the call was placed and which approvals it ran under. */
@@ -610,6 +697,58 @@ export class ToolRouter {
     return this.runtimes.runner?.status === "ready";
   }
 
+  /**
+   * Is the page's job service running, and does it run this kind? A family not narrowed yet ("pipeline.*": run_pipeline
+   * before its pipeline is named) has a place when the service runs any kind of it.
+   */
+  #jobsUp(kind) {
+    const jobs = this.runtimes.jobs;
+    if (!jobs || jobs.status !== "ready" || !kind || typeof jobs.runs !== "function") return false;
+    if (kind.endsWith(".*")) {
+      const prefix = kind.slice(0, -1);
+      return typeof jobs.kinds === "function" && jobs.kinds().some((k) => String(k).startsWith(prefix));
+    }
+    return jobs.runs(kind);
+  }
+
+  /**
+   * What this call of `kind` needs the runner for ({detail, remedy}), or null: as the job service's handlers say it;
+   * without the job service (its module did not load), as the entry's execution.browser_job.runner_only rules say it.
+   */
+  #needsRunner(kind, args, entry) {
+    const jobs = this.runtimes.jobs;
+    if (!kind || kind.endsWith(".*")) return null;
+    if (typeof jobs?.needsRunner !== "function") {
+      const why = runnerOnlyRules(entry, isPlainObject(args) ? args : {});
+      return why.length ? { detail: why.join("; "), remedy: requirement("runner").remedy } : null;
+    }
+    let why = null;
+    try { why = jobs.needsRunner(kind, isPlainObject(args) ? args : {}); } catch { why = null; }
+    return why?.message ? { detail: String(why.message), remedy: String(why.hint || requirement("runner").remedy) } : null;
+  }
+
+  /**
+   * Why the runner's schema check refuses this run_pipeline call (the core tool that maps to job.pipeline.*), or null:
+   * no pipeline, or one that names no pipeline of this catalog (they are listed), and what catalog.pipelineArguments
+   * finds in its arguments → {message, hint}.
+   */
+  #badPipeline(target, args) {
+    if (!target?.job || target.maps_to !== `${PIPELINE}*`) return null;
+    const a = isPlainObject(args) ? args : {};
+    const names = Object.keys(this.catalog?.byId || {}).filter((id) => id.startsWith(PIPELINE)).map((id) => id.slice(PIPELINE.length));
+    const problems = [];
+    if (a.pipeline === undefined) problems.push(`run_pipeline is missing the required argument 'pipeline' (one of ${names.join(", ")})`);
+    else if (typeof a.pipeline !== "string" || (names.length && !names.includes(a.pipeline))) problems.push(`pipeline must be one of ${names.join(", ")}; got ${JSON.stringify(a.pipeline)}`);
+    const { problem } = pipelineArguments(a);
+    if (problem) problems.push(problem);
+    if (!problems.length) return null;
+    const close = typeof a.pipeline === "string" && !names.includes(a.pipeline) ? names.find((n) => n.toLowerCase() === a.pipeline.trim().toLowerCase()) : null;
+    return {
+      message: problems.join("; "),
+      hint: `${close ? `Did you mean '${close}' for pipeline? ` : ""}Call run_pipeline with pipeline (${names.join(", ")}) and the job kind's parameters as an object in arguments; catalog_search kind='job' gives each kind's parameters.`,
+    };
+  }
+
   #target(x) {
     if (!x) return null;
     if (typeof x === "object") return x;
@@ -633,6 +772,12 @@ function isPhi(r, entry, args, catalog) {
 
 function labelOf(x) {
   return x?.name || x?.id || "tool";
+}
+
+/** The job kind a job call runs: its entry's id without "job.", or the family it maps to ("pipeline.*"). */
+function jobKind(target, reached) {
+  const id = String(reached?.id || target?.id || target?.maps_to || "");
+  return id.startsWith("job.") ? id.slice(4) : null;
 }
 
 function whatOf(r) {
@@ -689,6 +834,36 @@ async function networkKey(key, hosts) {
 }
 
 /** The arguments the entry itself receives: call_tool's `arguments`, otherwise the call's own. */
+/** The id of a browser job a job_status call asks about (job_status, system.job_status or call_tool), or null. */
+function browserJobStatusId(name, input) {
+  const inner = name === "call_tool" ? (isPlainObject(input.arguments) ? input.arguments : {}) : input;
+  const asks = name === "job_status" || name === "system.job_status" || (name === "call_tool" && ["job_status", "system.job_status"].includes(input.tool));
+  const id = asks ? String(inner?.job_id || "") : "";
+  return BROWSER_JOB_ID.test(id) ? id : null;
+}
+
+/**
+ * What the dispatcher refuses in call_tool's own `arguments` (tcmstudio.dispatch: the core schema's object check), or
+ * null: JSON text that does not parse, or anything that is not an object once parsed. Left out, null or blank text is
+ * no arguments. Refused here as there, before the call is placed and before anyone is asked to approve it.
+ */
+function callToolArgumentsProblem(name, args) {
+  if (name !== "call_tool" || !isPlainObject(args)) return null;
+  let value = args.arguments;
+  if (value === undefined || value === null || isPlainObject(value)) return null;
+  if (typeof value === "string") {
+    if (!value.trim()) return null;
+    try {
+      value = JSON.parse(value);
+    } catch (err) {
+      return `arguments are not valid JSON (${err.message})`;
+    }
+    if (isPlainObject(value)) return null;
+  }
+  const kind = value === null ? "null" : Array.isArray(value) ? "a list" : typeof value === "boolean" ? "a boolean" : typeof value === "number" ? "a number" : typeof value === "string" ? "a string" : typeof value;
+  return `arguments must be an object, not ${kind}`;
+}
+
 function entryArgs(name, input) {
   if (name !== "call_tool") return input;
   return isPlainObject(input?.arguments) ? input.arguments : {};

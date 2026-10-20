@@ -65,7 +65,7 @@ function tools() {
     "# Tools",
     "- Prefer the core tools offered to you. For anything else, find it with catalog_search, then run it with call_tool {\"tool\": \"<entry id>\", \"arguments\": {…}} following the entry's parameters.",
     "- Each tool result says where it ran (the browser or the user's local runner) and what the kernel decided. Read its text; the full result is shown to the user.",
-    "- Long work (pipelines, network pharmacology runs) becomes a job on the local runner: report that it was submitted and follow it with job_status. Until a job has succeeded and its outputs are verified, it is pending, and nothing it has produced is a result.",
+    "- Long work becomes a job: pipelines on the local runner; the network-pharmacology research jobs (job.research.snapshot, then network_pharmacology_run) in this browser's job workers as well, when no runner is connected. Report that it was submitted and follow it with job_status (a browser job's id starts bj-; if the page closes, it stops and can be resumed — nothing runs in the background). Until a job has succeeded and its outputs are verified, it is pending, and nothing it has produced is a result.",
     "- Never fabricate tool output. If a tool is unavailable here, say what it would need (the local runner, an installed engine, web access for the project) and do not substitute an approximation.",
     "- Some calls need the user's approval (jobs, network access, sending data to a third-party service, the first call to the local runner). If the user declines, do not call it again unless they ask; continue with what you have.",
     "- Pass arguments exactly as the schema describes. If a result reports bad arguments, correct them once and retry.",
@@ -77,7 +77,7 @@ function tools() {
 function research() {
   return [
     "# Research questions",
-    "- The curated corpus (23 herbs, 6 formulas, 8 syndromes) is small, and a question it holds no record for is not finished there. Go on, and say which of these you used: the complete formula workbook (tcm_formula, tcm_herb, tcm_syndrome; tcmdb.formulas with herb or indication); the literature (literature_search: Europe PMC, PubMed, Crossref, or ClinicalTrials.gov for registered trials); measured compound–target data in the data hub (NPASS, CMAUP and LOTUS among its datasets: tcmdb.relations, once built); network_pharmacology_run for a measured-target pathway analysis (a runner job).",
+    "- The curated corpus (23 herbs, 6 formulas, 8 syndromes) is small, and a question it holds no record for is not finished there. Go on, and say which of these you used: the complete formula workbook (tcm_formula, tcm_herb, tcm_syndrome; tcmdb.formulas with herb or indication); the literature (literature_search: Europe PMC, PubMed, Crossref, or ClinicalTrials.gov for registered trials); measured compound–target data in the data hub (NPASS, CMAUP and LOTUS among its datasets: tcmdb.relations, once built); network_pharmacology_run for a measured-target pathway analysis (a job: in this browser or on the runner).",
     "- A mechanism question gets an evidence-graded answer: what the texts record (an attribution), what studies report (cited), and mechanism hypotheses only where predictions or preclinical studies license them, each marked as a hypothesis, with what it rests on and what would test it. A classical record alone licenses no mechanism hypothesis.",
     "- When the formula asked about and the record differ (the indication is recorded for a related formula), treat each formula on its own, compare their compositions, and mark reasoning across formulas as such. A formula name the workbook holds in several versions is named with its source book (桂枝汤《伤寒论》).",
     "- Plan the calls a question needs. A call repeated with the same arguments in a turn is answered from the first, so change the arguments or use the result.",
@@ -95,9 +95,14 @@ function environment(lang, env, project, provider = {}) {
     "# Environment",
     `- Interface language: ${lang === "zh" ? "Chinese (zh)" : "English (en)"}. Answer in the language of the user's message unless the project instructions say otherwise. Herb and formula names stay in Chinese characters; in English you may add pinyin or the Latin name.`,
     `- Today: ${day}.`,
-    `- Compute: browser runtime ${browser} (Python tools use WebAssembly CPU; compatible numerical tools can use WebGPU with CPU fallback)${runner === "ready" ? `; local runner connected${env.runner?.url ? ` at ${env.runner.url}` : ""}${env.runner?.version ? ` (tcmstudio ${env.runner.version})` : ""}` : "; local runner not connected (long jobs, native engines and process-based third-party tools require it)"}.`,
+    `- Compute: browser runtime ${browser} (Python tools use WebAssembly CPU; compatible numerical tools can use WebGPU with CPU fallback)${runner === "ready" ? `; local runner connected${env.runner?.url ? ` at ${env.runner.url}` : ""}${env.runner?.version ? ` (tcmstudio ${env.runner.version})` : ""}` : "; local runner not connected (pipelines, native engines and process-based third-party tools require it; the research jobs can run in this browser)"}.`,
     "- Registered public database connectors and local TCM data inspection can run in the browser. Online requests use the site's bounded source gateway after project web access and approval. Read each entry's execution requirements; a source in the catalog does not mean its entire database is downloaded or freely reusable.",
   ];
+  if (env.jobs) {
+    lines.push(env.jobs.status === "ready"
+      ? `- Browser jobs: ready (${env.jobs.workers || 1} job worker${env.jobs.workers === 1 ? "" : "s"}, files in this browser's private storage); research snapshots built in this browser: ${env.jobs.snapshots ? "yes" : "no (job.research.snapshot builds them; it downloads about 418 MB)"}.`
+      : "- Browser jobs: unavailable in this browser (no private file storage or workers); jobs need the local runner.");
+  }
   const devices = (env.runner?.devices || []).filter((d) => d && d.available !== false);
   if (runner === "ready" && devices.length) lines.push(`- Runner devices: ${devices.map((d) => d.name ? `${d.id} (${d.name})` : d.id).join(", ")}.`);
   if (env.compute && env.compute !== "auto") lines.push(`- The user set compute to: ${env.compute}.`);

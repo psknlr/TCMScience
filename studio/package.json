@@ -9,12 +9,13 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test web/test/*.test.mjs web/test/runtime/*.test.mjs web/dev/test/*.test.mjs",
+    "test": "node --test web/test/*.test.mjs web/test/runtime/*.test.mjs web/test/scientific/*.test.mjs web/dev/test/*.test.mjs",
     "test:e2e": "playwright test -c e2e/playwright.config.mjs",
     "test:runtime": "node web/test/runtime/run.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
+    "@rdkit/rdkit": "2026.9.1",
     "axe-core": "4.14.0",
     "fake-indexeddb": "^6.2.5",
     "linkedom": "^0.18.13",

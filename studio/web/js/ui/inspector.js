@@ -370,7 +370,7 @@ export function mountInspector(app, host) {
       const job = e.env.job;
       if (job?.id && !jobsSeen.has(job.id)) {
         jobsSeen.add(job.id);
-        outputs.push({ path: job.id, job: true, where: "runner", key: `job:${job.id}`, jobId: job.id });
+        outputs.push({ path: job.id, job: true, where: /^bj-/.test(job.id) ? "browser" : "runner", key: `job:${job.id}`, jobId: job.id });
       }
     }
     const inputs = h("div.files-inputs", h("p.muted.small", t("ui.files.loading")));
@@ -400,6 +400,7 @@ export function mountInspector(app, host) {
   }
 
   function jobFilesBlock(jobId) {
+    if (/^bj-/.test(jobId)) return browserJobFilesBlock(jobId);
     const runner = app.runtimes.runner;
     const box = h("div.job-files", { "data-file": jobId }, h("p.files-sec__sub", icon("workflow", { size: 12 }), t("ui.files.job", { id: jobId })));
     if (app.state.runner.status !== "ready") { box.append(h("p.muted.small", t("ui.job.connect_to_follow"))); return box; }
@@ -416,6 +417,36 @@ export function mountInspector(app, host) {
     return box;
   }
 
+  /** A browser job's files: in this origin's private storage, opened from there (the job service's readFile). */
+  function browserJobFilesBlock(jobId) {
+    const service = app.runtimes.jobs?.service;
+    const box = h("div.job-files", { "data-file": jobId }, h("p.files-sec__sub", icon("workflow", { size: 12 }), t("ui.files.job", { id: jobId })));
+    if (!service || app.runtimes.jobs.status !== "ready") { box.append(h("p.muted.small", t("ui.job.browser_unavailable"))); return box; }
+    service.get(jobId).then(async (job) => {
+      if (!job || job.state !== "succeeded") { box.append(h("p.muted.small", t("ui.job.pending_note"))); return; }
+      const files = await service.files(jobId);
+      const open = async (f) => service.readFile(jobId, f.path);
+      box.append(h("ul.file-list", { role: "list" }, files.map((f) => {
+        // a file by its path under the job's out/ ("run.json"), as the runner lists a job's files; the artefact name a
+        // kind requires it under ("run") is the job's own word for it
+        const file = f.file || f.name;
+        return fileRow({
+          // the page re-read each file from storage when the job ended and found the digest the job worker recorded;
+          // listed now only at the size it had then (service.files), not hashed again
+          name: file, bytes: f.bytes, sha256: f.sha256, digest: "browser", location: t("ui.files.loc_browser_job"), key: `${jobId}/${file}`,
+          onPreview: async () => { filePick = { key: `${jobId}/${file}`, source: { blob: await open(f) }, meta: { name: file } }; render(); },
+          onDownload: async () => {
+            const url = URL.createObjectURL(await open(f));
+            const a = h("a", { href: url, download: file.split("/").pop() });
+            document.body.append(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 30_000);
+          },
+        });
+      })));
+    }).catch((err) => box.append(h("p.muted.small", err?.message || String(err))));
+    return box;
+  }
+
   function fileRow({ name, type, bytes, sha256, location, verified, digest = false, key, onPreview, onDownload }) {
     const picked = filePick?.key === key;
     return h("li", { class: ["file-row", picked && "is-picked"], "data-file": key },
@@ -425,6 +456,7 @@ export function mountInspector(app, host) {
         h("p.file-row__meta", [type || "", bytes !== undefined && bytes !== null ? formatBytes(bytes) : "", location].filter(Boolean).join(" · ")),
         h("div.file-row__badges", sha256 ? hashBadge(sha256, { compact: true }) : null,
           verified ? chip({ label: t("ui.artifact.output_verified"), tone: "jade", icon: "check" })
+            : digest === "browser" ? chip({ label: t("ui.files.digest_checked"), tone: "slate", icon: "check", title: t("ui.files.digest_checked_browser_tip") })
             : digest ? chip({ label: t("ui.files.digest_checked"), tone: "slate", icon: "check", title: t("ui.files.digest_checked_tip") }) : null)),
       h("div.file-row__actions",
         onPreview ? iconButton({ icon: "eye", label: t("ui.files.preview"), size: "sm", onClick: onPreview }) : null,
