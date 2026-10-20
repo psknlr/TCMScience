@@ -49,7 +49,12 @@ host allows a web page to make one, else the dataset relay
 (`/api/datasets/files/<group>/<name>`), which serves only the exact URLs of the build's
 `runtime/datasets.json`, streams the body without storing it, passes `Range`/`If-Range`
 through so a download resumes, and is rate-limited like this gateway; or an import of
-files obtained elsewhere ([BROWSER_JOBS.md](BROWSER_JOBS.md) §2).
+files obtained elsewhere ([BROWSER_JOBS.md](BROWSER_JOBS.md) §2). The ADMET model build
+(`admet.models`) reads the TDC ADMET group archive by the same route — the relay's
+`admet` group, whose download is held to its pinned SHA-256, or a project file, whose
+SHA-256 is compared with the pin; the models are trained in
+the page and kept in its private storage, never shipped
+([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)).
 
 The repository formula workbook is indexed in full, preserving all seven columns,
 duplicate names and source versions. Its compressed SQLite asset is verified against
@@ -125,6 +130,24 @@ identical, within a stated tolerance, or (the UMAP layout and figures) not compa
 person's own run is compared with nothing): tested locally
 in headless Chromium with Pyodide 314.0.7, and in Studio's CI with Pyodide's numpy and scipy from jsDelivr (`studio`
 #91, 2026-10-19).
+
+ADMET (`admet.models` and `pipeline.admet`) is implemented as browser jobs too
+([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)). The molecules a prediction run reads are a project file (CSV, TSV
+or `.smi`) or one SMILES: their chemistry (standardisation, the fingerprint, the descriptors and the alerts) is
+computed in the page by RDKit.js 2026.9.1 with exact ports of what it lacks, and the applicability-domain search on
+this device's own kernels; no molecule is sent to the gateway or the dataset relay. The language model (through `/v1`)
+reads the job's status, summary and limitations as it reads any tool result, and those can name a molecule (a refused
+one, for example). The data a build fetches is the TDC ADMET group archive it trains on, through the dataset relay's
+`admet` group (the download held to its pinned SHA-256) or from a project file (its SHA-256 compared with the pin);
+the code fetched is RDKit.js's wasm (7,379,879 bytes, from jsDelivr at its exact version, checked against its pin) and
+Pyodide's numpy, scipy and scikit-learn. The models are built in the page and kept in its private storage, never
+shipped. A molecule the browser chemistry cannot
+standardise exactly is refused and named, not approximated, and so are an SDF or `.mol` file and more than 20,000
+molecules; the runner runs those. Compared with the native command (RDKit 2026.9.1, scikit-learn 1.8.0) in headless
+Chromium 141 locally, the domain files and `admet.tsv` were the native run's bytes, the model cards the native ones
+but for the model file's digest, the seconds and the chemistry's name, and the predictions exact at full precision
+apart from a named last-bit rule; it has not yet run in CI, on the real TDC archive or on a physical
+GPU. Structure prediction, docking and the governed `predict-admet` skill run on the runner.
 
 The sync HTTP adapter executes in a dedicated Worker; it cannot block the page's
 UI thread. See [Pyodide HTTP APIs](https://pyodide.org/en/stable/usage/api/python-api/http.html),

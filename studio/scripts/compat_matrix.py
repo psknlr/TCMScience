@@ -147,16 +147,22 @@ BROWSER_JOB_NOTES = {
                         "the runner, one endpoint at a time (resumable); the models stay in this browser's private "
                         "storage and nothing trained is shipped; a training molecule RDKit.js refuses is left out and "
                         "counted on the card (dropped_unstandardisable), so a model built here can differ from the "
-                        "runner's; in Pyodide under Node, with native RDKit's chemistry standing in for RDKit.js, the "
-                        "small known-answer archive's cards were the native ones but for the model file's digest",
+                        "runner's; compared with native RDKit 2026.9.1 and scikit-learn 1.8.0 in headless Chromium "
+                        "(studio/web/test/runtime/science.mjs --mode admet), the cards (but for the files' digests, "
+                        "seconds and chemistry) and the domain files were the native run's on a small known-answer "
+                        "archive and a synthetic one at the TDC sizes; tested locally only, not yet in CI or on the "
+                        "real archive",
     "job.pipeline.admet": "a CSV/TSV/.smi file from the project's files or one SMILES: standardisation, descriptors, "
                           "fingerprints and alerts by RDKit.js 2026.9.1 with exact ports (a molecule that needs a step "
                           "they lack is refused, named and left for the runner), the applicability-domain search by the "
-                          "WASM SIMD kernel (WebGPU only on a physical adapter this device's check measured faster), "
-                          "re-checked in Python, and the models built here (job.admet.models), as on the runner; SDF "
-                          f"and .mol need the runner, and so do more than {ADMET_MOLECULES_MAX:,} molecules (measured "
-                          f"in Pyodide under Node: {ADMET_MEASURED}); with native RDKit's chemistry standing in for "
-                          "RDKit.js, admet.tsv was the native run's bytes",
+                          "WASM SIMD kernel (WebGPU only on a physical adapter this device's own check measured exact "
+                          "and faster), re-checked in Python, and the models built here (job.admet.models), as on the "
+                          "runner; "
+                          f"SDF and .mol need the runner, and so do more than {ADMET_MOLECULES_MAX:,} molecules "
+                          f"(measured in Pyodide under Node: {ADMET_MEASURED}); compared with native RDKit 2026.9.1 "
+                          "in headless Chromium, admet.tsv was the native run's bytes and the predictions exact at "
+                          "full precision apart from values through expit/10** (a few last-bit units, named); tested "
+                          "locally only",
 }
 PYODIDE_NOTES_JOBS = {
     "system.job_status": "the page answers its own jobs (ids bj-…); a runner job's status needs the runner",
@@ -325,12 +331,15 @@ FAMILIES = [
      "trained one at a time (the largest at its size: 877 MB and 28 s in Pyodide under Node)", "not yet measured",
      "browser jobs running bioagent's ADMET pipeline and model build in Pyodide (scikit-learn 1.8.0) with the "
      "chemistry in RDKit.js 2026.9.1 and exact ports (a molecule they cannot standardise exactly is refused, named "
-     "and counted, never approximated) and the domain search on the WASM SIMD kernel, re-checked in Python; in "
-     "Pyodide under Node, with native RDKit's chemistry standing in for RDKit.js, admet.tsv and the model cards "
-     "(but for the model file's digest) were the native run's; the comparison in a browser "
-     "(studio/web/test/runtime/science.mjs --mode admet) and on the real TDC archive (live-data) are separate runs",
-     "SDF and .mol, and the governed skill, stay on the runner; WebGPU for the domain search once a physical "
-     "adapter's device check shows it faster"),
+     "and counted, never approximated) and the applicability-domain search on the WASM SIMD kernel (WebGPU only where "
+     "this device's own check measured a physical adapter exact and faster), re-checked in Python; compared with "
+     "native RDKit 2026.9.1 and scikit-learn 1.8.0 at one thread in headless Chromium 141 with Pyodide 314.0.7 "
+     "(studio/web/test/runtime/science.mjs --mode admet), the domain files and admet.tsv were the native run's "
+     "bytes, the model cards the native ones but for the model file's digest, seconds and chemistry, and the "
+     "predictions exact at full precision apart from values through expit/10** (a few last-bit units of float64, "
+     "named); tested locally only, not yet in CI or on the real TDC archive (live-data)",
+     "SDF and .mol, and the governed skill, stay on the runner; the physical-GPU acceptance for the domain search is "
+     "open (no GPU here or in CI; the device check runs it on real hardware)"),
     ("RNA-seq from FASTQ (quantification), docking, structure prediction",
      "job.pipeline.rnaseq (FASTQ)/dock/fold", "7", "GBs; native binaries; GPU", "no", "runner (CPU/GPU)",
      "remote HPC worker for heavy cases"),

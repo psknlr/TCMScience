@@ -127,14 +127,20 @@ does this) and served live by the runner at `GET /api/catalog`. One JSON documen
     "browser_job": {"service": "studio-jobs/1", "runtime": "pyodide", "workers": "…",
                     "storage": "origin private file system", "pyodide_packages": ["numpy", "scipy"],
                     "inputs": "…", "engines": ["builtin"],
+                    "chemistry": {"engine": "rdkit.js", "package": "@rdkit/rdkit", "version": "2026.9.1",
+                                  "release": "2026.09.1"},        // the ADMET kinds: the page's chemistry worker
+                    "models": "…",                               // admet.models: what it builds and keeps (private)
+                    "limits": {"molecules": 20000},              // pipeline.admet: more is refused for memory
                     "runner_only": [{"arg": "counts", "absent": true, "why": "…"},
                                     {"arg": "de_backend", "is": "pydeseq2", "why": "…"}]}
                                                  // the job kinds the page's job service runs (catalog
                                                  // BROWSER_JOB_KINDS: research.snapshot, research.run [pyarrow],
-                                                 // pipeline.rnaseq, pipeline.scrna [numpy, scipy]); the two pipelines
-                                                 // run part of their kind: runner_only lists the arguments that need
-                                                 // the runner ({arg, absent: true | is: value | suffix: [...], why};
-                                                 // capability.runner_only), BROWSER_JOBS.md §3.1
+                                                 // pipeline.rnaseq, pipeline.scrna [numpy, scipy], admet.models,
+                                                 // pipeline.admet [numpy, scipy, scikit-learn; chemistry rdkit.js]);
+                                                 // the three pipelines run part of their kind: runner_only lists the
+                                                 // arguments that need the runner ({arg, absent: true | is: value |
+                                                 // suffix: [...], why}; capability.runner_only), BROWSER_JOBS.md §3.1,
+                                                 // §3.2
   },
   "hosts_by": {"dataset": {"herb2": ["47.92.70.12"]}},           // job.tcmdb.fetch (per dataset), system.provider_call
                                                  // ({tool: hosts}, the reviewed allowlists): the hosts of one call
@@ -189,7 +195,7 @@ serves the same at `GET /api/capabilities/audit` (§4).
 | `connector_call` {connector, operation, arguments} | connector.<key>.<op> | R | network |
 | `literature_search` {query, source=europepmc, limit=10} | connector.europepmc / ncbi_eutils / crossref | R | network |
 | `network_pharmacology_run` {formula, disease?, parameters?} | job.research.run | B R ★ | job; snapshot pipeline; in the browser a job of the page's job service ([BROWSER_JOBS.md](BROWSER_JOBS.md)) |
-| `run_pipeline` {pipeline: rnaseq·scrna·fold·dock·admet, arguments} | job.pipeline.* | B R ★ | job; GPU-capable kinds honour the device setting. In the browser `rnaseq` with `counts` and `scrna` on count tables are jobs of the page's job service ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)); the router places the call by the kind its `pipeline` names, and one the browser cannot run (`fold`, `dock`, `admet`; FASTQ, PyDESeq2, Scanpy, scVI, `.h5`, `.h5ad`) goes to a connected runner, or is refused with reason `needs_runner` and why (under compute Browser with the runner connected, `compute_browser` and why). `arguments` is an object, or the JSON text of one (read as that object, as the dispatcher reads it); a call without a `pipeline` of the catalog, with `arguments` that are not an object, or with the kind's parameters beside `arguments` is `bad_arguments` before it is placed or approved, the pipelines listed |
+| `run_pipeline` {pipeline: rnaseq·scrna·fold·dock·admet, arguments} | job.pipeline.* | B R ★ | job; GPU-capable kinds honour the device setting. In the browser `rnaseq` with `counts` and `scrna` on count tables are jobs of the page's job service ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)), and so is `admet` on a CSV/TSV/`.smi` file or one SMILES once its models are built here ([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)); the router places the call by the kind its `pipeline` names, and one the browser cannot run (`fold`, `dock`; FASTQ, PyDESeq2, Scanpy, scVI, `.h5`, `.h5ad`, an ADMET SDF/`.mol` file, or ADMET models not built here) goes to a connected runner, or is refused with reason `needs_runner` and why (models not built here: `needs_dataset`; under compute Browser with the runner connected, `compute_browser` and why); a `pipeline.admet` call the page's job service refuses before queueing carries its need's reason: `needs_runner` (an SDF/`.mol` file named by its id), `needs_dataset` (models not built here) or `too_large_for_browser` (more than 20,000 molecules, counted in the file). `arguments` is an object, or the JSON text of one (read as that object, as the dispatcher reads it); a call without a `pipeline` of the catalog, with `arguments` that are not an object, or with the kind's parameters beside `arguments` is `bad_arguments` before it is placed or approved, the pipelines listed |
 | `job_status` {job_id, wait_s≤60} | runner jobs; browser jobs (ids `bj-…`) | B R | a browser job's status is the page's to answer, whatever the placement |
 | `capabilities_status` {} | system.capabilities | B R | what can run where, now; `remote_compute: {configured:false, reason}` (no remote backend exists; the page's answer says the same, §6) |
 | `catalog_search` {query?, category?, kind?, runnable_now?, limit≤25} | the catalog | B R | |
@@ -535,7 +541,7 @@ succeeded job's `run.json` only while it has the digest recorded at collection, 
   since nothing could be deployed or verified here and a shared copy of an unlicensed dataset would be redistribution.
 
 **Job kinds:** `pipeline.rnaseq`, `pipeline.scrna`, `pipeline.fold`, `pipeline.dock`, `pipeline.admet`,
-`research.run`, `research.snapshot` (download, verify and build the research snapshots), `env.provision` (install
+`admet.models` (build the ADMET models), `research.run`, `research.snapshot` (download, verify and build the research snapshots), `env.provision` (install
 one group of optional scientific packages), `skill.run` (any governed skill as a background run), `tcmdb.fetch`,
 `tcmdb.build`.
 Each kind maps typed params to a fixed `bioagent.cli` argv (never a raw command from the browser).
@@ -554,6 +560,19 @@ Each kind maps typed params to a fixed `bioagent.cli` argv (never a raw command 
 - **`pipeline.scrna`** takes `n_top_genes` (highly variable genes, an integer 50–10000, default 2000), passed as
   `--n-top-genes`, with `source`, `doublets`, `analysis_backend`, `integration`, `resolution` (0.05–5), `markers`,
   `root`, `contrast` and `seed` as before.
+- **`pipeline.admet`** takes `molecules` (a CSV/TSV `name,smiles` file, an `.smi` file, one SMILES, or — on the runner —
+  an SDF/`.mol` file) and `endpoints` (endpoint names; on the runner one without a model makes the run incomplete, as
+  `bioagent admet --endpoint` does, and the browser refuses a name that is not one of the 22 TDC endpoints as
+  `bad_arguments`). Its argv: `bioagent.cli admet {molecules} --out={output} --cache=<lake>/admet [--endpoint=…]`;
+  artefacts `table` (admet.tsv), `run` (run.json) and `limitations` (limitations.md), the run validated by
+  `bioagent.admet.pipeline`'s verifier.
+- **`admet.models`** builds the models `pipeline.admet` predicts with (`bioagent.cli admet --build-models
+  --cache=<lake>/admet --max-iter=… --seed=… [--archive=…] [--rebuild] [--endpoint=…]`): `endpoints` (TDC endpoint
+  names, refused as `bad_arguments` when not one of the 22), `archive` (a local copy of the TDC ADMET group zip; without
+  it the archive is downloaded, so the entry's `network` is true unless `archive` is given, `network_unless:
+  "archive"`), `max_iter` (10–5000, default 600), `seed` (0–2³¹−1), `rebuild`. Each endpoint's card,
+  model and applicability-domain file are written to the cache; a finished endpoint whose model still matches its card
+  is kept unless `rebuild`; after the job ends the cards are checked against their files (`verify_models`).
 
 **Browser jobs.** `research.snapshot` and `research.run` also run in the page's own job service
 (`studio/web/js/scientific`, [BROWSER_JOBS.md](BROWSER_JOBS.md)): the same typed params, the same Python functions
@@ -582,6 +601,25 @@ retired. A gzipped input that is corrupt or cut short, and a single-cell table t
 the reason (`refused`, need null), as the command refuses them. The analysis stage's checkpoint digest covers its
 params, its inputs' digests and what computes it (the bundle's SHA-256, Pyodide's version, the numpy and scipy the
 worker reports): a job resumed on a changed runtime runs the analysis again.
+
+So do `admet.models` and `pipeline.admet` ([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)). The page computes two
+parts itself (the chemistry, in a module worker with RDKit.js 2026.9.1 and bioagent's ports, written as prepared sets
+`bioagent.admet.engine.PrecomputedEngine` reads back; and the applicability-domain Tanimoto search, on this device's
+WebAssembly SIMD or WebGPU kernel, written as similarities `PrecomputedSimilarity` checks before use), and calls
+bioagent's Python through `tcmstudio.browser_jobs` `admet_split` (`{archive, out_dir, endpoints?}` → the endpoints and
+their split sizes, the archive's SHA-256 and whether it is the pin), `admet_train` (`{archive, prepared_dir,
+models_dir, endpoint, seed?, max_iter?, rebuild?}` → the endpoint's card; it merges the model, domain file and card
+into `models_dir`), `admet_read` (`{molecules, out_dir}` → `{n, file, smiles_sha256}`; an SDF/`.mol` file is need
+`runner`, more than 20,000 molecules need `memory`), `run_admet` (`{molecules_file, prepared_dir, similarity_dir?,
+models_dir, endpoints?, out_dir}` → `{exit, summary, failed, refused, need}`, exit 0/1/2 as the CLI ends, a molecule
+the chemistry refused listed under `refused`) and `verify_pipeline` (for `admet.models`: `{kind, models_dir,
+endpoints?, archive_sha256?}` → the cards' model and domain files re-hashed; for `pipeline.admet`: `{kind, out_dir}`).
+A `pipeline.admet` call is refused before queueing when its models are not built here (need `dataset`, the hint naming
+`job.admet.models`), for an SDF/`.mol` file (need `runner`) or for more than 20,000 molecules (need `memory`); the
+molecules are checked before the models. The models live in OPFS `tcmstudio/admet/models/`, shared by every ADMET job
+here; a stage whose kernel calls ran the domain search carries their compute facts, so the job receipt gains `compute`
+and, when a stage used a GPU result, `device.used` is `cpu+webgpu` (§3 receipt/1).
+
 File parameters reference upload ids. The device setting becomes `CUDA_VISIBLE_DEVICES` (`""` forces
 CPU) plus engine options, and threads become `OMP_NUM_THREADS` etc.
 

@@ -1,10 +1,11 @@
 # Browser science jobs
 
 How TCMScience Studio (<https://science.impf.ai>) runs research jobs inside a visitor's browser, with no local runner
-and no compute server: the network-pharmacology research loop, and (the guidebook's P2) RNA-seq differential
-expression from a count matrix and single-cell analysis from count tables. What runs where, how the data gets there,
-how a result is shown to be the same result the runner gives, and what is not done. Written on 2026-10-19 on branch
-`claude/epic-dirac-c1uqll`. Status words are those of [BROWSER_COMPUTE.md](BROWSER_COMPUTE.md) (implemented and
+and no compute server: the network-pharmacology research loop, (the guidebook's P2) RNA-seq differential
+expression from a count matrix and single-cell analysis from count tables, and (P3) ADMET: the model build and the
+predictions. What runs where, how the data gets there, how a result is shown to be the same result the runner gives,
+and what is not done. Written on 2026-10-19 on branch `claude/epic-dirac-c1uqll`; ADMET ([§3.2](#32-admet)) added on
+2026-10-20. Status words are those of [BROWSER_COMPUTE.md](BROWSER_COMPUTE.md) (implemented and
 tested, saying where; implemented, partly verified; proposed; verified in deployment, which nothing here is), and
 "not run" for what no run has exercised.
 
@@ -18,7 +19,7 @@ IndexedDB, followed, cancelled and resumed like runner jobs, and each writes a r
 was checked. On the planted world (the research jobs' known answer) a job worker in Chromium writes the five tables
 **byte for byte** as native CPython does (`studio/e2e/science.spec.mjs`, passed in Studio's CI with Pyodide's own
 pyarrow). The real 葛根芩连汤 case, run the same way in the live-data workflow and compared export by export with the
-native run on the same files, passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, commits 43918ac, 53bdbb0 and 65fa6aa, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it). The RNA-seq pipeline in its count-matrix mode (`pipeline.rnaseq` with `counts`) and the single-cell pipeline on count tables (`pipeline.scrna`) run the same way, with Pyodide's numpy and scipy, on files from the person's project ([§3.1](#31-rna-seq-and-single-cell-from-count-tables)); a FASTQ run, PyDESeq2, Scanpy, scVI, 10x HDF5 and `.h5ad` inputs, and inputs larger than a browser worker holds (more than 6,000 cells, a table of more than 66,000,000 cells × genes, a count matrix of more than 10,000,000 genes × samples) are refused with the reason and left to the runner. On their known-answer references (`omics_counts_world` v1 and `sc_world` v1) every output was compared with the native command's on the same files (`science.mjs --mode omics`, headless Chromium 141, locally): identical bytes, or numbers within a stated tolerance (the largest difference 0.133 of it), or, for the UMAP layout and its figures, not compared and said so; the genes called and each cell's cluster and cell type are identical, and the known answers hold on the browser's files. The same check passed in Studio's CI, with Pyodide's numpy and scipy from jsDelivr and the native side on CI's own Python 3.12.15 (`studio` #91 (run 39286931542, commit 65fa6aa, 2026-10-19)).
+native run on the same files, passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, commits 43918ac, 53bdbb0 and 65fa6aa, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it). The RNA-seq pipeline in its count-matrix mode (`pipeline.rnaseq` with `counts`) and the single-cell pipeline on count tables (`pipeline.scrna`) run the same way, with Pyodide's numpy and scipy, on files from the person's project ([§3.1](#31-rna-seq-and-single-cell-from-count-tables)); a FASTQ run, PyDESeq2, Scanpy, scVI, 10x HDF5 and `.h5ad` inputs, and inputs larger than a browser worker holds (more than 6,000 cells, a table of more than 66,000,000 cells × genes, a count matrix of more than 10,000,000 genes × samples) are refused with the reason and left to the runner. On their known-answer references (`omics_counts_world` v1 and `sc_world` v1) every output was compared with the native command's on the same files (`science.mjs --mode omics`, headless Chromium 141, locally): identical bytes, or numbers within a stated tolerance (the largest difference 0.133 of it), or, for the UMAP layout and its figures, not compared and said so; the genes called and each cell's cluster and cell type are identical, and the known answers hold on the browser's files. The same check passed in Studio's CI, with Pyodide's numpy and scipy from jsDelivr and the native side on CI's own Python 3.12.15 (`studio` #91 (run 39286931542, commit 65fa6aa, 2026-10-19)). ADMET runs the same way, with two parts the page computes itself ([§3.2](#32-admet)): `admet.models` builds the 22 TDC endpoint models in this browser from the TDC ADMET group archive (nothing trained is shipped) and keeps them in the site's private storage, and `pipeline.admet` predicts with them; the chemistry is RDKit.js 2026.9.1 with exact ports of what it lacks (a molecule they cannot standardise exactly is refused, named, and left to the runner, never approximated), and the applicability-domain search runs on this device's WebAssembly SIMD kernel, or on its GPU only where this device's own check measured the GPU exact and faster, Python checking the answers before it uses them. Compared with native RDKit 2026.9.1 and scikit-learn 1.8.0 at one thread (`science.mjs --mode admet`, headless Chromium 141 with Pyodide 314.0.7, locally): on a small known-answer archive the cards (apart from the files' digests, the seconds and the chemistry's name), the domain files, every prediction at full precision and `admet.tsv` were identical; on a synthetic archive at the TDC group's sizes the raw model outputs and `admet.tsv` were identical and 52 of 16,120 test-set predictions differed by 1 or 2 units in the last place of float64 (the C library's `exp`, or numpy's power, after the trees). This is implemented and tested locally; it has not yet run in CI, on the real TDC archive or on a physical GPU.
 
 ## 1. What runs where
 
@@ -26,19 +27,23 @@ native run on the same files, passed in `live-data` #18, #19 and #21 (runs 39251
 |---|---|---|
 | Planning a call, approvals | the page | `js/core/router.js`: a job placed in the browser goes to the job service, never to the tool worker |
 | Job records, queue, cancel, resume, receipts | the page | `js/scientific/runtime/job-manager.js` (IndexedDB `tcmstudio-jobs`) |
-| The computation (the research loop; RNA-seq and single-cell from count tables) | job workers (Pyodide, CPU, WebAssembly) | `js/scientific/engines/science.worker.js` → `tcmstudio.browser_jobs` → `bioagent` |
-| The omics jobs' inputs: the project's files, copied into the job's directory and checked against their recorded SHA-256 | the page | `js/scientific/pipelines/omics.js`, through `js/scientific/runtime/jobs-runtime.js` (`projectFilesResolver` over the project file store, `js/core/store.js`) |
+| The computation (the research loop; RNA-seq and single-cell from count tables; ADMET's model build and pipeline) | job workers (Pyodide, CPU, WebAssembly) | `js/scientific/engines/science.worker.js` → `tcmstudio.browser_jobs` → `bioagent` |
+| The ADMET jobs' chemistry: standardisation, fingerprints, descriptors, alerts | a chemistry worker (RDKit.js 2026.9.1, WebAssembly, CPU; no Pyodide) | `js/scientific/chem/chem.worker.js`, handed to Python as prepared sets (`chem/prepared-set.js` → `bioagent.admet.engine.PrecomputedEngine`) |
+| The ADMET applicability-domain search (Tanimoto) | the page: WebAssembly SIMD (JavaScript without SIMD), or WebGPU where this device's check measured it exact and faster; checked again in Python | `js/compute/science-scheduler.js` → `bioagent.admet.engine.PrecomputedSimilarity` |
+| The pipeline jobs' inputs: the project's files, copied into the job's directory and checked against their recorded SHA-256 | the page | `js/scientific/pipelines/omics.js` and `admet.js`, through `js/scientific/runtime/jobs-runtime.js` (`projectFilesResolver` over the project file store, `js/core/store.js`) |
 | Downloads, imports, hashing | a data worker (no Pyodide) | `js/scientific/data/data.worker.js` |
 | Files | OPFS, under `tcmstudio/` | `js/scientific/data/opfs-store.js` |
 | Relay for hosts that refuse a cross-origin download | the edge Worker, streaming, keeping nothing | `studio/edge/src/datasets.js` (`/api/datasets/files/<group>/<name>`) |
 | Language model | Tao-S1 through `/v1` (unchanged) | not a computation of the job |
 
-Job kinds the browser runs: `research.snapshot`, `research.run`, `pipeline.rnaseq` (its count-matrix mode only) and
-`pipeline.scrna` (count tables, built-in engines only) (catalog `BROWSER_JOB_KINDS`; each carries its own
-`execution.browser_job`: the Pyodide packages it loads, and for the two pipelines what they read, their engines and
-`runner_only`, the arguments that take a call to the runner, each with its reason). A connected runner still takes
-them under compute **Auto** (one place per project); under **Browser** they run here. A pipeline call
-(`run_pipeline {pipeline, arguments}` or `call_tool job.pipeline.rnaseq|scrna`) whose arguments only the runner runs
+Job kinds the browser runs: `research.snapshot`, `research.run`, `pipeline.rnaseq` (its count-matrix mode only),
+`pipeline.scrna` (count tables, built-in engines only), `admet.models` and `pipeline.admet` (a CSV, TSV or `.smi`
+file, or one SMILES) (catalog `BROWSER_JOB_KINDS`; each carries its own `execution.browser_job`: the Pyodide packages
+it loads, and for the pipelines what they read, their engines, for ADMET the chemistry (`rdkit.js` 2026.9.1) and the
+molecule limit (`limits.molecules`), and `runner_only`, the arguments that take a call to the runner, each with its
+reason). A connected runner still takes them under compute **Auto** (one place per project); under **Browser** they
+run here. A pipeline call (`run_pipeline {pipeline, arguments}` or `call_tool job.pipeline.rnaseq|scrna|admet`) whose
+arguments only the runner runs
 goes to a connected runner, and without one is refused `needs_runner` with the reason, before anything is queued;
 with compute set to **Browser** and the runner connected it is refused `compute_browser`, with that reason and the
 setting. Arguments the runner's schema refuses are `bad_arguments` before the call is placed or anyone is asked to
@@ -48,8 +53,9 @@ given beside `arguments`, and `call_tool` arguments that are not an object. A ki
 catalog page, `catalog_search`) is ready where its job service runs it, and the catalog page names a stopped job
 service as this browser's, not the runner's. Should the job service's module not load, the router reads what needs
 the runner from the catalog's `execution.browser_job.runner_only` rules.
-Every other job kind (`pipeline.fold`, `pipeline.dock`, `pipeline.admet`, `skill.run`, `tcmdb.*`, `env.provision`)
-stays on the runner, and a call for one in the browser says so.
+Every other job kind (`pipeline.fold`, `pipeline.dock`, `skill.run`, `tcmdb.*`, `env.provision`) stays on the runner,
+and a call for one in the browser says so; so does the governed skill `predict-admet`, which wraps the same ADMET
+pipeline as a skill run.
 
 ### 1.1 Job workers
 
@@ -57,7 +63,8 @@ stays on the runner, and a call for one in the browser says so.
 is taken as 2 GB, and the reason is recorded). A worker boots lazily the first time a job leases it (Pyodide from the
 pinned index, the bundle from Cache Storage when its hash matches, the compiled modules put back), loads the Pyodide
 packages a stage needs (`pyarrow` for the snapshot store; `numpy` and `scipy` for the omics jobs, 2,960,568 + 14,029,750
-bytes, about 16.2 MiB, fetched the first time a worker loads them; all from the same Pyodide distribution), and runs
+bytes, about 16.2 MiB, fetched the first time a worker loads them; for the ADMET jobs `numpy`, `scipy` and
+`scikit-learn` 1.8.0, which brings `joblib` and `threadpoolctl`; all from the same Pyodide distribution), and runs
 one operation at a time. Each package asked for is checked in `pyodide.loadedPackages` after loading: Pyodide 314
 reports a wheel it could not fetch without throwing, and such a package is refused (`unavailable`), never recorded as
 loaded. scipy's Matrix Market reader is held to one thread however scipy was loaded (WebAssembly here has no threads).
@@ -92,7 +99,11 @@ records) lists the 17 files: URL, host, reviewed size and checksum where one exi
 files have neither a reviewed checksum nor a reviewed size and are kept as UNVERIFIED, as on the runner), licence, what
 is known about redistribution — from a reviewed licence record, or "unknown — downloading is not permission to
 redistribute" — and the pace bioagent keeps with its host (`rate_rps`: zenodo.org 0.1 a second, its robots.txt
-Crawl-delay; reactome.org 5; rest.uniprot.org 10; otherwise 1), which the relay keeps too.
+Crawl-delay; reactome.org 5; rest.uniprot.org 10; otherwise 1), which the relay keeps too. A second group, `admet`,
+lists one file, the TDC ADMET group archive the ADMET model build reads ([§3.2](#32-admet)): its URL and host
+(dataverse.harvard.edu), the SHA-256 bioagent pins (`bd0005246cb6…`), no reviewed size (none has been seen from
+here), licence `LicenseRef-TDC-per-dataset` with redistribution unknown (no licence record here has read TDC's
+terms), relay allowed, and no redirect host yet (none has been seen from a real download).
 
 Before a snapshot build starts, the browser's free storage is checked against the reviewed sizes of the files still
 missing (×1.1); the three files without a reviewed size are not guessed at, and the job's log names them.
@@ -138,7 +149,11 @@ the job gave it back — a wasm32 memory only grows, so this is the peak since t
 earlier jobs on it; null when no worker reported one), and two independent readings of every output's digest: the job
 worker's as it wrote the file, and the page's as it read it back from OPFS. `assurance: "outputs_verified"` only when
 the two agree and nothing required is missing; the device is `cpu` (WebAssembly), at evidence `verified` only when a
-verify stage ran in this attempt and said it passed (a snapshot build has none: `validated`). An omics job's receipt
+verify stage ran in this attempt and said it passed (a snapshot build has none: `validated`). A stage that ran kernel
+calls (the ADMET domain search) carries their compute facts, and the receipt gains `compute` (per stage: the backend
+of each call, the GPU's adapter and rung, the calibration it cites, `accelerated` with its basis); when a stage used
+a GPU result the device is `cpu+webgpu`, and the evidence is `accelerated` only when every GPU call of it reached that
+rung ([§3.2](#32-admet)). A GPU result Python then rejected is marked discarded and counts for nothing. An omics job's receipt
 also lists its `inputs`: each file's SHA-256 as the job read it, its size and the project file it came from (a sample
 sheet's tables under `source.files`, as the runner's receipt keeps them).
 
@@ -334,6 +349,142 @@ measured: a browser tab's own memory limit, a low-memory device, a phone, Firefo
 of the page (a `MemoryError`, a worker's failed allocation, the worker retired) are tested with a scripted worker only:
 no browser worker has run out of memory in a test.
 
+### 3.2 ADMET
+
+Two more of the runner's kinds run as browser jobs: `admet.models` (`bioagent admet --build-models`) and
+`pipeline.admet` (`bioagent admet`). They are `bioagent.admet` itself, not another model: the same features (a
+2048-bit Morgan count fingerprint, the 24 descriptors and the formal charge), the same scikit-learn
+HistGradientBoosting models with the same settings, the same applicability domain, rules, alerts and outputs. Pyodide
+314.0.7 has scikit-learn 1.8.0, whose training and predictions were bit-identical to native 1.8.0 on the same features
+(measured in Pyodide under Node), but no RDKit (PyPI has no wasm32 wheel of it). So the page computes two parts itself and
+hands them to Python: the **chemistry**, in a chemistry worker, with RDKit.js 2026.9.1 (npm `@rdkit/rdkit`'s
+MinimalLib, the RDKit version `registry/scientific_environments.json` pins) and bioagent's ports of what RDKit.js
+lacks, written as prepared sets (`prepared.json`, `features.f32`, `bits.u8`) that
+`bioagent.admet.engine.PrecomputedEngine` reads back, held to their molecules by the SHA-256 of their SMILES; and the
+**applicability-domain search**, on this device's kernels, written as similarities that
+`bioagent.admet.engine.PrecomputedSimilarity` checks before it uses them. Everything else (splitting the archive,
+training, predicting, the rules, the report and the checks) is bioagent's Python in a job worker, through
+`tcmstudio.browser_jobs` `admet_split`, `admet_train`, `admet_read`, `run_admet` and `verify_pipeline`. Natively,
+`bioagent.admet` takes the same seam (`RDKitEngine` by default): its outputs were unchanged byte for byte by it, on a
+before/after run of the small archive (`run.json` and the cards gain `chemistry`, `refused` and
+`dropped_unstandardisable`).
+
+| Kind | What runs in the browser | Refused here, with the reason (the runner runs it) |
+|---|---|---|
+| `admet.models` | the TDC ADMET group archive (Harvard Dataverse), fetched by this browser through the site's dataset relay (registry group `admet`, the download held to bioagent's pinned SHA-256 `bd0005246cb6…`) or given as `archive`, a project file (its SHA-256 compared with the pin: another archive is still built, and the job and the cards say it is not the pinned one, so its held-out scores are not TDC's leaderboard's); each endpoint's `train_val` and `test` splits prepared by the chemistry worker; one model, domain and card per endpoint, trained by `bioagent.admet.models.train_endpoint` (the code and settings `build_models` uses); `endpoints` (default all 22), `seed`, `max_iter` (10–5000, default 600), `rebuild` | nothing as a whole; a training molecule the chemistry refuses is left out and counted (below). Offline, a build needs `archive` (the entry's `network_unless`) |
+| `pipeline.admet` | `molecules`: a CSV/TSV (`name,smiles`) or `.smi` file of the project, or one SMILES; `endpoints` (default: every model built here); standardisation, the 24 descriptors, Lipinski, Veber, Egan and Ghose, the PAINS A/B/C, Brenk and NIH alerts, each endpoint's prediction with its domain flag, `admet.tsv`, `report.md`/`report.html`, the plot, `limitations.md`, `run.json` | an SDF, `.sdf.gz` or `.mol` file (RDKit's `SDMolSupplier` is not ported: need `runner`); more than 20,000 molecules (need `memory`) |
+
+**Refusals.** Before anything is queued, `pipeline.admet` checks the molecules first (an SDF or `.mol` file: need
+`runner`; a file the project lacks, an unknown parameter or a value outside the runner's bounds: `bad_arguments`; more
+than **20,000 molecules**, counted a line at a time as Python counts them, before the file is read in full: need
+`memory`, and Python refuses the same again in the worker), then the models (endpoints asked for whose models are not
+built in this browser: need `dataset`, "Build them first in this browser with job.admet.models (…), or connect the
+local runner"); an endpoint name TDC's group does not have is `bad_arguments`, naming the 22 it has (in both kinds). `admet.models` refuses an archive
+that is not a zip, or that lacks an endpoint's member, naming the person's file rather than the browser's internal
+copy. A model-build parameter outside its bounds, and an unknown one, are `bad_arguments`.
+
+**Stages.** `admet.models`: *archive* (the dataset workspace's `admet` group through the relay, or `archive`, a
+project file; its SHA-256 taken as it is copied and compared with the pin, the archive kept at
+`tcmstudio/admet/archive/<sha12>.zip`) → *split* (Python
+`admet_split`) → for each endpoint not already built with a matching card: *chemistry.<ep>* (the chemistry worker on
+the `train_val` and `test` SMILES → prepared dirs) → *train.<ep>* (Python `admet_train`) → *verify*. The models live in
+OPFS `tcmstudio/admet/models/` (`model_cards.json`, `<ep>.pkl`, `<ep>_domain.npy`, exactly what `build_models` writes),
+shared by every ADMET job here. An endpoint whose model there was built from the same archive, settings, scikit-learn
+and chemistry and still re-hashes to its card's digests is kept (both its stages reused); a resumed job also reuses an
+endpoint's prepared sets while they match their checkpoint, so a build that stopped part way is picked up where it
+left off. `pipeline.admet`: *inputs* (the project file → OPFS, digest) → *read* (Python `admet_read`) → *chemistry*
+(the chemistry worker) → *domain* (the scheduler's Tanimoto per endpoint, query bits against the model's domain bits)
+→ *analysis* (Python `run_admet` with `PrecomputedEngine` and `PrecomputedSimilarity`) → *verify* (Python
+`verify_pipeline`).
+
+**The chemistry engine, and its parity.** The chemistry worker loads RDKit.js from its exact npm version on jsDelivr
+(or a local mirror): the loader is vendored (npm's `dist/RDKit_minimal.js`, 106,667 bytes, with one line appended so a
+module worker can import it; a test holds its prefix to the npm file's SHA-256), and the wasm (7,379,879 B, SHA-256
+`594ceaed…`) is fetched, its SHA-256 and size checked against the pin in `boot.json` before anything compiles it, and
+cached by the service worker under its exact URL. RDKit.js's MinimalLib has no `MolStandardize`, no count fingerprint
+and no `FilterCatalog`, so bioagent's ports stand in: standardisation (`LargestFragmentChooser`, the `Uncharger`, the
+22 default `Normalizer` SMIRKS), the Morgan count fingerprint, `BalabanJ`, `BertzCT`, `qed`, the Gasteiger charges,
+`NumValenceElectrons`, `FormalCharge`, and the alerts (PAINS A/B/C, Brenk, NIH: 765 `FilterCatalog` entries,
+`filter_catalogs.json`, 0 unported). The parity fixture `studio/web/test/fixtures/chem_parity.json` (476 molecules:
+drugs, natural products, salts, zwitterions, metals, the Normalizer stress set) holds the engine to native RDKit
+2026.9.1: on every molecule it does not refuse, the float32 feature row (the row the models read), the packed bits and
+the alerts are identical, and every refusal is one the fixture expects (22 refused, 3 invalid SMILES with native's
+text). On RDKit's NCI `first_5K` set (4,999 molecules, never tuned on), 4,851 were identical, 140 refused as predicted,
+8 errored as native did, 0 silent mismatches. `qed` and `BertzCT` can differ by 1–2 units in the last place of float64
+(V8's `Math.exp`/`Math.log` are not glibc's), and are equal as float32; every other descriptor is exact. The engine
+**refuses** (never approximates) a molecule that would need `MetalDisconnector`, `Reionizer` or the `Uncharger`'s
+canonical atom ranking, a dative or zero bond, or more than 400 atoms (RDKit.js traps above about 550): the refusal
+names the step, the prepared row carries `need: "runner"`, and the runner's own RDKit reads it. In a build, a refused
+training molecule is left out and counted on the card (`dropped_unstandardisable`), so a model built in a browser can
+differ from a runner's; the card names the chemistry it was built with, and `run_admet` reports a refused query molecule
+as refused and why, not as "could not be read".
+
+**The comparison, and its rules.** `science.mjs --mode admet` runs `admet.models` (the archive as a project file) then
+`pipeline.admet` as jobs of the page's job service in headless Chromium 141 (Pyodide 314.0.7, RDKit.js 2026.9.1), and
+compares every output with a native run (RDKit 2026.9.1, scikit-learn 1.8.0, one thread). It holds the browser to
+exactness, not to a tolerance, with two named exceptions:
+
+- A **model card** is compared field by field apart from what names the process that wrote the model, not the model:
+  the model file's and the domain file's SHA-256 (a pickle's bytes depend on the process — wasm32 here, 64-bit
+  natively — so the model file itself is not compared; the domain `.npy` bytes are compared as a row of their own), the
+  training `seconds` and the chemistry engine's name. The native models are trained on the molecules the browser
+  chemistry kept.
+- A **prediction** is the model's raw output (the boosted trees' sum), compared exactly, passed through one elementary
+  function: scipy's `expit` (whose `exp` is the C library's) for a classification, or numpy's `10 **` for a log10
+  endpoint. Those last bits differ between libraries, so a final value may differ by **at most 4 units in the last
+  place of float64**, each one named and never called identical; the raw output and the domain search are always
+  identical. The **last-bit rule's cause, corrected:** the earlier note blamed glibc for the log10 endpoints, but on an
+  AVX-512 machine (this one) numpy's `10 **` uses its own SIMD power, not glibc's `pow`; natively a log10 endpoint's
+  last bit can therefore differ between an AVX-512 CPU and others (the vdss_lombardo value checked was glibc's in the
+  browser, and native numpy's was the odd one out). Measured on the synthetic archive: at most 2 units, on 52 of 16,120
+  test-set predictions, every raw output identical. On 100,000 values in [−4, 4] (Pyodide 314.0.7 under Node against
+  native glibc and numpy 2.4.6 on this AVX-512 machine): Pyodide's power differed from glibc's `pow` on 65 (0.07%) and
+  from numpy's AVX-512 power on 5,317 (5.3%), by 1 unit; its `exp` from glibc's on 72; `expit` on 34 (0.03%), by at
+  most 2 units.
+
+**The GPU domain search, and its evidence.** The domain search (batch Tanimoto max over packed 2048-bit Morgan bits:
+per query, the nearest training molecule — smallest index on ties — and the integer intersection and union, Python
+dividing in float64) runs on this device's kernels through `science-scheduler.js`. Under the person's acceleration
+setting, it uses the GPU (WebGPU, WGSL) only where this device's own check (`device-check.js`) measured a physical
+adapter exact and faster than the WebAssembly SIMD kernel at that size; otherwise WebAssembly SIMD (JavaScript without
+SIMD). Every backend is held to the others and to Python's `np.bitwise_count`, a GPU result passes a CPU check
+(`validateTanimoto`) before it is used, and Python checks it again (`PrecomputedSimilarity`: shapes, every
+intersection ≤ min popcount, the union consistent, and the full exact search of a sample of queries); a result that
+fails is not used, the CPU recomputes, the run records `similarity.rejected`, and the stage's GPU work is discarded so
+it earns no evidence. **There is no physical GPU here or in CI.** With the harness's software-GPU switch forced on,
+WebGPU gave results identical to WebAssembly SIMD on the SwiftShader software adapter, and the facts read "webgpu,
+software adapter, validated, not accelerated": a software renderer is **never evidence of a GPU**, and `accelerated` is
+never claimed from it. The acceptance criterion — the device check faster on a physical GPU — stays open ([§5](#5-what-this-does-not-do-yet),
+[BROWSER_COMPUTE.md](BROWSER_COMPUTE.md)).
+
+**Times and memory** (`science.mjs --mode admet`, headless Chromium 141, Pyodide 314.0.7, this machine; SwiftShader
+timings are not evidence of a GPU). On the small known-answer archive `admet_world` (caco2_wang, hia_hou): every card
+(but for the digests, seconds and chemistry), domain file, raw and final prediction, the alerts, `admet.tsv` and the
+plot identical; the reports differ only by the one line naming the molecules the browser refused; caco2_wang MAE
+0.1328 at 194 iterations, hia_hou AUROC 1.0 at 600; the expected refusals all refused, and the runner's own run read
+them all (6 in the 36-molecule set of the first runs: MetalDisconnector, Reionizer, a 406-atom PEG; 8 in the final
+38-molecule set, which adds an Uncharger-ranking zwitterion and a dative bond). `admet.models`
+took 12–14 s in the browser against 5.0–5.8 s native, and `pipeline.admet` 1.0–2.0 s against 1.3–1.5 s (eight runs);
+the worker held 155 MiB (a worker reused after the build reports the build's peak). The forced-software-GPU rerun gave identical outputs, its receipt `cpu+webgpu`. On a synthetic archive at the
+TDC group's sizes (22 endpoints, 80,610 training molecules, none refused since synthetic): 118 comparison rows the
+same, 11 within the last-bit rule (largest vdss_lombardo, 17 of 226 at 1 unit), 0 failing; `admet.models` 418–437 s in
+the browser (chemistry about 210 s, training about 210 s, worker 961–967 MiB) against 443–447 s native at one thread.
+Measured in Pyodide 314.0.7 under Node 22 instead (the Python side alone, with native RDKit's chemistry standing in for
+RDKit.js; not in a browser tab): a model build at the largest endpoint's size (cyp2d6_veith, 10,504 training and 2,626
+test molecules) peaked at 877 MB and took 28 s; a pipeline run against the 22 models reached 224 MB at 1,000 molecules,
+625 MB at 10,000 and 1.03 GB at 20,000 (the WebAssembly memory's peak), 23 s with the page's similarities and 113 s when Python recomputes the domain,
+`admet.tsv` the native run's bytes both ways — hence the 20,000-molecule limit.
+
+**What was not run.** The real TDC archive (Harvard Dataverse is unreachable from here; the live-data `admet` job runs
+it in CI and prints the download's redirect chain, to fill the group's `redirect_hosts`); a physical GPU (none here or
+in CI); and the CI steps themselves. ONNX Runtime Web is not used for these tree models and no WebGPU matmul/PCA kernel
+was written, for the reasons in [BROWSER_COMPUTE.md](BROWSER_COMPUTE.md).
+
+**Limitations.** A browser ADMET run carries bioagent's own `limitations.md` lines, the line naming any refused
+molecules, one "Computed in this browser: chemistry RDKit.js 2026.09.1 + ports, models scikit-learn 1.8.0 built in
+this browser from the TDC archive (`<sha12>`); similarity `<backend>`." (≤ 320 characters, the length the model reads
+whole), and the predicted-not-measured line the runner adds; `provenance.models` carries the cards' digests.
+
 ## 4. How it is checked
 
 | Check | What it shows | Where | Status |
@@ -344,6 +495,9 @@ no browser worker has run out of memory in a test.
 | 葛根芩连汤 on the real files | `research.snapshot` + `research.run` as browser jobs, every export compared with the native run | live-data workflow, step "The same research in a browser" (`studio/web/test/runtime/science.mjs --mode gqd`) | implemented and tested: every export the native run's bytes in `live-data` #18, #19 and #21 (2026-10-19); repeated on every live-data run. Should a number ever differ in its last bit (glibc's and wasm's `math.exp` are not correctly rounded), the comparison reports that table, and the digests restating it, as within a relative 1e-12 — never as identical |
 | RNA-seq and single-cell from count tables, against the native run | `pipeline.rnaseq` (count matrix) and `pipeline.scrna` (count tables) as jobs of the page's job service on `omics_counts_world` v1 and `sc_world` v1, read from a project's files: every output compared with the native command's on the same files, as identical bytes, within the stated tolerance (the largest difference 0.133 of it) or not compared, with the reason (the UMAP layout and figures; the layout's structure is checked instead); the genes called, each cell's cluster and cell type and the clusters exact; the receipts, with the inputs at the files' digests; the known answers on the browser's files ([§3.1](#31-rna-seq-and-single-cell-from-count-tables)) | `science.mjs --mode omics` (Studio CI, build job, from commit 65fa6aa) | implemented and tested in headless Chromium, locally (Chromium 141, Pyodide 314.0.7 from a local mirror) and in Studio's CI with Pyodide's numpy and scipy from jsDelivr (`studio` #91, 2026-10-19): every check passed |
 | The omics jobs' refusals, inputs and memory | refused before anything is queued, with the reason: FASTQ, PyDESeq2, Scanpy, scVI, `.h5`, `.h5ad`, out-of-bounds or unknown parameters, `counts` with a FASTQ sample sheet (`bad_arguments`, in the runner's words), a file the project lacks (for a name that may be a Cell Ranger directory, saying the runner reads one); `run_pipeline` and `call_tool` arguments the runner's schema refuses, before any approval; under compute Browser with the runner connected, `compute_browser` with the arguments' reason; without the job service's module, the catalog's `runner_only` rules; a resumed analysis run again when what computed it changed; inputs copied from the project's files, a digest mismatch refused; a run with a scripted worker (artefact names, receipt inputs, the verify outcome); running out of memory a refusal that retires the worker. In Python: each function, run natively, writes the command's bytes (all but `run.json` and `stages.json`), the size limits (cells, a table's cells × genes, genes × samples) and a `MemoryError` are typed refusals before or instead of a result, a corrupt or cut-short gzip and a table that is not UTF-8 are refusals with the reason, `verify_pipeline` names the runner's checks; the streaming table reader gives the whole-text parse's matrix; the count-matrix mode's refusals and its reference; a count-matrix call naming a FASTQ engine is `bad_arguments` on the runner | `web/test/scientific/omics.test.mjs`, `web/test/router.test.mjs`, `web/test/catalog-page.test.mjs`, `web/test/runtime/pyboot.test.mjs`; `studio/runner/tests/test_browser_jobs.py`, `test_capability_state.py`; `BioScience-Harness/tests/test_omics_rnaseq_counts.py`, `test_omics_scrna.py`, `test_pipeline_references.py` | implemented and tested locally; the memory paths with a scripted worker only |
+| ADMET (`admet.models`, `pipeline.admet`), against the native run | both as jobs of the page's job service, on the small known-answer archive `admet_world` (as a project file) and a 38-molecule set, compared with the native command on the same molecules (RDKit 2026.9.1, scikit-learn 1.8.0, one thread): model cards (apart from the files' digests, seconds and chemistry), domain files and `admet.tsv` identical; the predictions at full precision (raw output and domain search exact, a final value within the named last-bit rule), the alerts, the stages; the reports differ only by the refused-molecules line; the expected refusals refused and read by the runner; then once more with WebGPU forced on the software adapter, the outputs identical ([§3.2](#32-admet)) | `science.mjs --mode admet` (Studio CI, build job) | implemented and tested in headless Chromium, locally (RDKit.js and Pyodide from local mirrors); not yet run in CI or on the real TDC archive |
+| ADMET chemistry parity, the kernels and the device check | RDKit.js 2026.9.1 + ports against native RDKit on the parity fixture (476 molecules) and NCI first_5K (4,999): the float32 rows, bits and alerts identical, refusals as predicted; the Tanimoto kernels (JS, WASM SIMD, WebGPU) against each other and `np.bitwise_count`, exact; the device check's known-answer test, parity and verdicts, on SwiftShader (exact, "software, not evidence") | `web/test/scientific/chem.test.mjs`, `chem-worker.test.mjs`, `web/test/science-cpu.test.mjs`, `science-gpu.test.mjs`, `science-scheduler.test.mjs`, `science-calibration.test.mjs`, `scientific/evidence.test.mjs`; `chem.browser.mjs` and `gpu-science.mjs --software` in Chromium | implemented and tested locally and (`chem.browser.mjs`, `gpu-science.mjs --software`) wired into Studio's CI; never run on a hardware GPU |
+| ADMET refusals, routing, receipts and the Python entry | `pipeline.admet` refused before queueing with the reason (SDF/`.mol`: runner; models not built here: dataset, hinting job.admet.models; more than 20,000 molecules: memory), the molecules checked before the models; the scheduler's per-call acceleration rule, serialised GPU calls, a discarded GPU result earning no evidence; the receipt's `device.used` `cpu+webgpu` and `compute` facts; in Python, each `browser_jobs` function run natively writing the command's bytes, the limit a typed refusal, a refused molecule said to be refused and why | `web/test/scientific/admet.test.mjs`, `job-manager.test.mjs`, `jobs-runtime.test.mjs`, `router.test.mjs`, `catalog-page.test.mjs`, `sw.test.mjs`; `studio/runner/tests/test_browser_jobs.py`, `test_catalog.py`, `test_capability_state.py`, `test_webbuild.py`, `test_compat_matrix.py`; `BioScience-Harness/tests/test_admet_engine.py`, `test_admet_build.py` | implemented and tested locally |
 | In-process governed analysis | the same bytes and result digest as the isolated child natively | `BioScience-Harness/tests/test_research_inprocess.py` | implemented and tested |
 | Data layer | downloads, resume, relay fallback, checksum refusal, import, cancel | `web/test/scientific/*.test.mjs` (an in-memory OPFS); the import runs in Chromium's OPFS in `--mode fixture` | implemented and tested |
 | Job service and pool | queue, cancel, interruption and resume, receipts, worker crashes | `web/test/scientific/job-manager.test.mjs`, `worker-pool.test.mjs` | implemented and tested |
@@ -355,13 +509,27 @@ no browser worker has run out of memory in a test.
   service runs one job at a time in a tab (a snapshot build and a research run share the snapshot store), so the pool's
   further workers stay unused today. A per-source parallel snapshot build across workers is designed (NPASS, CMAUP, LOTUS and
   Reactome are independent) but not built; multithreaded WASM kernels (pthreads) are not written.
-- **GPU or NPU for these jobs.** The research loop is integer and float Python with exact outputs; no WebGPU kernel is
-  used, and no WebNN model exists (BROWSER_COMPUTE.md §5).
+- **GPU or NPU for these jobs.** The research loop and the omics jobs are integer and float Python with exact outputs;
+  no WebGPU kernel is used for them, and no WebNN model exists (BROWSER_COMPUTE.md §5). The ADMET jobs' domain search
+  can use WebGPU, but only where this device's own check measured a physical adapter exact and faster; there is no
+  physical GPU here or in CI, so it has only ever run on a software adapter (exact, never counted as acceleration), and
+  P3's acceptance criterion — a physical GPU, measured — stays open ([§3.2](#32-admet), BROWSER_COMPUTE.md §6.1).
 - **DuckDB-Wasm / Arrow.** Not used: the reference implementation is the runner's Python, and a second implementation
   of the joins would have to be shown equal to it. Pyodide's own `pyarrow` writes the snapshot store.
 - **The rest of the pipelines.** RNA-seq from FASTQ (QC, trimming, quantification), PyDESeq2, Scanpy, scVI, 10x HDF5
-  and `.h5ad` inputs stay on the runner; docking (Vina, RDKit), ADMET (RDKit) and structure prediction have no browser
-  engine. A call for them is refused in the browser with the reason, never run another way.
+  and `.h5ad` inputs stay on the runner; docking (Vina, RDKit) and structure prediction have no browser engine, and so
+  do an ADMET SDF or `.mol` file (RDKit's `SDMolSupplier` is not ported) and the governed `predict-admet` skill run. A
+  call for them is refused in the browser with the reason, never run another way.
+- **Byte-identical ADMET outputs.** The domain files and `admet.tsv` are the native run's bytes and the model cards
+  the native ones field by field (not their model file's digest, seconds or chemistry name: a pickle's bytes depend on
+  the process), and the raw model outputs and the domain search are exact, but a final prediction that passes through `expit` or `10 **` may
+  differ from the native run by up to a few units in the last place of float64 (the C library's `exp`, or numpy's own
+  AVX-512 power); each such value is named, never called identical ([§3.2](#32-admet)). `qed` and `BertzCT` can differ in
+  the last bit of float64 (equal as float32, the precision the models read). A model built here can differ from a
+  runner's when the browser chemistry refused training molecules the runner's RDKit reads: the card counts them
+  (`dropped_unstandardisable`), and the comparison trains the native reference on the same kept molecules. The
+  comparison in a browser was run on a small known-answer archive and a synthetic one at the TDC sizes, not on the real
+  TDC archive.
 - **Byte-identical omics outputs.** The omics jobs are not the native bytes throughout: on the two references the DE
   and pseudobulk tables differ from the native run in their last printed digits (within the stated tolerance; a
   person's own run is compared with nothing), and the UMAP layout and five figures are not compared at all
@@ -389,8 +557,9 @@ no browser worker has run out of memory in a test.
 
 ## 中文摘要
 
-**浏览器科研任务**：网络药理学研究任务（`research.snapshot` 构建快照、`research.run` 十六阶段研究），以及（指南的 P2）
+**浏览器科研任务**：网络药理学研究任务（`research.snapshot` 构建快照、`research.run` 十六阶段研究），（指南的 P2）
 从计数矩阵出发的 RNA-seq 差异表达（`pipeline.rnaseq` 的计数矩阵模式）和从计数表出发的单细胞分析（`pipeline.scrna`），
+以及（P3）ADMET 的模型构建（`admet.models`）与预测（`pipeline.admet`；见下文「ADMET（§3.2）」，2026-10-20 补入），
 都可以完全在访客浏览器中运行，无需本机 Runner 或计算服务器。计算在"任务工作线程"中进行：每个线程是一个装有 Pyodide 314.0.7（编译为
 WebAssembly 的 CPython 3.14）和经 SHA-256 校验的应用包的 Web Worker，运行与 Runner 完全相同的 `bioagent`/`psh` 代码；
 线程池按设备大小设定（页面可让出的 CPU 核数，且每 1.5 GB 设备内存至多一个、总数至多四个），但任务服务在一个标签页中一次只运行一个任务、
@@ -400,7 +569,7 @@ WebAssembly 的 CPython 3.14）和经 SHA-256 校验的应用包的 Web Worker�
 大小检查剩余存储空间；三个没有审核大小的文件不做估计，任务日志会列出它们。浏览器 Worker 不能启动子进程，因此受治理的
 分析在同一进程内经同一个 PSH 代理与审计链运行，产物如实记录 `isolation: "in_process"`。任务记录存于 IndexedDB，可取消；
 页面关闭时任务中断，下次可从已核验的阶段继续。每个任务写出回执：运行位置、运行时、各线程的 WebAssembly 内存峰值、
-每个输出（包括快照与账本）的两次独立哈希读取。
+每个输出（包括快照与账本）的两次独立哈希读取；运行了内核调用的阶段（ADMET 的适用域检索）另记其计算事实（`compute`，见下文 ADMET 段）。
 
 **验证情况**：模拟世界（已知答案）在 Chromium 的任务工作线程中写出的五张表与原生 CPython 逐字节一致——本地和 Studio CI
 （使用 jsDelivr 上 Pyodide 自带的 pyarrow 22.0.0）均已通过；它覆盖草药层、NPASS 活性、带置换零分布的 Reactome 富集、
@@ -514,9 +683,114 @@ True/False 标记和文字必须完全相同；跨越 alpha 的基因判为失�
 未测量：浏览器标签页自身的内存上限、低内存设备、手机、Firefox 与
 Safari；页面的内存拒绝路径只用脚本化的工作线程测试过，没有任何浏览器工作线程在测试中真正耗尽内存。
 
-**尚未实现**：计算内的多线程 WASM、GPU/NPU、其余流程（从 FASTQ 出发的 RNA-seq、PyDESeq2、Scanpy、scVI、10x HDF5 与
-`.h5ad` 需要 Runner；对接、ADMET、结构预测在浏览器中没有引擎）、组学输出与原生的逐字节一致（在两个参考上表格末位数字在
-容差内不同，UMAP 不比较；只比对过两个参考的参数，用户自己的运行不做比较）、超出限值的组学输入（超过 6,000 个细胞、单个表
-超过 66,000,000 个细胞 × 基因、计数矩阵超过 10,000,000 个基因 × 样本，交给 Runner）、手机端与浏览器标签页内存的测量。目前只在 Chromium 中运行过（Firefox、Safari 未运行；主线程缺少 `createWritable` 的浏览器写不了任务记录，
+**ADMET（§3.2）**：已实现，已在本地测试；尚未在 CI、真实 TDC 归档或实体 GPU 上运行。Runner 的另两个任务类型也作为浏览器任务运行——
+`admet.models`（`bioagent admet --build-models`）与 `pipeline.admet`（`bioagent admet`）。它们就是 `bioagent.admet` 本身，而非另一个模型：
+相同的特征（2048 位 Morgan 计数指纹、24 个描述符与形式电荷）、相同设置的 scikit-learn HistGradientBoosting 模型、相同的适用域、规则、
+结构警示与输出。Pyodide 314.0.7 有 scikit-learn 1.8.0（在相同特征上，其训练与预测与原生 1.8.0 逐位一致，在 Node 下的 Pyodide 中测得；
+ADMET 任务加载 numpy、scipy 与 scikit-learn 1.8.0，后者带入 joblib 与 threadpoolctl，均来自同一 Pyodide 发行版），但没有 RDKit（PyPI 上没有它的
+wasm32 wheel），因此页面自己算两部分并交给 Python：**化学**在化学工作线程（`js/scientific/chem/chem.worker.js`：RDKit.js，WebAssembly，CPU，
+不用 Pyodide）中用 RDKit.js 2026.9.1（npm `@rdkit/rdkit` 的 MinimalLib，`registry/scientific_environments.json` 为 rdkit 锁定的版本）加
+bioagent 对其所缺之处的移植，写成预备集（`prepared.json`、`features.f32`、`bits.u8`）交 `bioagent.admet.engine.PrecomputedEngine` 读回，并按其
+SMILES 的 SHA-256 与分子对应；**适用域检索**在本设备的内核上进行（`js/compute/science-scheduler.js`），写成相似度交
+`bioagent.admet.engine.PrecomputedSimilarity` 在使用前核验。其余（拆分归档、训练、预测、规则、报告与各项检查）都是 bioagent 的 Python 在任务
+工作线程里运行（`tcmstudio.browser_jobs` 的 `admet_split`、`admet_train`、`admet_read`、`run_admet`、`verify_pipeline`）。原生运行走同一接缝
+（默认 `RDKitEngine`），其输出未因此改变：小归档的前后对比逐字节一致（`run.json` 与模型卡新增 `chemistry`、`refused`、
+`dropped_unstandardisable`）。两个任务的 `execution.browser_job` 另写明化学（`rdkit.js` 2026.9.1）与分子上限（`limits.molecules`）；
+`run_pipeline` 与 `call_tool job.pipeline.admet` 的路由与上文组学流程相同（只有 Runner 能运行的参数交给已连接的 Runner，否则在排队前以
+`needs_runner` 拒绝；计算目标为「浏览器」而 Runner 已连接时以 `compute_browser` 拒绝）。其余任务类型（`pipeline.fold`、`pipeline.dock`、
+`skill.run`、`tcmdb.*`、`env.provision`）以及包装同一 ADMET 流程的受治理 Skill `predict-admet` 留在 Runner 上。
+
+**两个任务的参数与拒绝**：`admet.models` 读取 TDC ADMET 基准组归档（Harvard Dataverse），由本
+浏览器经本站数据集中转（登记组 `admet`，下载须与 bioagent 锁定的 SHA-256 `bd0005246cb6…` 一致）下载，或作为项目文件 `archive` 给出（其 SHA-256 与锁定值比较：别的归档仍会构建，任务与模型卡注明它不是锁定的归档，其留出集成绩因而不能与 TDC 排行榜比较）；化学工作线程准备每个终点的 `train_val` 与 `test` 拆分；每个终点由
+`bioagent.admet.models.train_endpoint`（即 `build_models` 所用的代码与设置）训练一个模型、适用域与模型卡；参数为 `endpoints`（默认全部 22 个）、
+`seed`、`max_iter`（10–5000，默认 600）、`rebuild`。它不会整体被拒：化学拒绝的训练分子被剔除并计数（见下）；离线时构建需要 `archive`（条目的
+`network_unless`）。不是 zip 的归档、缺少某终点成员的归档被拒绝，拒绝说明点名用户的文件，而不是浏览器内部的副本；超出界限或未知的构建参数作为参数
+错误（`bad_arguments`）拒绝。`pipeline.admet` 的 `molecules` 是项目中的 CSV/TSV（`name,smiles`）或 `.smi` 文件，或单个 SMILES；`endpoints`
+默认为本浏览器已构建的全部模型；输出标准化结果、24 个描述符、Lipinski/Veber/Egan/Ghose 规则、PAINS A/B/C、Brenk 与 NIH 结构警示、各终点的预测
+及其适用域标记、`admet.tsv`、`report.md`/`report.html`、图、`limitations.md` 与 `run.json`。排队之前先查分子：SDF、`.sdf.gz` 或 `.mol` 文件
+（RDKit 的 `SDMolSupplier` 未移植，need `runner`）；项目中没有的文件、未知参数或超出 Runner 界限的值（`bad_arguments`）；超过 **20,000 个分子**
+（need `memory`；在完整读入文件之前按 Python 的计法逐行计数，Python 在工作线程中也会同样拒绝）；再查模型：所请求终点的模型未在本浏览器构建（need
+`dataset`：「Build them first in this browser with job.admet.models (…), or connect the local runner」），TDC 基准组没有的终点名作为参数错误（`bad_arguments`）拒绝，并列出它有的 22 个（两个任务都如此）。
+
+**阶段**：`admet.models`：*archive*（经中转的数据集工作区 `admet` 组，或项目文件 `archive`；复制时计算 SHA-256 并与锁定值比较，归档保存在
+`tcmstudio/admet/archive/<sha12>.zip`）→ *split*（Python `admet_split`）→ 对每个尚未以匹配模型卡构建的终点：*chemistry.<ep>*（化学工作线程
+处理 `train_val` 与 `test` 的 SMILES → 预备目录）→ *train.<ep>*（Python `admet_train`）→ *verify*。模型保存在 OPFS `tcmstudio/admet/models/`
+（`model_cards.json`、`<ep>.pkl`、`<ep>_domain.npy`，与 `build_models` 写出的完全相同），供本浏览器的每个 ADMET 任务共用，不分发任何训练好的模型。
+某终点的模型若由相同的归档、设置、scikit-learn 与化学构建，且仍能按其模型卡的摘要重新哈希一致，则保留（它的两个阶段都复用）；续跑的任务在某终点的
+预备集与检查点一致时也复用它们，因此中途停止的构建从停下处继续。`pipeline.admet`：*inputs*（项目文件 → OPFS，摘要）→ *read*（Python
+`admet_read`）→ *chemistry*（化学工作线程）→ *domain*（调度器按终点计算 Tanimoto，查询位对模型的适用域位）→ *analysis*（Python `run_admet`，
+用 `PrecomputedEngine` 与 `PrecomputedSimilarity`）→ *verify*（Python `verify_pipeline`）。
+
+**数据**：数据集登记的第二组 `admet` 只列一个文件，即 ADMET 模型构建读取的 TDC ADMET 基准组归档：URL 与主机（dataverse.harvard.edu）、bioagent
+锁定的 SHA-256（`bd0005246cb6…`）、没有审核过的大小（此处从未见过）、许可 `LicenseRef-TDC-per-dataset` 且再分发情况未知（此处没有任何许可记录读过
+TDC 的条款）、允许中转、尚无重定向主机（尚未从真实下载中见过）。
+
+**化学引擎及其一致性**：化学工作线程从 jsDelivr 按精确的 npm 版本（或本地镜像）加载 RDKit.js：加载器随站点提供（npm 的
+`dist/RDKit_minimal.js`，106,667 字节，末尾加一行以便模块工作线程导入；有测试核对其前缀与 npm 文件的 SHA-256），wasm（7,379,879 字节，SHA-256
+`594ceaed…`）下载后先按 `boot.json` 中的锁定值核对 SHA-256 与大小再编译，并由 Service Worker 按其精确 URL 缓存。RDKit.js 的 MinimalLib 没有
+`MolStandardize`、计数指纹和 `FilterCatalog`，由 bioagent 的移植代替：标准化（`LargestFragmentChooser`、`Uncharger`、22 条默认 `Normalizer`
+SMIRKS）、Morgan 计数指纹、`BalabanJ`、`BertzCT`、`qed`、Gasteiger 电荷、`NumValenceElectrons`、`FormalCharge`，以及结构警示（PAINS A/B/C、
+Brenk、NIH：765 条 `FilterCatalog` 条目，`filter_catalogs.json`，0 条未移植）。一致性夹具 `studio/web/test/fixtures/chem_parity.json`（476 个
+分子：药物、天然产物、盐、两性离子、金属、Normalizer 压力集）把引擎与原生 RDKit 2026.9.1 对齐：在每个未被拒绝的分子上，float32 特征行（模型读取
+的行）、打包的位与结构警示完全相同，每次拒绝都在夹具预期之中（22 个被拒绝，3 个无效 SMILES，报错文字与原生相同）。在 RDKit 的 NCI `first_5K`
+集（4,999 个分子，从未用于调校）上：4,851 个完全相同，140 个如预期被拒绝，8 个与原生一样报错，0 个静默不一致。`qed` 与 `BertzCT` 的 float64 值
+可能在末位相差 1–2 个单位（V8 的 `Math.exp`/`Math.log` 不是 glibc 的），作为 float32 相等；其他描述符都完全一致。引擎**拒绝**（绝不近似）需要
+`MetalDisconnector`、`Reionizer` 或 `Uncharger` 规范原子排序、含配位键或零键、或原子数超过 400（RDKit.js 在约 550 个原子以上会触发 WebAssembly
+陷阱）的分子：拒绝说明指出所在步骤，预备行带 `need: "runner"`，由 Runner 自己的 RDKit 读取。构建时被拒绝的训练分子被剔除并计入模型卡
+（`dropped_unstandardisable`），故浏览器构建的模型可能与 Runner 的不同；模型卡注明构建所用的化学，`run_admet` 把被拒的查询分子如实报告为「被拒绝」
+及原因，而非「无法读取」。
+
+**比对及其规则**：`science.mjs --mode admet` 在无头 Chromium 141（Pyodide 314.0.7、RDKit.js 2026.9.1）中，以页面任务服务的任务先运行
+`admet.models`（归档作为项目文件）再运行 `pipeline.admet`，并把每个输出与原生运行（RDKit 2026.9.1、scikit-learn 1.8.0、单线程）比对。它要求
+完全一致，不设容差，只有两个点名的例外：**模型卡**逐字段比对，只略去标识写出模型的进程而非模型本身的字段——模型文件与适用域文件的 SHA-256（pickle
+的字节取决于进程：此处为 wasm32，原生为 64 位，因此模型文件本身不比对；适用域 `.npy` 的字节单列一行比对）、训练 `seconds` 与化学引擎名称；原生
+模型用浏览器化学保留的分子训练。**预测**是模型的原始输出（提升树之和，完全一致地比对）经过一个初等函数：分类终点为 scipy 的 `expit`（其 `exp`
+来自 C 库），log10 终点为 numpy 的 `10 **`。这些末位在不同库之间不同，因此最终值可能在 float64 末位相差**至多 4 个单位**，逐个点名，绝不称作
+一致；原始输出与适用域检索始终完全一致。**末位规则的成因（已更正）**：此前把 log10 终点的末位差异归咎于 glibc，但在 AVX-512 机器（本机）上
+numpy 的 `10 **` 用其自带的 SIMD 幂运算而非 glibc 的 `pow`，因此原生 log10 终点的末位本身就会因 CPU 是否有 AVX-512 而不同（核查的 vdss_lombardo 值在浏览器中与
+glibc 的一致，与众不同的是原生 numpy 的值）。在合成归档上实测：至多 2 个单位，16,120 个测试集预测中 52 个，所有原始输出一致。在 [−4, 4] 内的 100,000 个值上（Node 下的 Pyodide 314.0.7 对照
+本机原生的 glibc 与 AVX-512 上的 numpy 2.4.6）：Pyodide 的幂运算与 glibc 的 `pow` 不同者 65 个（0.07%），与 numpy 的 AVX-512 幂运算不同者 5,317 个（5.3%），都差 1 个单位；其 `exp` 与 glibc 的不同者 72 个；`expit` 34 个（0.03%），
+至多 2 个单位。
+
+**GPU 适用域检索及其证据**：适用域检索（打包 2048 位 Morgan 位上的批量 Tanimoto 最大值：每个查询的最近训练分子——平局取最小下标——及整数交集与
+并集，由 Python 以 float64 相除）经 `science-scheduler.js` 在本设备的内核上运行。在用户的加速设置下，只有本设备自身的检查（`device-check.js`）测得
+某实体适配器在该规模既精确又比 WebAssembly SIMD 内核更快时才用 GPU（WebGPU，WGSL），否则用 WebAssembly SIMD（不支持 SIMD 时用 JavaScript）。每个
+后端都与其他后端及 Python 的 `np.bitwise_count` 对齐；GPU 结果先通过 CPU 核验（`validateTanimoto`）才被使用，Python 再核验一次
+（`PrecomputedSimilarity`：形状、每个交集不超过两者中较小的位数、并集自洽，以及抽样查询的完整精确检索）；不合格的结果不用，由 CPU 重算，运行记录
+`similarity.rejected`，该阶段的 GPU 工作作废，不计任何证据。**本机与 CI 都没有实体 GPU**：用测试工具的软件 GPU 开关强制运行时，WebGPU 在
+SwiftShader 软件适配器上给出与 WebAssembly SIMD 相同的结果，事实记为「webgpu、软件适配器、已核验、未加速」——软件渲染器**绝不是 GPU 的证据**，
+绝不据此声称 `accelerated`。P3 的验收标准（设备检查在实体 GPU 上测得更快）仍未满足（BROWSER_COMPUTE.md）。
+
+**回执**：运行了内核调用的阶段（ADMET 适用域检索）带上这些调用的计算事实，回执增加 `compute`（按阶段：每次调用的后端、GPU 的适配器与证据等级、
+所引用的校准、`accelerated` 及其依据）；某阶段用了 GPU 结果时设备为 `cpu+webgpu`，且只有该阶段的每次 GPU 调用都达到该等级时，证据才为
+`accelerated`。Python 随后拒绝的 GPU 结果标为作废，不计任何东西。
+
+**时间与内存**（`science.mjs --mode admet`，本机的无头 Chromium 141，Pyodide 314.0.7 与 RDKit.js 来自本地镜像；SwiftShader 的计时不是 GPU 的
+证据）。小的已知答案归档 `admet_world`（caco2_wang、hia_hou）上：每张模型卡（除摘要、秒数与化学外）、适用域文件、原始与最终预测、结构警示、
+`admet.tsv` 与图完全相同；报告只差点名浏览器所拒分子的那一行；caco2_wang MAE 0.1328（194 次迭代），hia_hou AUROC 1.0（600 次）；预期的拒绝全部
+被拒绝，Runner 自己的运行全部读取了它们（最初几次运行用 36 个分子的集合，拒绝 6 个：MetalDisconnector、Reionizer、一个 406 个原子的 PEG；最终
+38 个分子的集合拒绝 8 个，另加一个 Uncharger 排序的两性离子与一个配位键分子）。`admet.models` 浏览器 12–14 秒、原生 5.0–5.8 秒；`pipeline.admet`
+1.0–2.0 秒对 1.3–1.5 秒（八次运行）；工作线程 155 MiB（构建之后复用的工作线程报告的是构建时的峰值）。强制软件 GPU 的重跑输出相同，回执为 `cpu+webgpu`。TDC 规模的合成归档（22 个终点、80,610 个训练分子，
+因是合成数据而无一被拒）上：118 个比对行相同，11 个在末位规则内（最大者 vdss_lombardo，226 个中 17 个差 1 个单位），0 个失败；`admet.models`
+浏览器 418–437 秒（化学约 210 秒、训练约 210 秒，工作线程 961–967 MiB）对原生单线程 443–447 秒。以下改在 Node 22 下的 Pyodide 314.0.7 中测得
+（只是 Python 一侧，以原生 RDKit 的化学代替 RDKit.js，不在浏览器标签页中）：最大终点规模的模型构建（cyp2d6_veith，10,504 个训练与 2,626 个测试
+分子）峰值 877 MB、28 秒；对 22 个模型的流程运行在 1,000 个分子时达 224 MB、10,000 个 625 MB、20,000 个 1.03 GB（WebAssembly 内存的峰值），20,000 个分子用页面相似度 23 秒，Python 重算
+适用域 113 秒，两种方式的 `admet.tsv` 都是原生运行的字节——故设 20,000 个分子的上限。
+
+**如何检查与尚未运行**：化学一致性（一致性夹具与 NCI first_5K）、各 Tanimoto 内核（JS、WASM SIMD、WebGPU，彼此及与 `np.bitwise_count` 对照，
+完全一致）与设备检查（已知答案测试、一致性与判定，在 SwiftShader 上：精确，「软件，不是证据」）、拒绝、路由、调度器的逐次调用加速规则与串行的 GPU
+调用、作废的 GPU 结果不计证据、回执与 Python 入口的测试都已在本地通过；`chem.browser.mjs` 与 `gpu-science.mjs --software` 已接入 Studio 的 CI，`science.mjs --mode admet` 接入 Studio CI 的构建作业，都尚未在 CI
+中运行。尚未运行：真实的 TDC 归档（此处无法访问 Harvard Dataverse；live-data 的 `admet` 作业在 CI 中运行它，并打印下载的重定向链，用来填写该组的
+`redirect_hosts`）、实体 GPU（本机与 CI 都没有）、以及 CI 步骤本身。这些树模型不使用 ONNX Runtime Web，也没有写 WebGPU 的矩阵乘法/PCA 内核，原因见
+BROWSER_COMPUTE.md。
+
+**局限说明**：浏览器中的 ADMET 运行带有 bioagent 自己的 `limitations.md` 各行、点名被拒分子的一行、一行「Computed in this browser: chemistry
+RDKit.js 2026.09.1 + ports, models scikit-learn 1.8.0 built in this browser from the TDC archive (`<sha12>`); similarity `<backend>`.」（不超过模型
+完整读取的 320 个字符），以及 Runner 加上的「预测不等于实测」一行；`provenance.models` 记录各模型卡的摘要。
+
+**尚未实现**：计算内的多线程 WASM、研究任务与组学任务的 GPU/NPU（它们不用 WebGPU 内核，也没有 WebNN 模型）、其余流程（从 FASTQ 出发的 RNA-seq、PyDESeq2、Scanpy、scVI、10x HDF5 与
+`.h5ad` 需要 Runner；对接、结构预测在浏览器中没有引擎，ADMET 的 SDF 或 `.mol` 文件与受治理的 `predict-admet` Skill 运行也需要 Runner）、组学与 ADMET 输出与原生的逐字节一致（组学在两个参考上表格末位数字在
+容差内不同，UMAP 不比较，只比对过两个参考的参数，用户自己的运行不做比较；ADMET 的适用域文件与 `admet.tsv` 是原生运行的字节，模型卡逐字段与原生一致（模型文件摘要、秒数与化学名称除外：pickle 的字节取决于进程），模型原始输出与适用域检索完全一致，但经 `expit`/`10 **` 的最终预测值可能在 float64 末位相差几个单位（C 库的 `exp`，或 numpy 自带的 AVX-512 幂运算），逐个点名、绝不称作一致，qed 与 BertzCT 的 float64 末位可能相差而 float32 相等；浏览器化学拒绝了 Runner 的 RDKit 能读的训练分子时，浏览器构建的模型可能与 Runner 的不同（模型卡计数，比对用同样保留的分子训练原生参考）；浏览器中的比对只在小的已知答案归档与 TDC 规模的合成归档上运行）、组学任务超出限值的输入（超过 6,000 个细胞、单个表
+超过 66,000,000 个细胞 × 基因、计数矩阵超过 10,000,000 个基因 × 样本，交给 Runner）、在实体 GPU 上验证 ADMET 适用域检索（本机与 CI 无实体 GPU，P3 验收仍未满足）、真实 TDC 归档的 ADMET 运行、手机端与浏览器标签页内存的测量。目前只在 Chromium 中运行过（Firefox、Safari 未运行；主线程缺少 `createWritable` 的浏览器写不了任务记录，
 任务会失败而不是假装已保存）；浏览器不像 Runner 那样在保存前校验 `.gz` 的 CRC，没有审核校验和的 STRING 别名文件若被
 截断，会标为 UNVERIFIED，并在 Python 解析时失败。

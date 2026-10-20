@@ -56,6 +56,15 @@ Python 逐字节对比过的只是其中一部分：7 个内核工具、`benjami
 超过 6,000 个细胞、单个表超过 66,000,000 个细胞 × 基因或计数矩阵超过 10,000,000 个基因 × 样本的输入（限值依据 Node 下
 Pyodide 314.0.7 中的运行设定，不是在浏览器标签页中测得），会被拒绝并说明原因，需要本机 Runner。
 
+ADMET 的模型构建（`admet.models`）与预测（`pipeline.admet`，从 CSV/TSV/`.smi` 文件或单个 SMILES）同样已实现为浏览器任务：
+就是 `bioagent.admet` 本身，Pyodide 的 scikit-learn 1.8.0，化学用 RDKit.js 2026.9.1 加精确移植（无法精确标准化的分子被拒绝、
+点名、交给 Runner），适用域检索用 Tanimoto 内核（WebAssembly SIMD，或仅在本设备自身的检查测得实体适配器既精确又更快时才用 GPU）。模型在
+浏览器中由 TDC 归档（经本站中转或作为项目文件）训练并保存在私有存储中，不分发任何训练好的模型。与原生命令（RDKit 2026.9.1、scikit-learn
+1.8.0、单线程）在已知答案归档与 TDC 规模的合成归档上比对，适用域文件与 `admet.tsv` 是原生运行的字节，模型卡除模型文件摘要、秒数与化学名称外与原生一致，预测在全精度下一致，
+只有既定末位规则内的差异；已在本地无头 Chromium（Pyodide 314.0.7）中测试，尚未在 CI、真实 TDC 归档或实体 GPU 上运行
+（[docs/BROWSER_JOBS.md §3.2](docs/BROWSER_JOBS.md#32-admet)）。SDF 或 `.mol` 文件、超过 20,000 个分子，以及受治理的
+`predict-admet` Skill 都需要 Runner。
+
 提供 WebNN 能力检测；只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持
 真正的 NPU 加速，目前没有任何工作负载具备这两者。
 
@@ -176,8 +185,10 @@ tcmstudio serve
 - 种子语料是示范性的：没有记载不等于安全，未显著不等于无关；古籍记载是出处，不是临床证据；预测不等于实测，网络药理最多支持
   机制**假说**。
 - 「已准予发布」只表示内核的六项发布检查通过，不表示结论正确；证据种类是类型，不是等级。
-- 浏览器里的 Python 在 CPU 上单线程运行；本机内核只覆盖 7 个序列工具（比对、编辑距离和三项整数计数），WebGPU 只用于
-  其中的整数计数，不代表所有 Python 引擎都能使用 GPU。提供 WebNN 能力检测，但浏览器能创建 WebNN 的「npu」上下文不等于有
+- 浏览器里的 Python 在 CPU 上单线程运行；本机内核覆盖 7 个序列工具（比对、编辑距离和三项整数计数）与 ADMET 的适用域检索
+  （Tanimoto），不代表所有 Python 引擎都能使用 GPU。WebGPU 只用于其中的整数计数（调度器预计更快、且适配器未被识别为软件渲染器时）和
+  ADMET 适用域检索（仅在本设备自身的检查测得实体适配器既精确又更快时）——两者都只在软件适配器上测试过、从未在硬件 GPU 上运行；本处
+  只有软件适配器，它精确但绝不算作加速，故 P3 的实体 GPU 验收仍未满足。提供 WebNN 能力检测，但浏览器能创建 WebNN 的「npu」上下文不等于有
   NPU：只有具备经验证的执行提供程序和硬件执行证据的工作负载才支持真正的 NPU 加速，目前没有这样的工作负载，Studio 不使用也
   不声称 NPU 加速。
 - 浏览器模式的网络药理学只是有限的种子语料网络假说流程，不是完整的数据驱动分析；没有部署任何远程计算环境。
@@ -281,6 +292,18 @@ clinical tool or identifying details), and counts anonymous usage you can switch
   inputs above 6,000 cells, a table above 66,000,000 cells × genes or a count matrix above 10,000,000 genes × samples
   (limits set from runs in Pyodide 314.0.7 under Node, not in a browser tab) are refused with the reason and need the local
   runner.
+- **ADMET in the browser.** The model build (`admet.models`) and the predictions (`pipeline.admet`, from a CSV/TSV/`.smi`
+  file or one SMILES) also run as browser jobs: `bioagent.admet` itself, scikit-learn 1.8.0 in Pyodide, the chemistry in
+  RDKit.js 2026.9.1 with exact ports (a molecule it cannot standardise exactly is refused, named and left to the runner),
+  and the applicability-domain search on the Tanimoto kernel (WebAssembly SIMD, or WebGPU only where this device's own
+  check measured a physical adapter exact and faster). The models are built in the browser from the TDC archive (through the site's relay
+  or a project file) and kept in private storage; nothing trained is shipped. Compared with the native command (RDKit
+  2026.9.1, scikit-learn 1.8.0, one thread) on a known-answer archive and a synthetic one at the TDC sizes, the domain
+  files and `admet.tsv` were the native run's bytes, the model cards the native ones but for the model file's digest,
+  the seconds and the chemistry's name, and the predictions exact at full precision apart from a named
+  last-bit rule; tested locally in headless Chromium (Pyodide 314.0.7), not yet in CI, on the real TDC archive, or on a
+  physical GPU ([docs/BROWSER_JOBS.md §3.2](docs/BROWSER_JOBS.md#32-admet)). An SDF or `.mol` file, more than 20,000
+  molecules, and the governed `predict-admet` skill need the runner.
 - **NPU.** WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified
   execution provider and hardware-backed execution evidence; no workload has either today.
 - **Add the local runner**: in a virtual environment (Ubuntu 23.04+, Debian 12 and Homebrew Python refuse a
@@ -310,7 +333,8 @@ Deployment: [edge/SETUP.md](edge/SETUP.md).
 
 Browser database access: [docs/BROWSER_ACCESS.md](docs/BROWSER_ACCESS.md), and each connector operation by verification level:
 [docs/compat/connectors.md](docs/compat/connectors.md). Local computation in the browser (exact JavaScript and WebAssembly SIMD
-kernels for seven sequence tools; WebGPU counts where the scheduler expects them to be faster, on any adapter not identified
-as a software renderer (a physical one, or an unidentified one, which is never counted as a GPU), never yet run on a
-hardware GPU; offline use; what was measured and what is only planned): [docs/BROWSER_COMPUTE.md](docs/BROWSER_COMPUTE.md).
+kernels for seven sequence tools and the ADMET applicability-domain search (Tanimoto); WebGPU counts where the scheduler
+expects them to be faster, on any adapter not identified as a software renderer (a physical one, or an unidentified one,
+which is never counted as a GPU), and WebGPU for the domain search only where this device's own check measured a physical
+adapter exact and faster, neither yet run on a hardware GPU, so P3's physical-GPU acceptance stays open; offline use; what was measured and what is only planned): [docs/BROWSER_COMPUTE.md](docs/BROWSER_COMPUTE.md).
 Remote compute: [docs/REMOTE_COMPUTE.md](docs/REMOTE_COMPUTE.md) (designed, not deployed).
