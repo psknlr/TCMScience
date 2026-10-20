@@ -4,7 +4,8 @@ How TCMScience Studio (<https://science.impf.ai>) runs research jobs inside a vi
 and no compute server: the network-pharmacology research loop, (the guidebook's P2) RNA-seq differential
 expression from a count matrix and single-cell analysis from count tables, and (P3) ADMET: the model build and the
 predictions. What runs where, how the data gets there, how a result is shown to be the same result the runner gives,
-and what is not done. Written on 2026-10-19 on branch `claude/epic-dirac-c1uqll`; ADMET ([§3.2](#32-admet)) added on
+and what is not done. Written on 2026-10-19 on branch `claude/epic-dirac-c1uqll`; ADMET ([§3.2](#32-admet)) and docking from prepared structures
+([§3.3](#33-docking-from-prepared-structures)) added on
 2026-10-20. Status words are those of [BROWSER_COMPUTE.md](BROWSER_COMPUTE.md) (implemented and
 tested, saying where; implemented, partly verified; proposed; verified in deployment, which nothing here is), and
 "not run" for what no run has exercised.
@@ -19,7 +20,7 @@ IndexedDB, followed, cancelled and resumed like runner jobs, and each writes a r
 was checked. On the planted world (the research jobs' known answer) a job worker in Chromium writes the five tables
 **byte for byte** as native CPython does (`studio/e2e/science.spec.mjs`, passed in Studio's CI with Pyodide's own
 pyarrow). The real 葛根芩连汤 case, run the same way in the live-data workflow and compared export by export with the
-native run on the same files, passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, commits 43918ac, 53bdbb0 and 65fa6aa, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it). The RNA-seq pipeline in its count-matrix mode (`pipeline.rnaseq` with `counts`) and the single-cell pipeline on count tables (`pipeline.scrna`) run the same way, with Pyodide's numpy and scipy, on files from the person's project ([§3.1](#31-rna-seq-and-single-cell-from-count-tables)); a FASTQ run, PyDESeq2, Scanpy, scVI, 10x HDF5 and `.h5ad` inputs, and inputs larger than a browser worker holds (more than 6,000 cells, a table of more than 66,000,000 cells × genes, a count matrix of more than 10,000,000 genes × samples) are refused with the reason and left to the runner. On their known-answer references (`omics_counts_world` v1 and `sc_world` v1) every output was compared with the native command's on the same files (`science.mjs --mode omics`, headless Chromium 141, locally): identical bytes, or numbers within a stated tolerance (the largest difference 0.133 of it), or, for the UMAP layout and its figures, not compared and said so; the genes called and each cell's cluster and cell type are identical, and the known answers hold on the browser's files. The same check passed in Studio's CI, with Pyodide's numpy and scipy from jsDelivr and the native side on CI's own Python 3.12.15 (`studio` #91 (run 39286931542, commit 65fa6aa, 2026-10-19)). ADMET runs the same way, with two parts the page computes itself ([§3.2](#32-admet)): `admet.models` builds the 22 TDC endpoint models in this browser from the TDC ADMET group archive (nothing trained is shipped) and keeps them in the site's private storage, and `pipeline.admet` predicts with them; the chemistry is RDKit.js 2026.9.1 with exact ports of what it lacks (a molecule they cannot standardise exactly is refused, named, and left to the runner, never approximated), and the applicability-domain search runs on this device's WebAssembly SIMD kernel, or on its GPU only where this device's own check measured the GPU exact and faster, Python checking the answers before it uses them. Compared with native RDKit 2026.9.1 and scikit-learn 1.8.0 at one thread (`science.mjs --mode admet`, headless Chromium 141 with Pyodide 314.0.7, locally): on a small known-answer archive the cards (apart from the files' digests, the seconds and the chemistry's name), the domain files, every prediction at full precision and `admet.tsv` were identical; on a synthetic archive at the TDC group's sizes the raw model outputs and `admet.tsv` were identical and 52 of 16,120 test-set predictions differed by 1 or 2 units in the last place of float64 (the C library's `exp`, or numpy's power, after the trees). On the real TDC archive (1,472,501 bytes at the pinned SHA-256, downloaded natively in CI and given to the page as a project file) the same comparison passed in `live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20; headless Chromium 141 on GitHub's runner, Pyodide 314.0.7 and RDKit.js 2026.9.1 from jsDelivr): the browser chemistry refused 202 of the 81,809 molecules (0.25%), each at a named step, and the native models were trained without them as the browser's were; the 22 cards (apart from the digests, the seconds and the chemistry) and the domain files were identical; on the 16,353 kept test molecules every raw model output and domain search was identical and 36 final predictions differed by 1 unit in the last place of float64 (through `10 **` or `expit`); `pipeline.admet` with these models wrote the native run's `admet.tsv` byte for byte. Studio's CI runs the comparison on the small archive (`studio` #95 (run 39386727362, commit 0882e95, 2026-10-20)). This is implemented and tested locally and in CI; it has not run on a physical GPU (P3's acceptance criterion is not met), in a tab on a person's machine, or with the archive downloaded through the relay.
+native run on the same files, passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, commits 43918ac, 53bdbb0 and 65fa6aa, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it). The RNA-seq pipeline in its count-matrix mode (`pipeline.rnaseq` with `counts`) and the single-cell pipeline on count tables (`pipeline.scrna`) run the same way, with Pyodide's numpy and scipy, on files from the person's project ([§3.1](#31-rna-seq-and-single-cell-from-count-tables)); a FASTQ run, PyDESeq2, Scanpy, scVI, 10x HDF5 and `.h5ad` inputs, and inputs larger than a browser worker holds (more than 6,000 cells, a table of more than 66,000,000 cells × genes, a count matrix of more than 10,000,000 genes × samples) are refused with the reason and left to the runner. On their known-answer references (`omics_counts_world` v1 and `sc_world` v1) every output was compared with the native command's on the same files (`science.mjs --mode omics`, headless Chromium 141, locally): identical bytes, or numbers within a stated tolerance (the largest difference 0.133 of it), or, for the UMAP layout and its figures, not compared and said so; the genes called and each cell's cluster and cell type are identical, and the known answers hold on the browser's files. The same check passed in Studio's CI, with Pyodide's numpy and scipy from jsDelivr and the native side on CI's own Python 3.12.15 (`studio` #91 (run 39286931542, commit 65fa6aa, 2026-10-19)). ADMET runs the same way, with two parts the page computes itself ([§3.2](#32-admet)): `admet.models` builds the 22 TDC endpoint models in this browser from the TDC ADMET group archive (nothing trained is shipped) and keeps them in the site's private storage, and `pipeline.admet` predicts with them; the chemistry is RDKit.js 2026.9.1 with exact ports of what it lacks (a molecule they cannot standardise exactly is refused, named, and left to the runner, never approximated), and the applicability-domain search runs on this device's WebAssembly SIMD kernel, or on its GPU only where this device's own check measured the GPU exact and faster, Python checking the answers before it uses them. Compared with native RDKit 2026.9.1 and scikit-learn 1.8.0 at one thread (`science.mjs --mode admet`, headless Chromium 141 with Pyodide 314.0.7, locally): on a small known-answer archive the cards (apart from the files' digests, the seconds and the chemistry's name), the domain files, every prediction at full precision and `admet.tsv` were identical; on a synthetic archive at the TDC group's sizes the raw model outputs and `admet.tsv` were identical and 52 of 16,120 test-set predictions differed by 1 or 2 units in the last place of float64 (the C library's `exp`, or numpy's power, after the trees). On the real TDC archive (1,472,501 bytes at the pinned SHA-256, downloaded natively in CI and given to the page as a project file) the same comparison passed in `live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20; headless Chromium 141 on GitHub's runner, Pyodide 314.0.7 and RDKit.js 2026.9.1 from jsDelivr): the browser chemistry refused 202 of the 81,809 molecules (0.25%), each at a named step, and the native models were trained without them as the browser's were; the 22 cards (apart from the digests, the seconds and the chemistry) and the domain files were identical; on the 16,353 kept test molecules every raw model output and domain search was identical and 36 final predictions differed by 1 unit in the last place of float64 (through `10 **` or `expit`); `pipeline.admet` with these models wrote the native run's `admet.tsv` byte for byte. Studio's CI runs the comparison on the small archive (`studio` #95 (run 39386727362, commit 0882e95, 2026-10-20)). This is implemented and tested locally and in CI; it has not run on a physical GPU (P3's acceptance criterion is not met), in a tab on a person's machine, or with the archive downloaded through the relay. Docking runs the same way in a new **prepared-input mode** ([§3.3](#33-docking-from-prepared-structures)): `pipeline.dock` takes a rigid-receptor PDBQT, a ligand PDBQT and a site, and runs **AutoDock Vina 1.2.7 compiled to WebAssembly** (not a Pyodide package) — built from pinned, SHA-256-checked inputs, two independent builds byte-identical — one Vina run per ligand in dedicated workers on this device's CPU, with the plan, analysis and checks in a Pyodide worker as `bioagent.docking.prepared` runs natively. Vina's `score()` and `optimize()` are bit-identical to the native 1.2.7 package on all 6 fixture ligands, but a seeded search is **not** bit-reproducible (native Vina itself moves when its maths library changes), so docking is held to a measured band over seeds 1–8, not to exactness; the end-to-end comparison (`science.mjs --mode dock`) found the plan bytes and the re-scored pose energies identical and the search inside that band (benzamidine redocks 1.14 Å in the browser, 1.92 Å natively). Receptor and ligand preparation from raw PDB/SMILES (Meeko, RDKit) stays on the runner as the next cycle (Milestone B, not done), and nothing in docking uses the GPU. It is implemented and tested locally and in CI, not on a deployed site.
 
 ## 1. What runs where
 
@@ -27,7 +28,8 @@ native run on the same files, passed in `live-data` #18, #19 and #21 (runs 39251
 |---|---|---|
 | Planning a call, approvals | the page | `js/core/router.js`: a job placed in the browser goes to the job service, never to the tool worker |
 | Job records, queue, cancel, resume, receipts | the page | `js/scientific/runtime/job-manager.js` (IndexedDB `tcmstudio-jobs`) |
-| The computation (the research loop; RNA-seq and single-cell from count tables; ADMET's model build and pipeline) | job workers (Pyodide, CPU, WebAssembly) | `js/scientific/engines/science.worker.js` → `tcmstudio.browser_jobs` → `bioagent` |
+| The computation (the research loop; RNA-seq and single-cell from count tables; ADMET's model build and pipeline; the docking job's plan, analysis and checks) | job workers (Pyodide, CPU, WebAssembly) | `js/scientific/engines/science.worker.js` → `tcmstudio.browser_jobs` → `bioagent` |
+| The docking job's search: one Vina run per ligand | Vina workers (AutoDock Vina 1.2.7, WebAssembly, CPU; no Pyodide) | `js/scientific/dock/dock.worker.js` (one module per worker from `dock/vina.js`), results read by Python (`bioagent.docking.prepared.PrecomputedVina`) |
 | The ADMET jobs' chemistry: standardisation, fingerprints, descriptors, alerts | a chemistry worker (RDKit.js 2026.9.1, WebAssembly, CPU; no Pyodide) | `js/scientific/chem/chem.worker.js`, handed to Python as prepared sets (`chem/prepared-set.js` → `bioagent.admet.engine.PrecomputedEngine`) |
 | The ADMET applicability-domain search (Tanimoto) | the page: WebAssembly SIMD (JavaScript without SIMD), or WebGPU where this device's check measured it exact and faster; checked again in Python | `js/compute/science-scheduler.js` → `bioagent.admet.engine.PrecomputedSimilarity` |
 | The pipeline jobs' inputs: the project's files, copied into the job's directory and checked against their recorded SHA-256 | the page | `js/scientific/pipelines/omics.js` and `admet.js`, through `js/scientific/runtime/jobs-runtime.js` (`projectFilesResolver` over the project file store, `js/core/store.js`) |
@@ -38,11 +40,13 @@ native run on the same files, passed in `live-data` #18, #19 and #21 (runs 39251
 
 Job kinds the browser runs: `research.snapshot`, `research.run`, `pipeline.rnaseq` (its count-matrix mode only),
 `pipeline.scrna` (count tables, built-in engines only), `admet.models` and `pipeline.admet` (a CSV, TSV or `.smi`
-file, or one SMILES) (catalog `BROWSER_JOB_KINDS`; each carries its own `execution.browser_job`: the Pyodide packages
+file, or one SMILES), and `pipeline.dock` (its prepared-input mode only: PDBQT structures) (catalog
+`BROWSER_JOB_KINDS`; each carries its own `execution.browser_job`: the Pyodide packages
 it loads, and for the pipelines what they read, their engines, for ADMET the chemistry (`rdkit.js` 2026.9.1) and the
-molecule limit (`limits.molecules`), and `runner_only`, the arguments that take a call to the runner, each with its
+molecule limit, for docking the Vina engine (`vina` 1.2.7, the WebAssembly build) and the ligand, receptor and box
+caps, and `runner_only`, the arguments that take a call to the runner, each with its
 reason). A connected runner still takes them under compute **Auto** (one place per project); under **Browser** they
-run here. A pipeline call (`run_pipeline {pipeline, arguments}` or `call_tool job.pipeline.rnaseq|scrna|admet`) whose
+run here. A pipeline call (`run_pipeline {pipeline, arguments}` or `call_tool job.pipeline.rnaseq|scrna|admet|dock`) whose
 arguments only the runner runs
 goes to a connected runner, and without one is refused `needs_runner` with the reason, before anything is queued;
 with compute set to **Browser** and the runner connected it is refused `compute_browser`, with that reason and the
@@ -53,9 +57,12 @@ given beside `arguments`, and `call_tool` arguments that are not an object. A ki
 catalog page, `catalog_search`) is ready where its job service runs it, and the catalog page names a stopped job
 service as this browser's, not the runner's. Should the job service's module not load, the router reads what needs
 the runner from the catalog's `execution.browser_job.runner_only` rules.
-Every other job kind (`pipeline.fold`, `pipeline.dock`, `skill.run`, `tcmdb.*`, `env.provision`) stays on the runner,
+Every other job kind (`pipeline.fold`, `skill.run`, `tcmdb.*`, `env.provision`) stays on the runner,
 and a call for one in the browser says so; so does the governed skill `predict-admet`, which wraps the same ADMET
-pipeline as a skill run.
+pipeline as a skill run, and the governed skill `dock-ligands`, which wraps docking. `pipeline.dock` is no longer wholly
+runner-only: its prepared-input arguments run here ([§3.3](#33-docking-from-prepared-structures)), and only the
+raw-structure arguments (a PDB/`PDB:`/`UniProt:` receptor, SMILES/CSV/SDF ligands, `site_ligand`, `allow_remote`) take a
+call to the runner.
 
 ### 1.1 Job workers
 
@@ -550,6 +557,110 @@ molecules, one "Computed in this browser: chemistry RDKit.js 2026.09.1 + ports, 
 this browser from the TDC archive (`<sha12>`); similarity `<backend>`." (≤ 320 characters, the length the model reads
 whole), and the predicted-not-measured line the runner adds; `provenance.models` carries the cards' digests.
 
+### 3.3 Docking from prepared structures
+
+Another of the runner's kinds runs as a browser job: `pipeline.dock` (`bioagent dock`), in a new **prepared-input
+mode**. It takes structures already prepared for AutoDock Vina — a rigid-receptor PDBQT (`receptor`), a ligand PDBQT
+(`ligands`: one ligand, or several as MODEL/ENDMDL blocks), and a site, either a `center` and a `size` or a box built
+around a `reference_ligand` (the co-crystal ligand as a PDBQT in its crystal pose, which also turns on redocking
+validation) — and runs them exactly as `bioagent dock RECEPTOR.pdbqt LIGANDS.pdbqt` runs natively: it is
+`bioagent.docking.prepared` itself, the same plan, box, redocking check, analysis and outputs. The search is **AutoDock
+Vina 1.2.7 compiled to WebAssembly** (not a Pyodide package: PyPI has no wasm32 wheel and the search is C++, not
+Python), one Vina run per ligand in a dedicated Vina worker on this device's CPU, one thread a worker; the Python
+stages run in a Pyodide job worker, as the other pipelines do. Raw structures still go to the runner: preparing a
+receptor and ligands (Meeko, RDKit) is the next cycle (Milestone B, not done — [BROWSER_EXPANSION.md](BROWSER_EXPANSION.md)).
+
+| Kind | What runs in the browser | Refused here, with the reason (the runner runs it) |
+|---|---|---|
+| `pipeline.dock` | a rigid-receptor PDBQT `receptor`, a ligand PDBQT `ligands` (one ligand or several MODEL blocks), and a site (`center` + `size`, or a box around `reference_ligand`, which is redocked to validate the setup); one Vina run per ligand in the WebAssembly build; the plan, the box, the redocking check, scoring with ligand efficiency, the contacts, `scores.tsv`, `report.md`/`report.html`, the plot, `limitations.md`, `run.json` | a receptor that is not a `.pdbqt` (a PDB file, `PDB:<id>[:chains]` or `UniProt:<accession>`) or ligands that are not `.pdbqt` (SMILES, CSV or SDF): preparing them needs Meeko and RDKit (need `runner`); `site_ligand` (a residue/ligand to find in the raw structure) or `allow_remote` (a fetch) present (need `runner`); more than 100 ligands, a receptor of more than 100,000 atoms, a ligand of more than 80 atoms, or a box of more than 216,000 Å³ (need `memory`) |
+
+**Routing and refusals.** The router reads `pipeline.dock`'s arguments against the kind's
+`execution.browser_job.runner_only` rules and sends the whole call to the runner when any apply, naming the reason,
+before anything is queued: a receptor whose name is not a `.pdbqt` (`not_suffix`), ligands that are not `.pdbqt`
+(`not_suffix`), `site_ligand` or `allow_remote` present (`present`). Browser mode refuses rather than falling back:
+under compute **Browser** with the runner connected such a call is refused `compute_browser` with that reason and the
+setting, and without a runner `needs_runner`. Arguments that mix the two modes (a `.pdbqt` receptor with SMILES, CSV or
+SDF ligands, or a PDB receptor with `.pdbqt` ligands or a `reference_ligand`) are `bad_arguments`, as the runner's own
+schema refuses them. The caps are measured and enforced on both sides — `DOCK_LIGANDS_MAX` = 100 ligands a run,
+`DOCK_RECEPTOR_ATOMS_MAX` = 100,000 receptor atoms, `DOCK_LIGAND_ATOMS_MAX` = 80 ligand atoms, `DOCK_BOX_VOLUME_MAX` =
+216,000 Å³ (a 60 Å cube) — and beyond them the job is refused with the reason and left to the runner, Python refusing
+the same again in the worker.
+
+**Stages.** *inputs* (each PDBQT a file of the project → OPFS, hashed as written, kept only at its recorded SHA-256) →
+*read* (Python `dock_read`: the prepared inputs read and checked as `bioagent dock` reads them, the box computed, and
+the per-ligand Vina plan written, `dock_plan.json`) → *dock* (one Vina run per ligand — and the reference ligand, when
+redocking — each in a Vina worker; the runs made in the plan's order on several workers side by side) → *analysis*
+(Python `run_dock`, `bioagent.docking.prepared` over the Vina results read back by `PrecomputedVina`, which holds each
+to the receptor, ligand, parameters, box and wasm it asked for) → *verify* (Python `verify_pipeline`, docking's own
+`verify_run` and the kind's `required_artefacts` under the runner's names). A Vina run cannot be interrupted mid-run,
+so a cancel terminates every Vina worker at once and the runs already finished keep their checkpoints; a resumed job
+reuses a run whose result still re-hashes to its checkpoint. Each Vina instance can reach about 2 GB, so the page runs
+at most min(cores − 1, ⌊(deviceMemory − 1.5 GB) / 2.25 GB⌋, 4) Vina workers (2 on a 4-core, 8 GB machine; the 1.5 GB is
+the job's own Pyodide worker, held throughout). Time grows with a ligand's atoms and the exhaustiveness, not the ligand
+count alone (a fixture-sized ligand about 4–15 s single-threaded; 100 large ligands can take hours — a job resumes per
+ligand).
+
+**The Vina engine, and its reproducible build.** The engine is AutoDock Vina 1.2.7 compiled to WebAssembly with
+Emscripten 4.0.23, vendored at `studio/web/js/scientific/dock/vendor/vina-1.2.7.wasm` (492,557 bytes, SHA-256
+`94807d4aeb35…`, full `94807d4aeb358234fc4506ddd4c61b050d6b056fac8da412798eaf615ef09232`), pinned in `boot.json`
+(`vina`), its SHA-256 checked before anything instantiates it, and cached by the service worker at that digest.
+`studio/scripts/build_vina_wasm.py` builds it reproducibly from pinned, SHA-256-checked inputs (the Emscripten release
+binaries, Vina's PyPI source distribution, Ubuntu 24.04's Boost 1.83 headers); `--check` rebuilds it and two
+independent builds are byte-identical. The port layer `studio/vina-wasm/` replaces only system facilities, never Vina's
+own code: a serial `parallel.h` (Vina seeds its Monte Carlo tasks in order before the run and merges their outputs in
+task order, so the result does not depend on threads — native Vina gives identical poses at `cpu=1` and at every core
+count), Boost thread/filesystem/log shims, and the embind binding `vina_wasm.cpp` over Vina's own class API.
+
+**Parity: an exact tier and a search tier.** Vina's two deterministic operations are bit-identical to the native
+`vina` 1.2.7 package: `score()` and `optimize()` match its C++ values to 0 units in the last place of float64, and
+`optimize()`'s pose text is byte-identical, on all 6 fixture ligands. The search is not. **A seeded `dock` is not
+bit-reproducible** — native Vina itself gives other poses for the same seed when only glibc's FMA maths paths are
+turned off or a different maths library is linked, because the Monte Carlo search amplifies a last-bit difference (Vina
+calls only `acos`, `exp`, `pow`, `sin`, `sincos` and `sqrt`). So docking is held to a measured band, not to exactness.
+Over seeds 1–8 at exhaustiveness 8 the browser's median per-ligand best score sits inside native's own spread: median
+|Δbest| 0.002–0.077 kcal/mol for the WebAssembly build, against 0.002–0.086 for native without FMA and 0.002–0.046 for
+native linked against musl's maths; benzamidine redocks within 2 Å of the crystal pose on 8 of 8 seeds on every engine.
+The acceptance rule is on the median, never a single seed: per ligand |median(best browser) − median(best native)| ≤
+0.10 kcal/mol over seeds 1–8, and the crystal redocking succeeds (top pose ≤ 2 Å) on at least as many seeds in the
+browser as natively. A single seed's gap can exceed that band (ibuprofen 0.151 kcal/mol at seed 42); the rule is on the
+median over seeds, enforced in `studio/web/test/scientific/vina.test.mjs`'s fixture path and in `studio` CI
+(`VINA_TIER_S=full`, 6 ligands × seeds 1–8).
+
+**End to end** (`science.mjs --mode dock`, headless Chromium 141 with the pinned wasm and Pyodide against native Vina
+1.2.7; one local run, native Python 3.12.3, numpy 2.5.4, vina 1.2.7, x86_64, glibc 2.39). The job ran the 6 fixture
+ligands with benzamidine (BEN) as the reference ligand, redocked to validate the site:
+
+- the plan: the box (centre −1.8555, 14.366, 16.748; size 18 × 18 × 18 Å, from the reference ligand) and the 8 PDBQT
+  texts Vina is given are identical bytes to the native `dock_read`;
+- the analysis stage: `run_dock` run natively (CPython) on the browser's own 7 Vina results, read back by
+  `PrecomputedVina`, gives byte-identical `scores.tsv`, `report.md`, `report.html`, `limitations.md`, `plots/scores.svg`
+  and every `poses/<ligand>.pdbqt` (the Python stages in Pyodide equal CPython);
+- the energy model: each browser top pose re-scored by native Vina and by the WebAssembly engine is bit-identical;
+- the search: both runs complete, all 6 ligands dock, none refused; BEN redocks 1.14 Å in the browser (score −6.193)
+  and 1.92 Å natively (score −6.181), an atom-order RMSD (an upper bound of the symmetry-aware RMSD); per-ligand
+  |Δbest| at seed 42 had a median of 0.019 and a largest of 0.151 kcal/mol, inside the band above.
+
+**Receipt, times and memory.** The receipt is `outputs_verified`, device evidence `verified`, with the engine recorded
+for the dock stage (AutoDock Vina 1.2.7, the wasm build, SHA-256 `94807d4aeb35…`) and compute facts `vina.dock` on
+`vina-wasm` in 2 dedicated workers, no GPU, never accelerated. The dedicated Vina workers' WebAssembly memory is
+recorded honestly as "not measured" (the job service does not read it). The browser job took 54.9 s (the dock stage
+50.2 s, 7 Vina runs, 96 s of Vina in all across 2 workers).
+
+**What has run, and what was not run.** `science.mjs --mode dock` end to end and `vina.test.mjs` (the exact and search
+tiers) pass locally and in `studio` CI. Not run: a physical GPU is unchanged — nothing in docking uses the GPU (only
+the ADMET applicability-domain search can, and P3's physical-GPU acceptance stays open, [§3.2](#32-admet)); a browser
+tab on a person's machine (the runs above are headless Chromium); and the relay download of a large structure in a
+browser (CI gives the inputs as project files). Receptor and ligand preparation in the browser (Meeko, RDKit),
+interaction analysis and SDF poses (they need RDKit), and raw PDB/SMILES inputs are Milestone B, the next cycle, and
+are not done ([BROWSER_EXPANSION.md](BROWSER_EXPANSION.md)).
+
+**Limitations.** A browser docking run carries bioagent's own `limitations.md` lines — a docking score is the scoring
+function's estimate, not a measured affinity; a pose is a hypothesis about how a molecule could sit in the site; a
+setup whose redocking check fails makes no claim — and a line naming the engine and that the search is not
+bit-reproducible: that it was docked in this browser with AutoDock Vina 1.2.7 compiled to WebAssembly (the pinned
+SHA-256), whose `score`/`optimize` are bit-identical to native Vina while the Monte Carlo search is not reproducible
+bit for bit across engines or CPUs and is held to the measured band of §3.3.
+
 ## 4. How it is checked
 
 | Check | What it shows | Where | Status |
@@ -563,6 +674,9 @@ whole), and the predicted-not-measured line the runner adds; `provenance.models`
 | ADMET (`admet.models`, `pipeline.admet`), against the native run | both as jobs of the page's job service, on the small known-answer archive `admet_world` (as a project file) and a 39-molecule set, and on the real TDC archive (all 22 endpoints, the archive a project file, then the 39-molecule set with its models), compared with the native command on the same molecules (RDKit 2026.9.1, scikit-learn 1.8.0, one thread): model cards (apart from the files' digests, seconds and chemistry), domain files and `admet.tsv` identical; the predictions at full precision (raw output and domain search exact, a final value within the named last-bit rule), the alerts, the stages; the reports differ only by the refused-molecules line; the expected refusals refused and read by the runner; then once more with WebGPU forced on the software adapter, the outputs identical ([§3.2](#32-admet)) | `science.mjs --mode admet` (Studio CI, build job; on the real archive, the live-data workflow's `admet` job) | implemented and tested in headless Chromium, locally (RDKit.js and Pyodide from local mirrors), in Studio's CI (`studio` #95 (run 39386727362, commit 0882e95, 2026-10-20)) and on the real TDC archive with RDKit.js and Pyodide from jsDelivr (`live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20): 202 of 81,809 molecules refused at named steps; every card (as above), domain file, raw output and domain search identical; 36 of 16,353 test-set predictions 1 unit apart in the last place); never on a physical GPU |
 | ADMET chemistry parity, the kernels and the device check | RDKit.js 2026.9.1 + ports against native RDKit on the parity fixture (484 molecules) and NCI first_5K (4,999): the float32 rows, bits and alerts identical, refusals as predicted; the Tanimoto kernels (JS, WASM SIMD, WebGPU) against each other and `np.bitwise_count`, exact; the device check's known-answer test, parity and verdicts, on SwiftShader (exact, "software, not evidence") | `web/test/scientific/chem.test.mjs`, `chem-worker.test.mjs`, `web/test/science-cpu.test.mjs`, `science-gpu.test.mjs`, `science-scheduler.test.mjs`, `science-calibration.test.mjs`, `scientific/evidence.test.mjs`; `chem.browser.mjs` and `gpu-science.mjs --software` in Chromium | implemented and tested locally and (`chem.browser.mjs`, `gpu-science.mjs --software`) in Studio's CI build job, passed in `studio` #95 (run 39386727362, commit 0882e95, 2026-10-20); never run on a hardware GPU |
 | ADMET refusals, routing, receipts and the Python entry | `pipeline.admet` refused before queueing with the reason (SDF/`.mol`: runner; models not built here: dataset, hinting job.admet.models; more than 20,000 molecules: memory), the molecules checked before the models; the scheduler's per-call acceleration rule, serialised GPU calls, a discarded GPU result earning no evidence; the receipt's `device.used` `cpu+webgpu` and `compute` facts; in Python, each `browser_jobs` function run natively writing the command's bytes, the limit a typed refusal, a refused molecule said to be refused and why | `web/test/scientific/admet.test.mjs`, `job-manager.test.mjs`, `jobs-runtime.test.mjs`, `router.test.mjs`, `catalog-page.test.mjs`, `sw.test.mjs`; `studio/runner/tests/test_browser_jobs.py`, `test_catalog.py`, `test_capability_state.py`, `test_webbuild.py`, `test_compat_matrix.py`; `BioScience-Harness/tests/test_admet_engine.py`, `test_admet_build.py` | implemented and tested locally; the web and runner tests also in Studio's CI test job (passed in `studio` #95) |
+| Docking (`pipeline.dock`, prepared mode), against the native run | as a job of the page's job service on the 3PTB fixture (6 ligands, benzamidine the reference ligand, seed 42), compared with native Vina 1.2.7 (`science.mjs --mode dock`): the plan (the box and the 8 PDBQT texts) identical bytes to native `dock_read`; `run_dock` run natively on the browser's own Vina results byte-identical (`scores.tsv`, the reports, `limitations.md`, `plots/scores.svg`, every `poses/<ligand>.pdbqt`); each top pose re-scored by native Vina and the WebAssembly engine bit-identical; all 6 ligands dock in both, BEN redocks 1.14 Å browser / 1.92 Å native, per-ligand \|Δbest\| at seed 42 median 0.019, largest 0.151 kcal/mol, inside the band; the receipt `outputs_verified`, `verified`, the engine and `vina.dock` compute facts, no GPU ([§3.3](#33-docking-from-prepared-structures)) | `science.mjs --mode dock` (`dock-plan.mjs`, native side `dock_native.py`; Studio CI, build job) | implemented and tested in headless Chromium 141, locally (one run) and in `studio` CI; never on a physical GPU |
+| Vina's exact and search tiers | `score()` and `optimize()` bit-identical to the native `vina` 1.2.7 package (0 ulp float64, pose text byte-identical) on all 6 fixture ligands; a seeded `dock` held to the median band over seeds 1–8 (per-ligand \|median Δbest\| ≤ 0.10 kcal/mol, the redocking succeeding on at least as many seeds as natively), not to bit-reproducibility | `web/test/scientific/vina.test.mjs` (the exact tier always; the search tier `VINA_TIER_S=full`, 6 ligands × seeds 1–8, in `studio` CI) | implemented and tested in Node locally and in Studio's CI build job |
+| Docking refusals, routing, receipts and the Vina build | `pipeline.dock` refused or routed before queueing with the reason (a non-`.pdbqt` receptor or ligands, `site_ligand`, `allow_remote`: runner; more than 100 ligands, 100,000 receptor atoms, 80 ligand atoms or a 216,000 Å³ box: memory; mixed-mode arguments: `bad_arguments`), the caps enforced in Python too; the dedicated-worker count and cancel/resume; the receipt's engine, `vina.dock` facts and "not measured" worker memory; the WebAssembly build reproducible from pinned inputs (`build_vina_wasm.py --check`: two builds byte-identical, the pin matched) | `web/test/scientific/dock.test.mjs`, `router.test.mjs`, `catalog-page.test.mjs`, `job-manager.test.mjs`, `jobs-runtime.test.mjs`; `studio/runner/tests/test_browser_dock.py`, `test_browser_jobs.py`, `test_catalog.py`, `test_compat_matrix.py`; `BioScience-Harness/tests/test_docking_prepared.py` | implemented and tested locally; the web and runner tests also in Studio's CI test job |
 | In-process governed analysis | the same bytes and result digest as the isolated child natively | `BioScience-Harness/tests/test_research_inprocess.py` | implemented and tested |
 | Data layer | downloads, resume, relay fallback, checksum refusal, import, cancel | `web/test/scientific/*.test.mjs` (an in-memory OPFS); the import runs in Chromium's OPFS in `--mode fixture` | implemented and tested |
 | Job service and pool | queue, cancel, interruption and resume, receipts, worker crashes | `web/test/scientific/job-manager.test.mjs`, `worker-pool.test.mjs` | implemented and tested |
@@ -582,9 +696,22 @@ whole), and the predicted-not-measured line the runner adds; `provenance.models`
 - **DuckDB-Wasm / Arrow.** Not used: the reference implementation is the runner's Python, and a second implementation
   of the joins would have to be shown equal to it. Pyodide's own `pyarrow` writes the snapshot store.
 - **The rest of the pipelines.** RNA-seq from FASTQ (QC, trimming, quantification), PyDESeq2, Scanpy, scVI, 10x HDF5
-  and `.h5ad` inputs stay on the runner; docking (Vina, RDKit) and structure prediction have no browser engine, and so
-  do an ADMET SDF or `.mol` file (RDKit's `SDMolSupplier` is not ported) and the governed `predict-admet` skill run. A
-  call for them is refused in the browser with the reason, never run another way.
+  and `.h5ad` inputs stay on the runner; docking from raw structures (receptor and ligand preparation: Meeko, RDKit) and
+  structure prediction have no browser engine yet, and so do an ADMET SDF or `.mol` file (RDKit's `SDMolSupplier` is not
+  ported), the governed `predict-admet` skill run and the governed `dock-ligands` skill run. A call for them is refused
+  in the browser with the reason, never run another way.
+- **Bit-reproducible docking.** Vina's `score()` and `optimize()` are bit-identical to the native `vina` 1.2.7 package
+  on the fixture ligands, but a seeded `dock` is **not** bit-reproducible: native Vina itself gives other poses for the
+  same seed when its maths library changes, because the Monte Carlo search amplifies a last-bit difference. So docking
+  is held to a measured band over seeds 1–8 (per ligand \|median(best browser) − median(best native)\| ≤ 0.10 kcal/mol,
+  the crystal redocking succeeding on at least as many seeds as natively), not to byte-for-byte equality, and a single
+  seed's gap can exceed that band (ibuprofen 0.151 kcal/mol at seed 42). The band was measured on the 3PTB fixture's
+  6 ligands; it is not established for other receptors ([§3.3](#33-docking-from-prepared-structures)).
+- **Docking preparation in the browser (Milestone B, not done).** Only prepared PDBQT structures dock in the browser.
+  Preparing a receptor and ligands from raw inputs (a PDB/`PDB:`/`UniProt:` receptor, SMILES/CSV/SDF ligands, Meeko and
+  RDKit), interaction analysis and SDF poses (they need RDKit), and the relay download of a large structure are the next
+  cycle and are not implemented; those arguments are refused in the browser and left to the runner. Every docking run
+  above is headless Chromium, here or on CI's virtual machine — not a tab on a person's machine, not a deployed site.
 - **Byte-identical ADMET outputs.** The domain files and `admet.tsv` are the native run's bytes and the model cards
   the native ones field by field (not their model file's digest, seconds or chemistry name: a pickle's bytes depend on
   the process), and the raw model outputs and the domain search are exact, but a final prediction that passes through `expit` or `10 **` may
@@ -625,7 +752,8 @@ whole), and the predicted-not-measured line the runner adds; `provenance.models`
 
 **浏览器科研任务**：网络药理学研究任务（`research.snapshot` 构建快照、`research.run` 十六阶段研究），（指南的 P2）
 从计数矩阵出发的 RNA-seq 差异表达（`pipeline.rnaseq` 的计数矩阵模式）和从计数表出发的单细胞分析（`pipeline.scrna`），
-以及（P3）ADMET 的模型构建（`admet.models`）与预测（`pipeline.admet`；见下文「ADMET（§3.2）」，2026-10-20 补入），
+（P3）ADMET 的模型构建（`admet.models`）与预测（`pipeline.admet`；见下文「ADMET（§3.2）」，2026-10-20 补入），
+以及（P4）从已准备好的结构出发的对接（`pipeline.dock` 的「已准备输入」模式；见下文「对接（§3.3）」，2026-10-20 补入），
 都可以完全在访客浏览器中运行，无需本机 Runner 或计算服务器。计算在"任务工作线程"中进行：每个线程是一个装有 Pyodide 314.0.7（编译为
 WebAssembly 的 CPython 3.14）和经 SHA-256 校验的应用包的 Web Worker，运行与 Runner 完全相同的 `bioagent`/`psh` 代码；
 线程池按设备大小设定（页面可让出的 CPU 核数，且每 1.5 GB 设备内存至多一个、总数至多四个），但任务服务在一个标签页中一次只运行一个任务、
@@ -770,8 +898,10 @@ SMILES 的 SHA-256 与分子对应；**适用域检索**在本设备的内核上
 （默认 `RDKitEngine`），其输出未因此改变：小归档的前后对比逐字节一致（`run.json` 与模型卡新增 `chemistry`、`refused`、
 `dropped_unstandardisable`）。两个任务的 `execution.browser_job` 另写明化学（`rdkit.js` 2026.9.1）与分子上限（`limits.molecules`）；
 `run_pipeline` 与 `call_tool job.pipeline.admet` 的路由与上文组学流程相同（只有 Runner 能运行的参数交给已连接的 Runner，否则在排队前以
-`needs_runner` 拒绝；计算目标为「浏览器」而 Runner 已连接时以 `compute_browser` 拒绝）。其余任务类型（`pipeline.fold`、`pipeline.dock`、
-`skill.run`、`tcmdb.*`、`env.provision`）以及包装同一 ADMET 流程的受治理 Skill `predict-admet` 留在 Runner 上。
+`needs_runner` 拒绝；计算目标为「浏览器」而 Runner 已连接时以 `compute_browser` 拒绝）。其余任务类型（`pipeline.fold`、
+`skill.run`、`tcmdb.*`、`env.provision`）以及包装同一 ADMET 流程的受治理 Skill `predict-admet`、包装对接的受治理 Skill
+`dock-ligands` 留在 Runner 上。`pipeline.dock` 不再完全只在 Runner 上：其「已准备输入」参数在浏览器中运行（见下文「对接（§3.3）」），
+只有从原始结构出发的参数（PDB/`PDB:`/`UniProt:` 受体、SMILES/CSV/SDF 配体、`site_ligand`、`allow_remote`）才交给 Runner。
 
 **两个任务的参数与拒绝**：`admet.models` 读取 TDC ADMET 基准组归档（Harvard Dataverse），由本
 浏览器经本站数据集中转（登记组 `admet`，下载须与 bioagent 锁定的 SHA-256 `bd0005246cb6…` 一致）下载，或作为项目文件 `archive` 给出（其 SHA-256 与锁定值比较：别的归档仍会构建，任务与模型卡注明它不是锁定的归档，其留出集成绩因而不能与 TDC 排行榜比较）；化学工作线程准备每个终点的 `train_val` 与 `test` 拆分；每个终点由
@@ -905,8 +1035,76 @@ WebGPU（SwiftShader，软件适配器）重跑：输出逐字节相同，22 次
 RDKit.js 2026.09.1 + ports, models scikit-learn 1.8.0 built in this browser from the TDC archive (`<sha12>`); similarity `<backend>`.」（不超过模型
 完整读取的 320 个字符），以及 Runner 加上的「预测不等于实测」一行；`provenance.models` 记录各模型卡的摘要。
 
+**对接（§3.3）**：Runner 的又一个任务类型作为浏览器任务运行——`pipeline.dock`（`bioagent dock`）的新**「已准备输入」模式**。它接受已经为
+AutoDock Vina 准备好的结构：一个刚性受体 PDBQT（`receptor`）、一个配体 PDBQT（`ligands`：单个配体，或多个 MODEL/ENDMDL 块），以及一个
+位点——`center` 加 `size`，或围绕 `reference_ligand`（晶体位姿下作为 PDBQT 的共晶配体，同时开启再对接验证）构建的盒子——并与原生
+`bioagent dock RECEPTOR.pdbqt LIGANDS.pdbqt` 完全一样地运行：它就是 `bioagent.docking.prepared` 本身，相同的计划、盒子、再对接检验、
+分析与输出。搜索由**编译为 WebAssembly 的 AutoDock Vina 1.2.7**（不是 Pyodide 包：PyPI 没有它的 wasm32 wheel，搜索是 C++ 而非 Python）
+承担，每个配体一次 Vina 运行，在本设备 CPU 上专用的 Vina 工作线程中进行，每线程一个线程；Python 阶段与其他流程一样在 Pyodide 任务工作线程
+中运行。从原始结构出发仍交给 Runner：准备受体与配体（Meeko、RDKit）是下一轮（里程碑 B，尚未完成——BROWSER_EXPANSION.md）。
+
+**参数与路由/拒绝**：排队之前，路由器按任务类型的 `execution.browser_job.runner_only` 规则读 `pipeline.dock` 的参数，命中任一条就把整个调用
+交给 Runner 并说明原因：受体名不是 `.pdbqt`（PDB 文件、`PDB:<id>[:chains]` 或 `UniProt:<accession>`，`not_suffix`）、配体不是 `.pdbqt`
+（SMILES、CSV 或 SDF，`not_suffix`）、出现 `site_ligand` 或 `allow_remote`（`present`）——这些都需要 Meeko 与 RDKit 的准备（need
+`runner`）。浏览器模式拒绝而非回退：计算目标为「浏览器」且 Runner 已连接时以 `compute_browser` 拒绝并给出原因与设置，没有 Runner 时以
+`needs_runner` 拒绝。两种模式混用的参数（`.pdbqt` 受体配 SMILES/CSV/SDF 配体，或 PDB 受体配 `.pdbqt` 配体或 `reference_ligand`）作为
+`bad_arguments` 拒绝，Runner 自己的模式同样拒绝。上限两侧都经测量并强制执行——`DOCK_LIGANDS_MAX` = 100 个配体一次运行、
+`DOCK_RECEPTOR_ATOMS_MAX` = 100,000 个受体原子、`DOCK_LIGAND_ATOMS_MAX` = 80 个配体原子、`DOCK_BOX_VOLUME_MAX` = 216,000 Å³
+（60 Å 立方体）——超出即以相应原因拒绝并交给 Runner，Python 在工作线程中也会再次拒绝。
+
+**阶段**：*inputs*（每个 PDBQT 是项目文件 → OPFS，写入时计算哈希，仅在与记录的 SHA-256 一致时保留）→ *read*（Python `dock_read`：按
+`bioagent dock` 的方式读取并检查已准备输入，计算盒子，写出每个配体的 Vina 计划 `dock_plan.json`）→ *dock*（每个配体——以及再对接时的参考
+配体——一次 Vina 运行，各在一个 Vina 工作线程中，按计划顺序在多个线程上并行）→ *analysis*（Python `run_dock`，`bioagent.docking.prepared`
+处理由 `PrecomputedVina` 读回的 Vina 结果，`PrecomputedVina` 把每个结果与它要求的受体、配体、参数、盒子与 wasm 对应）→ *verify*（Python
+`verify_pipeline`，对接自己的 `verify_run` 与任务类型按 Runner 名称的 `required_artefacts`）。Vina 运行中途不可中断，因此取消会同时终止每个
+Vina 工作线程，已完成的运行保留其检查点；续跑的任务复用仍能按检查点重新哈希一致的运行。每个 Vina 实例可达约 2 GB，故页面至多运行
+min(核数 − 1, ⌊(设备内存 − 1.5 GB) / 2.25 GB⌋, 4) 个 Vina 工作线程（4 核、8 GB 的机器上为 2 个；1.5 GB 是任务自己的 Pyodide 工作线程，
+始终占用）。时间随配体原子数与穷举度增长，不只随配体数量（夹具大小的配体单线程约 4–15 秒；100 个大配体可能要数小时——任务按配体续跑）。
+
+**Vina 引擎及其可复现构建**：引擎是用 Emscripten 4.0.23 编译为 WebAssembly 的 AutoDock Vina 1.2.7，随站点提供于
+`studio/web/js/scientific/dock/vendor/vina-1.2.7.wasm`（492,557 字节，SHA-256 `94807d4aeb35…`，完整
+`94807d4aeb358234fc4506ddd4c61b050d6b056fac8da412798eaf615ef09232`），在 `boot.json` 中锁定（`vina`），在实例化之前核对 SHA-256，并由
+Service Worker 按该摘要缓存。`studio/scripts/build_vina_wasm.py` 由锁定且经 SHA-256 核对的输入（Emscripten 发布的二进制、Vina 的 PyPI 源
+分发、Ubuntu 24.04 的 Boost 1.83 头文件）可复现地构建它；`--check` 重新构建，两次独立构建逐字节一致。移植层 `studio/vina-wasm/` 只替换系统
+设施，绝不改 Vina 自己的代码：一个串行的 `parallel.h`（Vina 在运行前按顺序为其蒙特卡洛任务播种，并按任务顺序合并输出，故结果不依赖线程——
+原生 Vina 在 `cpu=1` 与任意核数下给出相同位姿）、Boost 的 thread/filesystem/log 垫片，以及在 Vina 自己的类 API 之上的 embind 绑定
+`vina_wasm.cpp`。
+
+**一致性：精确层与搜索层**：Vina 的两个确定性运算与原生 `vina` 1.2.7 包逐位一致：`score()` 与 `optimize()` 与其 C++ 值在 float64 末位
+相差 0 个单位，`optimize()` 的位姿文本逐字节一致，在全部 6 个夹具配体上如此。搜索不然。**带种子的 `dock` 不是逐位可复现的**——原生 Vina 本身
+在仅关闭 glibc 的 FMA 数学路径或链接另一数学库时，就会对相同种子给出不同位姿，因为蒙特卡洛搜索放大了末位差异（Vina 只调用 `acos`、`exp`、
+`pow`、`sin`、`sincos` 与 `sqrt`）。因此对接被约束在一个经测量的带内，而非精确一致。在种子 1–8、穷举度 8 下，浏览器每个配体最佳分数的中位数
+落在原生自身的散布之内：WebAssembly 构建的中位 |Δbest| 为 0.002–0.077 kcal/mol，对照原生去 FMA 的 0.002–0.086 与原生链接 musl 数学库的
+0.002–0.046；苯甲脒在每个引擎上都在 8 个种子中的 8 个上再对接到晶体位姿的 2 Å 以内。验收规则针对中位数，而非单个种子：每个配体
+|中位(浏览器 best) − 中位(原生 best)| ≤ 0.10 kcal/mol（种子 1–8），且晶体再对接在浏览器中成功（顶位姿 ≤ 2 Å）的种子数不少于原生。单个
+种子的差距可超出该带（布洛芬在种子 42 为 0.151 kcal/mol）；规则针对种子上的中位数，在 `studio/web/test/scientific/vina.test.mjs` 的夹具
+路径与 `studio` CI（`VINA_TIER_S=full`，6 个配体 × 种子 1–8）中强制执行。
+
+**端到端**（`science.mjs --mode dock`，无头 Chromium 141 配锁定的 wasm 与 Pyodide，对照原生 Vina 1.2.7；一次本地运行，原生 Python
+3.12.3、numpy 2.5.4、vina 1.2.7、x86_64、glibc 2.39）。任务以 6 个夹具配体运行，苯甲脒（BEN）为参考配体并被再对接以验证位点：计划——盒子
+（中心 −1.8555, 14.366, 16.748；大小 18 × 18 × 18 Å，取自参考配体）与交给 Vina 的 8 个 PDBQT 文本与原生 `dock_read` 逐字节一致；分析阶段——
+`run_dock` 在原生（CPython）上对浏览器自己由 `PrecomputedVina` 读回的 7 个 Vina 结果运行，`scores.tsv`、`report.md`、`report.html`、
+`limitations.md`、`plots/scores.svg` 与每个 `poses/<ligand>.pdbqt` 逐字节一致（Pyodide 中的 Python 阶段等同 CPython）；能量模型——每个浏览器
+顶位姿分别由原生 Vina 与 WebAssembly 引擎重新打分，逐位一致；搜索——两次运行都完成，6 个配体都对接，无一被拒，BEN 在浏览器中再对接 1.14 Å
+（分数 −6.193）、原生 1.92 Å（分数 −6.181），为原子顺序 RMSD（对称感知 RMSD 的上界），种子 42 的每配体 |Δbest| 中位 0.019、最大 0.151
+kcal/mol，在上述带内。
+
+**回执、时间与内存**：回执为 `outputs_verified`、设备证据 `verified`，dock 阶段记录了引擎（AutoDock Vina 1.2.7，wasm 构建，SHA-256
+`94807d4aeb35…`）与计算事实 `vina.dock`，在 2 个专用工作线程上运行，无 GPU，从未加速。专用 Vina 工作线程的 WebAssembly 内存如实记为
+「未测量」（任务服务不读取它）。浏览器任务用时 54.9 秒（dock 阶段 50.2 秒，7 次 Vina 运行，2 个工作线程上共 96 秒的 Vina）。
+
+**已运行与尚未运行**：`science.mjs --mode dock` 端到端与 `vina.test.mjs`（精确层与搜索层）在本地与 `studio` CI 中通过。尚未运行：实体 GPU
+不变——对接不使用 GPU（只有 ADMET 适用域检索会用，P3 的实体 GPU 验收仍未满足，§3.2）；用户自己机器上的浏览器标签页（以上运行都是无头
+Chromium）；以及在浏览器中经中转下载大型结构（CI 以项目文件给出输入）。浏览器中准备受体与配体（Meeko、RDKit）、相互作用分析与 SDF 位姿
+（需要 RDKit）、从原始 PDB/SMILES 出发的输入都是里程碑 B、下一轮的工作，尚未完成（BROWSER_EXPANSION.md）。
+
+**局限说明**：浏览器中的对接运行带有 bioagent 自己的 `limitations.md` 各行——对接分数是打分函数的估计，不是实测亲和力；位姿是关于分子如何
+坐入位点的假说；再对接检验未通过的设置不下任何结论——以及一行点名引擎、并说明搜索不是逐位可复现的（在本浏览器中用编译为 WebAssembly 的
+AutoDock Vina 1.2.7（锁定的 SHA-256）对接，其 `score`/`optimize` 与原生 Vina 逐位一致，而蒙特卡洛搜索跨引擎或 CPU 不逐位可复现，被约束在
+§3.3 的经测量带内）。
+
 **尚未实现**：计算内的多线程 WASM、研究任务与组学任务的 GPU/NPU（它们不用 WebGPU 内核，也没有 WebNN 模型）、其余流程（从 FASTQ 出发的 RNA-seq、PyDESeq2、Scanpy、scVI、10x HDF5 与
-`.h5ad` 需要 Runner；对接、结构预测在浏览器中没有引擎，ADMET 的 SDF 或 `.mol` 文件与受治理的 `predict-admet` Skill 运行也需要 Runner）、组学与 ADMET 输出与原生的逐字节一致（组学在两个参考上表格末位数字在
+`.h5ad` 需要 Runner；从原始结构出发的对接（受体与配体准备：Meeko、RDKit，里程碑 B，尚未完成）与结构预测在浏览器中没有引擎，ADMET 的 SDF 或 `.mol` 文件、受治理的 `predict-admet` 与 `dock-ligands` Skill 运行也需要 Runner）、逐位可复现的对接（`score`/`optimize` 与原生 Vina 逐位一致，但带种子的蒙特卡洛搜索不是逐位可复现的，只被约束在种子 1–8 上的经测量带内，§3.3）、组学与 ADMET 输出与原生的逐字节一致（组学在两个参考上表格末位数字在
 容差内不同，UMAP 不比较，只比对过两个参考的参数，用户自己的运行不做比较；ADMET 的适用域文件与 `admet.tsv` 是原生运行的字节，模型卡逐字段与原生一致（模型文件摘要、秒数与化学名称除外：pickle 的字节取决于进程），模型原始输出与适用域检索完全一致，但经 `expit`/`10 **` 的最终预测值可能在 float64 末位相差几个单位（C 库的 `exp`，或 numpy 自带的 AVX-512 幂运算），逐个点名、绝不称作一致，qed 与 BertzCT 的 float64 末位可能相差而 float32 相等；浏览器化学拒绝了 Runner 的 RDKit 能读的训练分子时（真实 TDC 归档上拒绝了 81,809 个分子中的 202 个，0.25%），浏览器构建的模型可能与 Runner 的不同（模型卡计数，比对用同样保留的分子训练原生参考）；浏览器中的比对在小的已知答案归档、TDC 规模的合成归档以及（CI 中）真实 TDC 归档上运行，真实归档上 16,353 个测试集预测中 36 个在末位差 1 个单位）、组学任务超出限值的输入（超过 6,000 个细胞、单个表
 超过 66,000,000 个细胞 × 基因、计数矩阵超过 10,000,000 个基因 × 样本，交给 Runner）、在实体 GPU 上验证 ADMET 适用域检索（本机与 CI 无实体 GPU，P3 验收仍未满足）、手机端与浏览器标签页内存的测量。目前只在 Chromium 中运行过（Firefox、Safari 未运行；主线程缺少 `createWritable` 的浏览器写不了任务记录，
 任务会失败而不是假装已保存）；浏览器不像 Runner 那样在保存前校验 `.gz` 的 CRC，没有审核校验和的 STRING 别名文件若被

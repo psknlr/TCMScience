@@ -30,8 +30,14 @@ CSV/TSV/`.smi` file or one SMILES, with its chemistry in RDKit.js 2026.9.1 and i
 TDC archive ([In the browser](#in-the-browser), below); they were compared with the native command in headless
 Chromium on a known-answer archive (locally and in Studio's CI, `studio` #95, 2026-10-20), on a synthetic one at the
 TDC sizes (locally) and on the real TDC archive (`live-data` #24: run 39386727431, commit 0882e95, 2026-10-20); the GPU
-domain search has not been run on a physical GPU. Structure and docking do not run in the browser, and no pipeline has
-a record from a deployed service. What has been exercised differs by engine:
+domain search has not been run on a physical GPU. So, in part, does docking: from structures already prepared for
+AutoDock Vina (a rigid-receptor PDBQT, a ligand PDBQT and a site), `pipeline.dock` runs in the browser as a job with
+AutoDock Vina 1.2.7 compiled to WebAssembly ([In the browser: prepared docking](#in-the-browser-prepared-docking),
+below); it was compared with native Vina 1.2.7 end to end in headless Chromium (`science.mjs --mode dock`), its
+`score`/`optimize` bit-identical to the native `vina` package and its seeded search held to a measured band (the search
+is not bit-reproducible across engines or CPUs). Structure prediction does not run in the browser, raw-structure
+docking (receptor and ligand preparation) stays on the runner as the next cycle, and no pipeline has a record from a
+deployed service. What has been exercised differs by engine:
 
 | Pipeline | Engines | Exercised where this was written | CI job with the engines | Reference dataset |
 |---|---|---|---|---|
@@ -454,6 +460,43 @@ ligand only when the setup was validated by redocking; otherwise it claims nothi
 - Protonation states and tautomers are as given; no pKa model is applied.
 - One conformer is embedded per ligand. Vina searches its torsions, but ring
   conformations stay as embedded.
+
+### In the browser: prepared docking
+
+In Studio, docking also runs as a browser job, with no runner, when its inputs are
+already prepared for AutoDock Vina
+([BROWSER_JOBS.md §3.3](../studio/docs/BROWSER_JOBS.md#33-docking-from-prepared-structures)):
+a rigid-receptor PDBQT, a ligand PDBQT (one ligand or several MODEL blocks) and a site —
+a `center` and a `size`, or a box around a `reference_ligand` (the co-crystal ligand as a
+PDBQT in its crystal pose, which is redocked to validate the setup). It is
+`bioagent.docking.prepared` itself (the mode `bioagent dock RECEPTOR.pdbqt LIGANDS.pdbqt`
+runs natively): the same plan, box, redocking check, analysis and outputs. The search is
+AutoDock Vina 1.2.7 compiled to WebAssembly (vendored, pinned by SHA-256, built
+reproducibly from pinned inputs with two independent builds byte-identical), one Vina run
+per ligand in dedicated workers on the CPU; the Python stages run in Pyodide. A browser
+job refuses, for the runner, a receptor or ligands that are not already PDBQT (preparing
+them needs Meeko and RDKit), `site_ligand` or `allow_remote`, more than 100 ligands, a
+receptor of more than 100,000 atoms, a ligand of more than 80 atoms, or a box of more
+than 216,000 Å³.
+
+Vina's two deterministic operations match the native `vina` 1.2.7 package exactly:
+`score()` and `optimize()` are bit-identical (0 units in the last place of float64, the
+optimised pose text byte-identical) on all 6 fixture ligands. The search is **not**
+bit-reproducible — native Vina itself gives other poses for the same seed when its maths
+library changes, because the Monte Carlo search amplifies a last-bit difference — so
+docking is held to a measured band over seeds 1–8: per ligand |median(best browser) −
+median(best native)| ≤ 0.10 kcal/mol, and the crystal redocking succeeds (top pose ≤ 2 Å)
+on at least as many seeds in the browser as natively. Compared with native Vina 1.2.7 end
+to end on the 3PTB fixture (`science.mjs --mode dock`, headless Chromium 141): the plan
+(the box and the PDBQT texts) identical bytes, `run_dock` run natively on the browser's
+own Vina results byte-identical, each top pose re-scored by native Vina and the
+WebAssembly engine bit-identical, and the search inside the band (benzamidine redocks
+1.14 Å in the browser, 1.92 Å natively). Nothing in docking uses the GPU.
+
+Only prepared PDBQT structures dock in the browser. Preparing a receptor and ligands from
+raw inputs (a PDB/`PDB:`/`UniProt:` receptor, SMILES/CSV/SDF ligands, Meeko, RDKit),
+interaction analysis and SDF poses stay on the runner as the next cycle (Milestone B, not
+done), and the governed `dock-ligands` skill needs the runner.
 
 ## ADMET: structures to properties, alerts and predicted endpoints
 
