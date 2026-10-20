@@ -187,15 +187,21 @@ def registry_document() -> dict[str, Any]:
         "admet": _admet_group(rates, PACER.default_rps)}}
 
 
+#: The pinned TDC ADMET group archive's size, and the host Harvard Dataverse redirects its download to.
+TDC_ADMET_BYTES = 1_472_501
+TDC_ADMET_STORAGE = "dvn-cloud-iqss.s3.amazonaws.com"
+
+
 def _admet_group(rates: Mapping[str, float], default_rps: float) -> dict[str, Any]:
     """The ``admet`` group: the TDC ADMET benchmark group archive the browser's model build
     (admet.models) trains on, at the URL and with the SHA-256 ``bioagent.admet.models``
     downloads and pins natively (it is not in the acquisition table, so ``reviewed`` is
-    false; the pin is the checksum). Its size has not been seen from here (null): the
-    browser checks the digest. Its licence is TDC's per-dataset terms, which no licence
-    record here has read, so its redistribution is unknown. Harvard Dataverse may redirect
-    the download to storage of its own; no such host has been seen from here, so none is
-    listed, and the relay refuses a redirect to one, naming the hosts it allows."""
+    false; the pin is the checksum) and the pinned archive's size. Its licence is TDC's
+    per-dataset terms, which no licence record here has read, so its redistribution is
+    unknown. Harvard Dataverse answers the download with a 303 to a signed URL on its S3
+    storage, ``TDC_ADMET_STORAGE`` (seen in the live-data workflow's ``admet`` job,
+    2026-10-20: the 1,472,501 bytes at the pinned SHA-256 came from there); a redirect to
+    any other host is refused, naming the hosts allowed."""
     import urllib.parse
 
     from bioagent.admet.models import TDC_ADMET_SHA256, TDC_ADMET_URL
@@ -204,11 +210,11 @@ def _admet_group(rates: Mapping[str, float], default_rps: float) -> dict[str, An
     return {"title": {"zh": "ADMET 模型的训练数据（TDC ADMET 基准组）",
                       "en": "Training data of the ADMET models (the TDC ADMET benchmark group)"},
             "sources": ["tdc"], "network": True, "files": [{
-                "name": "tdc_admet_group.zip", "url": TDC_ADMET_URL, "host": host, "bytes": None,
+                "name": "tdc_admet_group.zip", "url": TDC_ADMET_URL, "host": host, "bytes": TDC_ADMET_BYTES,
                 "checksum": f"sha256:{TDC_ADMET_SHA256}", "reviewed": False, "project": "TDC",
                 "fmt": "zip", "license": "LicenseRef-TDC-per-dataset",
                 "redistribution": REDISTRIBUTION_UNKNOWN,
-                "relay": True, "redirect_hosts": [],
+                "relay": True, "redirect_hosts": [TDC_ADMET_STORAGE],
                 "rate_rps": float(rates.get(host, default_rps))}]}
 
 

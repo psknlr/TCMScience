@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { MAX_MOLECULES, cancel, handle, serve, workerEnv } from "../../js/scientific/chem/chem.worker.js";
+import { MAX_MOLECULES, REFUSED_EXCEPTION, cancel, handle, serve, workerEnv } from "../../js/scientific/chem/chem.worker.js";
 import { RDKIT, loadRDKit } from "../../js/scientific/chem/rdkit.js";
 import { Preparer } from "../../js/scientific/chem/prepare.js";
 import { N_FEATURES } from "../../js/scientific/chem/features.js";
@@ -164,6 +164,49 @@ test("when RDKit.js itself fails, the batch fails as \"rdkit\", later batches ar
   assert.equal((await handle({ id: 3, op: "init", payload: { wasmBytes: wasmBuffer() } }, e)).reply.ok, true);
   r = (await handle({ id: 4, op: "prepare", payload: { molecules: molecules(3) } }, e)).reply;
   assert.equal(r.ok, true, JSON.stringify(r.error));
+});
+
+// a C++ exception as RDKit.js lets one out (WebAssembly.Exception)
+const cppException = () => new WebAssembly.Exception(new WebAssembly.Tag({ parameters: [] }), []);
+// the RDKit.js loader, its modules throwing a C++ exception from get_mol on `smiles`
+const throwingOn = (smiles) => async (opts) => {
+  const real = await factory(opts);
+  return Object.assign(Object.create(real), {
+    get_mol: (text, ...rest) => { if (text === smiles) throw cppException(); return real.get_mol(text, ...rest); },
+  });
+};
+
+test("a C++ exception on one molecule refuses it and a fresh module prepares the rest, as an unbroken module does", async () => {
+  const batch = molecules(4);
+  const e = await started({ factory: throwingOn(batch[1].smiles) });
+  const first = e.state.preparer;
+  const r = (await handle({ id: 1, op: "prepare", payload: { molecules: batch } }, e)).reply;
+  assert.equal(r.ok, true, JSON.stringify(r.error));
+  assert.equal(r.result.restarts, 1);
+  assert.notEqual(e.state.preparer, first, "the module that threw is not used again");
+  const row = r.result.rows[1];
+  assert.deepEqual([row.ok, row.refused, row.canonical], [false, { need: "runner", missing: REFUSED_EXCEPTION }, null]);
+  assert.match(row.error, /RDKit\.js threw on this molecule \(an exception RDKit\.js did not catch\)/);
+  const plain = await started();
+  const want = (await handle({ id: 2, op: "prepare", payload: { molecules: batch.filter((_, i) => i !== 1) } }, plain)).reply.result;
+  const got = r.result.rows.filter((_, i) => i !== 1);
+  assert.deepEqual(got.map((x) => [x.ok, x.canonical, x.descriptors]), want.rows.map((x) => [x.ok, x.canonical, x.descriptors]));
+  assert.deepEqual(Array.from(r.result.features), Array.from(want.features));
+  assert.equal(want.restarts, 0);
+});
+
+test("more C++ exceptions in one call than maxRestarts fail the batch as \"rdkit\"; a trap is never restarted", async () => {
+  const smiles = FIXTURE.molecules[0].smiles;
+  const e = await started({ factory: throwingOn(smiles), maxRestarts: 2 });
+  const r = (await handle({ id: 1, op: "prepare", payload: { molecules: Array.from({ length: 3 }, (_, i) => ({ name: `t${i}`, smiles })) } }, e)).reply;
+  assert.deepEqual([r.ok, r.error.type], [false, "rdkit"]);
+  assert.match(r.error.message, /^molecule 2 \(t2\): RDKit\.js failed .* \(after 2 other exceptions in this call\)$/);
+  const t = await started({ maxRestarts: 2 });
+  const ctx = t.state.preparer.ctx;
+  ctx.RDKit = Object.assign(Object.create(ctx.RDKit), { get_mol: () => { throw new WebAssembly.RuntimeError("unreachable"); } });
+  const r2 = (await handle({ id: 2, op: "prepare", payload: { molecules: molecules(2) } }, t)).reply;
+  assert.deepEqual([r2.ok, r2.error.type], [false, "rdkit"]);
+  assert.match(r2.error.message, /^molecule 0 \(.+\): .*\(unreachable\)/);
 });
 
 test("the message loop: requests in order, each reply posted with its buffers as the transfer list", async () => {

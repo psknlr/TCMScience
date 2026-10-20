@@ -96,6 +96,7 @@ PORT_BOND_TYPES = {"SINGLE", "DOUBLE", "TRIPLE", "AROMATIC"}
 REFUSE_METAL = "MetalDisconnector"
 REFUSE_REIONIZER = "Reionizer"
 REFUSE_RANKING = "Uncharger canonical atom ranking"
+REFUSE_UNSANITISABLE = "Normalizer unsanitisable product"
 REFUSE_BOND = "feature ports: bond type {}"
 
 
@@ -477,6 +478,9 @@ class Native:
         self.bases = [Chem.MolFromSmarts(b) for _, _, b in ms["acid_base_pairs"]]
         self.unch = {k: Chem.MolFromSmarts(v) for k, v in ms["uncharger"].items()}
         self.early = set(ms["early_atoms"])
+        from rdkit.Chem import rdChemReactions
+        self.transforms = [rdChemReactions.ReactionFromSmarts(smirks) for _, smirks in ms["normalizations"]]
+        self.sanitize_ops = Chem.SANITIZE_ALL ^ Chem.SANITIZE_CLEANUP ^ Chem.SANITIZE_PROPERTIES
 
     # Cleanup (MolStandardize.cpp cleanupInPlace): removeHs, MetalDisconnector, Normalizer, Reionizer, stereo
     def cleanup(self, mol) -> tuple[Any, str | None, bool]:
@@ -485,6 +489,8 @@ class Native:
         if any(work.HasSubstructMatch(q) for q in self.metal):
             return None, REFUSE_METAL, False
         before = Chem.MolToSmiles(work)
+        if self.normalize_fails_sanitize(work):
+            return None, REFUSE_UNSANITISABLE, True
         S.NormalizeInPlace(work)
         normalized = Chem.MolToSmiles(work) != before
         if self.reionizer_would_act(work):
@@ -495,6 +501,29 @@ class Native:
             raise FixtureError(f"the Cleanup steps replayed give {Chem.MolToSmiles(work)}, Cleanup "
                                f"{Chem.MolToSmiles(S.Cleanup(mol))}")
         return work, None, normalized
+
+    def normalize_fails_sanitize(self, mol) -> bool:
+        """Normalize.cpp normalizeInPlace replayed on a copy of ``mol``: whether a transform it applies gives a product
+        that does not sanitise (it logs "FAILED sanitizeMol." and goes on with the unsanitised molecule). The replay
+        must end where NormalizeInPlace does."""
+        Chem, S = self.Chem, self.S
+        work = Chem.RWMol(mol)
+        Chem.GetSymmSSSR(work)          # normalizeInPlace symmetrises the ring information first
+        failed = False
+        for _ in range(200):            # Normalizer's MAX_RESTARTS
+            for rxn in self.transforms:
+                if rxn.RunReactantInPlace(work, removeUnmatchedAtoms=False):
+                    if Chem.SanitizeMol(work, sanitizeOps=self.sanitize_ops, catchErrors=True) != Chem.SANITIZE_NONE:
+                        failed = True
+                    break
+            else:
+                break
+        ref = Chem.RWMol(mol)
+        S.NormalizeInPlace(ref)
+        if Chem.MolToSmiles(work) != Chem.MolToSmiles(ref):
+            raise FixtureError(f"the Normalizer replayed gives {Chem.MolToSmiles(work)}, NormalizeInPlace "
+                               f"{Chem.MolToSmiles(ref)}")
+        return failed
 
     def reionizer_would_act(self, mol) -> bool:
         """Charge.cpp reionizeInPlace changes the molecule (or gives up mid-way) exactly when a charge correction

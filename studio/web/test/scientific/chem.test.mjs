@@ -168,7 +168,7 @@ test("every molecule of the parity corpus: native's answers, or the refusal nati
   assert.deepEqual(problems, []);
   assert.deepEqual(counts, { ok: FIXTURE.counts.ok, refused: FIXTURE.counts.refused, error: FIXTURE.counts.error });
   assert.ok(FIXTURE.molecules.length >= 444, "the probe's 444 molecules and the ports' stress cases");
-  assert.deepEqual(Object.keys(FIXTURE.refusals).sort(), [REFUSALS.metal, REFUSALS.reionizer, REFUSALS.ranking,
+  assert.deepEqual(Object.keys(FIXTURE.refusals).sort(), [REFUSALS.metal, REFUSALS.reionizer, REFUSALS.ranking, REFUSALS.unsanitisable,
     "feature ports: bond type DATIVE", "feature ports: bond type UNSPECIFIED"].sort(), "every kind of refusal is exercised");
 });
 

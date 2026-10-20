@@ -956,9 +956,10 @@ def test_the_registry_lists_the_tdc_archive_the_browsers_model_build_reads():
     assert group["sources"] == ["tdc"]
     assert group["files"] == [{
         "name": "tdc_admet_group.zip", "url": TDC_ADMET_URL, "host": "dataverse.harvard.edu",
-        "bytes": None, "checksum": f"sha256:{TDC_ADMET_SHA256}", "reviewed": False,
+        "bytes": 1_472_501, "checksum": f"sha256:{TDC_ADMET_SHA256}", "reviewed": False,
         "project": "TDC", "fmt": "zip", "license": "LicenseRef-TDC-per-dataset",
-        "redistribution": REDISTRIBUTION_UNKNOWN, "relay": True, "redirect_hosts": [],
+        "redistribution": REDISTRIBUTION_UNKNOWN, "relay": True,
+        "redirect_hosts": ["dvn-cloud-iqss.s3.amazonaws.com"],
         "rate_rps": 1.0}]
 
 

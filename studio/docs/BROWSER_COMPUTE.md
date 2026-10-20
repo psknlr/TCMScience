@@ -678,7 +678,7 @@ skill's code no longer matches its pin.
   with the native command on two known-answer references, locally in headless Chromium; identical, within a stated
   tolerance, or (the UMAP layout and figures) not compared, and said so ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)).
 - ADMET in the browser as jobs (2026-10-20): bioagent's model build and pipeline in Pyodide (scikit-learn 1.8.0), the
-  chemistry in RDKit.js 2026.9.1 with exact ports (held to native RDKit on a 476-molecule parity fixture and NCI's
+  chemistry in RDKit.js 2026.9.1 with exact ports (held to native RDKit on a 484-molecule parity fixture and NCI's
   first 4,999, refusing what it cannot reproduce), the applicability-domain search on the exact Tanimoto kernel. On a
   small known-answer archive and a synthetic one at the TDC sizes the domain files and `admet.tsv` were the native
   run's bytes, the model cards the native ones but for the model file's digest, the seconds and the chemistry's name,

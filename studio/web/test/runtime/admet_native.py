@@ -95,6 +95,8 @@ MOLECULES: tuple[tuple[str, str, tuple[str, str] | None], ...] = (
     # ports do not take (refused after standardisation, at the features)
     ("quaternary_dicarboxylate", "C[N+](C)(C)CCC(C(=O)[O-])C(=O)[O-]", ("refused", "Uncharger canonical atom ranking")),
     ("amine_oxide_dative", "CN(C)(C)->O", ("refused", "feature ports: bond type DATIVE")),
+    # a TDC training molecule whose Normalizer product RDKit cannot sanitise (native RDKit goes on with it unsanitised)
+    ("molsidomine", "CCOC(=O)[N-]c1c[n+](N2CCOCC2)no1", ("refused", "Normalizer unsanitisable product")),
     # not a SMILES: neither side reads it
     ("unclosed_ring", "C1CC", ("unreadable", "'C1CC' is not a valid SMILES")),
 )

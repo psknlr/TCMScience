@@ -16,11 +16,14 @@
 //       The wasm must be the pinned build (rdkit.js RDKIT.wasm); sha256 must be the pin. rdkit_tables.json and
 //       filter_catalogs.json are read from beside this file. init again restarts the chemistry.
 //   prepare {molecules: [{name, smiles}], alerts = true}
-//       → {rows: [{name, smiles, ok, error, refused, canonical, descriptors, atoms_with_h, alerts}], n, n_ok,
+//       → {rows: [{name, smiles, ok, error, refused, canonical, descriptors, atoms_with_h, alerts}], n, n_ok, restarts,
 //          features: Float32Array (n_ok × 2073), bits: Uint8Array (n_ok × 256), timing: {total_ms, per_molecule_ms}}
 //       rows follow the molecules; features and bits hold the ok rows in that order (prepared-set.js writes the
-//       directory from them). At most MAX_MOLECULES per call. An error of type "rdkit" means RDKit.js itself failed
-//       (a trap: its memory is no longer trusted); every later prepare gets the same error until init starts it again.
+//       directory from them). At most MAX_MOLECULES per call. A C++ exception that gets out of RDKit.js on a molecule
+//       refuses that molecule (refused {need: "runner", missing: "RDKit.js exception"}) and starts a fresh module from
+//       the same verified bytes for the molecules after it (result.restarts counts them; at most MAX_RESTARTS a call).
+//       An error of type "rdkit" means RDKit.js itself failed (a trap: its memory is no longer trusted, or more than
+//       MAX_RESTARTS exceptions); every later prepare gets the same error until init starts it again.
 //   info {} → init's result, or null before init.
 
 import { ChemError, RDKIT, fetchWasm, loadRDKit } from "./rdkit.js";
@@ -30,6 +33,9 @@ import { Preparer } from "./prepare.js";
 
 /** A batch's features alone are 8.3 KB a molecule; a call is held to what a worker keeps comfortably (166 MB). */
 export const MAX_MOLECULES = 20_000;
+/** Fresh modules one prepare call may start after C++ exceptions; more is not a property of a few molecules. */
+export const MAX_RESTARTS = 20;
+export const REFUSED_EXCEPTION = "RDKit.js exception";
 const PROGRESS_MS = 200;
 const YIELD_MS = 50;
 const DATA = Object.freeze({ tables: "rdkit_tables.json", catalogs: "filter_catalogs.json" });
@@ -42,17 +48,17 @@ class OpError extends Error {
 }
 
 /** What the handlers need, so the tests can give fakes: fetch, readData(name) → the parsed JSON file beside this module,
- * factory (the RDKit.js loader; null: the vendored one), post(message, transfer), now(), yieldMs. */
+ * factory (the RDKit.js loader; null: the vendored one), post(message, transfer), now(), yieldMs, maxRestarts. */
 export function workerEnv({ fetch = globalThis.fetch?.bind(globalThis), readData = null, factory = null, post = () => {},
-  now = () => performance.now(), yieldMs = YIELD_MS } = {}) {
+  now = () => performance.now(), yieldMs = YIELD_MS, maxRestarts = MAX_RESTARTS } = {}) {
   return {
-    fetch, factory, post, now, yieldMs,
+    fetch, factory, post, now, yieldMs, maxRestarts,
     readData: readData || (async (name) => {
       const res = await fetch(new URL(`./${name}`, import.meta.url));
       if (!res.ok) throw new OpError("bad_data", `${name}: HTTP ${res.status}`);
       return res.json();
     }),
-    state: null, // {RDKit, preparer, info}
+    state: null, // {RDKit, preparer, info, start: {bytes, sha256, tables, catalogs}}
     interrupt: null,
     cancelled: new Set(),
     pending: null, // the ids the message loop has taken and not yet answered (serve sets it)
@@ -82,20 +88,32 @@ async function init(payload, env) {
     if (doc?.rdkit !== RDKIT.release) throw new OpError("bad_data", `${name} is for RDKit ${doc?.rdkit}, not ${RDKIT.release}`);
   }
   if (env.state) {
-    env.state.preparer.free();
+    if (!env.state.preparer.broken) env.state.preparer.free();
     env.state = null;
   }
-  const RDKit = await loadRDKit(bytes, { sha256, factory: env.factory });
-  const preparer = new Preparer(RDKit, { tables, catalogs });
+  const start = { bytes, sha256, tables, catalogs };
+  const { RDKit, preparer } = await startModule(start, env);
   const info = {
     engine: { ...ENGINE },
     rdkit: RDKit.version(),
     wasm: { sha256: RDKIT.wasm.sha256, bytes: RDKIT.wasm.bytes, source: wasmBytes ? "bytes" : String(wasmUrl) }, // as loadRDKit checked
     catalogs: { entries: preparer.catalog.entries.length, unported: preparer.catalog.unported },
   };
-  env.state = { RDKit, preparer, info };
+  env.state = { RDKit, preparer, info, start };
   return info;
 }
+
+async function startModule({ bytes, sha256, tables, catalogs }, env) {
+  const RDKit = await loadRDKit(bytes, { sha256, factory: env.factory });
+  return { RDKit, preparer: new Preparer(RDKit, { tables, catalogs }) };
+}
+
+// the row of a molecule RDKit.js threw a C++ exception on: refused, as a step the browser cannot do
+const exceptionRow = (err) => ({
+  ok: false, refused: { need: "runner", missing: REFUSED_EXCEPTION },
+  error: `RDKit.js threw on this molecule (${err.why}); the runner's native RDKit can prepare it, and the browser went on with a fresh module`,
+  canonical: null, descriptors: null, atoms_with_h: null, alerts: null,
+});
 
 const quantiles = (a) => {
   if (!a.length) return null;
@@ -115,7 +133,8 @@ async function prepare(payload, env, cx) {
     throw new OpError("too_large", `${molecules.length} molecules in one call; at most ${MAX_MOLECULES} (send them in batches)`);
   }
   const alerts = payload.alerts !== false;
-  const { preparer } = env.state;
+  let { preparer } = env.state;
+  let restarts = 0;
   const n = molecules.length;
   const features = new Float32Array(n * N_FEATURES);
   const bits = new Uint8Array(n * N_BITS_BYTES);
@@ -137,8 +156,15 @@ async function prepare(payload, env, cx) {
     try {
       row = preparer.prepare(smiles, { alerts });
     } catch (err) {
-      throw new OpError(err instanceof ChemError ? err.code : "internal",
-        `molecule ${i} (${m.name ?? smiles}): ${err?.message || err}`);
+      if (!(err instanceof ChemError && err.restartable && restarts < env.maxRestarts)) {
+        throw new OpError(err instanceof ChemError ? err.code : "internal",
+          `molecule ${i} (${m.name ?? smiles}): ${err?.message || err}` +
+          (err?.restartable ? ` (after ${restarts} other exceptions in this call)` : ""));
+      }
+      env.state = { ...env.state, ...(await startModule(env.state.start, env)) };
+      preparer = env.state.preparer;
+      restarts++;
+      row = exceptionRow(err);
     }
     times.push(env.now() - t);
     if (row.ok) {
@@ -162,7 +188,7 @@ async function prepare(payload, env, cx) {
   }
   progress(n);
   const result = {
-    rows, n, n_ok: nOk,
+    rows, n, n_ok: nOk, restarts,
     features: new Float32Array(features.buffer, 0, nOk * N_FEATURES),
     bits: new Uint8Array(bits.buffer, 0, nOk * N_BITS_BYTES),
     timing: { total_ms: Math.round((env.now() - t0) * 1000) / 1000, per_molecule_ms: quantiles(times) },

@@ -583,8 +583,9 @@ archive (fetched through the site's dataset relay or given as a project file) an
 storage, so nothing trained is shipped; a model card names the chemistry it was built with.
 
 The browser **refuses** (never approximates) a molecule it cannot standardise exactly as native RDKit would — one that
-would need `MetalDisconnector`, `Reionizer` or the `Uncharger`'s canonical atom ranking, a dative or zero bond, or more
-than 400 atoms — naming the step; in a build such a training molecule is dropped and counted on the card
+would need `MetalDisconnector`, `Reionizer` or the `Uncharger`'s canonical atom ranking, a `Normalizer` product RDKit
+cannot sanitise (which native RDKit carries forward unsanitised), a dative or zero bond, or more than 400 atoms, or on
+which RDKit.js throws an exception (the chemistry then goes on with a fresh module) — naming the step; in a build such a training molecule is dropped and counted on the card
 (`dropped_unstandardisable`), and in a prediction run the molecule is reported as refused and read by the runner. An
 SDF or `.mol` file (RDKit's `SDMolSupplier` is not ported) and more than 20,000 molecules per run also need the runner.
 The applicability-domain search (the Tanimoto above) runs on this device's WebAssembly SIMD kernel, or on its GPU only

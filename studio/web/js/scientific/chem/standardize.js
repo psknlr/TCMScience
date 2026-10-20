@@ -19,8 +19,10 @@
 // would cut), "Reionizer" (a charge correction would apply, or a stronger acid is protonated while a weaker one is
 // ionised), "Uncharger canonical atom ranking" (the Uncharger's choice among acid anions or negative sites depends on
 // Canon::rankMolAtoms, which RDKit.js does not expose), "Normalizer atom order" (a transform's product could not be put
-// back in RDKit's order). On the parity corpus every molecule that is not refused gives native RDKit's canonical
-// SMILES and feature row, and every refusal is one the native intermediates predict.
+// back in RDKit's order), "Normalizer unsanitisable product" (a transform's product cannot be kekulized: native
+// RDKit's normalizeInPlace logs "FAILED sanitizeMol." and goes on with the unsanitised molecule, which RDKit.js cannot
+// hold or write). On the parity corpus every molecule that is not refused gives native RDKit's canonical SMILES and
+// feature row, and every refusal is one the native intermediates predict.
 //
 // A molecule of more than MAX_ATOMS atoms is refused before RDKit.js reads it ("RDKit.js molecule size"): RDKit.js
 // 2026.09.1 runs out of stack on long chains and rings (measured: 550-atom chains, rings, PEGs, polyphenylenes and
@@ -38,6 +40,7 @@ export const REFUSALS = Object.freeze({
   reionizer: "Reionizer",
   ranking: "Uncharger canonical atom ranking",
   order: "Normalizer atom order",
+  unsanitisable: "Normalizer unsanitisable product",
   size: "RDKit.js molecule size",
 });
 // what MinimalLib's get_mol reads as something other than SMILES (common.h mol_from_input)
@@ -126,6 +129,29 @@ function oddPermutation(from, to) {
   return odd;
 }
 
+// a C++ exception that got out of RDKit.js (WebAssembly.Exception; its address in older Emscripten builds)
+const WASM_EXCEPTION = typeof WebAssembly.Exception === "function" ? WebAssembly.Exception : null;
+export const isWasmException = (err) => (WASM_EXCEPTION !== null && err instanceof WASM_EXCEPTION) || typeof err === "number";
+
+/** rdkitjson of a reaction product. RDKit.js writes it from a kekulized copy, so it throws (a C++ exception, which
+ * unwinds RDKit's frames as C++ does) when the product cannot be kekulized; normalizeInPlace's own sanitisation of the
+ * product then fails as well, and native RDKit carries the unsanitised molecule forward, which nothing here can
+ * reproduce: refused. The cause is checked (the product's SMILES must not read back as a molecule); anything else
+ * is rethrown. */
+function productJson(RDKit, pm) {
+  try {
+    return molJson(pm);
+  } catch (err) {
+    if (!isWasmException(err)) throw err;
+    const back = RDKit.get_mol(pm.get_smiles());
+    const reads = !!back && back.is_valid();
+    back?.delete();
+    if (reads) throw err;
+    throw refusal(REFUSALS.unsanitisable, "a Normalizer transform gives a product RDKit cannot kekulize; native RDKit goes on " +
+      "with it unsanitised, which RDKit.js cannot reproduce");
+  }
+}
+
 /** One application of `rxn` to `mol` as runReactant applies it in place → the new molecule, or null when it does not
  * match. `mol` is not consumed. */
 function applyInPlace(ctx, mol, rxn) {
@@ -150,12 +176,18 @@ function applyInPlace(ctx, mol, rxn) {
   try {
     for (let k = 0; k < products.size(); k++) {
       const list = products.get(k);
-      if (k === 0 && list.size()) {
-        const pm = list.at(0);
-        pdoc = molJson(pm);
-        pm.delete();
+      try {
+        if (k === 0 && list.size()) {
+          const pm = list.at(0);
+          try {
+            pdoc = productJson(RDKit, pm);
+          } finally {
+            pm.delete();
+          }
+        }
+      } finally {
+        list.delete();
       }
-      list.delete();
     }
   } finally {
     products.delete();
@@ -469,8 +501,8 @@ function uncharge(ctx, mol, data, steps) {
 /**
  * chem.standardize(smiles) → {mol (the caller deletes it), steps}. Throws ChemError "invalid_smiles" with native's
  * message ("'C1CC' is not a valid SMILES"), or "refused" (need "runner", missing: the step) for what RDKit.js cannot
- * reproduce exactly. Whatever RDKit.js itself throws (get_mol catches RDKit's exceptions, so only a trap: the module
- * is then broken) is not caught here.
+ * reproduce exactly. Whatever else RDKit.js throws itself (a trap, or a C++ exception that got out: get_mol catches
+ * RDKit's own) is not caught here.
  */
 export function standardize(ctx, smiles, data) {
   const text = String(smiles);
