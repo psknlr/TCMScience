@@ -20,7 +20,15 @@ The models are built where they run (``build_models``); nothing trained is shipp
 build writes each endpoint's card as soon as its model is saved, so an interrupted build
 keeps what it finished, and the next build trains only what is missing. A model is kept
 only when its file and its domain match its card and the card was built from the same
-archive, settings and library versions; anything else is trained again.
+archive, settings, library versions and chemistry; anything else is trained again.
+
+The chemistry (standardisation, features, the domain's bits) comes from an
+``engine.ChemEngine``: natively RDKit (``engine.RDKitEngine``), in a browser what its
+RDKit.js chemistry prepared (``engine.PrecomputedEngine``). The card names it
+(``chemistry``) and counts the molecules it dropped: those it could not read
+(``dropped_unreadable``) and those it refused to standardise because the steps they need
+are not ported to it (``dropped_unstandardisable``; always 0 natively), so a model built
+in a browser may have been trained on fewer molecules than one built natively.
 """
 
 from __future__ import annotations
@@ -38,7 +46,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from .chem import ChemError, bits, featurize, need, standardize, tanimoto_max
+from .chem import FEATURES, ChemError, need, similarity as _similarity, tanimoto_best
+from .engine import ChemEngine, Similarity, default_engine, identity
 
 __all__ = ["ENDPOINTS", "Endpoint", "ModelSet", "build_models", "load_models",
            "fetch_archive", "TDC_ADMET_URL", "TDC_ADMET_SHA256", "DOMAIN_THRESHOLD"]
@@ -169,17 +178,6 @@ def _read_split(z: zipfile.ZipFile, endpoint: str, split: str) -> tuple[list[str
     return [r["Drug"] for r in rows], np.array([float(r["Y"]) for r in rows])
 
 
-def _prepare(smiles: Sequence[str]) -> tuple[list[Any], np.ndarray]:
-    mols, ok = [], []
-    for s in smiles:
-        try:
-            mols.append(standardize(s))
-            ok.append(True)
-        except ChemError:
-            ok.append(False)
-    return mols, np.array(ok)
-
-
 @dataclass
 class ModelSet:
     directory: Path
@@ -202,28 +200,57 @@ class ModelSet:
             self._domain[endpoint] = np.load(domain)
         return self._models[endpoint]
 
-    def predict(self, mols: Sequence[Any], endpoint: str) -> dict[str, np.ndarray]:
+    def domain(self, endpoint: str) -> np.ndarray:
+        """The packed bits of the endpoint's training molecules, held to its card."""
+        self.model(endpoint)
+        return self._domain[endpoint]
+
+    def predict(self, x: np.ndarray, bits: np.ndarray, endpoint: str, *,
+                similarity: Similarity | None = None) -> dict[str, np.ndarray]:
+        """The endpoint's prediction for each feature row of ``x`` (``chem.featurize``),
+        with the largest Tanimoto similarity of its packed bits (``chem.bits``) to the
+        training molecules and whether that puts it in the applicability domain.
+        ``similarity`` searches the domain (default ``chem.tanimoto_best`` on this CPU)."""
         spec = ENDPOINTS[endpoint]
-        if not mols:
+        x, bits = np.asarray(x), np.asarray(bits)
+        if x.ndim != 2 or x.shape[1] != FEATURES or len(bits) != len(x):
+            raise ChemError(f"a prediction needs one {FEATURES}-column feature row and one "
+                            f"fingerprint per molecule (got {x.shape} and {bits.shape})")
+        if not len(x):
             empty = np.zeros(0)
             return {"value": empty, "similarity": empty,
                     "in_domain": np.zeros(0, dtype=bool)}
         model = self.model(endpoint)
-        x = featurize(mols)
         if spec.task == "classification":
             value = model.predict_proba(x)[:, 1]
         else:
             value = model.predict(x)
             if spec.log10:
                 value = 10 ** value
-        sim, _ = tanimoto_max(bits(mols), self._domain[endpoint])
+        search = similarity or (lambda _, q, r: tanimoto_best(q, r))
+        _, inter, union = search(endpoint, bits, self._domain[endpoint])
+        if not len(inter) == len(union) == len(x):
+            raise ChemError(f"the similarity search gave {len(inter)} answers for {len(x)} "
+                            "molecules")
+        sim = _similarity(inter, union)
         return {"value": value, "similarity": sim, "in_domain": sim >= DOMAIN_THRESHOLD}
 
 
-def _kept(card: Mapping[str, Any] | None, out: Path, settings: Mapping[str, Any]) -> bool:
-    """Whether a finished model can stand: same archive, settings and libraries, and files
-    that still match the card's digests."""
-    if not card or any(card.get(k) != v for k, v in settings.items()):
+def _same_chemistry(card: Mapping[str, Any], chemistry: Mapping[str, Any]) -> bool:
+    """Whether the card's model was built with this chemistry (``engine.identity``). A card
+    from before cards named it was built natively, with the RDKit it names."""
+    built = card.get("chemistry")
+    if built is None:
+        return chemistry["engine"] == "rdkit" and card.get("rdkit") == chemistry["version"]
+    return built == chemistry
+
+
+def _kept(card: Mapping[str, Any] | None, out: Path, settings: Mapping[str, Any],
+          chemistry: Mapping[str, Any]) -> bool:
+    """Whether a finished model can stand: same archive, settings, libraries and
+    chemistry, and files that still match the card's digests."""
+    if (not card or any(card.get(k) != v for k, v in settings.items())
+            or not _same_chemistry(card, chemistry)):
         return False
     model, domain = out / card["model_file"], out / card["domain_file"]
     return (model.is_file() and domain.is_file() and "domain_sha256" in card
@@ -239,16 +266,24 @@ def _write_cards(out: Path, cards: Mapping[str, Any]) -> None:
 
 def build_models(cache_dir: str | Path, *, archive: str | Path | None = None,
                  endpoints: Sequence[str] | None = None, seed: int = 0, max_iter: int = 600,
-                 rebuild: bool = False, log=print) -> ModelSet:
+                 rebuild: bool = False, log=print, engine: ChemEngine | None = None
+                 ) -> ModelSet:
     """Train and score the endpoints; write models, domains and model cards.
 
     Each card is written as soon as its model is saved. A finished model is kept, not
     trained again, when ``_kept`` says it can stand (``rebuild`` trains every endpoint
     asked for regardless). Cards of endpoints not asked for are left as they are.
+
+    ``engine`` computes the chemistry (default ``engine.RDKitEngine``). An endpoint's
+    ``train_val`` SMILES followed by its ``test`` SMILES, in the archive's order, are
+    prepared as one set (without alerts), which is what a ``PrecomputedEngine`` must hold.
     """
     ensemble = need("sklearn.ensemble")
     sklearn = need("sklearn")
-    rdkit = need("rdkit")
+    if engine is None:
+        need("rdkit")                      # the native chemistry, refused before a download
+    chem_engine = engine or default_engine()
+    chemistry = identity(chem_engine)
     cache = Path(cache_dir)
     path = Path(archive) if archive else fetch_archive(cache)
     raw = path.read_bytes()
@@ -259,13 +294,13 @@ def build_models(cache_dir: str | Path, *, archive: str | Path | None = None,
     cards: dict[str, dict[str, Any]] = (json.loads(existing.read_text(encoding="utf-8"))
                                         if existing.is_file() else {})
     settings = {"archive_sha256": archive_sha, "seed": seed, "max_iter": max_iter,
-                "sklearn": sklearn.__version__, "rdkit": rdkit.__version__}
+                "sklearn": sklearn.__version__, "rdkit": chem_engine.version}
     with zipfile.ZipFile(io.BytesIO(raw)) as z:
         available = {n.split("/")[1] for n in z.namelist() if n.count("/") >= 2}
         for name in (endpoints or list(ENDPOINTS)):
             if name not in available:
                 raise ChemError(f"the archive has no endpoint {name}")
-            if not rebuild and _kept(cards.get(name), out, settings):
+            if not rebuild and _kept(cards.get(name), out, settings, chemistry):
                 log(f"  {name}: kept, its model matches its card")
                 continue
             cards.pop(name, None)
@@ -273,10 +308,13 @@ def build_models(cache_dir: str | Path, *, archive: str | Path | None = None,
             t0 = time.time()
             train_smiles, y_train = _read_split(z, name, "train_val")
             test_smiles, y_test = _read_split(z, name, "test")
-            train_mols, ok_tr = _prepare(train_smiles)
-            test_mols, ok_te = _prepare(test_smiles)
+            prepared = chem_engine.prepare(train_smiles + test_smiles, alerts=False)
+            ok_tr, ok_te = prepared.ok[:len(train_smiles)], prepared.ok[len(train_smiles):]
             y_train, y_test = y_train[ok_tr], y_test[ok_te]
-            x_train, x_test = featurize(train_mols), featurize(test_mols)
+            n_train = int(ok_tr.sum())
+            x_train, x_test = prepared.features[:n_train], prepared.features[n_train:]
+            refused = sum(1 for ok, why in zip(prepared.ok, prepared.needs)
+                          if not ok and why == "runner")
             target = np.log10(np.maximum(y_train, 1e-6)) if spec.log10 else y_train
             common = dict(max_iter=max_iter, learning_rate=0.05, max_leaf_nodes=31,
                           l2_regularization=1.0, early_stopping=True,
@@ -295,7 +333,7 @@ def build_models(cache_dir: str | Path, *, archive: str | Path | None = None,
             import pickle
             blob = pickle.dumps(model, protocol=pickle.HIGHEST_PROTOCOL)
             (out / f"{name}.pkl").write_bytes(blob)
-            np.save(out / f"{name}_domain.npy", bits(train_mols))
+            np.save(out / f"{name}_domain.npy", prepared.bits[:n_train])
             domain_sha = _sha((out / f"{name}_domain.npy").read_bytes())
             cards[name] = {
                 "endpoint": name, "group": spec.group, "task": spec.task,
@@ -304,12 +342,14 @@ def build_models(cache_dir: str | Path, *, archive: str | Path | None = None,
                 "archive_sha256": archive_sha,
                 "archive_is_pinned": archive_sha == TDC_ADMET_SHA256,
                 "train": int(len(y_train)),
-                "test": int(len(y_test)), "dropped_unreadable": int((~ok_tr).sum()
-                                                                    + (~ok_te).sum()),
+                "test": int(len(y_test)),
+                "dropped_unreadable": int((~prepared.ok).sum()) - refused,
+                "dropped_unstandardisable": refused,
                 "metric": spec.metric, "test_score": round(score, 4),
                 "model": type(model).__name__, "iterations": int(model.n_iter_),
                 "features": "Morgan count FP r2 2048 + 25 RDKit descriptors",
-                "sklearn": sklearn.__version__, "rdkit": rdkit.__version__,
+                "sklearn": sklearn.__version__, "rdkit": chem_engine.version,
+                "chemistry": chemistry,
                 "model_file": f"{name}.pkl", "model_sha256": _sha(blob),
                 "domain_file": f"{name}_domain.npy", "domain_sha256": domain_sha,
                 "domain_threshold": DOMAIN_THRESHOLD, "seed": seed, "max_iter": max_iter,

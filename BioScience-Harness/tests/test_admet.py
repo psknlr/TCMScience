@@ -88,15 +88,16 @@ def test_models_are_trained_scored_on_the_held_out_split_and_carded(built):
 
 def test_predictions_carry_their_applicability_domain(built):
     root, ms = built
-    from bioagent.admet.chem import standardize
+    from bioagent.admet.engine import RDKitEngine
     from bioagent.admet.models import load_models
     loaded = load_models(root / "cache")
     import zipfile
     with zipfile.ZipFile(root / "tdc.zip") as z:
         trained = z.read("admet_group/hia_hou/train_val.csv").decode().splitlines()[1]
-    known = standardize(trained.split(",")[1])                   # a training molecule
-    alien = standardize("FC(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)F")
-    res = loaded.predict([known, alien], "hia_hou")
+    known = trained.split(",")[1]                                # a training molecule
+    alien = "FC(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)F"
+    prepared = RDKitEngine().prepare([known, alien], alerts=False)
+    res = loaded.predict(prepared.features, prepared.bits, "hia_hou")
     assert 0 <= res["value"].min() and res["value"].max() <= 1
     assert res["similarity"][0] == pytest.approx(1.0) and res["in_domain"][0]
     assert res["similarity"][1] < 0.3 and not res["in_domain"][1]

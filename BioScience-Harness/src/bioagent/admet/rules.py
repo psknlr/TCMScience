@@ -19,19 +19,23 @@ especially, carry PAINS motifs.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from .chem import descriptors, need
 
-__all__ = ["rules", "alerts"]
+__all__ = ["rules", "rules_of", "alerts"]
 
 _CATALOG = None
 
 
 def rules(mol: Any) -> dict[str, Any]:
-    d = descriptors(mol)
     Chem = need("rdkit.Chem")
-    atoms = Chem.AddHs(mol).GetNumAtoms()
+    return rules_of(descriptors(mol), Chem.AddHs(mol).GetNumAtoms())
+
+
+def rules_of(d: Mapping[str, float], atoms: int) -> dict[str, Any]:
+    """The rules from a molecule's ``chem.descriptors`` and its atom count with hydrogens
+    (Ghose's atoms), however they were computed."""
     lip = [d["MolWt"] > 500, d["MolLogP"] > 5, d["NumHDonors"] > 5, d["NumHAcceptors"] > 10]
     out = {
         "lipinski": {"violations": int(sum(lip)), "pass": sum(lip) <= 1},

@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 // Compile the WebAssembly kernels from their text form (studio/web/js/compute/wasm/*.wat) with wabt, into modules
-// that export the binary as base64 (*.wasm.js), so a Worker instantiates them synchronously with no fetch.
+// that export the binary as base64 (*.wasm.js), so a Worker instantiates them synchronously with no fetch. Every
+// module in the directory is built, each on its own:
+//   seqcount.wat  the sequence counts (compute/simd.js)      → seqcount.wasm.js, SEQCOUNT_WASM
+//   science.wat   the Tanimoto search (compute/science-cpu.js) → science.wasm.js, SCIENCE_WASM
 //
-//   node studio/scripts/build_wasm.mjs           # writes the *.wasm.js files
-//   node studio/scripts/build_wasm.mjs --check   # fails when a committed *.wasm.js differs from its .wat
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+//   node studio/scripts/build_wasm.mjs                 # writes every *.wasm.js
+//   node studio/scripts/build_wasm.mjs science         # writes the named module(s) only
+//   node studio/scripts/build_wasm.mjs --check         # fails when a committed *.wasm.js differs from its .wat, a .wat
+//                                                      # has no *.wasm.js, or a *.wasm.js has no .wat left
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,10 +19,13 @@ const FEATURES = { simd: true };
 export async function compile(watPath) {
   const wabt = await (await import("wabt")).default();
   const mod = wabt.parseWat(path.basename(watPath), readFileSync(watPath, "utf8"), FEATURES);
-  mod.validate();
-  const { buffer } = mod.toBinary({ write_debug_names: false });
-  mod.destroy();
-  return Buffer.from(buffer);
+  try {
+    mod.validate();
+    const { buffer } = mod.toBinary({ write_debug_names: false });
+    return Buffer.from(buffer);
+  } finally {
+    mod.destroy();
+  }
 }
 
 export function moduleSource(name, bytes) {
@@ -25,21 +33,43 @@ export function moduleSource(name, bytes) {
     `export const ${name.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_WASM = "${bytes.toString("base64")}";\n`;
 }
 
+/** The modules in `dir`: every .wat's name, sorted. */
+export function modules(dir = DIR) {
+  return readdirSync(dir).filter((f) => f.endsWith(".wat")).map((f) => f.slice(0, -4)).sort();
+}
+
+/** The committed *.wasm.js whose .wat is gone: generated code nothing can rebuild any more. */
+export function orphans(dir = DIR) {
+  const names = new Set(modules(dir));
+  return readdirSync(dir).filter((f) => f.endsWith(".wasm.js") && !names.has(f.slice(0, -".wasm.js".length))).sort();
+}
+
 async function main() {
-  const check = process.argv.includes("--check");
+  const argv = process.argv.slice(2);
+  const check = argv.includes("--check");
+  const asked = argv.filter((a) => !a.startsWith("--"));
+  const all = modules();
+  const unknown = asked.filter((n) => !all.includes(n));
+  if (unknown.length) {
+    console.error(`no such module: ${unknown.join(", ")} (there are ${all.join(", ")})`);
+    process.exit(2);
+  }
   let stale = 0;
-  for (const file of readdirSync(DIR).filter((f) => f.endsWith(".wat"))) {
-    const name = file.slice(0, -4);
+  for (const name of asked.length ? asked : all) {
     const out = path.join(DIR, `${name}.wasm.js`);
-    const text = moduleSource(name, await compile(path.join(DIR, file)));
+    const bytes = await compile(path.join(DIR, `${name}.wat`));
+    const text = moduleSource(name, bytes);
     if (check) {
-      let current = "";
-      try { current = readFileSync(out, "utf8"); } catch { current = ""; }
-      if (current !== text) { stale++; console.error(`out of date: ${out}`); }
+      const current = existsSync(out) ? readFileSync(out, "utf8") : "";
+      if (current !== text) { stale++; console.error(current ? `out of date: ${out}` : `missing: ${out}`); }
+      else console.log(`up to date: ${out} (${bytes.length} bytes)`);
     } else {
       writeFileSync(out, text);
-      console.log(`wrote ${out}`);
+      console.log(`wrote ${out} (${bytes.length} bytes)`);
     }
+  }
+  if (check && !asked.length) {
+    for (const f of orphans()) { stale++; console.error(`no .wat for ${path.join(DIR, f)}`); }
   }
   process.exit(stale ? 1 : 0);
 }
