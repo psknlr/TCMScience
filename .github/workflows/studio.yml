@@ -12,9 +12,13 @@ name: studio
 # the committed connector live-verification record, which the site's catalog.json and studio/docs/compat/matrix.csv
 # are built from, and the test modules the browser research jobs' native side imports: omics_world, sc_world and
 # test_pipeline_references for --mode omics, test_snapshot_pipeline and test_source_parsers for --mode fixture,
-# admet_world for --mode admet). The READMEs and docs/ restate catalog numbers that doc_facts.py checks, so they
+# admet_world for --mode admet, and the docking fixtures, tests/fixtures/docking, for --mode dock and
+# make_dock_fixtures.py). The READMEs and docs/ restate catalog numbers that doc_facts.py checks, so they
 # trigger it too. The browser chemistry and the ADMET jobs' native side are RDKit 2026.9.1 and scikit-learn 1.8.0,
 # the versions the browser's RDKit.js and Pyodide's scikit-learn are pinned to: installed at exactly those versions.
+# The browser docking runs AutoDock Vina 1.2.7 compiled to WebAssembly (studio/scripts/build_vina_wasm.py, rebuilt
+# here from its pins and compared byte for byte); its native side is Vina 1.2.7 with Meeko 0.8.0 and gemmi 0.7.5, the
+# release and the preparation the fixtures and the WebAssembly build are pinned to, installed at exactly those.
 on:
   push:
     paths:
@@ -34,6 +38,7 @@ on:
       - "BioScience-Harness/tests/test_snapshot_pipeline.py"
       - "BioScience-Harness/tests/test_source_parsers.py"
       - "BioScience-Harness/tests/admet_world.py"
+      - "BioScience-Harness/tests/fixtures/docking/**"
       - "BioScience-Harness/README.md"
       - "README.md"
       - "README.zh-CN.md"
@@ -57,6 +62,7 @@ on:
       - "BioScience-Harness/tests/test_snapshot_pipeline.py"
       - "BioScience-Harness/tests/test_source_parsers.py"
       - "BioScience-Harness/tests/admet_world.py"
+      - "BioScience-Harness/tests/fixtures/docking/**"
       - "BioScience-Harness/README.md"
       - "README.md"
       - "README.zh-CN.md"
@@ -93,8 +99,10 @@ jobs:
             exit 0
           fi
           python -m pip install --upgrade pip
-          # RDKit and scikit-learn at the browser's pins: the runner's ADMET tests (browser_jobs admet_*) skip without
-          pip install -e PSH-Harness -e BioScience-Harness -e "studio/runner[test]" pytest rdkit==2026.9.1 scikit-learn==1.8.0
+          # RDKit and scikit-learn at the browser's pins: the runner's ADMET tests (browser_jobs admet_*) skip without;
+          # Vina, Meeko and gemmi at the browser docking's: make_dock_fixtures.py --check below needs them
+          pip install -e PSH-Harness -e BioScience-Harness -e "studio/runner[test]" pytest rdkit==2026.9.1 scikit-learn==1.8.0 \
+            vina==1.2.7 meeko==0.8.0 gemmi==0.7.5
           # every catalog number the READMEs and docs restate, against the catalog itself; the compatibility matrix
           # and the connector coverage report, regenerated and compared (the runner tests below run them too)
           python3 studio/scripts/doc_facts.py --check
@@ -110,6 +118,14 @@ jobs:
         # (web/test/fixtures/chem_parity.json) from native RDKit 2026.9.1 and RDKit's sources at the release tag (from
         # raw.githubusercontent.com); --check fails when a committed file is not what they give
         run: python studio/scripts/make_chem_fixtures.py --check
+      - name: The prepared docking fixtures and the browser Vina's native reference, regenerated from native RDKit, Meeko and Vina
+        # make_dock_fixtures.py writes the prepared PDBQT fixtures (BioScience-Harness/tests/fixtures/docking/prepared)
+        # with RDKit 2026.9.1 and Meeko 0.8.0, and what native Vina 1.2.7 gives on them (web/test/fixtures/
+        # vina_parity.json, web/test/fixtures/vina/); --check regenerates the deterministic parts (the inputs, each
+        # ligand's text, score() and optimize() of the committed poses, which the WebAssembly engine must give bit for
+        # bit) and fails when one differs. The seeded docks were recorded on the machine named there: a Monte Carlo
+        # search is not bit-reproducible across CPUs, so they are not part of --check
+        run: python studio/scripts/make_dock_fixtures.py --check
       - name: Web (core modules and UI)
         # the Runner step installed tcmstudio into this job's Python: the tests that read a real runner's answers
         # (Settings → Data against /api/datasets) run instead of skipping
@@ -124,8 +140,33 @@ jobs:
           npm ci || npm install
           npm test
 
+  vina-wasm:
+    # AutoDock Vina 1.2.7 compiled to WebAssembly from its pinned inputs (Emscripten 4.0.23's release binaries, Vina's
+    # PyPI sdist, Ubuntu's Boost 1.83 headers; each SHA-256-checked), and every written file compared byte for byte
+    # with the committed one (web/js/scientific/dock/vendor, vina_build.json). The inputs (356 MB, nearly all of it
+    # Emscripten) are kept between runs in a cache keyed on the three pins' SHA-256, read from the script itself
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The pinned inputs' cache key
+        id: pins
+        run: |
+          python -c "import runpy; m = runpy.run_path('studio/scripts/build_vina_wasm.py'); print('key=' + '-'.join(m[k]['sha256'][:16] for k in ('EMSCRIPTEN', 'VINA', 'BOOST')))" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vina-wasm-inputs
+          key: vina-wasm-inputs-${{ steps.pins.outputs.key }}
+      - name: Rebuild the WebAssembly Vina and compare it with the committed build
+        run: python studio/scripts/build_vina_wasm.py --check --cache "$RUNNER_TEMP/vina-wasm-inputs"
+
   build:
-    needs: test
+    needs: [test, vina-wasm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -141,6 +182,9 @@ jobs:
           pip install -e PSH-Harness -e BioScience-Harness -e studio/runner
           # the native side of the browser ADMET jobs (science.mjs --mode admet): the browser's pins
           pip install rdkit==2026.9.1 scikit-learn==1.8.0
+          # the native side of the browser docking job (science.mjs --mode dock): the release its WebAssembly build is
+          # (NativeVina refuses any other) and the preparation its fixtures were made with
+          pip install vina==1.2.7 meeko==0.8.0 gemmi==0.7.5
       - name: Build the app (studio/_site) with its headers
         run: |
           python3 studio/scripts/build_web.py --out studio/_site
@@ -198,6 +242,17 @@ jobs:
           node studio/web/test/runtime/chem.browser.mjs --json "$RUNNER_TEMP/science-chem.json"
           node studio/web/test/runtime/gpu-science.mjs --software --json "$RUNNER_TEMP/science-gpu.json"
           node studio/web/test/runtime/science.mjs --mode admet --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-admet.json"
+      - name: Browser docking (AutoDock Vina 1.2.7 in WebAssembly, the Python stages in Pyodide) against native Vina 1.2.7
+        # science.mjs --mode dock: pipeline.dock as a job of the page's job service on the prepared fixtures (3PTB's
+        # pocket, six ligands, the crystal ligand BEN as the reference; project files), the site's own Vina wasm at
+        # boot.json's pin in dedicated workers, Pyodide from jsDelivr. Held natively to: dock_read's plan and the texts
+        # Vina was given, byte for byte; run_dock on the browser's own Vina results in CPython, every output the
+        # browser's bytes; native Vina's score() of each top pose the browser found, the same float64 bits as the
+        # WebAssembly engine's; the runner's command (`bioagent dock … --reference-ligand …`, native Vina, the same
+        # seed): both complete, both redock BEN within 2 Å, each ligand's best score reported beside the band measured
+        # between native builds (a seeded search is not bit-reproducible across engines; vina.test.mjs holds seeds 1-8
+        # to the rule); the receipt's engine, compute facts and device note
+        run: node studio/web/test/runtime/science.mjs --mode dock --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-dock.json"
       - name: Keep the browser research jobs' reports (every check, the page's failures, rows and console)
         # also when a mode failed or timed out, which is when they are read; this workflow's own test runs on the
         # planted and simulated references (digests and sizes of their outputs), nothing of a visitor's

@@ -2,7 +2,8 @@
 // a last-bit difference in a p-value named within tolerance with what it changed downstream, anything else different.
 // Then the omics jobs' (--mode omics): compare.mjs's rule for their outputs, omics_native.py's known answer, and what
 // science.mjs says when the page gives no result. Then the ADMET jobs' (--mode admet): exact, with what is set aside
-// named (compareAdmet).
+// named (compareAdmet). Then the docking job's (--mode dock): the plan, the analysis and Vina's energy model exact, the
+// searches held to what does not depend on their last bits (compareDock).
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -12,10 +13,11 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  ADMET_ULP_DESCRIPTORS, ADMET_VALUE_ULPS, CARD_SET_ASIDE, OMICS_RULE, RELATIVE, admetTransform, compareAdmet, compareDescriptors, compareExports,
-  compareJson, compareOmics, compareOmicsTable, compareSignificant, compareTable, compareText, omicsBound, omicsFraction, parseHexFloat, ulps,
-  umapAgreement, withoutFigures,
+  ADMET_ULP_DESCRIPTORS, ADMET_VALUE_ULPS, CARD_SET_ASIDE, DOCK_RUN_SET_ASIDE, DOCK_SEARCH_BAND, OMICS_RULE, RELATIVE, admetTransform, compareAdmet,
+  compareDescriptors, compareDock, compareExports, compareJson, compareOmics, compareOmicsTable, compareSignificant, compareTable, compareText,
+  omicsBound, omicsFraction, parseHexFloat, ulps, umapAgreement, withoutFigures,
 } from "./compare.mjs";
+import { dockPlan, firstPose, float64Bits } from "./dock-plan.mjs";
 import { lostJob, pageLines } from "./science.mjs";
 
 const sha = (text) => `sha256:${createHash("sha256").update(Buffer.from(text)).digest("hex")}`;
@@ -684,4 +686,285 @@ test("admet native side: Refusing leaves out what the browser refused, as it did
   assert.ok(out.same_row, "the kept molecule's features are native RDKit's own");
   assert.deepEqual(out.native_ok, [true, true, false, true]);
   assert.equal(out.name, "rdkit", "the cards it builds say native RDKit built them");
+});
+
+// --------------------------------------------------------------------------- the docking job (science.mjs --mode dock)
+
+const VINA_WASM = { name: "AutoDock Vina", version: "1.2.7", build: "wasm", wasm_sha256: "9".repeat(64) };
+const hex256 = (text) => createHash("sha256").update(Buffer.from(text)).digest("hex");
+const asFile = (text) => ({ sha256: sha(text), bytes: Buffer.byteLength(text), text });
+
+/**
+ * A consistent browser/native pair as checkDock hands them to compareDock: two ligands and the reference, docked by two
+ * Vina workers in the browser; the native analysis on the browser's results (the same outputs, its own process fields);
+ * the runner's native run with other best scores at the same seed, as a seeded search gives elsewhere.
+ */
+function dockWorld() {
+  const texts = { "receptor.pdbqt": "ATOM receptor\n", "ligand-0.pdbqt": "ROOT benzamidine\n", "ligand-1.pdbqt": "ROOT paeonol\n", "reference.pdbqt": "ROOT BEN\n" };
+  const lig = (index, name, heavy, torsions) => ({ index, key: `ligand-${index}`, name, file: `plan/ligand-${index}.pdbqt`, sha256: hex256(texts[`ligand-${index}.pdbqt`]), heavy_atoms: heavy, torsions });
+  const plan = {
+    schema: "tcmstudio.dock-plan/1",
+    receptor: { file: "plan/receptor.pdbqt", sha256: hex256(texts["receptor.pdbqt"]), atoms: 701, heavy_atoms: 578, chains: ["A"], residues: 81 },
+    ligands: [lig(0, "benzamidine", 9, 1), lig(1, "paeonol", 12, 3)],
+    reference: { key: "reference", name: "BEN", file: "plan/reference.pdbqt", sha256: hex256(texts["reference.pdbqt"]), heavy_atoms: 9, torsions: 1 },
+    box: { center: [-1.8555000000000001, 14.366, 16.747999999999998], size: [18, 18, 18], source: "reference ligand" },
+    params: { scoring: "vina", exhaustiveness: 8, n_poses: 9, seed: 42, energy_range: 3, spacing: 0.375, min_rmsd: 1, max_evals: 0 },
+  };
+  const planText = `${JSON.stringify(plan, null, 2)}\n`;
+  const params = { ...plan.params, center: plan.box.center, size: plan.box.size };
+  const poses = "MODEL 1\nATOM pose\nENDMDL\n";
+  const result = (key, ligandSha, e) => JSON.stringify({ schema: "tcmstudio.vina-result/1", key, receptor_sha256: plan.receptor.sha256, ligand_sha256: ligandSha, params, engine: VINA_WASM, energies: [[e, e, -0.1, 0.2, -0.1]], poses, seconds: 3.5 });
+  const results = { reference: asFile(result("reference", plan.reference.sha256, -6.193)), "ligand-0": asFile(result("ligand-0", plan.ligands[0].sha256, -6.036)), "ligand-1": asFile(result("ligand-1", plan.ligands[1].sha256, -5.799)) };
+  const stages = (s) => ["inputs", "site", "redock_validation", "dock", "pose_checks", "report", "verify"].map((name, i) => ({ name, required: true, status: "succeeded", check: name === "verify" ? "PASS" : null, seconds: s * (i + 1) }));
+  const run = ({ engine, root, python, at, s, best, rmsd }) => JSON.stringify({
+    pipeline: "bioagent.docking.prepared", mode: "prepared", code_digest: "c".repeat(64), started: at, finished: at, python, engine, versions: { vina: "1.2.7" },
+    config: { center: null, size: null, scoring: "vina", exhaustiveness: 8, n_poses: 9, seed: 42, energy_range: 3 },
+    receptor: { file: "3ptb_receptor.pdbqt", sha256: plan.receptor.sha256, atoms: 701, heavy_atoms: 578, chains: ["A"], residues: 81 },
+    box: plan.box, inputs: { [`${root}/3ptb_receptor.pdbqt`]: "a".repeat(64), [`${root}/ligands.pdbqt`]: "b".repeat(64), [`${root}/ben_crystal.pdbqt`]: "e".repeat(64) },
+    ligands: plan.ligands.map(({ file, ...l }) => l), reference: { key: "reference", name: "BEN", sha256: plan.reference.sha256, heavy_atoms: 9, torsions: 1 },
+    validation: { ligand: "BEN", top_pose_rmsd: rmsd, rmsd: "atom order (upper bound of the symmetry-aware RMSD)", top_score: -6.19, threshold: 2, passed: rmsd <= 2, poses: [] },
+    outputs: { "scores.tsv": "d".repeat(64) }, warnings: [],
+    results: Object.entries(best).map(([ligand, e]) => ({ ligand, best_score: Math.round(e * 1000) / 1000, energies: [[e, e, -0.1, 0.2, -0.1]], poses: 1, seconds: 3.5 })),
+    failures: {}, stages: stages(s), complete: true, limitations: ["A Vina score is not a binding free energy."],
+  });
+  const stagesJson = (s) => JSON.stringify({ schema: "bioagent.stages/1", pipeline: "bioagent.docking.prepared", planned: [], running: null, stages: stages(s), complete: true, problems: [] });
+  const outputs = { "scores.tsv": "ligand\tbest_score\nbenzamidine\t-6.036\npaeonol\t-5.799\n", "poses/benzamidine.pdbqt": poses, "poses/paeonol.pdbqt": poses, "redock/BEN.pdbqt": poses, "report.md": "# Molecular docking\n" };
+  const browserBest = { benzamidine: -6.036, paeonol: -5.799 };
+  const browserFiles = Object.fromEntries(Object.entries({
+    ...outputs, "run.json": run({ engine: VINA_WASM, root: "/work/bj-1/inputs", python: "3.14.2", at: "2026-10-20T17:54:40+00:00", s: 0.01, best: browserBest, rmsd: 1.14 }), "stages.json": stagesJson(0.01),
+  }).map(([k, v]) => [k, asFile(v)]));
+  const nativeEngine = { name: "AutoDock Vina", version: "1.2.7", build: "native" };
+  const facts = ["vina-1", "vina-2", "vina-1"].map((worker, i) => ({ op: "vina.dock", kernel: "AutoDock Vina 1.2.7 global search", backend: "vina-wasm", placement: "browser", where: "worker", worker, size: { heavy_atoms: 9, torsions: 1, exhaustiveness: 8 }, gpu: null, accelerated: null, basis: "CPU, one thread per worker", ms: 3500 + i }));
+  const scoreRow = (key, name, pose, energies) => ({ key, name, pose, receptor_sha256: plan.receptor.sha256, ligand_sha256: hex256(pose), energies, bits: energies.map(float64Bits) });
+  const energies = { reference: [-6.19, -7.1, -0.9, 0, 0.2, -0.3, 0.1, 0], "ligand-0": [-6.03, -7.0, -0.5, 0.1, 0.2, -0.3, 0.1, 0], "ligand-1": [-5.79, -6.2, -0.6, 0.3, 0.1, -0.2, 0.1, 0] };
+  const pose = "ATOM pose\n";
+  const scored = [["reference", "BEN"], ["ligand-0", "benzamidine"], ["ligand-1", "paeonol"]].map(([k, name]) => ({ ...scoreRow(k, name, pose, energies[k]), params: { scoring: "vina", center: plan.box.center, size: plan.box.size, spacing: 0.375, seed: 42 }, engine: VINA_WASM, ms: 400 }));
+  return {
+    browser: {
+      job: {
+        ok: true, state: "succeeded", files: browserFiles, results, plan: Object.fromEntries([["dock_plan.json", asFile(planText)], ...Object.entries(texts).map(([k, v]) => [k, asFile(v)])]),
+        stages: [{ id: "dock", reused: false, record: { workers: 2, why: "2 Vina workers: …" }, compute: facts }],
+        receipt: {
+          assurance: "outputs_verified",
+          device: { evidence: "verified", note: "computed on this device's CPU: CPython compiled to WebAssembly (Pyodide) in 1 dedicated Web Worker, one thread each; AutoDock Vina 1.2.7 (WebAssembly) in 2 dedicated Web Workers, one thread each; nothing ran on a GPU" },
+          engine: [{ id: "AutoDock Vina", version: "1.2.7", stages: ["dock"], name: "AutoDock Vina", build: "wasm", wasm_sha256: VINA_WASM.wasm_sha256 }],
+          resources: { memory: { dedicated: [{ engine: "AutoDock Vina 1.2.7 (WebAssembly)", workers: 2, wasm_peak_bytes: null, measured_by: null, reason: "not measured: these dedicated workers do not report their WebAssembly memory, and the job service does not read it" }] } },
+        },
+      },
+      scored,
+    },
+    native: {
+      runs: { runner: { command: ["python", "-m", "bioagent.cli", "dock"], exit: 0, seconds: 13, checks: { run: "ok", scores: "ok", report: "ok", limitations: "ok" } }, analysis: { exit: 0, seconds: 0.03, ended: { exit: 0 } } },
+      scores: scored.map(({ key, name, receptor_sha256, ligand_sha256, energies: e, bits }) => ({ key, name, receptor_sha256, ligand_sha256, first_pose: true, energies: e, bits })),
+    },
+    nativeFiles: {
+      plan: Object.fromEntries([["dock_plan.json", Buffer.from(planText)], ...Object.entries(texts).map(([k, v]) => [k, Buffer.from(v)])]),
+      analysis: Object.fromEntries(Object.entries({
+        ...outputs, "run.json": run({ engine: VINA_WASM, root: "/tmp/WORK/raw", python: "3.12.3", at: "2026-10-20T17:54:46+00:00", s: 0.02, best: browserBest, rmsd: 1.14 }), "stages.json": stagesJson(0.02),
+      }).map(([k, v]) => [k, Buffer.from(v)])),
+      runner: { "run.json": Buffer.from(run({ engine: nativeEngine, root: "/tmp/WORK/raw", python: "3.12.3", at: "2026-10-20T17:55:00+00:00", s: 0.5, best: { benzamidine: -6.078, paeonol: -5.814 }, rmsd: 1.92 })) },
+    },
+    expected: { files: { "3ptb_receptor.pdbqt": { sha256: "a".repeat(64) }, "ligands.pdbqt": { sha256: "b".repeat(64) }, "ben_crystal.pdbqt": { sha256: "e".repeat(64) } }, engine: VINA_WASM },
+  };
+}
+
+/** w with the file `name` of `group` (browser: job.files; analysis or runner: native) as JSON changed by `change`. */
+function withDockJson(w, group, name, change) {
+  if (group === "browser") {
+    const doc = JSON.parse(w.browser.job.files[name].text);
+    change(doc);
+    w.browser.job.files[name] = asFile(JSON.stringify(doc));
+  } else {
+    const doc = JSON.parse(w.nativeFiles[group][name].toString("utf8"));
+    change(doc);
+    w.nativeFiles[group][name] = Buffer.from(JSON.stringify(doc));
+  }
+  return w;
+}
+
+test("dock: a consistent run passes, each row saying what it compared; the search's best scores are reported, not counted", () => {
+  const rows = compareDock(dockWorld());
+  assert.deepEqual(failing(rows), []);
+  for (const name of ["plan: dock_plan.json", "plan: the texts Vina was given", "run.json: box, settings, receptor, ligands and reference", "run.json: the inputs' digests",
+    "analysis: scores.tsv", "analysis: poses/benzamidine.pdbqt", "analysis: redock/BEN.pdbqt", "score: benzamidine (ligand-0), its top pose", "score: BEN (reference), its top pose"]) {
+    assert.equal(rowOf(rows, name)?.status, "identical", name);
+  }
+  assert.equal(rowOf(rows, "analysis: run.json").status, "same_apart_from_excluded");
+  assert.match(rowOf(rows, "analysis: run.json").why, new RegExp(DOCK_RUN_SET_ASIDE.join(", ").replace(/[.*]/g, "\\$&")));
+  assert.equal(rowOf(rows, "analysis: stages.json").status, "same_apart_from_excluded");
+  for (const name of ["search: both runs complete", "search: BEN redocked within 2 Å", "search: the ligands docked", "run.json: the engine", "native: the runner's command",
+    "receipt: the engine", "receipt: the dock stage's compute facts", "receipt: the device note", "receipt: the dedicated workers' memory", "results: one Vina result per planned run"]) {
+    assert.equal(rowOf(rows, name)?.status, "same", name);
+  }
+  const best = rowOf(rows, "search: benzamidine best score");
+  assert.equal(best.status, "reported");
+  assert.equal(best.counted, false);
+  assert.match(best.why, /browser -6\.036, native -6\.078 kcal\/mol at seed 42: \|Δ\| 0\.042/);
+  assert.ok(rowOf(rows, "search: |Δbest| over the ligands").why.endsWith(DOCK_SEARCH_BAND));
+  assert.match(rowOf(rows, "search: BEN redocked within 2 Å").why, /1\.14 Å from the crystal pose in the browser .* 1\.92 Å natively/);
+});
+
+test("dock: a search far from native's is reported, never failed; one that does not redock the reference or complete is failed", () => {
+  let w = withDockJson(dockWorld(), "runner", "run.json", (d) => { d.results[0].energies[0][0] = -4.5; });
+  let rows = compareDock(w);
+  assert.deepEqual(failing(rows), [], "a seeded search's best score is not held to native's");
+  assert.match(rowOf(rows, "search: benzamidine best score").why, /\|Δ\| 1\.536/);
+  for (const [row, group, change] of [
+    ["search: BEN redocked within 2 Å", "browser", (d) => { d.validation.top_pose_rmsd = 2.05; d.validation.passed = false; }],
+    ["search: BEN redocked within 2 Å", "runner", (d) => { d.validation.top_pose_rmsd = 2.4; d.validation.passed = false; }],
+    ["search: BEN redocked within 2 Å", "browser", (d) => { d.validation.passed = false; }],
+    ["search: both runs complete", "runner", (d) => { d.complete = false; }],
+    ["search: both runs complete", "browser", (d) => { d.complete = false; }],
+    ["search: the ligands docked", "runner", (d) => { d.results.pop(); d.failures = { paeonol: "Vina refused it" }; }],
+    ["search: the ligands docked", "browser", (d) => { d.failures = { other: "x" }; }],
+  ]) {
+    rows = compareDock(withDockJson(dockWorld(), group, "run.json", change));
+    assert.equal(rowOf(rows, row).status, "different", `${row}: ${change}`);
+    assert.equal(rowOf(rows, row).ok, false);
+  }
+  w = dockWorld();
+  w.native.runs.runner = { ...w.native.runs.runner, exit: 1, stderr: "incomplete" };
+  assert.equal(rowOf(compareDock(w), "native: the runner's command").status, "different");
+  w = dockWorld();
+  w.native.runs.runner.checks.run = "verify_run: scores.tsv digest differs";
+  assert.match(rowOf(compareDock(w), "native: the runner's command").why, /checks failed: run: verify_run/);
+});
+
+test("dock: the plan, the inputs and the ligand table are exact", () => {
+  for (const [row, change] of [
+    ["plan: dock_plan.json", (w) => { const p = JSON.parse(w.browser.job.plan["dock_plan.json"].text); p.box.center[0] = -1.8555; w.browser.job.plan["dock_plan.json"] = asFile(`${JSON.stringify(p, null, 2)}\n`); }],
+    ["plan: dock_plan.json", (w) => { w.browser.job.plan["dock_plan.json"] = asFile(JSON.stringify(JSON.parse(w.browser.job.plan["dock_plan.json"].text))); }],
+    ["plan: the texts Vina was given", (w) => { w.browser.job.plan["ligand-1.pdbqt"] = asFile("ROOT paeonol\r\n"); }],
+    ["plan: the texts Vina was given", (w) => { w.nativeFiles.plan["receptor.pdbqt"] = Buffer.from("ATOM other\n"); }],
+    ["plan: the texts Vina was given", (w) => { delete w.browser.job.plan["reference.pdbqt"]; }],
+    ["run.json: box, settings, receptor, ligands and reference", (w) => withDockJson(w, "runner", "run.json", (d) => { d.box.size[2] = 18.000000000000004; })],
+    ["run.json: box, settings, receptor, ligands and reference", (w) => withDockJson(w, "browser", "run.json", (d) => { d.ligands[1].torsions = 4; })],
+    ["run.json: box, settings, receptor, ligands and reference", (w) => withDockJson(w, "browser", "run.json", (d) => { d.config.seed = 1; })],
+    ["run.json: the inputs' digests", (w) => withDockJson(w, "runner", "run.json", (d) => { d.inputs["/tmp/WORK/raw/ligands.pdbqt"] = "f".repeat(64); })],
+    ["run.json: the inputs' digests", (w) => { w.expected.files["ligands.pdbqt"].sha256 = "f".repeat(64); }],
+    ["run.json: the engine", (w) => withDockJson(w, "browser", "run.json", (d) => { d.engine.wasm_sha256 = "8".repeat(64); })],
+    ["run.json: the engine", (w) => withDockJson(w, "runner", "run.json", (d) => { d.engine.version = "1.2.6"; })],
+    ["run.json: the engine", (w) => withDockJson(w, "runner", "run.json", (d) => { d.engine.build = "wasm"; })],
+  ]) {
+    const w = dockWorld();
+    const r = rowOf(compareDock(change(w) || w), row);
+    assert.equal(r?.status, "different", `${row}: ${change}`);
+    assert.equal(r.ok, false);
+  }
+});
+
+test("dock analysis: every output the browser's bytes; run.json and stages.json apart from the process's own fields only", () => {
+  let w = dockWorld();
+  w.nativeFiles.analysis["scores.tsv"] = Buffer.from(w.browser.job.files["scores.tsv"].text.replace("-5.799", "-5.800"));
+  assert.equal(rowOf(compareDock(w), "analysis: scores.tsv").status, "different");
+  w = dockWorld();
+  delete w.browser.job.files["redock/BEN.pdbqt"];
+  assert.equal(rowOf(compareDock(w), "analysis: redock/BEN.pdbqt").status, "missing");
+  w = dockWorld();
+  w.native.runs.analysis = { exit: 2, seconds: 0.01, ended: { exit: 2, refused: "ligand-1.json was computed with other parameters: seed" } };
+  assert.match(rowOf(compareDock(w), "analysis: run_dock natively on the browser's Vina results").why, /other parameters: seed/);
+  // what is set aside may differ; nothing else may, the energies at full precision included
+  w = withDockJson(dockWorld(), "analysis", "run.json", (d) => { d.python = "3.11.0"; d.started = "x"; d.stages[2].seconds = 9; });
+  assert.equal(rowOf(compareDock(w), "analysis: run.json").status, "same_apart_from_excluded");
+  for (const change of [
+    (d) => { d.results[0].energies[0][1] += 2 ** -40; }, (d) => { d.validation.top_pose_rmsd = 1.1400000000000001; }, (d) => { d.code_digest = "0".repeat(64); },
+    (d) => { d.stages[3].reason = "another reason"; }, (d) => { d.limitations.push("one more"); }, (d) => { d.inputs = { "/tmp/WORK/raw/other.pdbqt": "a".repeat(64) }; },
+  ]) {
+    assert.equal(rowOf(compareDock(withDockJson(dockWorld(), "analysis", "run.json", change)), "analysis: run.json").status, "different", String(change));
+  }
+  assert.equal(rowOf(compareDock(withDockJson(dockWorld(), "analysis", "stages.json", (d) => { d.stages[3].status = "failed"; })), "analysis: stages.json").status, "different");
+});
+
+test("dock scores: the browser's top poses scored by both engines, every float64 bit the same", () => {
+  const name = "score: paeonol (ligand-1), its top pose";
+  for (const [what, change] of [
+    ["one unit in the last place", (w) => { const s = w.native.scores[2]; s.energies = [...s.energies]; s.energies[3] = 0.1 + 2 ** -56; s.bits = s.energies.map(float64Bits); }],
+    ["-0 against 0", (w) => { const s = w.native.scores[2]; s.energies = [...s.energies]; s.energies[7] = -0; s.bits = s.energies.map(float64Bits); }],
+    ["a value fewer", (w) => { w.native.scores[2].bits = w.native.scores[2].bits.slice(0, 7); }],
+    ["another pose", (w) => { w.native.scores[2].ligand_sha256 = "0".repeat(64); }],
+    ["not the first MODEL of the result", (w) => { w.native.scores[2].first_pose = false; }],
+  ]) {
+    const w = dockWorld();
+    change(w);
+    const r = rowOf(compareDock(w), name);
+    assert.equal(r.status, "different", what);
+    assert.equal(r.ok, false, what);
+  }
+  let w = dockWorld();
+  w.native.scores[2] = { key: "ligand-1", name: "paeonol", error: "PDBQT parsing error" };
+  assert.equal(rowOf(compareDock(w), name).status, "missing");
+  w = dockWorld();
+  w.browser.scored = [];
+  assert.equal(rowOf(compareDock(w), "score: the browser's top poses").status, "missing");
+  assert.equal(float64Bits(-0), "8000000000000000");
+  assert.equal(float64Bits(1), "3ff0000000000000");
+  assert.notEqual(float64Bits(0.1 + 0.2), float64Bits(0.3));
+});
+
+test("dock receipt and results: the engine, vina-wasm facts for every run, the dedicated workers named and their memory not measured", () => {
+  for (const [row, change] of [
+    ["receipt: outputs_verified, device evidence verified", (w) => { w.browser.job.receipt.assurance = "worker_digests_only"; }],
+    ["receipt: outputs_verified, device evidence verified", (w) => { w.browser.job.receipt.device.evidence = "claimed"; }],
+    ["receipt: the engine", (w) => { w.browser.job.receipt.engine = []; }],
+    ["receipt: the engine", (w) => { w.browser.job.receipt.engine[0].wasm_sha256 = "8".repeat(64); }],
+    ["receipt: the engine", (w) => { w.browser.job.receipt.engine[0].stages = ["analysis"]; }],
+    ["receipt: the dock stage's compute facts", (w) => { w.browser.job.stages[0].compute[1].backend = "native"; }],
+    ["receipt: the dock stage's compute facts", (w) => { w.browser.job.stages[0].compute[0].accelerated = true; }],
+    ["receipt: the dock stage's compute facts", (w) => { w.browser.job.stages[0].compute[2].where = "page"; }],
+    ["receipt: the dock stage's compute facts", (w) => { w.browser.job.stages[0].compute.pop(); }],
+    ["receipt: the dock stage's compute facts", (w) => { w.browser.job.stages[0].reused = true; }],
+    ["receipt: the device note", (w) => { w.browser.job.receipt.device.note = "computed on this device's CPU: Pyodide"; }],
+    ["receipt: the device note", (w) => { w.browser.job.stages[0].compute.forEach((f) => { f.worker = "vina-1"; }); }],
+    ["receipt: the dedicated workers' memory", (w) => { w.browser.job.receipt.resources.memory.dedicated[0].wasm_peak_bytes = 4e8; }],
+    ["receipt: the dedicated workers' memory", (w) => { delete w.browser.job.receipt.resources.memory.dedicated; }],
+    ["results: one Vina result per planned run", (w) => { delete w.browser.job.results["ligand-1"]; }],
+    ["results: one Vina result per planned run", (w) => { w.browser.job.results["ligand-7"] = w.browser.job.results["ligand-1"]; }],
+    ["results: one Vina result per planned run", (w) => { const d = JSON.parse(w.browser.job.results["ligand-0"].text); d.params.seed = 1; w.browser.job.results["ligand-0"] = asFile(JSON.stringify(d)); }],
+    ["results: one Vina result per planned run", (w) => { const d = JSON.parse(w.browser.job.results["ligand-0"].text); d.engine.build = "native"; w.browser.job.results["ligand-0"] = asFile(JSON.stringify(d)); }],
+    ["results: one Vina result per planned run", (w) => { const d = JSON.parse(w.browser.job.results.reference.text); d.ligand_sha256 = "0".repeat(64); w.browser.job.results.reference = asFile(JSON.stringify(d)); }],
+  ]) {
+    const w = dockWorld();
+    change(w);
+    const r = rowOf(compareDock(w), row);
+    assert.equal(r?.status, "different", `${row}: ${change}`);
+    assert.equal(r.ok, false);
+  }
+  const w = dockWorld();
+  delete w.browser.job;
+  assert.deepEqual(compareDock(w).map((r) => [r.name, r.status, r.ok]), [["the pipeline.dock browser job", "missing", false]]);
+});
+
+test("dock plan: the fixture's files and the pipeline's defaults given explicitly; the first pose as pose_models reads it", () => {
+  const plan = dockPlan();
+  assert.deepEqual(plan.files, [plan.job.params.receptor, plan.job.params.ligands, plan.job.params.reference_ligand]);
+  assert.deepEqual(Object.keys(plan.job.params).sort(), ["exhaustiveness", "ligands", "poses", "receptor", "reference_ligand", "scoring", "seed"]);
+  assert.equal(firstPose("MODEL 1\nA\n\nB\nENDMDL\nMODEL 2\nC\nENDMDL\n"), "A\n\nB\n");
+  assert.equal(firstPose("MODEL 1\r\nA\r\nENDMDL\r\n"), "A\n");
+  assert.equal(firstPose("A\n\nB\n"), "A\nB\n");
+  assert.equal(firstPose("MODEL 1\nA\nMODEL 2\nB\nENDMDL\n"), "B\n", "an unclosed MODEL is dropped, as pose_models drops it");
+  assert.equal(firstPose("MODEL 1\nA\n"), null);
+});
+
+/** A Python with bioagent.docking.prepared (no Vina needed): pose_models, which firstPose mirrors. */
+const DOCK_PYTHON = [process.env.PYTHON, "python3"].filter(Boolean).find((py) => {
+  try { execFileSync(py, ["-c", "import bioagent.docking.prepared"], { stdio: "ignore", timeout: 60000 }); return true; } catch { return false; }
+}) ?? null;
+const DOCK_NATIVE = path.join(path.dirname(fileURLToPath(import.meta.url)), "dock_native.py");
+
+test("dock native side: firstPose is pose_models' first pose, and float64Bits dock_native.py's bits", { skip: DOCK_PYTHON ? false : "no Python with bioagent ($PYTHON or python3)" }, () => {
+  const texts = ["MODEL 1\nREMARK VINA RESULT: -6.0\nATOM  1\n\nENDMDL\nMODEL 2\nATOM  2\nENDMDL\n", "MODEL 1\r\nATOM  1\r\nENDMDL\r\n", "ATOM  1\n\nATOM  2\n", "MODEL 1\nA\nMODEL 2\nB\nENDMDL\n"];
+  const values = [-6.19075629999364, -0, 0, 5e-324, 1.7976931348623157e308, 0.1 + 0.2];
+  const code = [
+    "import json, runpy, sys",
+    "from bioagent.docking.prepared import pose_models",
+    "ns = runpy.run_path(sys.argv[1])",
+    "doc = json.loads(sys.stdin.read())",
+    "print(json.dumps({'poses': ['\\n'.join(pose_models(t)[0]) + '\\n' for t in doc['texts']],",
+    "  'bits': [ns['bits'](float(x)) for x in doc['values']]}))",
+  ].join("\n");
+  // -0 survives JSON only as text: give each value as its repr
+  const input = JSON.stringify({ texts, values: values.map((v) => (Object.is(v, -0) ? "-0.0" : String(v))) });
+  const out = JSON.parse(execFileSync(DOCK_PYTHON, ["-c", code, DOCK_NATIVE], { input, encoding: "utf8" }).trim().split("\n").at(-1));
+  assert.deepEqual(texts.map(firstPose), out.poses);
+  assert.deepEqual(values.map(float64Bits), out.bits);
 });

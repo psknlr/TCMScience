@@ -135,8 +135,8 @@ def _runner(work: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
     start = StartContext(job_id="science-dock", job_dir=job, project_id=None, paths={}, data_env={}, settings={},
                          device="cpu", threads=os.cpu_count() or 1, python=sys.executable)
     argv = [a.replace(OUTPUT_TOKEN, str(out)) for a in kind.command(prepared, start)]
-    # -I (the runner's) also ignores PYTHONPATH: a checkout run from its sources keeps it, an installed one (CI) does not
-    # need it and runs the command exactly as the runner does
+    # -I (the runner's) also ignores PYTHONPATH: a checkout run from its sources keeps it; an installed one (CI) does
+    # not need it and runs the command exactly as the runner does
     if os.environ.get("PYTHONPATH"):
         argv = [a for a in argv if a != "-I"]
     t0 = time.perf_counter()
@@ -198,7 +198,8 @@ def native(work: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
     scores = []
     scored = json.loads((work / "browser" / "scored.json").read_text(encoding="utf-8"))
     for s in scored:
-        row: dict[str, Any] = {"key": s["key"], "name": s.get("name"), "receptor_sha256": _sha(receptor.encode("utf-8")),
+        row: dict[str, Any] = {"key": s["key"], "name": s.get("name"),
+                               "receptor_sha256": _sha(receptor.encode("utf-8")),
                                "ligand_sha256": _sha(s["pose"].encode("utf-8"))}
         try:
             doc = json.loads((results / f"{s['key']}.json").read_text(encoding="utf-8"))
