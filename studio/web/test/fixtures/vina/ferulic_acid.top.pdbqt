@@ -1,0 +1,39 @@
+REMARK VINA RESULT:    -5.903      0.000      0.000
+REMARK INTER + INTRA:          -7.485
+REMARK INTER:                  -7.284
+REMARK INTRA:                  -0.201
+REMARK UNBOUND:                -0.201
+REMARK  Name = ferulic_acid
+REMARK SMILES COc1cc(/C=C/C(=O)O)ccc1O
+REMARK SMILES IDX 6 1 7 2 5 3 3 4 4 5 13 6 12 7 11 8 2 9 1 10 14 11 8 13 9 14
+REMARK SMILES IDX 10 15
+REMARK H PARENT 14 12 10 16
+ROOT
+ATOM      1  C   UNL     1      -0.560  16.327  19.483  1.00  0.00    +0.016 C 
+ATOM      2  C   UNL     1       0.196  17.435  19.463  1.00  0.00    +0.094 C 
+ENDROOT
+BRANCH   1   3
+ATOM      3  C   UNL     1      -1.110  15.694  18.276  1.00  0.00    -0.021 A 
+ATOM      4  C   UNL     1      -1.410  13.772  16.806  1.00  0.00    +0.161 A 
+ATOM      5  C   UNL     1      -0.851  14.353  17.950  1.00  0.00    +0.058 A 
+ATOM      6  C   UNL     1      -2.245  14.549  15.993  1.00  0.00    +0.157 A 
+ATOM      7  C   UNL     1      -2.525  15.877  16.312  1.00  0.00    +0.051 A 
+ATOM      8  C   UNL     1      -1.961  16.444  17.454  1.00  0.00    +0.012 A 
+BRANCH   4   9
+ATOM      9  O   UNL     1      -1.212  12.476  16.404  1.00  0.00    -0.493 OA
+ATOM     10  C   UNL     1       0.110  11.963  16.465  1.00  0.00    +0.278 C 
+ENDBRANCH   4   9
+BRANCH   6  11
+ATOM     11  O   UNL     1      -2.796  13.990  14.871  1.00  0.00    -0.504 OA
+ATOM     12  H   UNL     1      -3.741  13.835  15.023  1.00  0.00    +0.293 HD
+ENDBRANCH   6  11
+ENDBRANCH   1   3
+BRANCH   2  13
+ATOM     13  C   UNL     1       0.736  18.074  20.670  1.00  0.00    +0.328 C 
+ATOM     14  O   UNL     1       1.729  18.778  20.687  1.00  0.00    -0.247 OA
+BRANCH  13  15
+ATOM     15  O   UNL     1       0.036  17.817  21.785  1.00  0.00    -0.478 OA
+ATOM     16  H   UNL     1       0.301  18.534  22.398  1.00  0.00    +0.297 HD
+ENDBRANCH  13  15
+ENDBRANCH   2  13
+TORSDOF 5

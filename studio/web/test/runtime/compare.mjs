@@ -786,3 +786,242 @@ export function compareAdmet({ browser, native, nativeFiles, expected, real = fa
   }
   return rows;
 }
+
+// ------------------------------------------------------------------------- the docking job (science.mjs --mode dock)
+//
+// pipeline.dock in its prepared mode as a browser job (the Python stages in Pyodide, AutoDock Vina 1.2.7 compiled to
+// WebAssembly in dedicated workers) against the native runs on the same files (dock_native.py). What is exact is held
+// exactly: the plan of the Vina runs and the texts each was given (dock_read's, natively), the box, the inputs'
+// digests and the ligand table; the analysis, with the Python stages run natively on the browser's own Vina results
+// (PrecomputedVina): every output the browser's bytes, run.json and stages.json apart from what names the process and
+// its time (DOCK_RUN_SET_ASIDE); Vina's energy model on the poses the browser found: each top pose scored by native
+// Vina and by the WebAssembly engine, every value the same float64 bits. What a seeded Monte Carlo search finds is not
+// bit-reproducible across engines and CPUs (a last-bit difference in libm or in floating-point contraction grows into
+// another pose), so the two searches are held to what does not depend on it: both runs complete, both redock the
+// reference within REDOCK_RMSD, the same ligands docked; each ligand's best score against native's at the same seed is
+// reported beside the band measured between native runs (DOCK_SEARCH_BAND), not counted. The rule over seeds 1-8 is
+// enforced where those seeds are run: web/test/scientific/vina.test.mjs on vina_parity.json, every ligand × seeds 1-8
+// in CI's vina-wasm job (VINA_TIER_S=full), 2 ligands × seeds 1-3 in npm test. Last, the receipt: the
+// engine named, every Vina run's compute facts vina-wasm in a worker, the device note naming the dedicated workers, and
+// their memory said to be not measured.
+
+/** run.json and stages.json fields that name the process that wrote them or its time, not the run: set aside. The
+ * inputs are recorded at their paths (the job's directory in the browser, WORK/raw natively): compared by file name. */
+export const DOCK_RUN_SET_ASIDE = Object.freeze(["started", "finished", "python", "inputs", "stages.*.seconds"]);
+/** Files the run writes about itself: compared through their fields; the browser job's receipt has no native peer. */
+const DOCK_RECORDS = ["run.json", "stages.json", "job_receipt.json"];
+/** bioagent.docking.prepared.REDOCK_RMSD: the reference's top pose within this many Å of its crystal pose (atom order). */
+export const REDOCK_RMSD = 2.0;
+/**
+ * How far one seeded search's best score moves when only the floating-point details change, measured over seeds 1-8
+ * (exhaustiveness 8) on the six fixture ligands: the median |Δbest| per ligand against native glibc is 0.002-0.086
+ * kcal/mol for the same wheel with glibc's FMA paths off, 0.002-0.046 with musl's libm, and 0.002-0.077 for this
+ * WebAssembly build. A single seed can differ by more (another local minimum): reported, not counted.
+ */
+export const DOCK_SEARCH_BAND = "native against native at the same seed, other libm or no FMA: median |Δbest| 0.002-0.086 kcal/mol per ligand over seeds 1-8 (WebAssembly: 0.002-0.077)";
+
+const baseName = (p) => String(p).split(/[\\/]/).filter(Boolean).at(-1);
+/** run.json's inputs by file name → {name: sha256}. */
+const inputsByName = (inputs) => Object.fromEntries(Object.entries(inputs || {}).map(([k, v]) => [baseName(k), v]));
+
+/**
+ * The docking job of the page (science-check.mjs out.dock: {job: its record with files, results, plan, receipt,
+ * stages; scored: the WebAssembly engine's scores of its top poses}) against the native side (dock_native.py native:
+ * {runs: {analysis, runner}, scores}; nativeFiles: {plan, analysis, runner} → {path: Buffer}) and what is expected
+ * (`expected`: {files: {name: {sha256}} as dock_native.py prepare copied them, engine: the browser engine as vina.js
+ * names it ({name, version, build, wasm_sha256})}) → rows [{name, status, ok, counted, why}].
+ */
+export function compareDock({ browser, native, nativeFiles, expected }) {
+  const rows = [];
+  const row = (name, status, why, { counted = true } = {}) => {
+    rows.push({ name, status, ok: !counted || !["different", "missing"].includes(status), counted, why });
+  };
+  const job = browser?.job;
+  const n = native || {};
+  const nf = nativeFiles || {};
+  const exp = expected || {};
+  const json = (text) => { try { return JSON.parse(text); } catch { return null; } };
+  if (!job?.files) {
+    row("the pipeline.dock browser job", "missing", "no outputs came back from the browser job");
+    return rows;
+  }
+
+  // ---------------------------------------------------------------- the plan
+  const planB = job.plan || {};
+  const planN = nf.plan || {};
+  const plan = json(planB["dock_plan.json"]?.text);
+  if (!plan || !planN["dock_plan.json"]) row("plan: dock_plan.json", "missing", !plan ? "the browser's plan was not read back" : "no native plan");
+  else {
+    const same = planB["dock_plan.json"].sha256 === shaOf(planN["dock_plan.json"]);
+    const c = same ? null : compareJson(plan, json(textOf(planN["dock_plan.json"])), [], 0);
+    row("plan: dock_plan.json", same ? "identical" : "different", same
+      ? `identical bytes to dock_read's natively: ${plan.ligands.length} ligands${plan.reference ? ` and the reference ${plan.reference.name}` : ""}, box (${plan.box.center.join(", ")}) size (${plan.box.size.join(", ")}) Å from the ${plan.box.source}, ${JSON.stringify(plan.params)}`
+      : `differs at ${c.first.join(", ") || "its bytes"}`);
+    const texts = [plan.receptor, ...(plan.ligands || []), ...(plan.reference ? [plan.reference] : [])].map((x) => baseName(x.file));
+    const differ = texts.filter((t) => !planB[t] || !planN[t] || planB[t].sha256 !== shaOf(planN[t]) || planB[t].sha256 !== `sha256:${[plan.receptor, ...plan.ligands, plan.reference].find((x) => x && baseName(x.file) === t)?.sha256}`);
+    row("plan: the texts Vina was given", differ.length ? "different" : "identical", differ.length
+      ? `not the same bytes, or not at the plan's SHA-256: ${differ.join(", ")}`
+      : `${texts.length} texts (${texts.join(", ")}) identical bytes to dock_read's natively, each at the SHA-256 the plan records`);
+  }
+
+  // ---------------------------------------------------------------- the run record against the native run
+  const rb = json(job.files["run.json"]?.text);
+  const rn = json(nf.runner?.["run.json"] && textOf(nf.runner["run.json"]));
+  const runner = n.runs?.runner;
+  if (!runner) row("native: the runner's command", "missing", "dock_native.py did not run it");
+  else {
+    const failed = Object.entries(runner.checks || {}).filter(([, v]) => v !== "ok");
+    row("native: the runner's command", runner.exit === 0 && !failed.length ? "same" : "different",
+      `${(runner.command || []).join(" ")}: exit ${runner.exit} in ${runner.seconds} s; the kind's checks ${failed.length ? `failed: ${failed.map(([k, v]) => `${k}: ${v}`).join("; ")}` : `passed (${Object.keys(runner.checks || {}).join(", ")})`}${runner.exit !== 0 ? `; ${String(runner.stderr || "").slice(-300)}` : ""}`);
+  }
+  if (!rb || !rn) row("run.json: the run's inputs and settings", "missing", !rb ? "no readable run.json from the browser" : "no readable run.json from the native run");
+  else {
+    const pick = (r) => ({ box: r.box, config: r.config, receptor: r.receptor, ligands: r.ligands, reference: r.reference });
+    const c = compareJson(pick(rb), pick(rn), [], 0);
+    row("run.json: box, settings, receptor, ligands and reference", c.same ? "identical" : "different", c.same
+      ? `the same box (${rb.box?.source}), settings (${Object.entries(rb.config || {}).filter(([, v]) => v !== null && typeof v !== "object").map(([k, v]) => `${k} ${v}`).join(", ")}), receptor (${rb.receptor?.atoms} atoms, SHA-256 ${String(rb.receptor?.sha256).slice(0, 12)}…) and ligand table (${(rb.ligands || []).map((l) => `${l.name} ${l.heavy_atoms}/${l.torsions}`).join(", ")}; heavy atoms/torsions) as the native run`
+      : `differs at ${c.first.join(", ")}`);
+    const ib = inputsByName(rb.inputs);
+    const inn = inputsByName(rn.inputs);
+    const want = Object.fromEntries(Object.entries(exp.files || {}).map(([k, v]) => [k, v.sha256]));
+    const sameInputs = JSON.stringify(Object.entries(ib).sort()) === JSON.stringify(Object.entries(inn).sort()) && JSON.stringify(Object.entries(ib).sort()) === JSON.stringify(Object.entries(want).sort());
+    row("run.json: the inputs' digests", sameInputs ? "identical" : "different", sameInputs
+      ? `${Object.keys(ib).length} files (${Object.keys(ib).sort().join(", ")}), each at the SHA-256 of the file served, in both runs`
+      : `browser ${JSON.stringify(ib)} / native ${JSON.stringify(inn)} / served ${JSON.stringify(want)}`);
+    const eb = rb.engine || {};
+    const en = rn.engine || {};
+    const engineOk = compareJson(eb, exp.engine || {}, [], 0).same && en.name === eb.name && en.version === eb.version && en.build === "native"
+      && rb.versions?.vina === exp.engine?.version && rn.versions?.vina === exp.engine?.version;
+    row("run.json: the engine", engineOk ? "same" : "different", engineOk
+      ? `browser ${eb.name} ${eb.version}, ${eb.build} build (SHA-256 ${String(eb.wasm_sha256).slice(0, 12)}…, the pin); native ${en.name} ${en.version}, ${en.build} build`
+      : `browser ${JSON.stringify(eb)} (versions ${JSON.stringify(rb.versions)}) / native ${JSON.stringify(en)} (versions ${JSON.stringify(rn.versions)}) / the pin ${JSON.stringify(exp.engine)}`);
+  }
+
+  // ---------------------------------------------------------------- the analysis on the browser's own Vina results
+  const analysis = n.runs?.analysis;
+  const na = nf.analysis || {};
+  if (!analysis) row("analysis: run_dock natively on the browser's Vina results", "missing", "dock_native.py did not run it");
+  else {
+    const e = analysis.ended || {};
+    row("analysis: run_dock natively on the browser's Vina results", analysis.exit === 0 ? "same" : "different", analysis.exit === 0
+      ? `PrecomputedVina read the browser's ${Object.keys(job.results || {}).length} results; complete, in ${analysis.seconds} s (CPython)`
+      : `exit ${analysis.exit}: ${e.refused || (e.failed || []).join(", ") || "no reason given"}`);
+  }
+  const names = [...new Set([...Object.keys(job.files), ...Object.keys(na)])].filter((x) => !DOCK_RECORDS.includes(x)).sort();
+  for (const name of names) {
+    const f = job.files[name];
+    const nat = na[name];
+    if (!f || !nat) { row(`analysis: ${name}`, "missing", !f ? "not written in the browser" : "not written natively from the browser's results"); continue; }
+    if (f.sha256 === shaOf(nat)) { row(`analysis: ${name}`, "identical", `identical bytes (${f.bytes} bytes)`); continue; }
+    row(`analysis: ${name}`, "different", typeof f.text === "string" ? `differs: ${JSON.stringify(compareText(f.text, textOf(nat), () => false).first)}` : "the bytes differ");
+  }
+  for (const rec of ["run.json", "stages.json"]) {
+    const b = json(job.files[rec]?.text);
+    const a = json(na[rec] && textOf(na[rec]));
+    if (!b || !a) { row(`analysis: ${rec}`, "missing", !b ? `no readable ${rec} from the browser` : `no readable ${rec} natively`); continue; }
+    const c = compareJson(b, a, DOCK_RUN_SET_ASIDE, 0);
+    const inputs = rec !== "run.json" || JSON.stringify(Object.entries(inputsByName(b.inputs)).sort()) === JSON.stringify(Object.entries(inputsByName(a.inputs)).sort());
+    row(`analysis: ${rec}`, c.same && inputs ? "same_apart_from_excluded" : "different", c.same && inputs
+      ? `every field identical apart from ${DOCK_RUN_SET_ASIDE.filter((k) => rec === "run.json" || k.startsWith("stages")).join(", ")} (the process and its time${rec === "run.json" ? "; the inputs compared by file name" : ""})`
+      : `differs at ${[...c.first, ...(inputs ? [] : ["inputs (by file name)"])].join(", ")}`);
+  }
+
+  // ---------------------------------------------------------------- Vina's energy model on the browser's own poses
+  const scoredB = browser?.scored || [];
+  const scoredN = new Map((n.scores || []).map((s) => [s.key, s]));
+  if (!scoredB.length) row("score: the browser's top poses", "missing", "the page scored none");
+  for (const s of scoredB) {
+    const label = `score: ${s.name} (${s.key}), its top pose`;
+    const t = scoredN.get(s.key);
+    if (s.error || !t || t.error) { row(label, "missing", s.error ? `the WebAssembly engine: ${s.error}` : !t ? "not scored natively" : `native Vina: ${t.error}`); continue; }
+    const why = [];
+    if (t.first_pose !== true) why.push(`the pose scored is not the first MODEL of the browser's result as bioagent.docking.prepared reads it${t.first_pose_error ? ` (${t.first_pose_error})` : ""}`);
+    if (s.receptor_sha256 !== t.receptor_sha256 || s.ligand_sha256 !== t.ligand_sha256) why.push("not the same receptor and pose texts");
+    const differ = (s.bits || []).map((b, i) => (b === t.bits?.[i] ? null : i)).filter((i) => i !== null);
+    if ((s.bits || []).length !== (t.bits || []).length || !s.bits?.length) why.push(`${s.bits?.length ?? 0} values / ${t.bits?.length ?? 0} natively`);
+    else if (differ.length) why.push(`values ${differ.join(", ")} differ: ${differ.slice(0, 3).map((i) => `${s.energies[i]} (${s.bits[i]}) / ${t.energies[i]} (${t.bits[i]})`).join("; ")}`);
+    row(label, why.length ? "different" : "identical", why.length ? why.join("; ") : `Vina.score() bit-identical, WebAssembly and native: all ${s.bits.length} values (total ${s.energies[0]} kcal/mol), the same float64 bits`);
+  }
+
+  // ---------------------------------------------------------------- the searches
+  if (rb && rn) {
+    const complete = rb.complete === true && rn.complete === true;
+    row("search: both runs complete", complete ? "same" : "different", `browser complete ${rb.complete}, native complete ${rn.complete}`);
+    const vb = rb.validation || {};
+    const vn = rn.validation || {};
+    const passed = vb.passed === true && vn.passed === true && vb.top_pose_rmsd <= REDOCK_RMSD && vn.top_pose_rmsd <= REDOCK_RMSD;
+    const r2 = (x) => (typeof x === "number" ? x.toFixed(2) : String(x));
+    row(`search: ${vb.ligand ?? "the reference"} redocked within ${REDOCK_RMSD} Å`, passed ? "same" : "different",
+      `top pose ${r2(vb.top_pose_rmsd)} Å from the crystal pose in the browser (score ${vb.top_score}), ${r2(vn.top_pose_rmsd)} Å natively (score ${vn.top_score}); ${vb.rmsd || "atom order"}`);
+    const docked = (r) => (r.results || []).map((x) => x.ligand).sort();
+    const sameDocked = JSON.stringify(docked(rb)) === JSON.stringify(docked(rn)) && !Object.keys(rb.failures || {}).length && !Object.keys(rn.failures || {}).length;
+    row("search: the ligands docked", sameDocked ? "same" : "different", sameDocked
+      ? `all ${docked(rb).length} in both runs (${docked(rb).join(", ")}), none refused`
+      : `browser ${docked(rb).join(", ")} (failures ${JSON.stringify(rb.failures)}) / native ${docked(rn).join(", ")} (failures ${JSON.stringify(rn.failures)})`);
+    const best = (r) => new Map((r.results || []).map((x) => [x.ligand, x.energies?.[0]?.[0]]));
+    const bb = best(rb);
+    const bn = best(rn);
+    const deltas = [];
+    for (const l of rb.ligands || []) {
+      const x = bb.get(l.name);
+      const y = bn.get(l.name);
+      if (typeof x !== "number" || typeof y !== "number") continue;
+      deltas.push(Math.abs(x - y));
+      row(`search: ${l.name} best score`, "reported", `browser ${x.toFixed(3)}, native ${y.toFixed(3)} kcal/mol at seed ${rb.config?.seed}: |Δ| ${Math.abs(x - y).toFixed(3)}`, { counted: false });
+    }
+    if (deltas.length) {
+      const sorted = [...deltas].sort((a, b) => a - b);
+      const median = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+      row("search: |Δbest| over the ligands", "reported", `median ${median.toFixed(3)}, largest ${sorted.at(-1).toFixed(3)} kcal/mol at one seed; the band: ${DOCK_SEARCH_BAND}`, { counted: false });
+    }
+  }
+
+  // ---------------------------------------------------------------- the receipt
+  const receipt = job.receipt || null;
+  const tasks = (plan?.ligands?.length ?? 0) + (plan?.reference ? 1 : 0);
+  if (!receipt) row("receipt", "missing", "no receipt came back from the browser job");
+  else {
+    const verified = receipt.assurance === "outputs_verified" && receipt.device?.evidence === "verified";
+    row("receipt: outputs_verified, device evidence verified", verified ? "same" : "different", `assurance ${receipt.assurance}, device evidence ${receipt.device?.evidence}`);
+    const engines = Array.isArray(receipt.engine) ? receipt.engine : [];
+    const vina = engines.find((e) => e?.name === exp.engine?.name || e?.id === exp.engine?.name);
+    const engineOk = Boolean(vina) && vina.version === exp.engine?.version && vina.build === exp.engine?.build && vina.wasm_sha256 === exp.engine?.wasm_sha256 && (vina.stages || []).includes("dock");
+    row("receipt: the engine", engineOk ? "same" : "different", engineOk
+      ? `${vina.name} ${vina.version}, ${vina.build} build, SHA-256 ${vina.wasm_sha256.slice(0, 12)}… (the pin), for the stage ${vina.stages.join(", ")}`
+      : `receipt engine ${JSON.stringify(receipt.engine)}; expected ${JSON.stringify(exp.engine)} for the dock stage`);
+    const stage = (job.stages || []).find((x) => x.id === "dock");
+    const facts = [].concat(stage?.compute || []);
+    const factOk = (f) => f.op === "vina.dock" && f.backend === "vina-wasm" && f.placement === "browser" && f.where === "worker" && f.gpu === null && f.accelerated !== true;
+    const workers = [...new Set(facts.map((f) => f.worker).filter(Boolean))].sort();
+    const computeOk = !stage?.reused && facts.length === tasks && tasks > 0 && facts.every(factOk);
+    row("receipt: the dock stage's compute facts", computeOk ? "same" : "different", computeOk
+      ? `${facts.length} Vina runs, each vina.dock on vina-wasm in a worker (${workers.join(", ")}), no GPU, not accelerated; ${facts[0].basis}${stage?.record?.why ? `; ${stage.record.why}` : ""}`
+      : `${facts.length} facts for ${tasks} runs${stage?.reused ? " (the stage was reused)" : ""}: ${JSON.stringify(facts.filter((f) => !factOk(f)).slice(0, 2)).slice(0, 400)}`);
+    const note = String(receipt.device?.note || "");
+    const named = `${exp.engine?.name} ${exp.engine?.version} (WebAssembly) in ${workers.length} dedicated Web Worker${workers.length === 1 ? "" : "s"}, one thread each`;
+    row("receipt: the device note", workers.length && note.includes(named) ? "same" : "different", `${note.includes(named) ? "names" : "does NOT name"} "${named}": ${note.slice(0, 300)}`);
+    const dedicated = [].concat(receipt.resources?.memory?.dedicated || []);
+    const memOk = dedicated.length === 1 && dedicated[0].wasm_peak_bytes === null && /^not measured/.test(String(dedicated[0].reason)) && dedicated[0].workers === workers.length;
+    row("receipt: the dedicated workers' memory", memOk ? "same" : "different", memOk
+      ? `recorded as not measured for ${dedicated[0].engine} (${dedicated[0].workers} workers): ${dedicated[0].reason}`
+      : `resources.memory.dedicated ${JSON.stringify(dedicated).slice(0, 300)}`);
+  }
+  const results = job.results || {};
+  const bad = [];
+  const want = [...(plan?.reference ? [plan.reference] : []), ...(plan?.ligands || [])];
+  for (const t of want) {
+    const doc = json(results[t.key]?.text);
+    if (!doc) { bad.push(`${t.key}: not read back`); continue; }
+    const params = { ...plan.params, center: plan.box.center, size: plan.box.size };
+    if (doc.schema !== "tcmstudio.vina-result/1" || doc.key !== t.key) bad.push(`${t.key}: not a tcmstudio.vina-result/1 of it`);
+    else if (!compareJson(doc.engine, exp.engine || {}, [], 0).same) bad.push(`${t.key}: engine ${JSON.stringify(doc.engine)}`);
+    else if (doc.receptor_sha256 !== plan.receptor.sha256 || doc.ligand_sha256 !== t.sha256) bad.push(`${t.key}: another receptor or ligand text than the plan's`);
+    else if (!compareJson(doc.params, params, [], 0).same || Object.keys(doc.params || {}).length !== Object.keys(params).length) bad.push(`${t.key}: params ${JSON.stringify(doc.params)}`);
+    else if (doc.error !== undefined) bad.push(`${t.key}: Vina refused it (${doc.error})`);
+  }
+  const extra = Object.keys(results).filter((k) => !want.some((t) => t.key === k));
+  if (extra.length) bad.push(`results of no planned run: ${extra.join(", ")}`);
+  row("results: one Vina result per planned run", !want.length ? "missing" : bad.length ? "different" : "same", !want.length ? "no plan to hold them to" : bad.length ? bad.join("; ")
+    : `${want.length} results (${want.map((t) => t.key).join(", ")}), each tcmstudio.vina-result/1 of the plan's receptor and ligand text and parameters, from the pinned WebAssembly build`);
+  return rows;
+}

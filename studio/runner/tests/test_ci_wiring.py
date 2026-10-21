@@ -1,6 +1,7 @@
 """The CI workflows run the checks the docs say they run (.github/workflows): the generated reports and the docs' numbers
 on every push, the pipeline stage tests where the engines are installed, the live connector run on a schedule and never
-on a push, and the real-Pyodide specs failing in CI rather than passing as skips."""
+on a push, the real-Pyodide specs failing in CI rather than passing as skips, and the browser docking's WebAssembly
+Vina rebuilt from its pins and held to native Vina 1.2.7."""
 import re
 from pathlib import Path
 
@@ -105,6 +106,84 @@ def test_studio_runs_the_browser_chemistry_kernels_and_admet_jobs_with_the_nativ
     # the native side of --mode admet imports admet_world: a change to it runs the workflow
     for event in ("push", "pull_request"):
         assert "BioScience-Harness/tests/admet_world.py" in on[event]["paths"], event
+
+
+DOCK_PINS = ("vina==1.2.7", "meeko==0.8.0", "gemmi==0.7.5")
+
+
+def _installs_dock_pins(steps):
+    return any(all(pin in str(s.get("run", "")) for pin in DOCK_PINS) for s in steps)
+
+
+def test_studio_runs_the_browser_docking_with_the_native_side_at_the_engines_pins():
+    studio, on = _load("studio.yml")
+    # Vina 1.2.7 (the WebAssembly build's release; prepared docking refuses any other), Meeko and gemmi at the
+    # fixtures' pins, installed in the job before the steps that need them: the fixtures' regeneration and the native
+    # side of --mode dock
+    harness = "node studio/web/test/runtime/science.mjs --mode dock"
+    for command in ("python studio/scripts/make_dock_fixtures.py --check", harness):
+        assert _installs_dock_pins(_job_with(studio, command)[:-1]), command
+    step = _job_with(studio, harness)[-1]
+    assert '--json "$RUNNER_TEMP/science-dock.json"' in step["run"], "its report is kept with the others"
+    uploads = [s for s in studio["jobs"]["build"]["steps"]
+               if str(s.get("uses", "")).startswith("actions/upload-artifact@")]
+    assert any(s.get("if") == "always()" and s["with"]["path"].endswith("science-*.json") for s in uploads)
+    # the native side copies the prepared fixtures, and make_dock_fixtures.py reads 3PTB's pocket: a change runs it
+    for event in ("push", "pull_request"):
+        assert "BioScience-Harness/tests/fixtures/docking/**" in on[event]["paths"], event
+
+
+def test_studio_rebuilds_the_webassembly_vina_from_its_pins_with_the_inputs_cached_on_them(tmp_path):
+    import os
+    import runpy
+    import subprocess
+    import sys
+    studio, _ = _load("studio.yml")
+    job = studio["jobs"]["vina-wasm"]
+    steps = job["steps"]
+    check = next(s for s in steps if "studio/scripts/build_vina_wasm.py --check" in str(s.get("run", "")))
+    cache = next(s for s in steps if str(s.get("uses", "")).startswith("actions/cache@"))
+    pins = next(s for s in steps if s.get("id") == "pins")
+    assert steps.index(pins) < steps.index(cache) < steps.index(check)
+    assert cache["with"]["key"] == "vina-wasm-inputs-${{ steps.pins.outputs.key }}"
+    assert "restore-keys" not in cache["with"], "only the pinned inputs, never another pin's"
+    assert re.search(r'--cache "\$RUNNER_TEMP/vina-wasm-inputs"', check["run"])
+    assert cache["with"]["path"] == "${{ runner.temp }}/vina-wasm-inputs"
+    assert any(str(s.get("uses", "")).startswith("actions/setup-node@") for s in steps), "Emscripten runs node"
+    # the site is built and deployed only from a build that reproduces
+    assert "vina-wasm" in studio["jobs"]["build"]["needs"]
+    # the key is the three pins' SHA-256, read from the script itself (run here as the step runs it)
+    out = tmp_path / "out"
+    path = os.pathsep.join([str(Path(sys.executable).parent), os.environ.get("PATH", "")])
+    subprocess.run(["bash", "-c", pins["run"]], cwd=REPO, env={"PATH": path, "GITHUB_OUTPUT": str(out)}, check=True)
+    script = runpy.run_path(str(REPO / "studio" / "scripts" / "build_vina_wasm.py"))
+    want = "-".join(script[k]["sha256"][:16] for k in ("EMSCRIPTEN", "VINA", "BOOST"))
+    assert out.read_text(encoding="utf-8").strip() == f"key={want}"
+
+
+def test_studio_holds_the_webassembly_vina_to_the_tier_s_rule_over_every_fixture_ligand_and_seed():
+    # npm test runs the rule on 2 ligands × seeds 1-3; the whole native reference (6 ligands × seeds 1-8) in a step
+    # of its own, with Node's built-ins only
+    studio, _ = _load("studio.yml")
+    steps = [s for job in studio["jobs"].values() for s in job.get("steps", [])
+             if "web/test/scientific/vina.test.mjs" in str(s.get("run", ""))]
+    full = [s for s in steps if (s.get("env") or {}).get("VINA_TIER_S") == "full"]
+    assert len(full) == 1, "one step runs vina.test.mjs with VINA_TIER_S=full"
+    assert re.search(r'--test-name-pattern="Tier S"', full[0]["run"])
+    assert full[0].get("working-directory") == "studio"
+    job = next(j for j in studio["jobs"].values() if full[0] in j.get("steps", []))
+    assert any(str(s.get("uses", "")).startswith("actions/setup-node@") and s["with"]["node-version"] == "22"
+               for s in job["steps"])
+    assert job["steps"].index(full[0]) > next(i for i, s in enumerate(job["steps"])
+                                              if str(s.get("uses", "")).startswith("actions/checkout@"))
+
+
+def test_molecular_tools_runs_the_prepared_docking_tests_with_real_vina_127():
+    ci, _ = _load("ci.yml")
+    steps = ci["jobs"]["molecular-tools"]["steps"]
+    at = next(i for i, s in enumerate(steps) if "tests/test_docking_prepared.py" in str(s.get("run", "")))
+    assert (steps[at].get("env") or {}).get("BIOAGENT_REQUIRE_TOOLS") == "1", "a skip of the real Vina test fails here"
+    assert _installs_dock_pins(steps[:at]), "vina 1.2.7, which the prepared mode requires, installed before"
 
 
 def test_live_data_builds_the_admet_models_from_the_real_archive_natively_and_in_a_browser():

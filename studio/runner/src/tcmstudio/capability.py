@@ -23,7 +23,7 @@ from typing import Any, Callable, Collection, Iterable, Mapping, Sequence
 
 __all__ = ["IMPLEMENTATION", "READINESS", "OUTCOME", "NEEDS", "REASON_NEED", "STATE_OF_NEED",
            "MAX_REQUEST_BYTES", "requirement", "requirements", "readiness", "selected_engines",
-           "runner_only", "hosts_for", "datasets_for", "refusal_requirements", "audit"]
+           "runner_only", "FILE_ID", "hosts_for", "datasets_for", "refusal_requirements", "audit"]
 
 #: Implementation states. tested ⇔ some committed verification level is PASS; implemented ⇔
 #: the implementation reference resolves; deprecated only from an explicit mark.
@@ -135,24 +135,42 @@ def selected_engines(entry: Mapping[str, Any], args: Mapping[str, Any] | None = 
     return out
 
 
+#: A file named by its id rather than its name: the runner's upload ids, and the page's project
+#: file ids (UUIDs). Its name is known only once the file is found, so a ``not_suffix`` rule
+#: cannot judge it here; whoever resolves the file judges the name (the page's docking job does).
+FILE_ID = re.compile(r"^(u_[0-9a-f]{16}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
+                     re.IGNORECASE)
+
+
 def runner_only(entry: Mapping[str, Any], args: Mapping[str, Any] | None) -> list[str]:
     """Why a browser job would not run these arguments in the browser: the reasons of the
-    entry's ``execution.browser_job.runner_only`` rules that they meet (an argument
-    ``absent``, one that ``is`` a value, a file name with one of the ``suffix``-es). A
-    kind runs only part of itself in the browser (the count-matrix RNA-seq, the built-in
-    single-cell analysis); the rest of it needs the runner. Empty without arguments."""
+    entry's ``execution.browser_job.runner_only`` rules that they meet: an argument
+    ``absent``; one that ``is`` a value; one ``present`` (given, not null or empty);
+    a file name with one of the ``suffix``-es; a file name with none of the ``not_suffix``-es
+    (the docking's prepared inputs: a receptor that is not a ``.pdbqt``, say, or a
+    ``PDB:`` id). Names are compared without case. A text that is a file id (``FILE_ID``)
+    is no name, so ``not_suffix`` does not judge it: the page judges the name once it has
+    found the file. A kind runs only part of itself in the browser (the count-matrix RNA-seq, the
+    built-in single-cell analysis); the rest of it needs the runner. Empty without
+    arguments. The page's ``runnerOnly`` (web/js/core/catalog.js) reads the rules the same
+    way."""
     if args is None:
         return []
     out = []
     for rule in ((entry.get("execution") or {}).get("browser_job") or {}).get("runner_only") or ():
         value = args.get(rule.get("arg", ""))
+        name = value.strip().lower() if isinstance(value, str) else None
         if "absent" in rule:
             met = value in (None, "")
         elif "is" in rule:
             met = value == rule["is"]
+        elif "present" in rule:
+            met = value not in (None, "")
+        elif "not_suffix" in rule:
+            met = bool(name) and not FILE_ID.match(name) and not name.endswith(
+                tuple(str(x).lower() for x in rule.get("not_suffix") or ()))
         else:
-            met = isinstance(value, str) and value.strip().lower().endswith(
-                tuple(str(x).lower() for x in rule.get("suffix") or ()))
+            met = bool(name) and name.endswith(tuple(str(x).lower() for x in rule.get("suffix") or ()))
         if met:
             out.append(str(rule.get("why") or f"{rule.get('arg')} needs the runner"))
     return out

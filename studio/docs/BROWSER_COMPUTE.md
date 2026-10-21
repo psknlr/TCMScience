@@ -29,7 +29,7 @@ Cloudflare Worker (`studio/edge`: static files, the `/v1` relay to the Tao-S1 mo
 to public databases) and an optional local runner (`tcmstudio serve`, native CPython). In the browser, tools run in a
 Web Worker on **Pyodide 314.0.7** (CPython 3.14 compiled to WebAssembly) executing the real `psh`, `bioagent` and
 `tcmstudio` packages from a SHA-256-verified bundle, so a browser call and a runner call return the same envelope
-(CONTRACTS §3). The tool catalog has **651 entries** (25 core tools); **637 run in the browser** today
+(CONTRACTS §3). The tool catalog has **651 entries** (25 core tools); **638 run in the browser** today
 ([matrix](compat/summary.md)).
 
 **Where computation happened before this work.** Every browser tool ran single-threaded on the CPU in Pyodide, except
@@ -86,18 +86,21 @@ compared with native CPython: that comparison was made only for the calls of the
 |---|---|---:|
 | 1 | Runs in the browser now, unchanged (Pyodide, CPU) | 172 |
 | 1g | Runs in the browser now; its data comes from a public API through the bounded gateway | 444 |
-| 1j | Runs in the browser now as a job: the same Python in job workers, files in private storage ([BROWSER_JOBS.md](BROWSER_JOBS.md)) | 6 |
+| 1j | Runs in the browser now as a job: the same Python in job workers (and, for docking, AutoDock Vina 1.2.7 compiled to WebAssembly in dedicated workers), files in private storage ([BROWSER_JOBS.md](BROWSER_JOBS.md)) | 7 |
 | 2 | A JavaScript CPU kernel computes the hot loop, byte-identical to Python | 4 |
 | 3 | WebGPU or WebAssembly SIMD integer reductions, exact, recounted in Python | 3 |
 | 4 | WebNN candidate (a neural model would run here) | 0 |
 | 5 | A WASM SIMD / threads kernel would pay off; not written | 8 |
 | 6 | Needs substantial work for the browser (data size, memory, a job model) | 1 |
-| 7 | Needs a native engine or GPU framework (RNA-seq from FASTQ, docking, ADMET, folding) | 7 |
+| 7 | Needs a native engine or GPU framework (RNA-seq from FASTQ, docking from raw structures, structure prediction, governed engine skills) | 6 |
 | 8 | Stays on the local runner (processes, files, long jobs, MCP servers) | 6 |
 
 Class 4 is empty because no tool runs a neural model; the matrix does not pretend otherwise. Classes 7 and 8 stay on
-the runner: a browser cannot run STAR, AutoDock Vina or PyTorch-CUDA, and should not pretend to. Nothing was removed:
-every entry that ran before still runs, where it ran before.
+the runner: a browser cannot run STAR or PyTorch-CUDA, and should not pretend to. AutoDock Vina is now the exception —
+its search, compiled to WebAssembly (not a Pyodide package), runs prepared-input docking as a 1j job
+([BROWSER_JOBS.md §3.3](BROWSER_JOBS.md#33-docking-from-prepared-structures)) — but receptor and ligand preparation
+from raw structures (Meeko, RDKit) and the native folding engines stay on the runner. Nothing was removed: every entry
+that ran before still runs, where it ran before.
 
 ---
 
@@ -619,6 +622,8 @@ nothing changes.
 | 3 | ADMET in the browser (`job.admet.models`, `job.pipeline.admet`): bioagent's ADMET pipeline and model build in Pyodide job workers (scikit-learn 1.8.0), the chemistry in RDKit.js 2026.9.1 with exact ports, the applicability-domain search on the Tanimoto kernel (WebAssembly SIMD, or WebGPU where this device's check found it exact and faster), re-checked in Python; the models built here from the TDC archive and kept in private storage, nothing trained shipped ([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet), [§6.1](#61-the-science-kernels-and-the-device-check-p3)) | P3 | **Done** (this branch); on the real TDC archive it passed in `live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20, headless Chromium 141 on GitHub's runner, Pyodide 314.0.7; the archive given to the page as a project file): all 22 models built in the browser, 202 of the 81,809 molecules (0.25%) refused by the browser chemistry and the native models trained without them too; the model cards the native ones field by field (not the model file's digest, the seconds or the chemistry's name), the domain files the native run's bytes; on the 16,353 test molecules every raw model output and domain search identical, 36 final predictions differing by 1 unit in the last place of float64, through `10 **` or `expit` (up to 4 units allowed); `pipeline.admet` with these models on a 39-molecule set (29 predicted, 9 refused as expected, 1 not read, as natively) wrote the native `admet.tsv` bytes on the kept molecules. Before that, the same comparison passed locally in headless Chromium 141 (`science.mjs --mode admet`) on a small known-answer archive and a synthetic one at the TDC sizes. Studio's CI runs it on the known-answer archive; it passed in `studio` #95 (run 39386727362, commit 0882e95, 2026-10-20). The physical-GPU acceptance is the next row's and stays open |
 | 3 | The exact Tanimoto kernel (JavaScript, WebAssembly SIMD, WebGPU/WGSL), the device check and the per-device calibration, and the "accelerated" rule decided per call from a measurement ([§5.1](#51-the-evidence-ladder), [§6.1](#61-the-science-kernels-and-the-device-check-p3)) | P3 | **Implemented; acceptance open: needs a physical GPU.** Exact on SwiftShader (a software adapter, refused in production and never evidence of a GPU); the WebGPU path has never run on a hardware GPU here or in CI, so its speed is unmeasured and no call has ever reached `accelerated`. The device check runs it on real hardware ([§6.2](#62-how-to-verify-on-your-own-gpu)) |
 | 3 | ONNX Runtime Web for the ADMET tree models | P3 | **Evaluated, not used** ([§6.1](#61-the-science-kernels-and-the-device-check-p3)): tree ensembles run only on its CPU (WebAssembly) execution providers (bit-identical to native ORT at one thread): its native WebGPU builds lack the `ai.onnx.ml` ops and its JSEP build runs them on the CPU, and two of its WebAssembly files exceed the 25 MiB per-file limit; it waits for a neural workload (below) |
+| 4 | Docking from prepared structures in the browser (`job.pipeline.dock`, prepared-input mode, Milestone A): a rigid-receptor PDBQT, a ligand PDBQT and a site, docked by AutoDock Vina 1.2.7 compiled to WebAssembly (vendored, pinned by SHA-256, built reproducibly from pinned inputs — `build_vina_wasm.py --check`, two builds byte-identical), one Vina run per ligand in dedicated workers; the plan, analysis and checks `bioagent.docking.prepared` in a Pyodide worker ([BROWSER_JOBS.md §3.3](BROWSER_JOBS.md#33-docking-from-prepared-structures)) | P4 | **Done** (this branch): Vina's `score()` and `optimize()` bit-identical to the native `vina` 1.2.7 package on all 6 fixture ligands, and a seeded `dock` held to a measured band over seeds 1–8 (per ligand \|median Δbest\| ≤ 0.10 kcal/mol, the crystal redocking succeeding on at least as many seeds as natively) — **not** bit-reproducible, because the Monte Carlo search amplifies a last-bit difference and native Vina itself moves when its maths library changes. End to end on the 3PTB fixture (`science.mjs --mode dock`, headless Chromium 141): the plan and the re-scored pose energies identical, `run_dock` byte-identical on the browser's own Vina results, the search inside the band (benzamidine redocks 1.14 Å in the browser, 1.92 Å natively; the browser job 54.9 s); the receipt `outputs_verified`, `verified`, with `vina.dock` compute facts, no GPU. Tested locally and in `studio` CI (`vina.test.mjs`, `VINA_TIER_S=full`). Milestone B — receptor and ligand preparation from raw PDB/SMILES (Meeko, RDKit), interaction analysis, SDF poses — is the next row's and **not done** |
+| 4 | Docking from raw structures in the browser (Milestone B): preparing a receptor and ligands (Meeko, RDKit) so a PDB/`PDB:`/`UniProt:` receptor and SMILES/CSV/SDF ligands complete the whole workflow in the browser; interaction analysis and SDF poses (they need RDKit); the relay download of a large structure ([BROWSER_EXPANSION.md](BROWSER_EXPANSION.md)) | P4 | Proposed, not done (those arguments are refused in the browser and left to the runner) |
 | 2 | A compact count format across the Pyodide boundary (JSON dominates large matrices) | P1 | Proposed |
 | 2 | CSP enforcing; `storage.persist()` on large downloads; Firefox and WebKit runs of the runtime check in CI | P1 | Proposed |
 | 3 | One ONNX embedding model for TCM terms through ONNX Runtime Web (WebNN → WebGPU → WASM, each checked against WASM) | P2 | Proposed |
@@ -690,6 +695,17 @@ skill's code no longer matches its pin.
   the seconds and the chemistry's name, the domain files the native bytes, every raw model output and domain search on
   the 16,353 test molecules identical, and 36 final predictions differed by 1 unit in the last place of float64,
   through `10 **` or `expit` ([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)).
+- Docking from prepared structures in the browser as a job (2026-10-20): `pipeline.dock` in its prepared-input mode,
+  the search AutoDock Vina 1.2.7 compiled to WebAssembly (vendored, pinned by SHA-256, built reproducibly from pinned
+  inputs — two independent builds byte-identical), one Vina run per ligand in dedicated workers, the plan, analysis and
+  checks `bioagent.docking.prepared` in Pyodide. Vina's `score()` and `optimize()` are bit-identical to the native
+  `vina` 1.2.7 package on all 6 fixture ligands; a seeded search is **not** bit-reproducible and is held to a measured
+  band over seeds 1–8 (per ligand \|median Δbest\| ≤ 0.10 kcal/mol, the crystal redocking succeeding on at least as many
+  seeds as natively). End to end on the 3PTB fixture (`science.mjs --mode dock`, headless Chromium 141) the plan and the
+  re-scored pose energies were identical, `run_dock` byte-identical on the browser's own Vina results, and the search
+  inside the band (benzamidine redocks 1.14 Å in the browser, 1.92 Å natively; the browser job 54.9 s). Nothing in
+  docking uses the GPU. Receptor and ligand preparation from raw structures (Meeko, RDKit) is Milestone B and not done
+  ([BROWSER_JOBS.md §3.3](BROWSER_JOBS.md#33-docking-from-prepared-structures), [BROWSER_EXPANSION.md](BROWSER_EXPANSION.md)).
 
 **Implemented, partly verified**
 
@@ -730,4 +746,10 @@ the native run's but for the model file's digest, the seconds and the chemistry'
 matched apart from a named last-bit rule. Its applicability-domain search can use the GPU, but only where this
 device's own check measured a physical adapter exact and faster, and on the software adapter available here and in CI
 it is exact and never counted as acceleration, so the physical-GPU acceptance stays open; an SDF or `.mol` file and
-more than 20,000 molecules need the runner ([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)).
+more than 20,000 molecules need the runner ([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)). Docking from prepared
+structures runs there too (`pipeline.dock` in its prepared-input mode): the search is AutoDock Vina 1.2.7 compiled to
+WebAssembly, one Vina run per ligand in dedicated workers, the plan, analysis and checks `bioagent.docking.prepared` in
+Pyodide. Vina's `score` and `optimize` are bit-identical to the native `vina` 1.2.7 package, but a seeded search is not
+bit-reproducible and is held to a measured band over seeds 1–8, not to byte-for-byte equality; nothing in docking uses
+the GPU, and receptor and ligand preparation from raw PDB/SMILES inputs (Meeko, RDKit) stays on the runner as the next
+cycle (Milestone B, not done) ([BROWSER_JOBS.md §3.3](BROWSER_JOBS.md#33-docking-from-prepared-structures)).

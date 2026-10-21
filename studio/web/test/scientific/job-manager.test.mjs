@@ -880,3 +880,50 @@ test("stagesFor(params) gives a job its own stages (and a resumed one the same);
   const resumed = await svc.resume(job.id);
   assert.deepEqual(resumed.stages.map((s) => s.id), ["first", "part.x", "part.y", "last"]);
 });
+
+test("an engine of the job's own in dedicated workers (outcome engine; compute facts that name their workers): the record's device note, the receipt's engine and its memory said as not measured; a resume starts without it", async () => {
+  const vina = { name: "AutoDock Vina", version: "1.2.7", build: "wasm", wasm_sha256: "9".repeat(64), stages: ["dock"] };
+  const fact = (worker) => ({ op: "vina.dock", backend: "vina-wasm", placement: "browser", where: "worker", worker, gpu: null, accelerated: null, ms: 5 });
+  let fail = true;
+  const handler = {
+    kind: "test.engine", title: { zh: "x", en: "x" }, stages: [{ id: "dock" }, { id: "verify" }],
+    async run(ctx) {
+      const lease = await ctx.pool.lease({});
+      try {
+        await ctx.stage("dock", async (s) => { s.compute(fact("vina-1")); s.compute(fact("vina-2")); return null; });
+        ctx.outcome({ engine: [vina] });
+        await lease.call("run", { fn: "x", args: {} });
+        ctx.artefact(await written(ctx, "t.tsv", "x\n"));
+        await ctx.stage("verify", async () => {
+          if (fail) { fail = false; throw Object.assign(new Error("stop"), { type: "failed" }); }
+          return { worker: lease.id, verified: true };
+        });
+      } finally { lease.release(); }
+      return { result: null };
+    },
+  };
+  const { svc } = setup({ handlers: [handler] });
+  const first = await settle(svc, (await svc.submit("test.engine", {})).id);
+  assert.equal(first.state, "failed");
+  assert.deepEqual(first.engine, [vina], "a failed job names the engine that ran too");
+  assert.equal(first.device_note, "assigned: the job's Python runs in this browser's job workers, CPython compiled to WebAssembly (Pyodide), on the CPU; AutoDock Vina 1.2.7 (WebAssembly) in 2 dedicated Web Workers, one thread each");
+  const resumed = await svc.resume(first.id);
+  assert.equal(resumed.engine, undefined, "the next attempt names its own");
+  assert.doesNotMatch(resumed.device_note, /Vina/);
+  const done = await settle(svc, first.id);
+  assert.equal(done.state, "succeeded", JSON.stringify(done.error));
+  assert.match(done.device_note, /; AutoDock Vina 1\.2\.7 \(WebAssembly\) in 2 dedicated Web Workers, one thread each$/);
+  const r = (await svc.receipt(done.id)).doc;
+  assert.deepEqual(r.engine, [{ id: "AutoDock Vina", version: "1.2.7", stages: ["dock"], name: "AutoDock Vina", build: "wasm", wasm_sha256: "9".repeat(64) }]);
+  assert.match(r.device.note, /in 1 dedicated Web Worker, one thread each; AutoDock Vina 1\.2\.7 \(WebAssembly\) in 2 dedicated Web Workers, one thread each; nothing ran on a GPU$/);
+  assert.equal(r.resources.memory.wasm_peak_bytes, 96 << 20, "the job worker's memory, read as before");
+  assert.deepEqual(r.resources.memory.dedicated.map((d) => [d.engine, d.workers, d.wasm_peak_bytes, d.measured_by]), [["AutoDock Vina 1.2.7 (WebAssembly)", 2, null, null]]);
+  assert.match(r.resources.memory.dedicated[0].reason, /^not measured: these dedicated workers do not report their WebAssembly memory/);
+  // a job with no engine of its own: no engine, no such memory entry
+  const other = setup();
+  const plain = await settle(other.svc, (await other.svc.submit("test.compute", {})).id);
+  assert.equal(plain.engine, undefined);
+  const pr = (await other.svc.receipt(plain.id)).doc;
+  assert.equal(pr.engine, null);
+  assert.equal(pr.resources.memory.dedicated, undefined);
+});

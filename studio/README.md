@@ -69,6 +69,17 @@ ADMET 的模型构建（`admet.models`）与预测（`pipeline.admet`，从 CSV/
 （[docs/BROWSER_JOBS.md §3.2](docs/BROWSER_JOBS.md#32-admet)）。SDF 或 `.mol` 文件、超过 20,000 个分子，以及受治理的
 `predict-admet` Skill 都需要 Runner。
 
+从已准备结构出发的对接（`pipeline.dock` 的「已准备输入」模式）同样已实现为浏览器任务：刚性受体 PDBQT、配体 PDBQT（单个配体或多个
+MODEL 块）与位点（`center`+`size`，或围绕 `reference_ligand` 的盒子，该参考配体会被再对接以验证设置），由编译为 WebAssembly 的
+AutoDock Vina 1.2.7（随站点提供并按 SHA-256 锁定，由锁定输入可复现地构建——两次独立构建逐字节一致）对接，每个配体一次 Vina 运行，
+在 CPU 上的专用工作线程中进行；计划、分析与检查是 Pyodide 中的 `bioagent.docking.prepared`。Vina 的 `score()` 与 `optimize()` 在全部
+6 个夹具配体上与原生 `vina` 1.2.7 包逐位一致，但带种子的搜索不是逐位可复现的（原生 Vina 本身在数学库改变时就会移动），因此对接被
+约束在种子 1–8 上的经测量带内，而非逐字节一致。在 3PTB 夹具上与原生 Vina 1.2.7 端到端比对（`science.mjs --mode dock`）：计划与每个
+重新打分的位姿能量完全一致，`run_dock` 在浏览器自己的 Vina 结果上逐字节一致，搜索在带内（苯甲脒在浏览器中再对接 1.14 Å、原生
+1.92 Å）。已在本地无头 Chromium（Pyodide 314.0.7）与 Studio 的 CI 中测试。对接不使用 GPU。从原始 PDB/SMILES 出发的受体与配体准备
+（Meeko、RDKit）、相互作用分析与 SDF 位姿留在 Runner 上，作为下一轮（里程碑 B，尚未完成），受治理的 `dock-ligands` Skill 也需要
+Runner（[docs/BROWSER_JOBS.md §3.3](docs/BROWSER_JOBS.md#33-docking-from-prepared-structures)）。
+
 提供 WebNN 能力检测；只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持
 真正的 NPU 加速，目前没有任何工作负载具备这两者。
 
@@ -314,6 +325,20 @@ clinical tool or identifying details), and counts anonymous usage you can switch
   domain search identical, 36 final ones 1 unit apart in the last place of float64. Not run on a physical GPU, so P3's
   acceptance (a physical GPU, measured) stays open ([docs/BROWSER_JOBS.md §3.2](docs/BROWSER_JOBS.md#32-admet)). An SDF
   or `.mol` file, more than 20,000 molecules, and the governed `predict-admet` skill need the runner.
+- **Docking in the browser.** Docking from prepared structures (`pipeline.dock` in its prepared-input mode) also runs
+  as a browser job: a rigid-receptor PDBQT, a ligand PDBQT (one ligand or several MODEL blocks) and a site
+  (`center`+`size`, or a box around a `reference_ligand`, which is redocked to validate the setup), docked by AutoDock
+  Vina 1.2.7 compiled to WebAssembly (vendored and pinned by SHA-256, built reproducibly from pinned inputs — two
+  independent builds byte-identical), one Vina run per ligand in dedicated workers on the CPU; the plan, analysis and
+  checks are `bioagent.docking.prepared` in Pyodide. Vina's `score()` and `optimize()` are bit-identical to the native
+  `vina` 1.2.7 package on all 6 fixture ligands, but a seeded search is not bit-reproducible (native Vina itself moves
+  when its maths library changes), so docking is held to a measured band over seeds 1–8, not to byte-for-byte equality.
+  Compared with native Vina 1.2.7 end to end on the 3PTB fixture (`science.mjs --mode dock`): the plan and every
+  re-scored pose energy identical, `run_dock` byte-identical on the browser's own Vina results, the search inside the
+  band (benzamidine redocks 1.14 Å in the browser, 1.92 Å natively). Tested locally in headless Chromium (Pyodide
+  314.0.7) and in Studio's CI. Nothing in docking uses the GPU. Raw PDB/SMILES receptor and ligand preparation (Meeko,
+  RDKit), interaction analysis and SDF poses stay on the runner as the next cycle (Milestone B, not done), and the
+  governed `dock-ligands` skill needs the runner ([docs/BROWSER_JOBS.md §3.3](docs/BROWSER_JOBS.md#33-docking-from-prepared-structures)).
 - **NPU.** WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified
   execution provider and hardware-backed execution evidence; no workload has either today.
 - **Add the local runner**: in a virtual environment (Ubuntu 23.04+, Debian 12 and Homebrew Python refuse a

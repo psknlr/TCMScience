@@ -442,12 +442,21 @@ def test_ready_entries_are_not_refused_by_the_preflight(runner_ctx):
 # ------------------------------------------------------------------------------------- preflight
 
 def test_preflight_names_what_is_missing(runner_ctx, browser_ctx):
-    e = call("run_pipeline", {"pipeline": "dock", "arguments": {"receptor": "PDB:3ptb",
-                                                                "ligands": "CCO"}}, browser_ctx)
+    # a pipeline the browser does not run at all: the runner
+    e = call("run_pipeline", {"pipeline": "fold", "arguments": {
+        "source": "MKTAYIAKQRQISFVKSHFSRQIEER"}}, browser_ctx)
     err = e["error"]
     assert err["type"] == "unavailable" and err["reason"] == "needs_runner"
     assert err["requires"][0] == {"need": "runner", "detail": "the local runner (tcmstudio serve)",
                                   "remedy": err["hint"]}
+    # docking from a PDB id and a SMILES needs preparing (meeko, RDKit): the runner, and why
+    e = call("run_pipeline", {"pipeline": "dock", "arguments": {"receptor": "PDB:3ptb",
+                                                                "ligands": "CCO"}}, browser_ctx)
+    err = e["error"]
+    assert err["type"] == "unavailable" and err["reason"] == "needs_runner"
+    assert [r["need"] for r in err["requires"]] == ["runner", "runner"]
+    assert "prepared with meeko" in err["requires"][0]["detail"]
+    assert "prepared with RDKit and meeko" in err["requires"][1]["detail"]
     # a browser job kind, with arguments only the runner runs: the runner, and why
     e = call("run_pipeline", {"pipeline": "rnaseq", "arguments": {"samples": "x"}}, browser_ctx)
     err = e["error"]
@@ -480,7 +489,13 @@ def test_run_pipeline_in_the_browser_says_which_calls_need_the_runner(browser_ct
              "PyDESeq2 is not in this browser's Python"),
             ({"pipeline": "scrna", "arguments": {"source": "pbmc.h5"}}, "a 10x HDF5 or .h5ad source"),
             ({"pipeline": "scrna", "arguments": {"source": "t.csv", "analysis_backend": "scanpy"}},
-             "Scanpy, anndata, leidenalg and umap-learn")):
+             "Scanpy, anndata, leidenalg and umap-learn"),
+            ({"pipeline": "dock", "arguments": {"receptor": "3ptb.pdb", "ligands": "l.pdbqt",
+                                                "center": [0, 0, 0], "size": [20, 20, 20]}},
+             "is prepared with meeko"),
+            ({"pipeline": "dock", "arguments": {"receptor": "r.pdbqt", "ligands": "l.pdbqt",
+                                                "site_ligand": "BEN"}},
+             "RCSB Chemical Component Dictionary")):
         err = call("run_pipeline", args, browser_ctx)["error"]
         assert err["type"] == "unavailable" and err["reason"] == "needs_runner", err
         assert "runs in the browser only in part" in err["message"] and why in err["message"]
@@ -492,6 +507,12 @@ def test_run_pipeline_in_the_browser_says_which_calls_need_the_runner(browser_ct
     # one the browser runs is not refused for the runner (the page's job service takes it)
     ok = call("run_pipeline", {"pipeline": "scrna", "arguments": {"source": "sheet.csv"}}, browser_ctx)
     assert (ok.get("error") or {}).get("reason") != "needs_runner"
+    # docking prepared inputs (PDBQT) runs in the browser, named or by file id
+    for args in ({"receptor": "3ptb.pdbqt", "ligands": "ligands.pdbqt", "reference_ligand": "ben.pdbqt"},
+                 {"receptor": "u_0123456789abcdef", "ligands": "u_fedcba9876543210",
+                  "center": [0, 0, 0], "size": [20, 20, 20]}):
+        ok = call("run_pipeline", {"pipeline": "dock", "arguments": args}, browser_ctx)
+        assert (ok.get("error") or {}).get("reason") != "needs_runner", ok.get("error")
 
 
 def test_run_pipeline_admet_in_the_browser_needs_the_runner_only_for_sdf_and_mol(browser_ctx):

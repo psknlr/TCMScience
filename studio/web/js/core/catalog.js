@@ -567,21 +567,33 @@ export function isRequirement(r) {
 }
 
 /**
+ * A value that names a file by its id rather than its name: the page's project file id (core/store.js, an RFC 4122
+ * uuid) or the runner's upload id (tcmstudio.kinds _UPLOAD_ID). Its suffix says nothing about the file, so a
+ * `not_suffix` rule does not judge it; the job judges it once it has found the file (pipelines/dock.js).
+ */
+export const FILE_ID = /^(u_[0-9a-f]{16}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+/**
  * Why a browser job would not run these arguments in the browser (tcmstudio.capability.runner_only): the reasons of
- * the entry's execution.browser_job.runner_only rules they meet (an argument `absent`, one that `is` a value, a file
- * name with one of the `suffix`-es). A kind runs only part of itself in the browser; the rest needs the runner. Empty
- * without arguments.
+ * the entry's execution.browser_job.runner_only rules they meet (an argument `absent`, one `present` (given, not null
+ * or empty), one that `is` a value, a file name with one of the `suffix`-es, a file name with none of the
+ * `not_suffix`-es: not one judged by its file id, FILE_ID). A kind runs only part of itself in the browser; the rest
+ * needs the runner. Empty without arguments.
  */
 export function runnerOnly(entry, args) {
   if (!isPlainObject(args)) return [];
   const rules = entry?.execution?.browser_job?.runner_only;
   const out = [];
+  const ends = (value, suffixes) => listOf(suffixes).some((s) => value.trim().toLowerCase().endsWith(s.toLowerCase()));
   for (const rule of Array.isArray(rules) ? rules.filter(isPlainObject) : []) {
     const value = args[rule.arg ?? ""];
+    const absent = value === undefined || value === null || value === "";
     let met;
-    if ("absent" in rule) met = value === undefined || value === null || value === "";
+    if ("absent" in rule) met = absent;
+    else if ("present" in rule) met = !absent;
     else if ("is" in rule) met = value === rule.is;
-    else met = typeof value === "string" && listOf(rule.suffix).some((s) => value.trim().toLowerCase().endsWith(s.toLowerCase()));
+    else if ("not_suffix" in rule) met = typeof value === "string" && value.trim() !== "" && !FILE_ID.test(value.trim()) && !ends(value, rule.not_suffix);
+    else met = typeof value === "string" && ends(value, rule.suffix);
     if (met) out.push(String(rule.why || `${rule.arg} needs the runner`));
   }
   return out;

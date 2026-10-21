@@ -6,7 +6,8 @@ import "../fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  JOB_RECEIPT_SCHEMA, bareSha256, buildJobReceipt, compareDigests, digestChecks, jobEvidence, platformOf, runtimeOf, verifyStages,
+  JOB_RECEIPT_SCHEMA, bareSha256, buildJobReceipt, compareDigests, dedicatedEngines, dedicatedNote, digestChecks, engineList, jobEvidence,
+  platformOf, runtimeOf, verifyStages,
 } from "../../js/scientific/engines/evidence.js";
 
 const A = "a".repeat(64);
@@ -134,4 +135,41 @@ test("the receipt: the runner's fields where they mean the same, placement brows
   assert.equal(idle.device.used, null);
   assert.equal(idle.device.evidence, "selected");
   assert.equal(idle.duration_s, null);
+});
+
+test("an engine of the job's own in dedicated workers (pipeline.dock's AutoDock Vina): the receipt's engine, the device note with its workers, not the page's", () => {
+  const W = "9".repeat(64);
+  const vina = { name: "AutoDock Vina", version: "1.2.7", build: "wasm", wasm_sha256: `sha256:${W}`, stages: ["dock"] };
+  assert.deepEqual(engineList(vina), [{ id: "AutoDock Vina", version: "1.2.7", stages: ["dock"], name: "AutoDock Vina", build: "wasm", wasm_sha256: W }]);
+  assert.deepEqual(engineList([{ id: "x" }, null, { version: "1" }]), [{ id: "x", version: null, stages: [] }], "an engine with no name is none");
+  assert.deepEqual(engineList(null), []);
+  const fact = (worker, extra = {}) => ({ op: "vina.dock", backend: "vina-wasm", placement: "browser", where: "worker", worker, gpu: null, accelerated: null, ms: 10, ...extra });
+  const dock = { id: "dock", status: "succeeded", seconds: 3, worker: null, reused: false, compute: [fact("vina-1"), fact("vina-2"), fact("vina-1"), fact("vina-3")] };
+  const stages = [stage("read"), dock, stage("analysis"), stage("verify", { verified: true })];
+  assert.deepEqual(dedicatedEngines(stages, vina), [{ engine: "AutoDock Vina 1.2.7 (WebAssembly)", workers: 3, stages: ["dock"], backends: ["vina-wasm"] }]);
+  assert.equal(dedicatedNote(dedicatedEngines(stages, vina)[0]), "AutoDock Vina 1.2.7 (WebAssembly) in 3 dedicated Web Workers, one thread each");
+  assert.equal(dedicatedNote({ engine: "E (WebAssembly)", workers: 1 }), "E (WebAssembly) in 1 dedicated Web Worker, one thread each");
+  assert.equal(dedicatedNote({ engine: "E (WebAssembly)", workers: null }), "E (WebAssembly) in dedicated Web Workers, one thread each");
+  // not this engine's stage, a reused stage, a native build, discarded facts: none counts
+  assert.deepEqual(dedicatedEngines(stages, { ...vina, stages: ["other"] }), []);
+  assert.deepEqual(dedicatedEngines([{ ...dock, reused: true }], vina), []);
+  assert.deepEqual(dedicatedEngines(stages, { ...vina, build: "native" }), []);
+  assert.deepEqual(dedicatedEngines([{ ...dock, compute: dock.compute.map((f) => ({ ...f, discarded: "not used" })) }], vina), []);
+  const job = {
+    id: "bj-0123456789abcdef", kind: "pipeline.dock", state: "succeeded", started_at: "2026-10-19T10:00:00.000Z", finished_at: "2026-10-19T10:01:00.000Z",
+    stages, artefacts: arts, engine: [vina], outcome: { complete: true },
+  };
+  const doc = buildJobReceipt({ job, workerDigests: worker, pageDigests: { ...worker }, workers, runtime: "pyodide-314.0.7 / CPython 3.14.2" });
+  assert.deepEqual(doc.engine, [{ id: "AutoDock Vina", version: "1.2.7", stages: ["dock"], name: "AutoDock Vina", build: "wasm", wasm_sha256: W }]);
+  assert.equal(doc.device.note, "computed on this device's CPU: CPython compiled to WebAssembly (Pyodide) in 1 dedicated Web Worker, one thread each; AutoDock Vina 1.2.7 (WebAssembly) in 3 dedicated Web Workers, one thread each; nothing ran on a GPU");
+  assert.doesNotMatch(doc.device.note, /in this page/, "Vina is named as the engine, not as the page's own computing");
+  assert.equal(doc.device.evidence, "verified");
+  assert.equal(doc.device.stages.dock, "cpu");
+  assert.equal(doc.compute.stages.dock.backend, "vina-wasm");
+  // the engine can be given apart from the job, as the receipt's argument
+  assert.equal(buildJobReceipt({ job: { ...job, engine: undefined }, engine: vina, workerDigests: worker, pageDigests: worker, workers }).engine[0].id, "AutoDock Vina");
+  // without its own engine named, a stage's backend is what the page computed, as before
+  const plain = buildJobReceipt({ job: { ...job, engine: undefined }, workerDigests: worker, pageDigests: worker, workers });
+  assert.equal(plain.engine, null);
+  assert.match(plain.device.note, /one thread each; in this page: dock vina-wasm; nothing ran on a GPU$/);
 });

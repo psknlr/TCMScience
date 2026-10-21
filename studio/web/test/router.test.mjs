@@ -1258,3 +1258,59 @@ test("a call in the page's Python is told which ADMET models this browser has bu
   await r.call("native.reverse_complement", { sequence: "ACGT" }, { projectId: "p1", onApproval: async () => "once" });
   assert.equal(browser.calls.at(-1).ctx.browser_admet_models, null, "not looked yet: nothing said");
 });
+
+test("job.pipeline.dock is placed by its arguments: prepared PDBQT inputs in the browser, what needs preparing on the runner (the handler's words, or the catalog's not_suffix and present rules without the job module)", () => {
+  const doc = admetCatalogDoc();
+  doc.core.find((c) => c.name === "run_pipeline").parameters.properties.pipeline.enum.push("dock");
+  const runnerOnly = [
+    { arg: "receptor", not_suffix: [".pdbqt"], why: "the receptor needs preparing (Meeko), on the runner" },
+    { arg: "ligands", not_suffix: [".pdbqt"], why: "the ligands need preparing (RDKit, Meeko), on the runner" },
+    { arg: "site_ligand", present: true, why: "a site from a co-crystal ligand's name needs RCSB, on the runner" },
+    { arg: "allow_remote", is: true, why: "remote structures are fetched on the runner" },
+  ];
+  doc.entries.push({
+    kind: "job", category: "structure_molecules", summary: "x", example: null, network: false, confirm: true, job: true, gpu: false, heavy: ["vina"], tags: [],
+    id: "job.pipeline.dock", title: { zh: "分子对接", en: "Docking" }, exec: ["browser", "runner"],
+    parameters: { type: "object", properties: { receptor: { type: "string" }, ligands: { type: "string" }, reference_ligand: { type: "string" }, site_ligand: { type: "string" }, allow_remote: { type: "boolean" } } },
+    execution: { browser_job: { service: "studio-jobs/1", runtime: "pyodide", pyodide_packages: ["numpy"], runner_only: runnerOnly } },
+  });
+  const make = ({ jobs = "ready", runner = "offline", compute = "auto" } = {}) => {
+    const service = {
+      status: jobs, reason: null, events: () => () => {}, onStatus: () => () => {}, kinds: () => (jobs === "ready" ? [{ kind: "pipeline.dock" }] : []),
+      submit: async (kind) => ({ id: "bj-0123456789abcdef", kind, state: "queued", title: { zh: "x", en: "x" }, stages: [] }),
+    };
+    const runtimes = { browser: fakeRuntime("browser", { status: "idle" }), runner: fakeRuntime("runner", { status: runner }) };
+    if (jobs !== null) runtimes.jobs = new BrowserJobsRuntime({ service });
+    return new ToolRouter({ catalog: new Catalog(doc), runtimes, settings: { compute }, approvals: memoryApprovals() });
+  };
+  const prepared = { receptor: "3ptb_receptor.pdbqt", ligands: "ligands.pdbqt", reference_ligand: "ben_crystal.pdbqt" };
+  const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  const byId = { ...prepared, ligands: ID };
+  // the runner's full pipeline: a PDB receptor and ligands it prepares
+  const pdb = { receptor: "PDB:3PTB", ligands: "CCO", site_ligand: "BEN", allow_remote: true };
+  assert.equal(make().where("run_pipeline", { pipeline: "dock", arguments: prepared }), "browser");
+  assert.equal(make().where("job.pipeline.dock", byId), "browser", "a file id: the job judges the file it names");
+  for (const [args, why] of [[pdb, /^receptor: "PDB:3PTB" is not a prepared PDBQT receptor/], [{ receptor: ID, ligands: "CCO" }, /^ligands: "CCO"/], [{ receptor: ID, ligands: ID, site_ligand: "BEN" }, /^site_ligand:/], [{ receptor: ID, ligands: ID, allow_remote: true }, /^allow_remote:/]]) {
+    const p = make().placement("job.pipeline.dock", args);
+    assert.deepEqual([p.where, p.reason], [null, "needs_runner"], JSON.stringify(args));
+    assert.match(p.requires[0].detail, why);
+  }
+  // a call mixing the modes runs nowhere (the runner refuses it when it is submitted): not the runner's, so it is
+  // placed here and the job refuses it as bad arguments (its preflight; web/test/scientific/dock.test.mjs)
+  for (const args of [{ ...prepared, receptor: "PDB:3PTB" }, { ...prepared, ligands: "CCO" }, { ...prepared, site_ligand: "BEN" }, { ...prepared, allow_remote: true }]) {
+    assert.equal(make().where("job.pipeline.dock", args), "browser", JSON.stringify(args));
+  }
+  // without the job service's module: the catalog's rules (not_suffix, present, is) say the same, one argument at a
+  // time, so they send a mixed call to the runner too (the limit their reasons state)
+  for (const [args, why] of [[pdb, /receptor needs preparing/], [{ ...prepared, site_ligand: "BEN" }, /co-crystal ligand's name/], [{ ...prepared, ligands: "x.sdf", allow_remote: true }, /ligands need preparing.*; remote structures/]]) {
+    const p = make({ jobs: null }).placement("job.pipeline.dock", args);
+    assert.deepEqual([p.where, p.reason], [null, "needs_runner"], JSON.stringify(args));
+    assert.match(p.requires[0].detail, why);
+  }
+  assert.equal(make({ jobs: null }).placement("job.pipeline.dock", byId).reason, "needs_job_service");
+  // a connected runner takes what needs preparing, and in auto mode prepared inputs too; browser mode keeps them here
+  assert.equal(make({ runner: "ready" }).where("job.pipeline.dock", pdb), "runner");
+  assert.equal(make({ runner: "ready" }).where("job.pipeline.dock", prepared), "runner", "auto: a connected runner first");
+  assert.equal(make({ runner: "ready", compute: "browser" }).where("job.pipeline.dock", prepared), "browser");
+  assert.equal(make({ runner: "ready", compute: "browser" }).placement("job.pipeline.dock", pdb).reason, "compute_browser");
+});

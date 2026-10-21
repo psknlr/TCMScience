@@ -173,6 +173,38 @@ test("RDKit.js's wasm from the mirror the build names (TCMSTUDIO_RDKIT_URL): tha
   assert.deepEqual((await sw.caches.keys()).filter((n) => n.startsWith("tcmstudio-cdn-rdkit-")), [`tcmstudio-cdn-rdkit-${sha(body).slice(0, 16)}`]);
 });
 
+// AutoDock Vina's wasm as the site serves it (js/scientific/dock/vendor), named by the build as boot.json's vina
+const VINA_PATH = "/js/scientific/dock/vendor/vina-1.2.7.wasm";
+const VINA_BYTES = readFileSync(new URL(`..${VINA_PATH}`, import.meta.url));
+const VINA = { url: VINA_PATH.slice(1), sha256: sha(VINA_BYTES) };
+
+test("Vina's wasm: not in the shell; kept on first use by its exact URL, only at the pinned SHA-256", async () => {
+  const sw = load({ files: SHELL, served: { ...SHELL, [VINA_PATH]: VINA_BYTES }, extra: { vina: VINA } });
+  const e = event("install");
+  sw.handlers.install(e);
+  await e.waited;
+  assert.ok(!sw.fetched.some((u) => u.endsWith(VINA_PATH)), "the install does not fetch it");
+  for (let i = 0; i < 2; i++) assert.equal(sha(new Uint8Array(await (await fetchVia(sw, VINA_PATH)).arrayBuffer())), VINA.sha256);
+  assert.equal(sw.fetched.filter((u) => u.endsWith(VINA_PATH)).length, 1, "the second came from the cache");
+  const name = `tcmstudio-cdn-vina-${VINA.sha256.slice(0, 16)}`;
+  assert.ok(sw.caches.stores.has(name), "under the prefix core/offline.js stands down");
+  assert.equal(await fetchVia(sw, `${VINA_PATH}?v=2`), null, "only the exact URL");
+  // other bytes (a stale deploy, an error page) are served once and never kept
+  const bad = load({ files: SHELL, served: { ...SHELL, [VINA_PATH]: "<html>not found</html>" }, extra: { vina: VINA } });
+  for (let i = 0; i < 2; i++) assert.equal(await (await fetchVia(bad, VINA_PATH)).text(), "<html>not found</html>");
+  assert.equal(bad.fetched.filter((u) => u.endsWith(VINA_PATH)).length, 2);
+  assert.deepEqual(await (await bad.caches.open(name)).keys(), []);
+  // a build that names no Vina: the network answers it, as any file outside the shell
+  const none = load({ files: SHELL, served: { ...SHELL, [VINA_PATH]: VINA_BYTES } });
+  assert.equal(await fetchVia(none, VINA_PATH), null);
+  // an activation keeps this build's Vina cache and removes another build's
+  await sw.caches.open("tcmstudio-cdn-vina-0000000000000000");
+  const a = event("activate");
+  sw.handlers.activate(a);
+  await a.waited;
+  assert.deepEqual((await sw.caches.keys()).filter((n) => n.startsWith("tcmstudio-cdn-vina-")), [name]);
+});
+
 test("activation deletes older versions of its own caches and nothing else", async () => {
   const sw = load({ files: SHELL, version: "v2" });
   for (const n of ["tcmstudio-shell-v1", "tcmstudio-shell-v2", "tcmstudio-runtime-v1", "someone-else"]) await sw.caches.open(n);

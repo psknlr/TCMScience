@@ -104,3 +104,28 @@ test("catalog: a browser job kind's detail names what its job worker loads, the 
   view.destroy();
   setLang("zh");
 });
+
+test("catalog: a browser job kind's engine that is not chemistry (pipeline.dock's AutoDock Vina, WebAssembly) has its row: name, version, build and the wasm's digest", async () => {
+  setLang("en");
+  const app = new App();
+  const doc = admetCatalogDoc();
+  const sha = "94807d4aeb358234fc4506ddd4c61b050d6b056fac8da412798eaf615ef09232";
+  doc.entries.push({
+    kind: "job", category: "structure_molecules", summary: "x", example: null, network: false, confirm: true, job: true, gpu: false, heavy: ["vina"], tags: [],
+    id: "job.pipeline.dock", title: { zh: "分子对接", en: "Docking" }, exec: ["browser", "runner"], parameters: { type: "object", properties: {} },
+    execution: { browser_job: { service: "studio-jobs/1", runtime: "pyodide", pyodide_packages: ["numpy"], engines: { vina: { engine: "AutoDock Vina", version: "1.2.7", build: "WebAssembly (studio/scripts/build_vina_wasm.py)", wasm_sha256: sha } }, inputs: "a PDBQT receptor and ligands" } },
+  });
+  app.catalog = new Catalog(doc);
+  app.state.route = { name: "catalog", entryId: "job.pipeline.dock", params: {} };
+  app.state.layout = "mobile";
+  app.toolRouter = new ToolRouter({ catalog: app.catalog, runtimes: {}, settings: app.state.settings });
+  const main = document.createElement("main");
+  const view = mountCatalog(app, main);
+  const detail = text(main.querySelector(".catalog__detail"));
+  assert.match(detail, /Browser engine\s*AutoDock Vina 1\.2\.7 · WebAssembly \(studio\/scripts\/build_vina_wasm\.py\) · wasm sha256:/);
+  assert.doesNotMatch(detail, /Browser chemistry/, "no chemistry row for an entry without one");
+  assert.match(detail, /Read in the browser\s*a PDBQT receptor and ligands/);
+  view.destroy();
+  setLang("zh");
+  assert.equal(t("ui.catalog.browser_engine", undefined, "zh"), "浏览器计算引擎");
+});

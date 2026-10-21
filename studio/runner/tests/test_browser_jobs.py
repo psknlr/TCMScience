@@ -1203,7 +1203,7 @@ def test_admet_read_refuses_more_molecules_than_a_worker_holds_before_reading_th
     ("verify_pipeline", {"kind": "admet.models", "out_dir": "o"}, "unknown argument(s) out_dir"),
     ("verify_pipeline", {"kind": "admet.models"}, "models_dir: required"),
     ("verify_pipeline", {"kind": "pipeline.fold", "out_dir": "o"},
-     "kind: one of pipeline.rnaseq, pipeline.scrna, pipeline.admet, admet.models"),
+     "kind: one of pipeline.rnaseq, pipeline.scrna, pipeline.admet, pipeline.dock, admet.models"),
 ])
 def test_admet_arguments_are_held_to_the_runners_checks(tmp_path, monkeypatch, fn, args, needle):
     monkeypatch.chdir(tmp_path)

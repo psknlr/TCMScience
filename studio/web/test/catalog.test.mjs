@@ -1,7 +1,7 @@
 import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Catalog, READINESS, cleanSchema, entryState, loadCatalog, localCall, mergeCatalogs, requirement, toProviderTools } from "../js/core/catalog.js";
+import { Catalog, FILE_ID, READINESS, cleanSchema, entryState, loadCatalog, localCall, mergeCatalogs, requirement, runnerOnly, toProviderTools } from "../js/core/catalog.js";
 import { fakeFetch, testCatalogDoc } from "./fixtures/fakes.mjs";
 
 const cat = () => new Catalog(testCatalogDoc());
@@ -284,4 +284,33 @@ test("search filters for the catalog page: runtime, readiness, dataset, verifica
   assert.deepEqual(ids({ backend: "esmfold" }), ["job.pipeline.fold"]);
   assert.ok(ids({ backend: "gpu" }).includes("job.pipeline.fold") && ids({ backend: "gpu" }).includes("job.pipeline"));
   assert.equal(c.search("配伍禁忌", { verified: undefined, backend: "" })[0].id, "native.tcm_compatibility", "absent filters change nothing");
+});
+
+test("runner_only rule types, as tcmstudio.capability.runner_only reads them: absent, present, is, suffix, not_suffix (a file id not judged)", () => {
+  const rules = [
+    { arg: "counts", absent: true, why: "absent" },
+    { arg: "site_ligand", present: true, why: "present" },
+    { arg: "allow_remote", is: true, why: "is" },
+    { arg: "molecules", suffix: [".sdf", ".SDF.gz"], why: "suffix" },
+    { arg: "receptor", not_suffix: [".pdbqt"], why: "not_suffix" },
+  ];
+  const entry = { execution: { browser_job: { runner_only: rules } } };
+  const met = (args) => runnerOnly(entry, { counts: "c.tsv", ...args });
+  assert.deepEqual(runnerOnly(entry, undefined), [], "no arguments, nothing judged");
+  assert.deepEqual(runnerOnly(entry, {}), ["absent"]);
+  for (const v of [undefined, null, ""]) assert.deepEqual(met({ site_ligand: v }), [], `present: ${JSON.stringify(v)} is not given`);
+  for (const v of ["BEN", " ", 0, false, []]) assert.deepEqual(met({ site_ligand: v }), ["present"], `present: ${JSON.stringify(v)} is given`);
+  assert.deepEqual(met({ allow_remote: true }), ["is"]);
+  assert.deepEqual(met({ allow_remote: "true" }), [], "is: the value itself, not its text");
+  assert.deepEqual(met({ molecules: " A.Sdf.GZ " }), ["suffix"]);
+  // not_suffix: a name (or any text: PDB:<id>, a SMILES) without the suffix; a name with it, a file id, nothing given
+  // or no text is not judged
+  for (const v of ["3ptb.pdb", "PDB:3PTB", "UniProt:P00760", "receptor.pdbqt.gz", "CCO"]) assert.deepEqual(met({ receptor: v }), ["not_suffix"], v);
+  for (const v of ["r.pdbqt", " R.PDBQT ", "u_0123456789abcdef", "0F8FAD5B-D9CB-469F-A165-70867728950E", "", "  ", null, undefined, 5]) {
+    assert.deepEqual(met({ receptor: v }), [], JSON.stringify(v));
+  }
+  assert.ok(FILE_ID.test("0f8fad5b-d9cb-469f-a165-70867728950e") && FILE_ID.test("u_0123456789abcdef"));
+  assert.ok(!FILE_ID.test("u_0123") && !FILE_ID.test("f-1") && !FILE_ID.test("ligands.pdbqt"));
+  // several rules met: every reason, in the rules' order
+  assert.deepEqual(runnerOnly(entry, { site_ligand: "BEN", allow_remote: true, receptor: "PDB:3PTB" }), ["absent", "present", "is", "not_suffix"]);
 });
