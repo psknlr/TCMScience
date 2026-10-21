@@ -176,13 +176,32 @@ const error = (status, message, type, headers = {}) => {
 };
 
 /** A model call's outcome, counted for the owner's statistics (src/telemetry/usage.js: relay_call), and a call from
- * another site's page or one over the rate limit noted as a security event. Deferred: never in the answer's way. */
+ * another site's page or Worker, or one over the rate limit, noted as a security event. Deferred: never in the answer's way. */
 function observe(res, request, deps) {
   try {
     const type = res.relayType || (res.status < 400 ? "ok" : `http_${res.status}`);
     deps.metric?.([{ metric: "relay_call", a: type, b: "", n: 1 }], request);
-    if (type === "forbidden_origin" || type === "rate_limited") deps.securityEvent?.(type, request, { route: "relay", status: res.status });
+    if (type === "forbidden_origin" || type === "rate_limited") {
+      deps.securityEvent?.(type, request, { route: "relay", status: res.status, detail: res.relayDetail || "" });
+    }
   } catch { /* a count is never the visitor's concern */ }
+}
+
+// Every subrequest a Worker in another Cloudflare zone sends arrives from this one address, with CF-Worker naming that
+// zone (Cloudflare's "HTTP headers" reference); a subrequest within our own zone carries the visitor's address and our
+// zone's name. A page's call is never one: another zone's Worker calling here is someone forwarding to Tao-S1 as a free
+// model API, with whatever Origin it likes. (The edge refuses these too: TaoChronos security/rules.yaml, rule 3.)
+export const WORKER_IP = "2a06:98c0:3600::103";
+
+/** The zone whose Worker forwarded this request ("?" when only the address tells), or "" when none did: a visitor, or a
+ * Worker of the zone this host is in. */
+export function forwardingZone(request) {
+  const zone = String(request.headers.get("CF-Worker") || "").trim().toLowerCase();
+  if (zone) {
+    const host = new URL(request.url).hostname.toLowerCase();
+    return host === zone || host.endsWith(`.${zone}`) ? "" : zone.replace(/[^a-z0-9.-]/g, "").slice(0, 64) || "?";
+  }
+  return request.headers.get("CF-Connecting-IP") === WORKER_IP ? "?" : "";
 }
 const encoder = new TextEncoder();
 const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -269,10 +288,16 @@ function health(env, cfg, cors) {
   }, 200, cors);
 }
 
-// Checks run cheapest first, and a refused request is never counted: origin → configured → ten-second gate (before
-// the body is read) → body size → JSON → messages → model → the counters → the upstream.
+// Checks run cheapest first, and a refused request is never counted: origin → another zone's Worker → configured →
+// ten-second gate (before the body is read) → body size → JSON → messages → model → the counters → the upstream.
 async function chat(request, env, cfg, cors, allowed, deps) {
   if (!allowed) return error(403, MSG.forbidden_origin, "forbidden_origin", cors);
+  const zone = forwardingZone(request);
+  if (zone) {
+    const res = error(403, MSG.forbidden_origin, "forbidden_origin", cors);
+    res.relayDetail = `worker ${zone}`; // the security event's detail: which zone's Worker
+    return res;
+  }
   if (!cfg.enabled || !env.MINIMAX_API_KEY) return error(503, MSG.not_configured, "not_configured", cors);
   if (await bursting(request, deps)) return limited({ reason: "burst" }, cfg.chat, cors);
   const raw = await readBody(request, cfg.maxBody);

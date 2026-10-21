@@ -34,8 +34,10 @@ conversations/delete}` (same-origin pages only) and `/api/admin/*` with the dash
 contract both sides read is `web/js/core/telemetry-contract.js`.
 
 Allowed origins (env `ALLOWED_ORIGINS`): `https://science.impf.ai`, `http://127.0.0.1:8765`,
-`http://localhost:8765` (the app as served by the local runner). Output tokens are capped at
-`MAX_OUTPUT_TOKENS` (default 8192).
+`http://localhost:8765` (the app as served by the local runner). A model call forwarded by a Worker of another Cloudflare
+zone (`CF-Worker` naming another zone, or the address Cloudflare gives every cross-zone subrequest,
+`2a06:98c0:3600::103`) is refused with `forbidden_origin` whatever its `Origin`: a Worker writes any `Origin` it likes, and
+the page's calls never pass through one. Output tokens are capped at `MAX_OUTPUT_TOKENS` (default 8192).
 
 ---
 

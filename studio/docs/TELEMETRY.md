@@ -133,7 +133,7 @@ Worker 自己另计：Tao-S1 中继的每次请求及结果（`relay_call`）和
 | 事件 | 何时 |
 |---|---|
 | `scanner` | 有人请求本站根本没有的路径（`/wp-login.php`、`/.env`、`*.php` 等扫描器常试的地址） |
-| `forbidden_origin` | 别的网站的页面调用中继、网关或统计接口 |
+| `forbidden_origin` | 别的网站的页面调用中继、网关或统计接口；别的 Cloudflare 区域的 Worker 转发来的模型调用（说明里记那个区域：`worker 区域名`，只凭地址认出时 `worker ?`） |
 | `invalid_payload`、`oversized` | 统计或记录的正文不合格式、过大 |
 | `rate_limited` | 触发限额 |
 | `source_refused` | 数据库网关拒绝了不在注册表里的请求 |
