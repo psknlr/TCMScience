@@ -71,9 +71,11 @@ counts.
    itself (type hints, skill manifests, connector templates). `tcmstudio.dispatch` executes a call
    and returns one **envelope** shape (`CONTRACTS.md §3`). The runner and the Pyodide worker import the same
    two modules, so a tool behaves the same in both, and so do its governance fields.
-2. **Core tools + catalog/call.** The model is offered 26 core tools, `catalog_search` and `call_tool`
-   among them, which reach every other entry (652). The full set (~58k tokens) is never sent
-   every turn.
+2. **Core tools + catalog/call.** The model is offered 27 core tools, `catalog_search` and `call_tool`
+   among them, which reach every other entry (653). The full set (~58k tokens) is never sent
+   every turn. `research_routes` maps each kind of research question to the entries that answer
+   it, step by step, with the evidence kind each gives and what covers one that cannot run here
+   ([ROUTES.md](ROUTES.md)).
 3. **Governance is the product.** Every envelope carries what the kernel decided: the evidence kinds, the claim
    verdicts with codes, the six release states, the hashes, and the licences. The UI renders these first.
    A refusal is a result that is shown, never hidden.

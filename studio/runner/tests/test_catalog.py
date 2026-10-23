@@ -37,6 +37,7 @@ CONTRACT_CORE = {
     "tcmdb_consensus": ("tcmdb.consensus", ["browser", "runner"], False, False, False),
     "connector_call": ("connector.*", ["browser", "runner"], False, False, True),
     "literature_search": ("connector.europepmc.search", ["browser", "runner"], False, False, True),
+    "research_routes": ("system.routes", ["browser", "runner"], False, False, False),
     "research_inquiry": ("study.inquiry", ["browser", "runner"], False, False, False),
     "network_pharmacology_run": ("job.research.run", ["browser", "runner"], True, True, False),
     "run_pipeline": ("job.pipeline.*", ["browser", "runner"], True, True, False),
@@ -117,9 +118,10 @@ def test_counts(runner_catalog):
     assert kinds["skill"] >= 11
     assert kinds["clinic"] >= 4 and kinds["tcmdb"] >= 8 and kinds["study"] >= 4
     # system.capability_audit made the system entries ten (and the catalog 650), job.admet.models the
-    # jobs twelve (651), study.inquiry the study entries five (652): counted on purpose
-    assert kinds["job"] == 12 and kinds["system"] == 10 and kinds["study"] == 5
-    assert runner_catalog["counts"]["entries"] == len(runner_catalog["entries"]) == 652
+    # jobs twelve (651), study.inquiry the study entries five (652), system.routes the system
+    # entries eleven (653): counted on purpose
+    assert kinds["job"] == 12 and kinds["system"] == 11 and kinds["study"] == 5
+    assert runner_catalog["counts"]["entries"] == len(runner_catalog["entries"]) == 653
 
 
 def test_the_capability_audit_entry(runner_catalog):
@@ -163,6 +165,8 @@ def test_core_descriptions_state_limits():
     assert "attribution" in text["tcm_classical_search"]
     assert "not a release or a recommendation" in text["research_inquiry"]
     assert "never lowered" in text["research_inquiry"]
+    assert "runs nothing" in text["research_routes"] and "approvals" in text["research_routes"]
+    assert "never silent" in text["research_routes"]
 
 
 def test_the_seed_skill_is_titled_as_the_limited_analysis_it_is(runner_catalog):
@@ -610,7 +614,7 @@ def test_catalog_cli_writes_the_document(tmp_path):
                           timeout=120)
     assert proc.returncode == 0, proc.stderr
     doc = json.loads(Path(out).read_text(encoding="utf-8"))
-    assert doc["where"] == "browser" and len(doc["core"]) == 26
+    assert doc["where"] == "browser" and len(doc["core"]) == 27
     assert len(doc["entries"]) == doc["counts"]["entries"]
     # the acts reserved for a person ship with the catalog, so the page refuses them by name too
     assert "clinic.sign" in doc["never_offered"] and "system.shell" in doc["never_offered"]

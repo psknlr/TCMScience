@@ -17,7 +17,8 @@ from typing import Any, Mapping
 __all__ = ["CORE_TOOLS", "CORE_BY_NAME", "CATEGORY_IDS", "ENTRY_KINDS", "CLAIM_KINDS",
            "STUDY_DESIGNS", "INQUIRY_ACTIONS", "INQUIRY_SCAFFOLDS", "INQUIRY_SCHEMA",
            "INTAKE_SCHEMA", "VISIT_SCHEMA", "HERB_LINE_SCHEMA", "MODIFICATION_SCHEMA",
-           "PIPELINES", "route", "core_tools", "S", "I", "N", "B", "arr", "obj"]
+           "PIPELINES", "ROUTE_IDS", "ROUTES_SCHEMA", "route", "core_for", "core_tools", "S", "I",
+           "N", "B", "arr", "obj"]
 
 # ------------------------------------------------------------------ schema helpers
 
@@ -77,6 +78,14 @@ INQUIRY_SCAFFOLDS = ("pathway_signal", "formula_vs_constituent", "combination", 
                      "efficacy", "safety_signal", "herb_drug_interaction", "target_engagement")
 INQUIRY_ACTIONS = ("scaffolds", "open", "status", "plan", "declare", "record", "withdraw",
                    "admit", "conclude", "list")
+#: tcmstudio.routes.ROUTES, in order
+ROUTE_IDS = ("herb_identity", "herb_composition", "formula_composition", "traditional_use",
+             "compound_identity", "compound_targets", "target_profile", "pathways_networks",
+             "gene_regulation", "disease_links", "efficacy_evidence", "safety",
+             "herb_drug_interaction", "exposure_metabolism", "structure_binding",
+             "variants_pharmacogenomics", "omics_datasets", "spectra_identification",
+             "cell_models_cancer", "immunology", "microbiome", "imaging_data", "literature",
+             "ontology_mapping", "combination_effects", "formula_mechanism")
 
 # --------------------------------------------------------------- clinic schemas
 
@@ -180,6 +189,12 @@ INQUIRY_SCHEMA = obj({
     "shares": obj({}, description="admit: {explanation id: share of the catch-all's mass}",
                   additional=N(minimum=0, maximum=1))},
     required=("action",))
+
+ROUTES_SCHEMA = obj({
+    "route": S("one route in full; omit to list them, or to match a question",
+               enum=list(ROUTE_IDS)),
+    "question": S("the research question in your words, Chinese or English: the routes that "
+                  "answer it, the best in full", maxLength=2000)})
 
 _RELATION_EVIDENCE = ["known", "predicted", "aggregated", "listed", "reported", "mentioned",
                       "signal", "associated"]
@@ -409,6 +424,20 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
           "connector.europepmc.search", B_R, network=True,
           hosts=["www.ebi.ac.uk", "eutils.ncbi.nlm.nih.gov", "api.crossref.org",
                  "clinicaltrials.gov"]),
+    _core("research_routes", "研究路线", "Research routes", "study_design", """
+        Plan which tools and databases answer a research question before calling them. For
+        each kind of question TCM research asks (a herb's identity or composition, a formula,
+        traditional use, a compound's targets, pathways, diseases, efficacy, safety, herb-drug
+        interactions, exposure, structures, variants, omics, spectra, cell models, immunology,
+        microbes, imaging, literature, combinations, a formula's mechanism …): the steps that
+        answer it and every source of each step (core tools, API operations, data hub relation
+        kinds, jobs), with its call and the kind of evidence it gives. It says which can run
+        here and, for one that cannot, what it needs and which source in the same step covers
+        it, with what that changes: a switch is never silent. Run every runnable source of a
+        step, keep evidence kinds apart, and decide between explanations with the
+        research_inquiry scaffold a route names. A route runs nothing: each call keeps its own
+        approvals, network permission and governance.""",
+          ROUTES_SCHEMA, "system.routes", B_R),
     _core("research_inquiry", "假说竞争探究", "Compete rival explanations", "study_design", """
         Decide a research question by competing rival explanations (PSH's inquiry engine),
         not by taking the first that fits. Open one from a scaffold (scaffolds lists the
@@ -513,7 +542,10 @@ _SIMPLE = {"tcm_normalize": "skill.normalize-tcm-entities",
            "clinic_followup": "clinic.followup", "tcmdb_catalog": "tcmdb.catalog",
            "tcmdb_relations": "tcmdb.relations", "tcmdb_consensus": "tcmdb.consensus",
            "job_status": "system.job_status", "capabilities_status": "system.capabilities",
-           "catalog_search": "system.catalog_search", "research_inquiry": "study.inquiry"}
+           "catalog_search": "system.catalog_search", "research_routes": "system.routes",
+           "research_inquiry": "study.inquiry"}
+#: The core tool that runs an entry with the entry's own arguments, by entry id.
+_ENTRY_CORE = {**{f"native.{n}": n for n in _NATIVE_CORE}, **{e: n for n, e in _SIMPLE.items()}}
 
 
 def core_tools(where: str = "runner") -> list[dict[str, Any]]:
@@ -521,6 +553,13 @@ def core_tools(where: str = "runner") -> list[dict[str, Any]]:
     every core tool and the router says where each can run."""
     del where
     return copy.deepcopy(list(CORE_TOOLS))
+
+
+def core_for(entry_id: str) -> str | None:
+    """The core tool that runs ``entry_id`` with the entry's own arguments; None when it is
+    reached through connector_call, run_pipeline, network_pharmacology_run (which builds the
+    job's question itself) or call_tool."""
+    return _ENTRY_CORE.get(entry_id)
 
 
 def route(name: str, arguments: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:

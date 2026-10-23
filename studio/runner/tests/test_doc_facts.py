@@ -31,7 +31,7 @@ def test_the_facts_are_the_catalogs(facts):
     assert facts["native"] == len(TOOLS) and facts["native_domains"] == len({t.domain for t in TOOLS})
     assert facts["browser"] + facts["runner_only"] == facts["entries"]
     assert facts["class.2"] == 4 and facts["class.3"] == 3 and facts["kernel_tools"] == 7
-    assert facts["pinned_skills"] == 4 and facts["core"] == 26
+    assert facts["pinned_skills"] == 4 and facts["core"] == 27
     assert facts["live_verified"] <= facts["operations"]
 
 

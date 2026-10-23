@@ -57,6 +57,7 @@ def core_cases(intake, visits):
          "job_submitted"),
         ("capabilities_status", {}, "succeeded"),
         ("catalog_search", {"query": "十八反"}, "succeeded"),
+        ("research_routes", {"route": "safety"}, "succeeded"),
         ("research_inquiry", {"action": "scaffolds"}, "succeeded"),
         ("call_tool", {"tool": "native.egfr_ckd_epi_2021",
                        "arguments": {"creatinine_mg_dl": 1.0, "age_years": 50, "sex": "female"}},

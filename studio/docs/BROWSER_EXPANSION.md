@@ -8,7 +8,7 @@ alongside the prepared-input docking cycle ([BROWSER_JOBS.md §3.3](BROWSER_JOBS
 
 **A plan, not a record.** What is already done links to its evidence ([BROWSER_JOBS.md](BROWSER_JOBS.md),
 [BROWSER_COMPUTE.md](BROWSER_COMPUTE.md)); everything else here is a plan, marked as one, and claims nothing it has not
-measured. Of the catalog's 652 entries, 639 run in the browser today and thirteen only on the runner (classes 6–8 of
+measured. Of the catalog's 653 entries, 640 run in the browser today and thirteen only on the runner (classes 6–8 of
 the [compatibility matrix](compat/summary.md)); this plan is about those thirteen, and about finishing docking. Status
 words are those of [BROWSER_COMPUTE.md](BROWSER_COMPUTE.md).
 
@@ -151,7 +151,7 @@ browser, not a claim that it does; several depend on work not started.
 （[BROWSER_JOBS.md §3.3](BROWSER_JOBS.md#33-docking-from-prepared-structures)）。
 
 **这是计划，不是记录。** 已完成的部分链接到其证据（[BROWSER_JOBS.md](BROWSER_JOBS.md)、[BROWSER_COMPUTE.md](BROWSER_COMPUTE.md)）；
-其余都是计划，并标明为计划，绝不声称未经测量之事。目录的 652 个条目中，639 个今天在浏览器中运行，十三个仅在 Runner 上运行
+其余都是计划，并标明为计划，绝不声称未经测量之事。目录的 653 个条目中，640 个今天在浏览器中运行，十三个仅在 Runner 上运行
 （[兼容矩阵](compat/summary.md)的 6–8 类）；本计划针对这十三个，以及把对接做完。状态用词与
 [BROWSER_COMPUTE.md](BROWSER_COMPUTE.md) 一致。
 

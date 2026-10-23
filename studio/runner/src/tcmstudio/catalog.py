@@ -29,7 +29,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from . import capability
 from .core_tools import (B, B_R, CATEGORY_IDS, CLAIM_KINDS, CORE_TOOLS, ENTRY_KINDS,
                          HERB_LINE_SCHEMA, I, INQUIRY_SCHEMA, INTAKE_SCHEMA,
-                         MODIFICATION_SCHEMA, N, R, VISIT_SCHEMA, S, arr, obj)
+                         MODIFICATION_SCHEMA, N, R, ROUTES_SCHEMA, VISIT_SCHEMA, S, arr, obj)
 
 __all__ = ["SCHEMA_ID", "CATEGORIES", "JOB_KINDS", "NEVER_OFFERED", "DEPRECATED", "build_catalog",
            "catalog_search", "entries", "get_entry", "entry_ids", "suggest", "canonical_name",
@@ -1672,6 +1672,17 @@ def _system_entries() -> list[dict[str, Any]]:
                     "kind": S(enum=list(ENTRY_KINDS)), "runnable_now": B(default=False),
                     "limit": I(minimum=1, maximum=25, default=10)}),
                example={"query": "十八反"}, tags=(*tags, "检索", "目录")),
+        _entry("system.routes", "system", "研究路线", "Research routes", "study_design",
+               "For each kind of question TCM research asks, the steps that answer it and every "
+               "source in this runtime for each step (core tools, API operations, data hub "
+               "relation kinds, native tools, jobs), with the call and the kind of evidence each "
+               "gives; which can run here, what one that cannot needs, and which source in the "
+               "same step covers it with what that changes. A route runs nothing: every call "
+               "keeps its own approvals, network permission and governance.",
+               {**ROUTES_SCHEMA, "additionalProperties": False},
+               example={"route": "compound_targets"},
+               tags=(*tags, "研究路线", "数据源", "编排", "研究设计", "工具选择", "routes",
+                     "research plan", "orchestration", "which database")),
         _entry("system.job_status", "system", "任务状态", "Job status", "system",
                "State, progress and (once succeeded) outcome and files of a job: the runner's, "
                "or (an id starting bj-) one this browser's job service runs; the page answers "

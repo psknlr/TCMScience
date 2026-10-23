@@ -209,7 +209,7 @@ async function full() {
   await boot();
   const t0 = performance.now();
   const doc = await rt.catalog();
-  check("catalog before Python", doc?.entries?.length >= 600 && doc?.core?.length === 26 && rt.status === "idle",
+  check("catalog before Python", doc?.entries?.length >= 600 && doc?.core?.length === 27 && rt.status === "idle",
     `${doc?.core?.length} core tools, ${doc?.entries?.length} entries, runtime still ${rt.status}`, performance.now() - t0);
   const d0 = performance.now();
   out.device = await rt.device();
