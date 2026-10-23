@@ -3524,12 +3524,8 @@ def _study_inquiry(args: Mapping[str, Any], ctx: Context) -> Outcome:
     else:
         g["limitations"] = list(_INQUIRY_LIMITS)
     zh, en = _inquiry_summary(action, r, args)
-    o = Outcome(result=r, governance=g, summary=zh, summary_en=en)
-    if action in ("open", "status", "declare", "record", "withdraw", "admit", "conclude"):
-        o.provenance["inquiry"] = {"id": r.get("inquiry_id"),
-                                   "trail_head": r.get("head") or (
-                                       r.get("conclusion") or {}).get("trail_head")}
-    return o
+    # the result names the inquiry and its trail head: the receipt's output digest binds them
+    return Outcome(result=r, governance=g, summary=zh, summary_en=en)
 
 
 def _inquiry_record_data(store: Any, args: Mapping[str, Any], ctx: Context) -> Any:

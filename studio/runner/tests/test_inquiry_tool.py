@@ -99,6 +99,15 @@ def test_an_inquiry_runs_to_acceptance_through_the_dispatcher(runner_ctx):
     assert (folder / f"{iid}.json").is_file()
 
 
+def test_the_receipt_binds_the_inquiry_and_its_trail_head(runner_ctx):
+    from tcmstudio.envelope import sha256_json
+    e = call("research_inquiry", {"action": "open", "scaffold": "formula_vs_constituent",
+                                  "values": FVC}, runner_ctx)
+    r = e["result"]
+    assert r["inquiry_id"].startswith("inq_") and len(r["head"]) == 64
+    assert e["receipt"]["output_sha256"] == sha256_json(r)
+
+
 def test_the_tool_a_test_names_is_validated_before_anything_is_recorded(runner_ctx):
     iid = call("research_inquiry", {"action": "open", "scaffold": "formula_vs_constituent",
                                     "values": FVC}, runner_ctx)["result"]["inquiry_id"]
