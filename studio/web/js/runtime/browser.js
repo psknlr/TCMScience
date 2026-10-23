@@ -28,9 +28,9 @@ function cpuKernels() {
 
 const CATALOG_SCHEMA = "tcmstudio.catalog/1";
 const BOOT_SCHEMA = "tcmstudio.boot/1";
-// Entries whose runs read or extend a project's audit chain or session files: their state is synced with IndexedDB.
+// Entries whose runs read or extend a project's audit chain, session or inquiry files: their state is synced with IndexedDB.
 const STATEFUL_KINDS = new Set(["skill", "clinic"]);
-const STATEFUL_IDS = new Set(["system.audit_verify"]);
+const STATEFUL_IDS = new Set(["system.audit_verify", "study.inquiry"]);
 // Failures a call should not retry by itself (a retry would repeat them); an explicit start() still tries again.
 const STICKY_BOOT_ERRORS = new Set(["bundle_hash", "boot_missing", "bad_boot", "restarts"]);
 const RESTART_WINDOW_MS = 60_000;

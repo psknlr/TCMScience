@@ -124,6 +124,8 @@ Before anything runs, the usual analysis (enrichment against the whole Reactome 
 
 Planted worlds show the mechanics. They are not evidence that the engine decides real questions well.
 
+In the Studio chat the agent runs the same engine through the core tool `research_inquiry` ([docs](docs/inquiry.md#in-the-studio-chat)). It can start from one of eight scaffolds of rival explanations for questions TCM research asks often: a pathway signal, formula against constituent, a combination, exposure, efficacy, a safety signal, a herb–drug interaction and target engagement. It can also bring rivals of its own. The runtime keeps each inquiry per project with its predictions sealed. Where a tool computes a test's result, the runtime classifies the outcome from the data. An outcome the agent reports must cite its evidence and is counted apart. The bar for acceptance can be raised, never lowered.
+
 ## Key results: a case study on 葛根芩连汤
 
 The formula (葛根, 黄芩, 黄连, 甘草 as recorded in the *Shanghan Lun*) was analysed end to end with the governed `tcm.network-pharmacology` skill (not the limited seed-corpus skill) on public data: NPASS, CMAUP and LOTUS for composition; curated potency measurements and PubChem BioAssay for activity; Reactome and STRING for biology; Open Targets for the indication. The marker compounds of all four herbs (puerarin, baicalin, berberine, glycyrrhizic acid) were recovered in all three composition sources.

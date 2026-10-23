@@ -77,6 +77,7 @@ PROBES: dict[str, dict[str, Any]] = {
     "tcm_network_hypothesis": {"formula_name": "葛根芩连汤"}, "tcmdb_catalog": {"query": "NPASS"},
     "tcmdb_consensus": {"kind": "organism_compound", "subject": "甘草"},
     "tcmdb_relations": {"kind": "organism_compound", "subject": "甘草"},
+    "research_inquiry": {"action": "scaffolds"},
     "capabilities_status": {}, "catalog_search": {"query": "GC content"},
     "job_status": {"job_id": "j_0000000000000000"},
     "call_tool": {"tool": "native.gc_content", "arguments": {"sequence": "ACGTGGCC"}},

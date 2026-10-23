@@ -29,7 +29,7 @@ Cloudflare Worker (`studio/edge`: static files, the `/v1` relay to the Tao-S1 mo
 to public databases) and an optional local runner (`tcmstudio serve`, native CPython). In the browser, tools run in a
 Web Worker on **Pyodide 314.0.7** (CPython 3.14 compiled to WebAssembly) executing the real `psh`, `bioagent` and
 `tcmstudio` packages from a SHA-256-verified bundle, so a browser call and a runner call return the same envelope
-(CONTRACTS §3). The tool catalog has **651 entries** (25 core tools); **638 run in the browser** today
+(CONTRACTS §3). The tool catalog has **652 entries** (26 core tools); **639 run in the browser** today
 ([matrix](compat/summary.md)).
 
 **Where computation happened before this work.** Every browser tool ran single-threaded on the CPU in Pyodide, except
@@ -84,7 +84,7 @@ compared with native CPython: that comparison was made only for the calls of the
 
 | Class | Meaning | Entries |
 |---|---|---:|
-| 1 | Runs in the browser now, unchanged (Pyodide, CPU) | 172 |
+| 1 | Runs in the browser now, unchanged (Pyodide, CPU) | 173 |
 | 1g | Runs in the browser now; its data comes from a public API through the bounded gateway | 444 |
 | 1j | Runs in the browser now as a job: the same Python in job workers (and, for docking, AutoDock Vina 1.2.7 compiled to WebAssembly in dedicated workers), files in private storage ([BROWSER_JOBS.md](BROWSER_JOBS.md)) | 7 |
 | 2 | A JavaScript CPU kernel computes the hot loop, byte-identical to Python | 4 |
@@ -673,7 +673,7 @@ skill's code no longer matches its pin.
   in WebAssembly SIMD, with JavaScript as fallback. Each is checked in Python before use, and each receipt names it.
 - WebGPU count packets bound to their input by SHA-256 and recounted in Python; a bad packet is ignored, never fatal.
 - An offline-capable app shell and Python runtime (service worker, verified manifest, opt-in updates, kill switch).
-- A compatibility matrix of all 651 catalog entries, generated and checked in CI.
+- A compatibility matrix of all 652 catalog entries, generated and checked in CI.
 - A benchmark harness that times only outputs checked equal to the reference, and the measurements in [§9](#9-performance).
 - Envelope post-processing for large results about 1.6× faster natively, and the 120 × 1000 distance-matrix call
   1.9× faster in the browser, byte-identical (differential tests against the original code).

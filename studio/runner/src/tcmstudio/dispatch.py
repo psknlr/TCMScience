@@ -40,7 +40,7 @@ from . import governance as gv
 from .catalog import (NEVER_OFFERED, canonical_name, dependency_present,
                       entries as catalog_entries,
                       catalog_search, get_entry, skill_specs, suggest)
-from .core_tools import CORE_BY_NAME, route
+from .core_tools import CORE_BY_NAME, INQUIRY_ACTIONS, route
 from .envelope import jsonable, shape, utc_now
 
 __all__ = ["Context", "call", "call_json", "validate", "ValidationResult"]
@@ -2291,6 +2291,10 @@ class _ProjectPaths:
     def clinic(self) -> Path:
         return self.base / "clinic"
 
+    @property
+    def inquiries(self) -> Path:
+        return self.base / "inquiries"
+
 
 def _project(ctx: Context) -> _ProjectPaths:
     if ctx.state_root:
@@ -3258,6 +3262,8 @@ def _row_licences(rows: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 def _exec_study(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Outcome:
     op = entry["id"].split(".", 1)[1]
+    if op == "inquiry":
+        return _study_inquiry(args, ctx)
     g = gv.empty("study")
     g["limitations"] = [gv.LIMIT_NOT_SIGNIFICANT]
     try:
@@ -3351,6 +3357,218 @@ def _exec_study(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
         return _failure("study", "bad_arguments", f"{type(exc).__name__}: {exc}",
                         _signature(entry["parameters"]))
     return _failure("study", "not_found", f"no study design {op!r}")
+
+
+# =========================================================================== inquiry
+
+_VERDICT_ZH = {"accepted": "接受", "provisional": "暂定", "undetermined": "未定",
+               "needs_hypotheses": "需要新的解释"}
+_CERTAINTY_ZH = {"definitive": "确定", "strong": "强", "moderate": "中等", "tentative": "初步",
+                 "uncertain": "不确定"}
+#: What every inquiry result carries, in the words the model must repeat.
+_INQUIRY_LIMITS = (
+    "The posterior is conditional on the predictions sealed before each analysis ran; they "
+    "are commitments, not measurements.",
+    "A conclusion is not a release or a recommendation: its certainty is capped by the "
+    "designs of the evidence that bore on it, and a claim still needs tcm_applicability and "
+    "the release gate.")
+
+
+def _inquiry_next(view: Mapping[str, Any]) -> tuple[str, str]:
+    step = view.get("next") or {}
+    action, analysis = step.get("action"), step.get("analysis_id") or ""
+    if action == "run":
+        return f"运行 {analysis}", f"run {analysis}"
+    if action == "declare":
+        pending = ", ".join(step.get("pending") or ())
+        return f"为 {pending} 封存预测", f"seal predictions for {pending}"
+    if action == "propose":
+        return "提出新的解释（admit）", "propose new explanations (admit)"
+    return "停止（conclude）", "stop (conclude)"
+
+
+def _inquiry_leader(view: Mapping[str, Any]) -> tuple[str, float]:
+    """The leading explanation and its probability; no leader while the top two tie."""
+    belief = {h: float(p) for h, p in (view.get("belief") or {}).items() if h != "catch-all"}
+    top = sorted(belief.values(), reverse=True)
+    leader = str(view.get("leader") or "")
+    if not leader or (len(top) > 1 and abs(top[0] - top[1]) < 1e-9):
+        return "", 0.0
+    return leader, belief.get(leader, 0.0)
+
+
+def _inquiry_summary(action: str, r: Any, args: Mapping[str, Any]) -> tuple[str, str]:
+    if action == "scaffolds":
+        if isinstance(r, list):
+            return (f"假说竞争探究：{len(r)} 个问题模板", f"Hypothesis inquiry: {len(r)} scaffolds")
+        return (f"探究模板 {r['id']}：{len(r['rivals'])} 个竞争解释，{len(r['tests'])} 项检验",
+                f"Scaffold {r['id']}: {len(r['rivals'])} rivals, {len(r['tests'])} tests")
+    if action == "list":
+        n = len(r.get("inquiries") or ())
+        return f"本项目的探究：{n} 项", f"Inquiries in this project: {n}"
+    if action == "conclude":
+        c = r["conclusion"]
+        verdict, cert = c.get("verdict", ""), c.get("certainty", "")
+        who = c.get("leader") or "—"
+        return (f"探究结论：{_VERDICT_ZH.get(verdict, verdict)}（{who}，至多表述为"
+                f"{_CERTAINTY_ZH.get(cert, cert)}）",
+                f"Inquiry conclusion: {verdict} ({who}, stated at most {cert})")
+    iid = r.get("inquiry_id", "")
+    leader, p = _inquiry_leader(r)
+    nxt_zh, nxt_en = _inquiry_next(r)
+    lead_zh = f"领先 {leader} {p:.2f}" if leader else "尚无领先解释"
+    lead_en = f"{leader} leads at {p:.2f}" if leader else "no leader yet"
+    if action == "record":
+        u = r.get("update") or {}
+        by_zh = "运行时判定" if u.get("by") == "runtime" else "智能体报告"
+        by_en = ("classified by the runtime" if u.get("by") == "runtime"
+                 else "reported by the agent")
+        return (f"探究 {iid}：{u.get('analysis_id')} → {u.get('outcome')}（{by_zh}）；"
+                f"{lead_zh}；下一步：{nxt_zh}",
+                f"Inquiry {iid}: {u.get('analysis_id')} → {u.get('outcome')} ({by_en}); "
+                f"{lead_en}; next: {nxt_en}")
+    head_zh = {"open": "已开启探究", "status": "探究", "declare": "已封存预测，探究",
+               "withdraw": f"已撤回 {args.get('analysis_id')}，探究",
+               "admit": "已纳入新解释，探究"}.get(action, "探究")
+    head_en = {"open": "Inquiry opened:", "status": "Inquiry",
+               "declare": "Predictions sealed, inquiry",
+               "withdraw": f"Withdrawn {args.get('analysis_id')}, inquiry",
+               "admit": "Explanations admitted, inquiry"}.get(action, "Inquiry")
+    return (f"{head_zh} {iid}：{lead_zh}；下一步：{nxt_zh}",
+            f"{head_en} {iid}: {lead_en}; next: {nxt_en}")
+
+
+def _study_inquiry(args: Mapping[str, Any], ctx: Context) -> Outcome:
+    """study.inquiry: one operation on the project's inquiries
+    (``bioagent.research.inquiries``), kept under ``<project>/inquiries``."""
+    try:
+        from bioagent.research import inquiries as inq
+        from bioagent.research import rivals
+        from psh.scientist import InquiryRefused
+    except ImportError as exc:
+        return _failure("study", "unavailable", f"{type(exc).__name__}: {exc}",
+                        gv.remedy_for("MISSING_DEPENDENCY"))
+    action = str(args.get("action") or "")
+    folder = _project(ctx).inquiries
+    store = inq.InquiryStore(folder, lock=_state_lock(folder))
+
+    def need(*names: str) -> None:
+        missing = [n for n in names if args.get(n) in (None, "", [], {})]
+        if missing:
+            raise ValueError(f"action {action!r} needs {', '.join(missing)}")
+
+    try:
+        if action == "scaffolds":
+            r: Any = rivals.describe(str(args.get("scaffold") or ""))
+        elif action == "open":
+            r = inq.open_inquiry(
+                store, scaffold=str(args.get("scaffold") or ""), values=args.get("values"),
+                question=str(args.get("question") or ""),
+                explanations=list(args.get("explanations") or ()),
+                analyses=list(args.get("analyses") or ()), predictions=args.get("predictions"),
+                rule=args.get("rule"))
+        elif action == "status":
+            need("inquiry_id")
+            r = inq.status(store, str(args["inquiry_id"]))
+        elif action == "declare":
+            need("inquiry_id", "analysis_id")
+            r = inq.declare(store, str(args["inquiry_id"]), str(args["analysis_id"]),
+                            dict(args.get("predictions") or {}), analysis=args.get("analysis"))
+        elif action == "record":
+            need("inquiry_id", "analysis_id")
+            if args.get("data") is not None:
+                r = _inquiry_record_data(store, args, ctx)
+                if isinstance(r, Outcome):
+                    return r
+            else:
+                need("outcome", "evidence_ref")
+                r = inq.record_reported(store, str(args["inquiry_id"]),
+                                        str(args["analysis_id"]), str(args["outcome"]),
+                                        str(args["evidence_ref"]))
+        elif action == "withdraw":
+            need("inquiry_id", "analysis_id", "reason")
+            r = inq.withdraw(store, str(args["inquiry_id"]), str(args["analysis_id"]),
+                             str(args["reason"]))
+        elif action == "admit":
+            need("inquiry_id", "explanations", "shares")
+            r = inq.admit(store, str(args["inquiry_id"]), list(args["explanations"]),
+                          dict(args["shares"]))
+        elif action == "conclude":
+            need("inquiry_id")
+            r = inq.conclude(store, str(args["inquiry_id"]))
+        elif action == "list":
+            r = {"inquiries": inq.listing(store)}
+        else:
+            return _failure("study", "bad_arguments", f"no inquiry action {action!r}",
+                            "One of " + ", ".join(INQUIRY_ACTIONS) + ".")
+    except InquiryRefused as exc:
+        return _failure("study", "refused", str(exc), exc.remedy, status="refused",
+                        summary=f"探究引擎拒绝（{exc.code}）：{_short(exc.detail)}",
+                        summary_en=f"Refused by the inquiry engine ({exc.code}): "
+                                   f"{_short(exc.detail)}",
+                        refusals=[gv.refusal(exc.code, exc.detail, exc.remedy)])
+    except rivals.Unclassifiable as exc:
+        return _failure("study", "bad_arguments", f"not classified, nothing recorded: {exc}",
+                        "Correct the data; if the data the test needs do not exist, withdraw "
+                        "the analysis with this reason.")
+    except LookupError as exc:
+        return _failure("study", "not_found", str(exc).strip("'\""),
+                        "action list shows this project's inquiries here; an inquiry is kept "
+                        "where it was opened (the local runner, or this browser).")
+    except (ValueError, TypeError, KeyError) as exc:
+        return _failure("study", "bad_arguments", f"{type(exc).__name__}: {exc}",
+                        "action scaffolds shows each scaffold's parameters and tests.")
+    g = gv.empty("study")
+    if action == "conclude":
+        g["limitations"] = [_INQUIRY_LIMITS[1], *(r["conclusion"].get("limitations") or ())]
+    else:
+        g["limitations"] = list(_INQUIRY_LIMITS)
+    zh, en = _inquiry_summary(action, r, args)
+    o = Outcome(result=r, governance=g, summary=zh, summary_en=en)
+    if action in ("open", "status", "declare", "record", "withdraw", "admit", "conclude"):
+        o.provenance["inquiry"] = {"id": r.get("inquiry_id"),
+                                   "trail_head": r.get("head") or (
+                                       r.get("conclusion") or {}).get("trail_head")}
+    return o
+
+
+def _inquiry_record_data(store: Any, args: Mapping[str, Any], ctx: Context) -> Any:
+    """Record a runtime-classified test: run the tool it names through the dispatcher's own
+    path (validation, preflight, executor), then let the scaffold's rule classify the
+    result. A test that names no tool reads the numbers it is given."""
+    from bioagent.research import inquiries as inq
+    from bioagent.research import rivals
+    inquiry_id, analysis_id = str(args["inquiry_id"]), str(args["analysis_id"])
+    if not isinstance(args.get("data"), Mapping):
+        raise ValueError("data must be an object")
+    _, record = store.load(inquiry_id)
+    classifier = str(((record.get("tests") or {}).get(analysis_id) or {}).get("classifier")
+                     or "")
+    if not classifier:
+        raise ValueError(f"{analysis_id} is classified by the agent: record its outcome "
+                         "with evidence_ref (data is for tests the runtime classifies)")
+    tool = rivals.CLASSIFIER_TOOLS[classifier]
+    data = dict(args["data"])
+    if tool:
+        entry = get_entry(tool)
+        if entry is None:
+            return _failure("study", "unavailable", f"{tool} is not in this catalog")
+        if any(entry.get(k) for k in ("confirm", "job", "network", "network_if")):
+            # the page asks for these approvals on the tool's own call, so it never runs nested
+            return _failure("study", "refused", f"{tool} needs an approval or the network, so "
+                            "it does not run inside an inquiry", f"Call {tool} as itself; "
+                            "then record the numbers it gives.", status="refused")
+        o = _validate_and_run(entry, data, ctx, [])
+        if o.status != "succeeded":
+            err = o.error or {}
+            o.error = {**err, "message": f"{tool} did not run for {analysis_id}, so nothing "
+                                         f"was recorded: {err.get('message', '')}"}
+            return o
+        arguments, result = dict(o.executed_args or data), o.result
+    else:
+        arguments, result = data, None
+    return inq.record_classified(store, inquiry_id, analysis_id, arguments, result,
+                                 tool=tool, evidence_ref=str(args.get("evidence_ref") or ""))
 
 
 # ============================================================================== jobs
@@ -4023,7 +4241,7 @@ HANDLED_OPS: dict[str, frozenset[str]] = {
                               "formulas", "import_store", "licences", "materia", "query",
                               "relation_kinds", "relations", "status", "tables", "unresolved"}),
     "_exec_study": frozenset({"combination", "contrast_formula_monomer", "effect_modification",
-                              "exposure_screen"}),
+                              "exposure_screen", "inquiry"}),
     "_exec_system": frozenset({"audit_verify", "capabilities", "capability_audit",
                                "catalog_search", "classify", "doctor", "job_status",
                                "provider_call", "provider_catalog", "skills"})}

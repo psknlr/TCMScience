@@ -5,6 +5,9 @@ pre-registered rebuttals, release) and :mod:`bioagent.research.inquiry` for the 
 that decides which analysis to run next, and what a pathway signal means, by competing
 explanations and sealed predictions. :mod:`bioagent.research.planted` builds the
 synthetic worlds with a known answer that the inquiry is checked on.
+:mod:`bioagent.research.rivals` writes eight more questions the same way (rivals, tests,
+sealed predictions, runtime classifiers), and :mod:`bioagent.research.inquiries` keeps an
+agent's inquiries across a conversation, verified on every load.
 """
 
 from .inquiry import (PathwayInquiryResult, pathway_inquiry, render_markdown,

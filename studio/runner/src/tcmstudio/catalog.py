@@ -28,8 +28,8 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from . import capability
 from .core_tools import (B, B_R, CATEGORY_IDS, CLAIM_KINDS, CORE_TOOLS, ENTRY_KINDS,
-                         HERB_LINE_SCHEMA, I, INTAKE_SCHEMA, MODIFICATION_SCHEMA, N, R,
-                         VISIT_SCHEMA, S, arr, obj)
+                         HERB_LINE_SCHEMA, I, INQUIRY_SCHEMA, INTAKE_SCHEMA,
+                         MODIFICATION_SCHEMA, N, R, VISIT_SCHEMA, S, arr, obj)
 
 __all__ = ["SCHEMA_ID", "CATEGORIES", "JOB_KINDS", "NEVER_OFFERED", "DEPRECATED", "build_catalog",
            "catalog_search", "entries", "get_entry", "entry_ids", "suggest", "canonical_name",
@@ -1225,6 +1225,19 @@ def _study_entries() -> list[dict[str, Any]]:
                               additional=N())},
                    required=("exposures", "assays", "site")),
                tags=(*tags, "暴露", "血药浓度", "IC50", "体外活性")),
+        _entry("study.inquiry", "study", "假说竞争探究", "Hypothesis inquiry", "study_design",
+               "Compete rival explanations of one research question with PSH's inquiry "
+               "engine: scaffolds for eight TCM questions or your own rivals, predictions "
+               "sealed before any outcome, the next analysis chosen by expected information, "
+               "acceptance only after severe and replicated tests, and a conclusion capped "
+               "by what the evidence's designs license. Inquiries are kept per project.",
+               {**INQUIRY_SCHEMA, "additionalProperties": False},
+               example={"action": "scaffolds"},
+               tags=(*tags, "假说", "竞争解释", "推断", "贝叶斯", "严格检验", "inquiry",
+                     "hypothesis", "rival explanations"),
+               # recording data runs the scaffold's classifier tool in this call, and the
+               # contrast and combination analyses need numpy
+               pyodide_packages=["numpy"]),
     ]
 
 
