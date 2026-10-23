@@ -15,6 +15,7 @@ import copy
 from typing import Any, Mapping
 
 __all__ = ["CORE_TOOLS", "CORE_BY_NAME", "CATEGORY_IDS", "ENTRY_KINDS", "CLAIM_KINDS",
+           "STUDY_DESIGNS", "INQUIRY_ACTIONS", "INQUIRY_SCAFFOLDS", "INQUIRY_SCHEMA",
            "INTAKE_SCHEMA", "VISIT_SCHEMA", "HERB_LINE_SCHEMA", "MODIFICATION_SCHEMA",
            "PIPELINES", "route", "core_tools", "S", "I", "N", "B", "arr", "obj"]
 
@@ -66,6 +67,16 @@ ENTRY_KINDS = ("native", "skill", "connector", "clinic", "tcmdb", "study", "job"
 CLAIM_KINDS = ("attribution", "traditional_use", "mechanism_hypothesis", "mechanism",
                "safety_signal", "association", "efficacy", "recommendation")
 PIPELINES = ("rnaseq", "scrna", "fold", "dock", "admet")
+#: psh.sir.values.StudyDesign, the designs the licensing table rules on.
+STUDY_DESIGNS = ("classical_text", "commentary", "expert_consensus", "in_silico", "in_vitro",
+                 "animal", "case_report", "case_series", "cross_sectional", "case_control",
+                 "cohort", "non_randomised_trial", "randomised_trial", "systematic_review",
+                 "guideline", "unknown")
+#: bioagent.research.rivals.SCAFFOLDS
+INQUIRY_SCAFFOLDS = ("pathway_signal", "formula_vs_constituent", "combination", "exposure",
+                     "efficacy", "safety_signal", "herb_drug_interaction", "target_engagement")
+INQUIRY_ACTIONS = ("scaffolds", "open", "status", "declare", "record", "withdraw", "admit",
+                   "conclude", "list")
 
 # --------------------------------------------------------------- clinic schemas
 
@@ -119,6 +130,54 @@ VISIT_SCHEMA = obj({
     "new_findings": _STRINGS,
     "adherence": S(enum=["full", "partial", "none", "unknown"]),
     "tongue": S(), "pulse": S(), "notes": S()}, required=("date", "scores"))
+
+# --------------------------------------------------------------- inquiry schema
+
+_EXPLANATION_SCHEMA = obj({
+    "id": S("a short id, e.g. formula_adds"), "proposition": S("what it says is true"),
+    "claim_kind": S("what kind of claim it makes about the world; omit for an artefact",
+                    enum=list(CLAIM_KINDS)),
+    "role": S("artefact: the signal is produced by the method or the data",
+              enum=["substantive", "artefact"]),
+    "prior": N("its probability before any analysis; the named priors leave the catch-all "
+               "at least 0.05", minimum=0, maximum=1)}, required=("id", "proposition"))
+_ANALYSIS_SCHEMA = obj({
+    "id": S(), "title": S("what is run, on what"), "design": S(enum=list(STUDY_DESIGNS)),
+    "outcomes": arr(S(), "discrete, exhaustive outcomes", minItems=2),
+    "cost": N("relative effort", default=1), "replicates": S("the analysis it repeats "
+                                                              "under changed conditions"),
+    "run_with": S("the tools that produce its result"),
+    "classify": S("the rule that turns the result into one outcome")},
+    required=("id", "title", "design", "outcomes"))
+
+INQUIRY_SCHEMA = obj({
+    "action": S(enum=list(INQUIRY_ACTIONS)),
+    "inquiry_id": S("inq_… from open"),
+    "scaffold": S("scaffolds: one in full; open: the scaffold to open",
+                  enum=list(INQUIRY_SCAFFOLDS)),
+    "values": obj({}, description="open: the scaffold's parameters (scaffolds lists them)",
+                  additional=True),
+    "question": S("open without a scaffold: the question"),
+    "explanations": arr(_EXPLANATION_SCHEMA, "open: at least two rivals; admit: the new ones"),
+    "analyses": arr(_ANALYSIS_SCHEMA, "open: the analyses that tell them apart"),
+    "predictions": obj({}, description="open: {analysis id: {explanation id: {outcome: "
+                       "probability}}}; declare: {explanation id: {outcome: probability}}",
+                       additional=True),
+    "rule": obj({"accept_at": N(), "min_severity": N(), "catch_all_floor": N(),
+                 "catch_all_alarm": N(), "min_gain": N(), "budget": N(),
+                 "max_steps": I(minimum=1)},
+                description="open: the stopping rule, only stricter than the defaults"),
+    "analysis_id": S("declare, record, withdraw: the analysis"),
+    "analysis": _ANALYSIS_SCHEMA,
+    "outcome": S("record: the outcome, for a test the agent classifies"),
+    "evidence_ref": S("record: the source (PMID, DOI, NCT id, a receipt's content hash); "
+                      "required with outcome"),
+    "data": obj({}, description="record: for a test the runtime classifies, the arguments "
+                "of the tool it names, or the published numbers", additional=True),
+    "reason": S("withdraw: why the analysis cannot be run"),
+    "shares": obj({}, description="admit: {explanation id: share of the catch-all's mass}",
+                  additional=N(minimum=0, maximum=1))},
+    required=("action",))
 
 _RELATION_EVIDENCE = ["known", "predicted", "aggregated", "listed", "reported", "mentioned",
                       "signal", "associated"]
@@ -348,6 +407,21 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
           "connector.europepmc.search", B_R, network=True,
           hosts=["www.ebi.ac.uk", "eutils.ncbi.nlm.nih.gov", "api.crossref.org",
                  "clinicaltrials.gov"]),
+    _core("research_inquiry", "假说竞争探究", "Compete rival explanations", "study_design", """
+        Decide a research question by competing rival explanations (PSH's inquiry engine)
+        instead of reporting the first that fits. Open one from a scaffold (action scaffolds
+        lists the eight: rivals, tests, tools, parameters) or from your own rivals, analyses
+        and predictions. Predictions are sealed before any outcome; the runtime keeps the
+        inquiry per project. status names the next analysis by expected information per
+        cost. Run it with the tools named, then record: a test the runtime classifies takes
+        data (the tool's arguments or the published numbers), never a reported outcome; any
+        other takes outcome with evidence_ref. Withdraw an analysis that cannot be run,
+        saying why: it is the study that would decide. Acceptance needs posterior 0.95, a
+        severe test against every rival and its replicate; the bar can be raised, never
+        lowered. conclude gives the verdict, capped by what the designs license. A
+        conclusion is not a release or a recommendation: repeat its certainty and
+        limitations, never more.""",
+          INQUIRY_SCHEMA, "study.inquiry", B_R),
     _core("network_pharmacology_run", "网络药理研究闭环（任务）", "Network pharmacology run (job)",
           "netpharm", """
         The data-driven network-pharmacology workflow, as a job (in this browser's job workers,
@@ -437,7 +511,7 @@ _SIMPLE = {"tcm_normalize": "skill.normalize-tcm-entities",
            "clinic_followup": "clinic.followup", "tcmdb_catalog": "tcmdb.catalog",
            "tcmdb_relations": "tcmdb.relations", "tcmdb_consensus": "tcmdb.consensus",
            "job_status": "system.job_status", "capabilities_status": "system.capabilities",
-           "catalog_search": "system.catalog_search"}
+           "catalog_search": "system.catalog_search", "research_inquiry": "study.inquiry"}
 
 
 def core_tools(where: str = "runner") -> list[dict[str, Any]]:

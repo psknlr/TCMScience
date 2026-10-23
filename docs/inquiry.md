@@ -150,6 +150,76 @@ conclusion = run_inquiry(inquiry, lambda analysis, step: Executed(run(analysis))
 conclusion.verdict, conclusion.claim_kind, conclusion.licensing, conclusion.certainty
 ```
 
+## In the Studio chat
+
+The Studio agent runs the same engine through the core tool `research_inquiry` (catalog entry
+`study.inquiry`, in the browser and on the runner). A model that answers a research question
+in one breath reports the first explanation that fits. The tool makes it write down the
+rivals and what each predicts first, and leaves belief, the next step and the stop to the
+engine.
+
+**Scaffolds.** `bioagent.research.rivals` writes eight questions TCM research asks often in
+the form the engine needs. Each has rivals, tests, sealed predictions and the tools that
+produce each test's result. `action: "scaffolds"` lists them, and `open` with a scaffold and
+its values starts an inquiry. An agent can also open one from its own rivals, analyses and
+predictions, and the engine's refusals apply to it unchanged.
+
+| Scaffold | Question | Rivals | Tests | Who classifies an outcome |
+| --- | --- | --- | ---: | --- |
+| `pathway_signal` | a pathway signal: mechanism or artefact? | target · coverage · promiscuity | 7 | the agent, citing the run (the controls run on the runner only) |
+| `formula_vs_constituent` | does the formula do more than its main constituent? | formula adds · constituent accounts · formula attenuates | 3 | the runtime, from `study.contrast_formula_monomer` |
+| `combination` | more than each agent alone predicts? | synergy · independent · cytotoxicity | 3 | the runtime, from `study.combination` |
+| `exposure` | does the bench activity happen at the exposure reached? | parent reaches · not reached · metabolite carries | 4 | the runtime, from `study.exposure_screen` |
+| `efficacy` | benefit or bias? | effective · ineffective · bias | 4 | the runtime, from `native.meta_analysis` |
+| `safety_signal` | is the adverse event the herb's? | causal · confounded · wrong material | 5 | the agent, citing the reports |
+| `herb_drug_interaction` | does the herb change the drug? | PK · PD · none | 5 | the runtime from the published interval (clinical tests); the agent (in vitro) |
+| `target_engagement` | does the compound bind the target? | binds · indirect · interference | 6 | the agent, citing the assays |
+
+**What decides an outcome is sealed too.** An equivalence margin, the smallest important
+benefit, a combination's reference model and a clinically relevant change are values of the
+scaffold. They are written into the tests' titles, so they enter the trail with the
+predictions. Data analysed under other criteria are refused, as is a trail whose stored
+values do not match it.
+
+**Who classified an outcome is in the trail.** With `data`, the tool the scaffold names runs
+in the same call. Its arguments are validated first, and the runtime classifies the result
+by the scaffold's rule, recording `runtime:<tool>:<digest>` as the evidence. Only a tool that
+needs no approval, job or network runs this way, so nothing nested skips an approval. The same data
+recorded again (a replicate that is not one) is refused. A test without a classifier takes
+an `outcome` with `evidence_ref`, recorded as `agent:<ref>`. A replicate may not cite its
+original's evidence, and the conclusion counts the outcomes each way. A test with a
+classifier never takes a reported outcome.
+
+**The bar can be raised, never lowered.** A `rule` may ask for a higher acceptance
+threshold, severity or catch-all floor, a lower alarm, or fewer steps. It cannot turn
+replication off or loosen anything. Inquiries are kept per project, in
+`<state>/<project>/inquiries/<id>.json`. In the browser that is `/persist` in IndexedDB,
+synced around each call under the same lock as governed runs. Each load replays the trail
+(`INQ150`).
+
+**Withdrawing is a finding.** A test nobody can run is withdrawn with the reason. The
+conclusion lists it under `to_decide`, with every unrun test that would be severe against a
+live rival. Those are the studies that would settle the question. `pathway_signal`'s
+random-herb and rewiring controls are not Studio tools. In the chat they are withdrawn,
+so its conclusion says the test against promiscuity is missing. A safety signal does not
+wait for acceptance: a provisional or undetermined verdict is not reassurance.
+
+**What the scaffolds were checked for.** `tests/test_rivals.py` plants each rival's most
+likely outcomes for every test, and the engine accepts that rival in all 24 such worlds. It
+also checks that every pair of rivals has a severe test and a replicate of it. In noisy
+worlds the outcomes are drawn at random from the true rival's own sealed predictions, 100
+worlds per rival. There a wrong rival was accepted 7 times in 2,400 worlds, at most 2 for
+any one rival (the test allows 5). The true one was accepted in 9 to 90 of 100 worlds,
+depending on the rival. The rest ended undecided, with the studies that would decide them.
+`efficacy`'s "ineffective" is the hardest: 9 of 100, because an absent benefit is seldom
+shown severely. These worlds come from the scaffolds' own predictions. They check that the
+numbers are consistent and that a wrong answer is rare when the predictions are right. They
+say nothing about whether the predictions are right.
+
+**A conclusion is not a release or a recommendation.** Its certainty is capped by the
+designs that bore on it, as everywhere in this document. A claim about patients still goes
+through `tcm_applicability` and the release gate, and the tool's summary says so.
+
 ## Refusals
 
 | Code | Refused |
@@ -185,8 +255,10 @@ conclusion.verdict, conclusion.claim_kind, conclusion.licensing, conclusion.cert
 
 Tests: `PSH-Harness/tests/test_scientist_inquiry.py` (engine), `…_property.py` (information
 gain bounds, belief as a martingale, exact hold-fixed for unlicensed explanations, replay),
-`…_recorder.py` (world model, audit, write-ahead refusal), and
-`BioScience-Harness/tests/test_research_inquiry.py` (planted worlds).
+`…_recorder.py` (world model, audit, write-ahead refusal),
+`BioScience-Harness/tests/test_research_inquiry.py` (planted worlds), `…/test_rivals.py`
+(the scaffolds and their classifiers), `…/test_inquiries.py` (the per-project store) and
+`studio/runner/tests/test_inquiry_tool.py` (the chat tool, in both runtimes).
 
 ## 中文摘要
 
@@ -213,3 +285,13 @@ gain bounds, belief as a martingale, exact hold-fixed for unlicensed explanation
 **记录与执行：**
 - **记录到世界模型：** 设置 `state_dir` 后，推理过程经持久化网关写入 PSH 世界模型，包括假说、预注册方案、观察、支持/反驳边、科学循环和审计事件。写入先于信念更新，写入被拒则信念不变。
 - **执行方式：** 分析在本进程内执行，并如实标注 `governed_execution: false`；执行器端口留给内核的执行代理。
+
+**在 Studio 对话中（`research_inquiry`）：**
+- **工具：** 核心工具 `research_inquiry`（目录条目 `study.inquiry`，浏览器和 Runner 均可运行）让对话中的智能体使用同一引擎。它先写下竞争解释和各自的预测，信念、下一步和停止由引擎决定。
+- **八套模板：** `bioagent.research.rivals` 为常见问题准备了竞争解释、检验、封存的预测和产生结果的工具，包括通路信号、复方与主要成分、联合用药、体内暴露、疗效、安全信号、药材–药物相互作用、靶点结合。`action: "scaffolds"` 列出全部模板，也可以自己提出竞争解释。
+- **判定标准同样封存：** 等效界值、最小重要获益、联合作用的参照模型、临床相关变化都是模板参数，写入检验标题，与预测一起进入审计轨迹。按其他标准分析的数据被拒绝。
+- **谁判定的结果写在轨迹里：** 提供 `data` 时，模板指定的工具在同一次调用中运行，由运行时按模板规则判定，证据记为 `runtime:<工具>:<摘要>`。同一数据不能记录两次。没有判定器的检验由智能体报告结果，必须给出 `evidence_ref`，记为 `agent:`；重复检验不能引用原检验的证据。结论分别计数两类结果。
+- **门槛只能提高：** `rule` 可以提高接受阈值、严格度或兜底下限，降低警戒线或减少步数，但不能关闭重复要求，也不能放宽任何一项。探究按项目保存，每次加载都重放审计轨迹（INQ150）。
+- **撤回也是发现：** 无法运行的检验连同原因撤回，结论在 `to_decide` 中列出它们，以及其他能严格区分存活解释、尚未运行的检验，也就是能解决问题的研究。安全信号不等待接受：暂定或未决不等于安全。
+- **模板检验了什么：** 在每个解释最可能的结果下，24 个解释全部被接受；每对解释都有严格检验及其重复。按真实解释自身的预测随机抽取结果时（每个解释 100 个世界），错误解释被接受 7 次（共 2,400 个世界，单个解释最多 2 次），真实解释被接受 9 到 90 次不等，其余以未决结束并给出能解决问题的研究。这只检验数字的自洽，不检验预测本身是否正确。
+- **结论不是发布，也不是建议：** 结论强度受证据设计封顶；关于患者的主张仍须经过 `tcm_applicability` 和发布关卡。
