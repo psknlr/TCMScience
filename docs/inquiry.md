@@ -213,7 +213,9 @@ engine.
 the form the engine needs. Each has rivals, tests, sealed predictions and the tools that
 produce each test's result. `action: "scaffolds"` lists them, and `open` with a scaffold and
 its values starts an inquiry. An agent can also open one from its own rivals, analyses and
-predictions, and the engine's refusals apply to it unchanged.
+predictions, and the engine's refusals apply to it unchanged. The core tool `research_routes`
+names, for each kind of research question, the scaffold that decides between its explanations
+and every source that can produce the evidence ([studio/docs/ROUTES.md](../studio/docs/ROUTES.md)).
 
 | Scaffold | Question | Rivals | Tests | Who classifies an outcome |
 | --- | --- | --- | ---: | --- |

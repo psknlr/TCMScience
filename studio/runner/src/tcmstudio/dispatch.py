@@ -3919,6 +3919,8 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
         return _capabilities(ctx, g)
     if op == "capability_audit":
         return _capability_audit(args, ctx, g)
+    if op == "routes":
+        return _routes(args, ctx, g)
     if op == "job_status":
         get = _jobs_fn(ctx.jobs, "get")
         if get is None:
@@ -4199,6 +4201,78 @@ def _capability_audit(args: Mapping[str, Any], ctx: Context, g: dict[str, Any]) 
                               + f"; {tested} with a passing committed verification record")
 
 
+def _routes(args: Mapping[str, Any], ctx: Context, g: dict[str, Any]) -> Outcome:
+    """system.routes: the research routes (tcmstudio.routes), each source judged against this
+    runtime with the readiness catalog_search gives (nothing is sent or run)."""
+    from . import routes as rt
+    items = {e["id"]: e for e in _searchable(ctx.where)}
+    built = _built(ctx)
+    kind_missing = _kind_missing(ctx)
+
+    def judge(entry_id: str, fixed: Mapping[str, Any]) -> list[dict[str, Any]]:
+        entry = items.get(entry_id)
+        if entry is None:
+            return [capability.requirement(
+                "dependency", f"{entry_id} in this runtime's catalog (its section did not load)",
+                "capabilities_status and the catalog document's errors say which section failed "
+                "and why.")]
+        # the entry as such, except the dataset a data hub query names
+        source = entry.get("data_from")
+        call = ({source["param"]: fixed[source["param"]]}
+                if isinstance(source, Mapping) and source.get("param") in fixed else None)
+        return [r for _, r in capability.requirements(
+            entry, where=ctx.where, network=ctx.network, jobs=ctx.jobs is not None,
+            browser_jobs=ctx.browser_jobs, browser_snapshots=ctx.browser_snapshots,
+            browser_admet_models=ctx.browser_admet_models, built=built, args=call,
+            kind_missing=kind_missing.get(entry_id))]
+
+    name = str(args.get("route") or "").strip()
+    question = " ".join(str(args.get("question") or "").split())
+    g["limitations"] = [
+        "A route is a map: it runs nothing, and every call it names keeps its own approvals, "
+        "network permission and governance.",
+        "Whether a source can run here is judged without sending a request: a runnable source "
+        "may still fail or return nothing, and an empty result is not evidence of absence."]
+    if built is None:
+        g["limitations"].append("This runtime's data hub could not be read, so whether the data "
+                                "hub's sources have their datasets here was not judged.")
+    if name and name not in rt.ROUTE_BY_ID:
+        return _failure("system", "bad_arguments", f"no research route {name!r}; routes: "
+                        + ", ".join(rt.ROUTE_BY_ID))
+    matches = rt.match(question) if question and not name else []
+    if not name and not matches:
+        result = rt.listing()
+        if question:
+            result["question"] = question
+            result["note"] = ("No route matched the question's words: pick a route from the "
+                              "list, or find entries with catalog_search.")
+        n = len(result["routes"])
+        return Outcome(result=result, governance=g,
+                       summary=(f"研究路线：问题未匹配任何路线，列出全部 {n} 条" if question
+                                else f"研究路线：共 {n} 条"),
+                       summary_en=(f"Research routes: no route matched the question; all {n} "
+                                   "listed" if question else f"Research routes: {n}"))
+    route = rt.ROUTE_BY_ID[name] if name else matches[0][0]
+    result = rt.view(route, judge, built=built, where=ctx.where)
+    if matches:
+        result = {"question": question,
+                  "matched": [{"route": r.id, "title": {"zh": r.title[0], "en": r.title[1]},
+                               "asks": r.asks} for r, _ in matches],
+                  "shown": route.id, **result}
+    counts = result["counts"]
+    steps = len(result["steps"])
+    lead_zh = f"研究路线「{route.title[0]}」"
+    lead_en = f"Research route “{route.title[1]}”"
+    if len(matches) > 1:
+        lead_zh = f"研究路线：问题匹配 {len(matches)} 条，首条「{route.title[0]}」"
+        lead_en = f"Research routes: {len(matches)} match the question, first “{route.title[1]}”"
+    return Outcome(result=result, governance=g,
+                   summary=f"{lead_zh}：{steps} 步，{counts['sources']} 个来源，此处可运行 "
+                           f"{counts['runnable_now']} 个",
+                   summary_en=f"{lead_en}: {steps} steps, {counts['sources']} sources, "
+                              f"{counts['runnable_now']} runnable here")
+
+
 def _formula_corpus(ctx: Context) -> dict[str, Any]:
     """Which formula corpus lookups can use here (the seed always; the complete workbook
     loaded, available, or missing and why), without loading anything."""
@@ -4264,4 +4338,4 @@ HANDLED_OPS: dict[str, frozenset[str]] = {
                               "exposure_screen", "inquiry"}),
     "_exec_system": frozenset({"audit_verify", "capabilities", "capability_audit",
                                "catalog_search", "classify", "doctor", "job_status",
-                               "provider_call", "provider_catalog", "skills"})}
+                               "provider_call", "provider_catalog", "routes", "skills"})}
