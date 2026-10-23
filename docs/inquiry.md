@@ -109,6 +109,57 @@ withdrawn, `target` cannot be accepted, and nothing is released.
 These are fixtures: three worlds built to have an answer. They show the mechanics and catch
 regressions. They are not evidence that the engine decides real questions correctly.
 
+## Running analyses together, and how sure the predictions were
+
+**Batches.** An agent that can call several tools at once should not spend them on analyses
+that would tell the same story. `Inquiry.batch(k)`, for k up to 4, starts with the engine's
+next step, so a contradiction or a replication the leader needs still comes first. It then
+adds, one at a time, the ready analysis that adds the most information per unit cost
+*together with* those already chosen. That joint information is `joint_gain`: the expected
+information of the set under the engine's own updates (the chain rule of mutual
+information), which equals the average over every joint outcome applied by `observe`. A
+replicate adds less to its original than its gain alone suggests, so a batch prefers an
+analysis that tells a different story. The budget, the step limit and `min_gain` apply as
+they do to single steps. `Inquiry.plan(k)` seals the batch into the trail before any of it
+runs. Each of its analyses is then recorded as part of the engine's batch
+(`Purpose.BATCH`), not as unrecommended. A replay recomputes the plan from the state it was
+made in, so a plan written after the fact is refused (`INQ150`).
+
+Measured on the eight scaffolds of the Studio chat ([below](#in-the-studio-chat)), in the
+noisy worlds of their calibration (100 per rival, 2,400 in all):
+
+| Analyses per round | Rounds (mean) | Cost (mean) | True rival accepted | Wrong rival accepted |
+| --- | ---: | ---: | ---: | ---: |
+| 1, the engine's next step | 3.95 | 8.90 | 1,309 | 9 |
+| 2 | 2.26 | 9.68 | 1,233 | 10 |
+| 3 | 1.71 | 10.75 | 1,196 | 6 |
+| 4 | 1.35 | 10.34 | 1,167 | 8 |
+
+Batches of two take 43% fewer rounds for 9% more cost. A batch is chosen before any of its
+outcomes is known, so it cannot change course on them. It decides somewhat less often (6%
+fewer true acceptances), and a wrong rival stays as rare. `tests/test_rivals.py` checks
+both for every rival.
+
+**A two-step lookahead was tried and is not used.** It chose each analysis by what it and
+the best follow-up would yield together. In 960 noisy worlds (40 per rival) it accepted the
+true rival 365 times, against 528 for the one-step choice: less often on seven scaffolds and
+as often on the eighth. The engine stays one step ahead, or one batch.
+
+**Sensitivity.** The posterior is conditional on the sealed predictions, and how sure they
+are is the proposer's choice. `Inquiry.sensitivity(tempers)` replays the recorded outcomes
+with every sealed prediction mixed with the uniform distribution over its outcomes,
+`(1 − t)·q + t/n`. This keeps the outcome each explanation favours and shrinks every
+likelihood ratio towards 1. A leader that holds as t grows is carried by which outcome each
+explanation favoured. A leader that changes is carried by how sure the predictions were:
+typically a prediction of 0 that refuted an explanation the other outcomes favoured. The
+verdict is not recomputed, because tempered predictions are less severe by construction. Of
+1,303 conclusions accepted in the worlds above, a recomputed verdict kept 217 at t = 0.1 and
+none at t = 0.2, which measures the severity threshold rather than the evidence. The leader
+held in all 1,303 at t = 0.1, 0.2 and 0.3, and its posterior fell by 0.013, 0.032 and 0.060
+on average. Those worlds were drawn from the scaffolds' own predictions, which avoid zeros,
+so that is the expected result. The check matters most for an inquiry an agent opens with
+predictions of its own.
+
 ## Recording
 
 With `state_dir`, `psh.scientist.WorldModelRecorder` writes the inquiry into the kernel's
@@ -204,6 +255,13 @@ random-herb and rewiring controls are not Studio tools. In the chat they are wit
 so its conclusion says the test against promiscuity is missing. A safety signal does not
 wait for acceptance: a provisional or undetermined verdict is not reassurance.
 
+**Running analyses at once.** `action: "plan"` with a `size` of 2 to 4 seals the engine's
+batch. It returns each analysis with the tool that runs it and the bits it adds, and the
+agent then runs them in parallel and records each. An empty batch records nothing and says
+what the next step is instead. Every conclusion carries `sensitivity`: the leader and the
+belief at t = 0.1, 0.2 and 0.3, and how far the leader holds. A leader that changes is the
+first limitation after the scaffold's warnings, and the summary says so in one line.
+
 **What the scaffolds were checked for.** `tests/test_rivals.py` plants each rival's most
 likely outcomes for every test, and the engine accepts that rival in all 24 such worlds. It
 also checks that every pair of rivals has a severe test and a replicate of it. In noisy
@@ -245,7 +303,9 @@ through `tcm_applicability` and the release gate, and the tool's summary says so
   them, and every conclusion says so. A proposer who seals bad predictions gets a bad
   posterior. The engine guarantees that the predictions were made in advance and applied as
   sealed. It does not guarantee that they were good.
-- **Information gain is myopic.** It looks one analysis ahead.
+- **Information gain looks one step ahead.** That step is one analysis, or one batch
+  chosen before any of its outcomes is known. A two-step lookahead did worse on the
+  scaffolds ([above](#running-analyses-together-and-how-sure-the-predictions-were)).
 - **Outcomes are discrete.** Each analysis declares an exhaustive set, and its executor
   classifies the result into one of them with a fixed rule. The classifier is code in the
   repository, not a model's judgement.
@@ -254,8 +314,10 @@ through `tcm_applicability` and the release gate, and the tool's summary says so
   execution broker goes, as it does in the research loop.
 
 Tests: `PSH-Harness/tests/test_scientist_inquiry.py` (engine), `…_property.py` (information
-gain bounds, belief as a martingale, exact hold-fixed for unlicensed explanations, replay),
-`…_recorder.py` (world model, audit, write-ahead refusal),
+gain bounds, belief as a martingale, exact hold-fixed for unlicensed explanations, replay,
+joint information against the engine's own updates), `…_batch.py` (joint information,
+batches, plans and their replay, sensitivity), `…_recorder.py` (world model, audit,
+write-ahead refusal),
 `BioScience-Harness/tests/test_research_inquiry.py` (planted worlds), `…/test_rivals.py`
 (the scaffolds and their classifiers), `…/test_inquiries.py` (the per-project store) and
 `studio/runner/tests/test_inquiry_tool.py` (the chat tool, in both runtimes).
@@ -282,6 +344,12 @@ gain bounds, belief as a martingale, exact hold-fixed for unlicensed explanation
 - **在三个已知答案的人工世界中：** 引擎三次都选出了正确解释。只有在机制确实为真的世界里，才发布一条（试探性）机制假说。所用网络药理运行次数分别为 45、14、45 次，全部检查需要 67 次。
 - **人工世界的局限：** 它们展示机制、防止回归，不证明引擎能正确判断真实问题。
 
+**同时运行与敏感性：**
+- **批次：** `Inquiry.batch(k)`（k 最多为 4）以引擎的下一步开头，再逐个加入与已选分析合起来每单位成本信息量最多的分析。合起来的信息量（`joint_gain`）按引擎自身的更新计算；重复检验对原检验补充的信息少于它单独的增益，所以批次更倾向讲述不同故事的分析。`plan` 在运行前把批次封存进审计轨迹，重放时重新计算，事后写入的计划被拒绝（INQ150）。
+- **实测：** 在八套模板的 2,400 个噪声世界中，两项一批使轮数减少 43%，成本增加 9%。批次在看到任何结果之前选定，无法随结果调整，因此真实解释被接受的次数少 6%，错误解释被接受同样罕见（10 对 9 次）。
+- **两步前瞻不采用：** 在 960 个噪声世界中，两步前瞻接受真实解释 365 次，一步选择为 528 次（七套模板更少，一套持平）。
+- **对预测把握程度的敏感性：** `sensitivity` 把每个封存的预测与其结果上的均匀分布按权重 t 混合，再重放已记录的结果：各解释偏向的结果不变，似然比向 1 收缩。领先者随 t 增大保持不变，说明结论来自各解释偏向哪个结果；领先者改变，说明结论来自预测有多确定，常见情形是一个为 0 的预测否定了其他结果都支持的解释。裁决不重算：放宽的预测按构造就不再严格，重算只反映严格度门槛。在上述世界中被接受的 1,303 个结论，领先者在 t = 0.1、0.2、0.3 下全部不变。
+
 **记录与执行：**
 - **记录到世界模型：** 设置 `state_dir` 后，推理过程经持久化网关写入 PSH 世界模型，包括假说、预注册方案、观察、支持/反驳边、科学循环和审计事件。写入先于信念更新，写入被拒则信念不变。
 - **执行方式：** 分析在本进程内执行，并如实标注 `governed_execution: false`；执行器端口留给内核的执行代理。
@@ -293,5 +361,6 @@ gain bounds, belief as a martingale, exact hold-fixed for unlicensed explanation
 - **谁判定的结果写在轨迹里：** 提供 `data` 时，模板指定的工具在同一次调用中运行，由运行时按模板规则判定，证据记为 `runtime:<工具>:<摘要>`。同一数据不能记录两次。没有判定器的检验由智能体报告结果，必须给出 `evidence_ref`，记为 `agent:`；重复检验不能引用原检验的证据。结论分别计数两类结果。
 - **门槛只能提高：** `rule` 可以提高接受阈值、严格度或兜底下限，降低警戒线或减少步数，但不能关闭重复要求，也不能放宽任何一项。探究按项目保存，每次加载都重放审计轨迹（INQ150）。
 - **撤回也是发现：** 无法运行的检验连同原因撤回，结论在 `to_decide` 中列出它们，以及其他能严格区分存活解释、尚未运行的检验，也就是能解决问题的研究。安全信号不等待接受：暂定或未决不等于安全。
+- **同时运行：** `action: "plan"`（`size` 为 2 到 4）封存引擎的批次，并给出每项分析的运行工具和增加的信息量；智能体并行运行后逐项记录。每个结论附带 `sensitivity`；领先者改变时，这一点排在模板警示之后的第一条局限，摘要也用一句话说明。
 - **模板检验了什么：** 在每个解释最可能的结果下，24 个解释全部被接受；每对解释都有严格检验及其重复。按真实解释自身的预测随机抽取结果时（每个解释 100 个世界），错误解释被接受 7 次（共 2,400 个世界，单个解释最多 2 次），真实解释被接受 9 到 90 次不等，其余以未决结束并给出能解决问题的研究。这只检验数字的自洽，不检验预测本身是否正确。
 - **结论不是发布，也不是建议：** 结论强度受证据设计封顶；关于患者的主张仍须经过 `tcm_applicability` 和发布关卡。

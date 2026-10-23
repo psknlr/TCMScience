@@ -3410,14 +3410,35 @@ def _inquiry_summary(action: str, r: Any, args: Mapping[str, Any]) -> tuple[str,
         c = r["conclusion"]
         verdict, cert = c.get("verdict", ""), c.get("certainty", "")
         who = c.get("leader") or "—"
-        return (f"探究结论：{_VERDICT_ZH.get(verdict, verdict)}（{who}，至多表述为"
-                f"{_CERTAINTY_ZH.get(cert, cert)}）",
-                f"Inquiry conclusion: {verdict} ({who}, stated at most {cert})")
+        zh = (f"探究结论：{_VERDICT_ZH.get(verdict, verdict)}（{who}，至多表述为"
+              f"{_CERTAINTY_ZH.get(cert, cert)}）")
+        en = f"Inquiry conclusion: {verdict} ({who}, stated at most {cert})"
+        rows = (r.get("sensitivity") or {}).get("tempers") or ()
+        if rows and c.get("leader"):
+            holds = (r["sensitivity"].get("leader_holds_to") or 0.0) >= rows[-1]["temper"]
+            t = rows[-1]["temper"] if holds else next(
+                x["temper"] for x in rows if x["leader"] != c["leader"])
+            zh += (f"；封存的预测把握降低 {t:.0%} 时仍领先" if holds
+                   else f"；封存的预测把握降低 {t:.0%} 时领先者改变，结论取决于预测有多确定")
+            en += (f"; still leads with every prediction {t:.0%} less sure" if holds
+                   else f"; the leader changes with every prediction {t:.0%} less sure, so "
+                        "it rests on how sure the predictions were")
+        return zh, en
     iid = r.get("inquiry_id", "")
     leader, p = _inquiry_leader(r)
     nxt_zh, nxt_en = _inquiry_next(r)
     lead_zh = f"领先 {leader} {p:.2f}" if leader else "尚无领先解释"
     lead_en = f"{leader} leads at {p:.2f}" if leader else "no leader yet"
+    if action == "plan":
+        batch = [b["analysis_id"] for b in r.get("batch") or ()]
+        if not batch:
+            return (f"探究 {iid}：现在没有可同时运行的分析；{lead_zh}；下一步：{nxt_zh}",
+                    f"Inquiry {iid}: nothing to run at once now; {lead_en}; next: {nxt_en}")
+        bits = r.get("batch_bits", 0.0)
+        return (f"探究 {iid}：已封存同时运行的 {len(batch)} 项分析（{'、'.join(batch)}；"
+                f"合计预期 {bits:.2f} 比特）；{lead_zh}",
+                f"Inquiry {iid}: sealed {len(batch)} analyses to run at once "
+                f"({', '.join(batch)}; {bits:.2f} bits expected together); {lead_en}")
     if action == "record":
         u = r.get("update") or {}
         by_zh = "运行时判定" if u.get("by") == "runtime" else "智能体报告"
@@ -3470,6 +3491,9 @@ def _study_inquiry(args: Mapping[str, Any], ctx: Context) -> Outcome:
         elif action == "status":
             need("inquiry_id")
             r = inq.status(store, str(args["inquiry_id"]))
+        elif action == "plan":
+            need("inquiry_id")
+            r = inq.plan(store, str(args["inquiry_id"]), args.get("size", 2))
         elif action == "declare":
             need("inquiry_id", "analysis_id")
             r = inq.declare(store, str(args["inquiry_id"]), str(args["analysis_id"]),

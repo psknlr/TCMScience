@@ -75,8 +75,8 @@ STUDY_DESIGNS = ("classical_text", "commentary", "expert_consensus", "in_silico"
 #: bioagent.research.rivals.SCAFFOLDS
 INQUIRY_SCAFFOLDS = ("pathway_signal", "formula_vs_constituent", "combination", "exposure",
                      "efficacy", "safety_signal", "herb_drug_interaction", "target_engagement")
-INQUIRY_ACTIONS = ("scaffolds", "open", "status", "declare", "record", "withdraw", "admit",
-                   "conclude", "list")
+INQUIRY_ACTIONS = ("scaffolds", "open", "status", "plan", "declare", "record", "withdraw",
+                   "admit", "conclude", "list")
 
 # --------------------------------------------------------------- clinic schemas
 
@@ -167,6 +167,8 @@ INQUIRY_SCHEMA = obj({
                  "catch_all_alarm": N(), "min_gain": N(), "budget": N(),
                  "max_steps": I(minimum=1)},
                 description="open: the stopping rule, only stricter than the defaults"),
+    "size": I("plan: how many analyses to run together, valued by what they tell jointly",
+              minimum=2, maximum=4, default=2),
     "analysis_id": S("declare, record, withdraw: the analysis"),
     "analysis": _ANALYSIS_SCHEMA,
     "outcome": S("record: the outcome, for a test the agent classifies"),
@@ -408,18 +410,18 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
           hosts=["www.ebi.ac.uk", "eutils.ncbi.nlm.nih.gov", "api.crossref.org",
                  "clinicaltrials.gov"]),
     _core("research_inquiry", "假说竞争探究", "Compete rival explanations", "study_design", """
-        Decide a research question by competing rival explanations (PSH's inquiry engine)
-        instead of reporting the first that fits. Open one from a scaffold (action scaffolds
-        lists the eight: rivals, tests, tools, parameters) or from your own rivals, analyses
-        and predictions. Predictions are sealed before any outcome; the runtime keeps the
-        inquiry per project. status names the next analysis by expected information per
-        cost. Run it with the tools named, then record: a test the runtime classifies takes
-        data (the tool's arguments or the published numbers), never a reported outcome; any
-        other takes outcome with evidence_ref. Withdraw an analysis that cannot be run,
-        saying why: it is the study that would decide. Acceptance needs posterior 0.95, a
-        severe test against every rival and its replicate; the bar can be raised, never
-        lowered. conclude gives the verdict, capped by what the designs license. A
-        conclusion is not a release or a recommendation: repeat its certainty and
+        Decide a research question by competing rival explanations (PSH's inquiry engine),
+        not by taking the first that fits. Open one from a scaffold (scaffolds lists the
+        eight) or from your own rivals, analyses and predictions. Predictions are sealed
+        before any outcome; the runtime keeps the inquiry per project. status names the next
+        analysis by expected information per cost; plan seals up to four to run at once,
+        valued jointly. Run each with the tools named, then record: a test the runtime
+        classifies takes data (the tool's arguments or published numbers), never a reported
+        outcome; any other takes outcome with evidence_ref. Withdraw an analysis that cannot
+        be run, saying why. Acceptance needs posterior 0.95 and a replicated severe test
+        against every rival; the bar can be raised, never lowered. conclude gives the
+        verdict, capped by what the designs license, and how it holds with less sure
+        predictions. It is not a release or a recommendation: repeat its certainty and
         limitations, never more.""",
           INQUIRY_SCHEMA, "study.inquiry", B_R),
     _core("network_pharmacology_run", "网络药理研究闭环（任务）", "Network pharmacology run (job)",

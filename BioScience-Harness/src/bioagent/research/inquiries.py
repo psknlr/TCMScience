@@ -24,6 +24,12 @@ Two rules are this module's own:
   ``runtime:<tool>:<digest>`` as its evidence reference; one the agent reports carries
   ``agent:`` and the evidence it cites, which it must give. A test with a runtime
   classifier accepts only data, never a reported outcome.
+
+An agent that can call several tools at once asks for a plan: the engine's batch of up to
+four analyses, valued by the information they carry together and sealed into the trail
+before any of them runs. Every conclusion also says how it holds when the sealed
+predictions are made less sure (:data:`TEMPERS`), which separates an answer carried by
+which outcome each explanation favoured from one carried by how confident they were.
 """
 
 from __future__ import annotations
@@ -39,9 +45,9 @@ from typing import Any, Mapping, Sequence
 
 from . import rivals
 
-__all__ = ["SCHEMA", "InquiryStore", "admit", "conclude", "declare", "digest", "listing",
-           "open_inquiry", "plain", "record_classified", "record_reported", "status", "view",
-           "withdraw"]
+__all__ = ["SCHEMA", "TEMPERS", "InquiryStore", "admit", "conclude", "declare", "digest",
+           "listing", "open_inquiry", "plain", "plan", "record_classified", "record_reported",
+           "status", "view", "withdraw"]
 
 SCHEMA = "bioagent.inquiry/1"
 _ID = re.compile(r"^inq_[0-9a-f]{16}$")
@@ -51,6 +57,9 @@ _LOCKS_GUARD = threading.Lock()
 #: Stopping-rule fields and the direction in which a value is stricter.
 _STRICTER = {"accept_at": "higher", "min_severity": "higher", "catch_all_floor": "higher",
              "catch_all_alarm": "lower", "max_steps": "lower"}
+#: How much less sure a conclusion's sensitivity makes the sealed predictions: each is
+#: mixed with the uniform distribution over its outcomes by these weights in turn.
+TEMPERS = (0.1, 0.2, 0.3)
 
 
 def _canonical(value: Any) -> str:
@@ -266,6 +275,24 @@ def status(store: InquiryStore, inquiry_id: str) -> dict[str, Any]:
     return view(inquiry, record)
 
 
+def plan(store: InquiryStore, inquiry_id: str, size: int) -> dict[str, Any]:
+    """Seal a batch of analyses to run together (``Inquiry.plan``) and say how to run
+    each. An empty batch records nothing and says why."""
+    with store.lock:
+        inquiry, record = store.load(inquiry_id)
+        options = inquiry.plan(size)
+        if options:
+            store.save(inquiry, record)
+    out = view(inquiry, record)
+    out["batch"] = [{"analysis_id": o.analysis_id, "adds_bits": round(o.expected_gain, 4),
+                     "cost": o.cost, **_how_to(record, o.analysis_id)} for o in options]
+    out["batch_bits"] = round(math.fsum(o.expected_gain for o in options), 4)
+    if not options:
+        out["batch_note"] = ("nothing to run now; the next step is to "
+                             f"{out['next']['action']}: {out['next']['reason']}")
+    return out
+
+
 def declare(store: InquiryStore, inquiry_id: str, analysis_id: str,
             predictions: Mapping[str, Mapping[str, float]], *,
             analysis: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -423,6 +450,8 @@ def view(inquiry: Any, record: Mapping[str, Any], *, update: Any = None) -> dict
                       "purpose": u.purpose.value, "bits": round(u.information, 4),
                       "by": _by(u)} for u in inquiry.updates],
         "withdrawn": inquiry.withdrawn, "spent": inquiry.spent, "head": inquiry.head}
+    if inquiry.planned:
+        out["planned"] = list(inquiry.planned)
     if update is not None:
         out["update"] = {
             "analysis_id": update.analysis_id, "outcome": update.outcome,
@@ -451,7 +480,12 @@ def conclude(store: InquiryStore, inquiry_id: str) -> dict[str, Any]:
     if agent:
         limitations.append(f"{agent} of the {len(by)} outcomes were classified by the agent "
                            "from the sources it cites; check them against those sources")
+    sensitivity, holds_to, statement = _sensitivity(inquiry, c.leader)
+    if statement and holds_to < TEMPERS[-1]:
+        limitations.append(statement)         # an answer carried by how sure they were
     limitations += list(body["limitations"])
+    if statement and holds_to >= TEMPERS[-1]:
+        limitations.append(statement)
     rivals_open = set(c.untested) | set(c.unreplicated)
     to_decide = []
     for a in inquiry.analyses:
@@ -472,4 +506,34 @@ def conclude(store: InquiryStore, inquiry_id: str) -> dict[str, Any]:
     return {"inquiry_id": inquiry.inquiry_id, "conclusion": body,
             "statement": c.describe(), "by_runtime": by.count("runtime"),
             "by_agent": agent, "to_decide": to_decide,
+            "sensitivity": {"tempers": sensitivity, "leader_holds_to": holds_to},
             "scaffold": record.get("scaffold") or None}
+
+
+def _sensitivity(inquiry: Any, leader: str) -> tuple[list[dict[str, Any]], float, str]:
+    """The conclusion's leader with the sealed predictions made less sure: the rows, the
+    largest weight up to which the same explanation leads, and one sentence on it."""
+    if not leader or not inquiry.updates:
+        return [], 0.0, ""
+    rows = inquiry.sensitivity(TEMPERS)
+    out = [{"temper": r["temper"], "leader": r["leader"], "belief": _rounded(r["belief"])}
+           for r in rows]
+    holds_to = 0.0
+    for r in rows:
+        if r["leader"] != leader:
+            break
+        holds_to = r["temper"]
+    p = inquiry.belief.get(leader, 0.0)
+    if holds_to >= TEMPERS[-1]:
+        last = rows[-1]
+        return out, holds_to, (
+            f"with every sealed prediction made {last['temper']:.0%} less sure, {leader} "
+            f"still leads ({p:.2f} as sealed, {last['leader_posterior']:.2f} then): the "
+            "answer follows which outcome each explanation favoured, not only how sure "
+            "the predictions were")
+    first = next(r for r in rows if r["leader"] != leader)
+    return out, holds_to, (
+        f"with every sealed prediction made {first['temper']:.0%} less sure, "
+        f"{first['leader'] or 'no named explanation'} leads instead of {leader} "
+        f"({first['leader_posterior']:.2f} against {first['belief'].get(leader, 0.0):.2f}): "
+        "the answer rests on how sure the predictions were, so it is no firmer than they are")
