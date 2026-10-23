@@ -63,11 +63,20 @@ the designs of the observations that bore on it (``MAX_CERTAINTY``) and by the c
 those designs can reach (``LICENSING``). Ten in-silico analyses at a posterior of 0.99
 license a tentative mechanism hypothesis, which is what one of them licenses.
 
+Two readings sit beside the rules. ``batch`` chooses analyses to run together, valued by
+the information they carry jointly (``joint_gain``), so that two analyses that would tell
+the same story are not both run for it; ``plan`` seals a batch into the trail. And
+``sensitivity`` replays the outcomes with every sealed prediction made less confident, to
+show how far the answer rests on how sure the predictions were rather than on which
+outcome each favoured.
+
 What this is not. The likelihoods are the proposer's commitments, not measurements, and
 the posterior is conditional on them; every conclusion says so. Information gain is
-myopic, one step ahead. Outcomes are discrete and declared exhaustively per analysis. The
-engine does not decide whether an analysis may *run*: that is the execution broker's
-question, asked by whoever executes the step.
+myopic, one step ahead (a two-step lookahead was measured on the scaffolds of
+``bioagent.research.rivals`` and accepted the true explanation less often, so it is not
+used). Outcomes are discrete and declared exhaustively per analysis. The engine does not
+decide whether an analysis may *run*: that is the execution broker's question, asked by
+whoever executes the step.
 """
 
 from __future__ import annotations
@@ -84,7 +93,8 @@ from ..evidence.support import Certainty
 from ..sir.values import LICENSING, MAX_CERTAINTY, ClaimKind, Licensing, StudyDesign
 
 __all__ = [
-    "CATCH_ALL", "INQUIRY_CODES", "Role", "Purpose", "Verdict", "Explanation", "Analysis",
+    "CATCH_ALL", "INQUIRY_CODES", "MAX_BATCH", "Role", "Purpose", "Verdict", "Explanation",
+    "Analysis",
     "StoppingRule", "Option", "Step", "Update", "Conclusion", "Executed", "Inquiry",
     "InquiryRefused", "InquiryRecorder", "AnalysisUnavailable",
     "expected_information_gain", "run_inquiry",
@@ -185,6 +195,7 @@ class Purpose(str, Enum):
     DISCRIMINATE = "discriminate"    # the most expected information per unit cost
     CONTRADICT = "contradict"        # a severe test of the leader against one rival
     REPLICATE = "replicate"          # repeat a test the acceptance rests on
+    BATCH = "batch"                  # one of a batch the engine planned to run together
     UNRECOMMENDED = "unrecommended"  # the caller ran something else; recorded as such
 
 
@@ -197,6 +208,11 @@ class Verdict(str, Enum):
 
 _TOLERANCE = 1e-6
 _REPLAY_TOLERANCE = 1e-9
+#: The most analyses one batch holds: each is chosen before any of the others' outcomes is
+#: seen, and every one more is a further guess about what the earlier ones will show.
+MAX_BATCH = 4
+#: The most joint outcomes ``joint_gain`` enumerates; a batch stops growing before it.
+_JOINT_LIMIT = 4096
 
 
 def _canonical(value: Any) -> str:
@@ -606,6 +622,7 @@ class Inquiry:
         self._declared: dict[str, dict[str, dict[str, float]]] = {}   # normalised
         self._observed: dict[str, Update] = {}
         self._withdrawn: dict[str, str] = {}
+        self._planned: tuple[str, ...] = ()                            # the latest plan
         self._spent = 0.0
         self._trail: list[dict[str, Any]] = []
         for analysis in analyses:
@@ -704,18 +721,27 @@ class Inquiry:
     def withdrawn(self) -> dict[str, str]:
         return dict(self._withdrawn)
 
+    @property
+    def planned(self) -> tuple[str, ...]:
+        """The latest plan's analyses that have neither run nor been withdrawn."""
+        return tuple(a for a in self._planned
+                     if a not in self._observed and a not in self._withdrawn)
+
     def _affordable(self, analysis: Analysis) -> bool:
         return (self.rule.budget is None
                 or self._spent + analysis.cost <= self.rule.budget + _TOLERANCE)
 
-    def _table(self, analysis: Analysis) -> dict[str, dict[str, float]]:
+    def _table(self, analysis: Analysis, belief: Mapping[str, float] | None = None
+               ) -> dict[str, dict[str, float]]:
         """Every explanation's effective prediction, exactly as an update applies it.
 
         The catch-all predicts uniformly. An explanation with a sealed prediction uses it.
         Every other explanation (one the design cannot license, or one already refuted)
         gets the predictive mixture of the explanations that do bear on the analysis,
-        which leaves its probability unchanged by any outcome.
+        which leaves its probability unchanged by any outcome. ``belief`` is the current
+        one unless another is given (``joint_gain`` asks about beliefs not yet reached).
         """
+        belief = self._belief if belief is None else belief
         rows = self._declared.get(analysis.id, {})
         size = len(analysis.outcomes)
         effective: dict[str, dict[str, float]] = {}
@@ -729,9 +755,9 @@ class Inquiry:
             else:
                 continue
             effective[h] = q
-            mass += self._belief[h]
+            mass += belief[h]
             for o in analysis.outcomes:
-                mixture[o] += self._belief[h] * q[o]
+                mixture[o] += belief[h] * q[o]
         predictive = {o: mixture[o] / mass for o in analysis.outcomes}
         for h in self._explanations:
             effective.setdefault(h, predictive)
@@ -806,6 +832,141 @@ class Inquiry:
         options.sort(key=lambda o: (-o.gain_per_cost, -o.expected_gain, o.cost,
                                     o.analysis_id))
         return options
+
+    def joint_gain(self, analysis_ids: Sequence[str]) -> float:
+        """Bits the analyses are expected to yield together, under the current belief.
+
+        Applied in the order given, each exactly as ``observe`` would apply it: the first
+        analysis's gain, then each next one's under every belief the outcomes before it
+        could leave, weighted by how likely the engine finds those outcomes (the chain
+        rule of mutual information). Two analyses that would tell the same story add
+        little to each other, which the sum of their single gains would hide. An analysis
+        that is not ready adds nothing. Pure: nothing moves.
+        """
+        chain = [self.analysis(a) for a in dict.fromkeys(analysis_ids)]
+        chain = [a for a in chain if self.ready(a.id)]
+        if math.prod(len(a.outcomes) for a in chain) > _JOINT_LIMIT:
+            raise ValueError(f"{len(chain)} analyses have more than {_JOINT_LIMIT} joint "
+                             "outcomes; value fewer at once")
+
+        def gain(belief: Mapping[str, float], rest: Sequence[Analysis]) -> float:
+            if not rest:
+                return 0.0
+            table = self._table(rest[0], belief)
+            bits = expected_information_gain(belief, table)
+            if len(rest) == 1:
+                return bits
+            for o in rest[0].outcomes:
+                joint = {h: belief[h] * table[h][o] for h in belief}
+                total = math.fsum(joint.values())
+                if total > 0.0:
+                    bits += total * gain({h: q / total for h, q in joint.items()},
+                                         rest[1:])
+            return bits
+
+        return max(0.0, gain(dict(self._belief), chain))
+
+    def batch(self, size: int) -> tuple[Option, ...]:
+        """Up to ``size`` analyses to run together, chosen before any outcome is seen.
+
+        The first is the engine's next step, so a contradiction or a replication the
+        leader needs comes first. Each next one is the ready analysis that adds the most
+        joint information per unit cost to those already chosen, while it adds at least
+        ``min_gain`` per unit cost and the budget and the step limit allow it. Each
+        option's ``expected_gain`` is what it adds to the ones before it. Empty when the
+        next step is not to run an analysis. Pure: nothing moves (``plan`` records one).
+        """
+        if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= MAX_BATCH:
+            raise ValueError(f"a batch holds 1 to {MAX_BATCH} analyses, not {size!r}")
+        step = self.next_step()
+        if step.action != "run":
+            return ()
+        rule = self.rule
+        size = min(size, rule.max_steps - len(self._observed))
+        left = None if rule.budget is None else rule.budget - self._spent + _TOLERANCE
+        first = self._analyses[step.analysis_id]
+        chosen = [first]
+        options = [Option(first.id, self.expected_gain(first.id), first.cost)]
+        held = options[0].expected_gain
+        spent = first.cost
+        while len(chosen) < size:
+            best: tuple[tuple[float, float, float, str], Analysis, float] | None = None
+            for analysis in self._analyses.values():
+                if (analysis in chosen or not self.ready(analysis.id)
+                        or (left is not None and spent + analysis.cost > left)
+                        or math.prod(len(a.outcomes) for a in (*chosen, analysis))
+                        > _JOINT_LIMIT):
+                    continue
+                added = self.joint_gain([a.id for a in (*chosen, analysis)]) - held
+                key = (-added / analysis.cost, -added, analysis.cost, analysis.id)
+                if best is None or key < best[0]:
+                    best = (key, analysis, added)
+            if best is None or -best[0][0] < rule.min_gain:
+                break
+            _, analysis, added = best
+            chosen.append(analysis)
+            options.append(Option(analysis.id, max(0.0, added), analysis.cost))
+            held += added
+            spent += analysis.cost
+        return tuple(options)
+
+    def sensitivity(self, tempers: Sequence[float] = (0.1, 0.2, 0.3)
+                    ) -> tuple[dict[str, Any], ...]:
+        """How far the belief rests on how confident the sealed predictions were.
+
+        For each ``t``, every sealed prediction is mixed with the uniform distribution
+        over its outcomes, ``(1 - t) * q + t / n``, which keeps the outcome each
+        explanation favours and shrinks every likelihood ratio towards 1, and the
+        recorded outcomes are applied again in their order. A leader that holds as ``t``
+        grows is carried by which outcome each explanation favoured; one that changes is
+        carried by how sure the predictions were. Severity is a property of the
+        predictions themselves, so no verdict is recomputed: tempered predictions are
+        less severe by construction. Pure: nothing moves.
+        """
+        rows: list[dict[str, Any]] = []
+        for t in tempers:
+            if not _real(t) or not 0.0 <= t < 1.0:
+                raise ValueError(f"a temper is a weight in [0, 1), not {t!r}")
+            belief = self._tempered(float(t))
+            live = [(p, h) for h, p in belief.items() if h != CATCH_ALL and p > 0.0]
+            top = min(live, key=lambda item: (-item[0], item[1]))[1] if live else ""
+            rows.append({"temper": float(t), "leader": top,
+                         "leader_posterior": belief.get(top, 0.0), "belief": belief})
+        return tuple(rows)
+
+    def _tempered(self, t: float) -> dict[str, float]:
+        """The belief the trail's outcomes give when every sealed prediction is tempered
+        by ``t``: the same events, in order, with the same rules for explanations a
+        design cannot reach, the catch-all and late admissions."""
+        opened = self._trail[0]["body"]
+        replay = Inquiry(opened["question"],
+                         [Explanation.from_dict(e) for e in opened["explanations"]],
+                         [Analysis.from_dict(a) for a in opened["analyses"]],
+                         StoppingRule.from_dict(opened["rule"]),
+                         inquiry_id=opened["inquiry_id"])
+        for entry in self._trail[1:]:
+            event, body = entry["event"], entry["body"]
+            if event == "analysis_added":
+                replay.add_analysis(Analysis.from_dict(body["analysis"]))
+            elif event == "declared":
+                replay.declare(body["analysis_id"], {
+                    h: {o: (1.0 - t) * q / math.fsum(row.values()) + t / len(row)
+                        for o, q in row.items()}
+                    for h, row in body["predictions"].items()})
+            elif event == "admitted":
+                replay.admit([Explanation.from_dict(e) for e in body["explanations"]],
+                             body["shares"])
+            elif event == "observed":
+                # Belief only: an explanation the original refuted may live here, and it
+                # takes the predictive mixture where it sealed nothing, as in _table.
+                analysis = replay.analysis(body["analysis_id"])
+                table = replay._table(analysis)
+                joint = {h: p * table[h][body["outcome"]]
+                         for h, p in replay._belief.items()}
+                total = math.fsum(joint.values())
+                replay._belief = {h: q / total for h, q in joint.items()}
+                replay._observed[analysis.id] = body       # type: ignore[assignment]
+        return dict(replay._belief)
 
     def _standing(self) -> _Standing | None:
         leader = self.leader
@@ -914,6 +1075,24 @@ class Inquiry:
         self._commit("analysis_added", {"analysis": analysis.as_dict()})
         self._analyses[analysis.id] = analysis
 
+    def plan(self, size: int) -> tuple[Option, ...]:
+        """Choose a batch (``batch``) and seal it into the trail before any of it runs.
+
+        Each analysis of the latest plan is then recorded, when observed, as part of a
+        batch the engine chose (``Purpose.BATCH``) rather than as unrecommended; the
+        first keeps the purpose of the step it is. A replay recomputes the plan from the
+        state it was made in, so a plan cannot be written after the fact. An empty batch
+        is not recorded.
+        """
+        options = self.batch(size)
+        if options:
+            self._commit("planned", {
+                "size": size, "analyses": [o.analysis_id for o in options],
+                "adds": [o.expected_gain for o in options],
+                "joint": math.fsum(o.expected_gain for o in options)})
+            self._planned = tuple(o.analysis_id for o in options)
+        return options
+
     def declare(self, analysis_id: str,
                 predictions: Mapping[str, Mapping[str, float]]) -> str:
         """Seal what each explanation predicts the analysis will show. Returns the digest."""
@@ -978,6 +1157,8 @@ class Inquiry:
         recommended = self.next_step()
         if recommended.action == "run" and recommended.analysis_id == analysis_id:
             purpose, against = recommended.purpose, recommended.against
+        elif analysis_id in self._planned:
+            purpose, against = Purpose.BATCH, ""
         else:
             purpose, against = Purpose.UNRECOMMENDED, ""
         table = self._table(analysis)
@@ -1255,6 +1436,9 @@ class Inquiry:
                               body["shares"])
             elif event == "withdrawn":
                 inquiry.withdraw(body["analysis_id"], body["reason"])
+            elif event == "planned":
+                if not inquiry.plan(body.get("size")):
+                    raise InquiryRefused("INQ150", "a recorded plan does not recompute")
             else:
                 raise InquiryRefused("INQ150", f"unknown trail event {event!r}")
             _same(inquiry._trail[-1]["body"], body, event)

@@ -4,8 +4,9 @@ Each scaffold is checked the way the pathway inquiry is checked on its planted w
 with the worlds drawn from the scaffold's own sealed predictions: a world in which one
 rival is true produces that rival's most likely outcome for every test (it must then be
 accepted), or outcomes drawn at random from its predictions (a wrong rival must then be
-accepted in at most 5% of worlds). The classifiers are checked on results built for each
-outcome, and on results that do not meet the conditions a test was sealed with.
+accepted in at most 5% of worlds, also when the engine's batches of two run at once). The
+classifiers are checked on results built for each outcome, and on results that do not meet
+the conditions a test was sealed with.
 """
 
 from __future__ import annotations
@@ -81,6 +82,29 @@ def test_a_wrong_rival_is_accepted_in_at_most_five_percent_of_noisy_worlds(scaff
             rng.choices(list(rows[a.id]), weights=list(rows[a.id].values()))[0]))
         wrong += c.accepted and c.leader != truth
     assert wrong <= 5
+
+
+@pytest.mark.parametrize("scaffold_id,truth", RIVALS)
+def test_batches_of_two_take_fewer_rounds_and_keep_a_wrong_rival_as_rare(scaffold_id, truth):
+    # the engine's batch of two run at once, each round, in the same kind of noisy worlds
+    s = rivals.scaffold(scaffold_id)
+    rows = {t.id: t.predictions[truth] for t in s.tests}
+    rounds = {1: 0, 2: 0}
+    wrong = 0
+    for size in (1, 2):
+        rng = random.Random(f"{scaffold_id}:{truth}:{size}")
+        for _ in range(100):
+            inquiry = rivals.open_scaffold(scaffold_id, VALUES[scaffold_id])
+            while batch := inquiry.batch(size):
+                rounds[size] += 1
+                for o in batch:
+                    row = rows[o.analysis_id]
+                    inquiry.observe(o.analysis_id,
+                                    rng.choices(list(row), weights=list(row.values()))[0])
+            c = inquiry.conclude()
+            wrong += size == 2 and c.accepted and c.leader != truth
+    assert wrong <= 5
+    assert rounds[2] < 0.8 * rounds[1]
 
 
 @pytest.mark.parametrize("scaffold_id", list(rivals.SCAFFOLDS))

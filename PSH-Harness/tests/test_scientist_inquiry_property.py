@@ -9,12 +9,15 @@ every table the generator can produce rather than for the ones an author thought
   posterior is the prior, so no analysis is expected to move belief in a chosen direction;
 * an explanation the analysis's design cannot license is held exactly where it was;
 * a severe test, once passed, carries at least the likelihood ratio the rule promises;
-* a trail replays to the same belief.
+* a trail replays to the same belief;
+* the joint information of several analyses is what the engine's own updates yield on
+  average, and never more than the belief's entropy.
 """
 
 from __future__ import annotations
 
 import copy
+import itertools
 import math
 
 import pytest
@@ -162,3 +165,28 @@ def test_passing_a_severe_test_carries_the_promised_likelihood_ratio(case):
                 for_rival = math.fsum(rows[rival][o] for o in passing)
                 assert for_leader >= bar - 1e-12
                 assert for_leader >= (bar / (1.0 - bar)) * for_rival - 1e-9
+
+
+@SETTINGS
+@given(inquiries())
+def test_joint_gain_is_the_information_the_engine_s_own_updates_yield(case):
+    inquiry, _ = case
+    ids = [a.id for a in inquiry.analyses][:3]
+    prior = inquiry.belief
+    expected = 0.0
+    for outcomes in itertools.product(*(inquiry.analysis(a).outcomes for a in ids)):
+        trial = Inquiry.from_dict(copy.deepcopy(inquiry.as_dict()))
+        weight = 1.0
+        for a, o in zip(ids, outcomes):
+            update = trial.observe(a, o)
+            weight *= math.fsum(update.prior[h] * update.likelihood[h] for h in prior)
+            if weight == 0.0:
+                break
+        else:
+            post = trial.belief
+            expected += weight * math.fsum(post[h] * math.log2(post[h] / prior[h])
+                                           for h in post if post[h] > 0 and prior[h] > 0)
+    joint = inquiry.joint_gain(ids)
+    entropy = -math.fsum(p * math.log2(p) for p in prior.values() if p > 0)
+    assert joint == pytest.approx(expected, abs=1e-9)
+    assert max(inquiry.expected_gain(ids[0]), 0.0) - 1e-12 <= joint <= entropy + 1e-9

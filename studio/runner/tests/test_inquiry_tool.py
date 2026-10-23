@@ -193,3 +193,33 @@ def test_reported_outcomes_and_withdrawals_through_the_dispatcher(runner_ctx):
     gaps = {g["analysis_id"] for g in e["result"]["to_decide"]}
     assert "controlled" in gaps
     assert any("not reassurance" in x for x in e["governance"]["limitations"])
+
+
+def test_a_plan_seals_analyses_to_run_at_once_and_a_conclusion_says_how_it_holds(runner_ctx):
+    iid = call("research_inquiry", {"action": "open", "scaffold": "formula_vs_constituent",
+                                    "values": FVC}, runner_ctx)["result"]["inquiry_id"]
+    for size in (1, 5, 2.5):
+        e = call("research_inquiry", {"action": "plan", "inquiry_id": iid, "size": size},
+                 runner_ctx)
+        assert e["error"]["type"] == "bad_arguments", size
+    e = call("research_inquiry", {"action": "plan", "inquiry_id": iid}, runner_ctx)
+    assert e["status"] == "succeeded", e["error"]
+    batch = e["result"]["batch"]
+    assert [b["analysis_id"] for b in batch] == ["contrast", "contrast-rep"]
+    assert all(b["run_with"].startswith("study.contrast_formula_monomer") for b in batch)
+    assert "sealed 2 analyses to run at once" in e["summary_en"] and "已封存" in e["summary"]
+    # run together: recorded in either order, each as part of the engine's batch
+    e = call("research_inquiry", {"action": "record", "inquiry_id": iid,
+                                  "analysis_id": "contrast-rep",
+                                  "data": contrast([x - 0.1 for x in LOWER], HIGHER, "s2")},
+             runner_ctx)
+    assert e["result"]["update"]["purpose"] == "batch"
+    call("research_inquiry", {"action": "record", "inquiry_id": iid, "analysis_id": "contrast",
+                              "data": contrast(LOWER, HIGHER)}, runner_ctx)
+    e = call("research_inquiry", {"action": "plan", "inquiry_id": iid, "size": 3}, runner_ctx)
+    assert e["result"]["batch"] == [] and "nothing to run at once" in e["summary_en"]
+    e = call("research_inquiry", {"action": "conclude", "inquiry_id": iid}, runner_ctx)
+    assert e["result"]["sensitivity"]["leader_holds_to"] == 0.3
+    assert "still leads with every prediction 30% less sure" in e["summary_en"]
+    assert "仍领先" in e["summary"]
+    assert "still leads" in e["governance"]["limitations"][-1]

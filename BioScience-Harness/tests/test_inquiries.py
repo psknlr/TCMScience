@@ -241,3 +241,84 @@ def test_plain_turns_results_into_json_data():
     assert inq.plain({"a": np.float64(1.5), "b": (1, np.int64(2)), "c": math.nan}) == {
         "a": 1.5, "b": [1, 2], "c": None}
     assert inq.digest({"a": np.float64(1.5)}) == inq.digest({"a": 1.5})
+
+
+# ============================================================ plans and sensitivity
+
+def test_a_plan_is_sealed_and_says_how_to_run_each_analysis(store):
+    iid = inq.open_inquiry(store, scaffold="formula_vs_constituent", values=FVC)["inquiry_id"]
+    out = inq.plan(store, iid, 2)
+    batch = [b["analysis_id"] for b in out["batch"]]
+    assert batch == out["planned"] == ["contrast", "contrast-rep"]
+    assert all(b["classifier"] == "contrast" and b["data"] for b in out["batch"])
+    assert out["batch_bits"] == pytest.approx(sum(b["adds_bits"] for b in out["batch"]),
+                                              abs=1e-3)
+    inquiry, _ = store.load(iid)
+    assert inquiry.trail[-1]["event"] == "planned" and inquiry.head == out["head"]
+    # the replicate first: still the engine's batch, not an unrecommended step
+    view = inq.record_classified(store, iid, "contrast-rep",
+                                 *_contrast([x - 0.1 for x in LOWER], HIGHER, study="s2"))
+    assert view["update"]["purpose"] == "batch" and view["planned"] == ["contrast"]
+    view = inq.record_classified(store, iid, "contrast", *_contrast(LOWER, HIGHER))
+    assert view["update"]["purpose"] != "unrecommended" and "planned" not in view
+    assert inq.conclude(store, iid)["conclusion"]["verdict"] == "accepted"
+
+
+def test_an_empty_plan_records_nothing_and_says_why(store):
+    iid = inq.open_inquiry(store, scaffold="formula_vs_constituent", values=FVC)["inquiry_id"]
+    inq.record_classified(store, iid, "contrast", *_contrast(LOWER, HIGHER))
+    inq.record_classified(store, iid, "contrast-rep",
+                          *_contrast([x - 0.1 for x in LOWER], HIGHER, study="s2"))
+    head = inq.status(store, iid)["head"]
+    out = inq.plan(store, iid, 3)
+    assert out["batch"] == [] and out["batch_note"].startswith("nothing to run now")
+    assert out["head"] == head
+    for size in (0, 5, "2"):
+        with pytest.raises(ValueError):
+            inq.plan(store, iid, size)
+
+
+def test_a_conclusion_that_holds_says_so_last(store):
+    iid = inq.open_inquiry(store, scaffold="formula_vs_constituent", values=FVC)["inquiry_id"]
+    inq.record_classified(store, iid, "contrast", *_contrast(LOWER, HIGHER))
+    inq.record_classified(store, iid, "contrast-rep",
+                          *_contrast([x - 0.1 for x in LOWER], HIGHER, study="s2"))
+    done = inq.conclude(store, iid)
+    rows = done["sensitivity"]["tempers"]
+    assert [r["temper"] for r in rows] == list(inq.TEMPERS)
+    assert {r["leader"] for r in rows} == {"formula_adds"}
+    assert done["sensitivity"]["leader_holds_to"] == inq.TEMPERS[-1]
+    posteriors = [r["belief"]["formula_adds"] for r in rows]
+    assert posteriors == sorted(posteriors, reverse=True)
+    assert posteriors[0] <= done["conclusion"]["posterior"]["formula_adds"]
+    assert "still leads" in done["conclusion"]["limitations"][-1]
+
+
+ZEROED = {
+    "question": "Is the screen's signal real?",
+    "explanations": [
+        {"id": "real", "proposition": "the compound acts on the pathway",
+         "claim_kind": "mechanism_hypothesis", "prior": 0.45},
+        {"id": "artefact", "proposition": "the signal is an assay artefact", "prior": 0.45}],
+    "analyses": [{"id": a, "title": f"screen {a}", "design": "in_silico",
+                  "outcomes": ["hit", "miss"]} for a in ("a", "b", "c")],
+    # one confident zero carries the answer: "real" calls a miss in a impossible
+    "predictions": {"a": {"real": {"hit": 1.0, "miss": 0.0},
+                          "artefact": {"hit": 0.6, "miss": 0.4}},
+                    "b": {"real": {"hit": 0.1, "miss": 0.9},
+                          "artefact": {"hit": 0.9, "miss": 0.1}},
+                    "c": {"real": {"hit": 0.1, "miss": 0.9},
+                          "artefact": {"hit": 0.9, "miss": 0.1}}}}
+
+
+def test_a_conclusion_carried_by_how_sure_a_prediction_was_says_so_first(store):
+    iid = inq.open_inquiry(store, **ZEROED)["inquiry_id"]
+    for analysis, source in (("a", "PMID:1"), ("b", "PMID:2"), ("c", "PMID:3")):
+        inq.record_reported(store, iid, analysis, "miss", source)
+    done = inq.conclude(store, iid)
+    assert done["conclusion"]["leader"] == "artefact"
+    assert done["sensitivity"]["leader_holds_to"] == 0.0
+    assert done["sensitivity"]["tempers"][0]["leader"] == "real"
+    limitations = done["conclusion"]["limitations"]
+    assert limitations[0].startswith("3 of the 3 outcomes were classified by the agent")
+    assert "real leads instead of artefact" in limitations[1]
