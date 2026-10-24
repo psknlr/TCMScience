@@ -119,3 +119,31 @@ test("tools: the model is told what each outcome means and that a tool failing t
   assert.match(part, /never a negative finding/);
   assert.match(part, /fails three times in a turn/);
 });
+
+test("orchestration: research_routes before a question that needs several sources, independent calls together", () => {
+  const p = buildSystemPrompt({ lang: "en" });
+  const part = p.slice(p.indexOf("# Tools"), p.indexOf("# Research questions"));
+  assert.match(part, /call research_routes first/);
+  assert.match(part, /whether it can run here, and what covers one that cannot/);
+  assert.match(part, /Calls that do not depend on each other go in the same response: they run together\./);
+  // what a call needs from the user is unchanged
+  assert.match(part, /Some calls need the user's approval/);
+  assert.match(part, /do not substitute an approximation/);
+});
+
+test("research method: frame, gather, rival explanations, discriminate, conclude, in that order", () => {
+  for (const lang of ["zh", "en"]) {
+    const p = buildSystemPrompt({ lang });
+    const part = p.slice(p.indexOf("# Research questions"), p.indexOf("# Environment"));
+    const steps = ["1. Frame it", "2. Gather", "3. Rival explanations", "4. Discriminate", "5. Conclude"].map((s) => part.indexOf(s));
+    assert.ok(steps.every((i) => i >= 0), lang);
+    assert.deepEqual([...steps].sort((a, b) => a - b), steps);
+    assert.match(part, /keeps its evidence kind/);
+    assert.match(part, /never switch sources silently/);
+    assert.match(part, /that part is unanswered here/);
+    assert.match(part, /an artefact among them/);
+    assert.match(part, /predictions be sealed before any result is recorded/);
+    assert.match(part, /Conclude at the strength the evidence licenses/);
+    assert.match(part, /Report a safety signal as soon as it appears/);
+  }
+});

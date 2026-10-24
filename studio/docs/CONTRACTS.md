@@ -911,8 +911,15 @@ The language is also mirrored in `localStorage["tcmscience.lang"]`, matching the
 2. TCMScience governance rules: evidence kinds are types, not grades. A prediction is never stated as a fact. No
    record ≠ safe, and not significant ≠ irrelevant. Classical records are attributions, not clinical evidence. The clinic gives drafts for a
    licensed practitioner. Cite tool evidence as `[E1]` using the envelope citations. Say what was refused, and why.
-3. Tool guidance: prefer the core tools. Use `catalog_search` then `call_tool` for the rest. Long work → a job
-   (`job_status`). Never fabricate tool output. If a tool is unavailable, say what would be needed.
+3. Tool guidance: prefer the core tools. Use `catalog_search` then `call_tool` for the rest. For a question that
+   needs several sources, `research_routes` first; calls that do not depend on each other in one response (they
+   run together). Long work → a job (`job_status`). Never fabricate tool output. If a tool is unavailable, say what
+   would be needed.
+   Research questions: past the curated corpus, and a method: frame the question (exact entities, population,
+   outcome, claim kind), gather every runnable source of each step of its route (a source that cannot run is
+   covered and named, never switched silently), name rival explanations with an artefact among them, tell them
+   apart (`research_inquiry`, predictions sealed first), and conclude at the strength the evidence licenses. A
+   safety signal is reported when it appears.
 4. Environment: the language, the compute available now (browser/runner, device), whether web access is on,
    and the date.
 5. Project instructions, and the knowledge index (names, sizes, sha256; texts under 8 kB are inlined).
