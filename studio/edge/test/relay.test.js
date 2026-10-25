@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { config, handle, ipKey, publicText, upstreamCode, withoutReasoning } from "../src/relay.js";
+import { WORKER_IP, config, forwardingZone, handle, ipKey, publicText, upstreamCode, withoutReasoning } from "../src/relay.js";
 import { KEY, NOON, PAGE, ask, cut, events, jsonReply, post, quiet, relay, sse, tidy } from "./helpers.js";
 
 // ------------------------------------------------------------------ the call itself
@@ -167,6 +167,38 @@ test("only the allowed origins; preflight; health and models answer anyone", asy
   const h = await r.call("/v1/health");
   assert.equal(h.status, 200);
   assert.equal(h.headers.get("Access-Control-Allow-Origin"), null);
+});
+
+test("a call another zone's Worker forwards is refused, whatever Origin it writes, before anything is counted", async () => {
+  const r = relay();
+  const noted = [];
+  r.deps.securityEvent = (kind, _request, info) => noted.push(`${kind} ${info.status} ${info.detail}`);
+  // what someone's Worker sends when it forwards to Tao-S1: the page's own Origin, CF-Worker naming its zone, and
+  // Cloudflare's address for a cross-zone subrequest (2,225 model calls from it in the owner's report of 2026-10-21)
+  const proxied = await r.call("/v1/chat/completions", post(tidy, { "CF-Worker": "free-gpt.example.workers.dev", "CF-Connecting-IP": WORKER_IP }));
+  assert.equal(proxied.status, 403);
+  assert.equal((await proxied.json()).error.type, "forbidden_origin");
+  assert.equal((await r.call("/v1/chat/completions", post(tidy, { "CF-Connecting-IP": WORKER_IP }))).status, 403); // the address alone
+  assert.equal((await r.call("/v1/chat/completions", post(tidy, { "CF-Worker": "impf.ai.evil.example" }))).status, 403); // not ours
+  assert.equal(r.calls.length, 0);
+  assert.equal(r.bursts.length, 0);
+  assert.equal(r.gates.length, 0);
+  assert.deepEqual(noted, ["forbidden_origin 403 worker free-gpt.example.workers.dev", "forbidden_origin 403 worker ?",
+    "forbidden_origin 403 worker impf.ai.evil.example"]);
+  // a Worker of our own zone, and the page itself, are served
+  for (const headers of [{ "CF-Worker": "impf.ai" }, {}]) {
+    const ok = await r.call("/v1/chat/completions", post(tidy, headers));
+    assert.equal(ok.status, 200);
+    await ok.text();
+  }
+  assert.equal(r.calls.length, 2);
+  const at = (headers) => forwardingZone(new Request("https://science.impf.ai/v1/chat/completions", { headers }));
+  assert.equal(at({ "CF-Worker": "Proxy.Example.COM" }), "proxy.example.com");
+  assert.equal(at({ "CF-Worker": "<b>" }), "b");
+  assert.equal(at({ "CF-Worker": "%%%" }), "?");
+  assert.equal(at({ "CF-Connecting-IP": "203.0.113.7" }), "");
+  // health and models answer anyone, as before
+  assert.equal((await r.call("/v1/health", { headers: { "CF-Worker": "free-gpt.example.workers.dev" } })).status, 200);
 });
 
 test("only Tao-S1: the upstream's own model names are refused too, and never named", async () => {

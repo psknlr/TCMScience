@@ -49,7 +49,10 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
 
 - **只接受网页的来源**：`Origin` 必须完全等于 `ALLOWED_ORIGINS` 之一（science.impf.ai，以及本机 Runner 提供的
   `http://127.0.0.1:8765`、`http://localhost:8765`）；没有 `Origin` 的请求（脚本、`Referrer-Policy: no-referrer` 的页面）被拒绝。
-  这只防浏览器里的盗用；真正限定费用的是下面的限额。
+  别的 Cloudflare 区域的 Worker 转发来的模型调用（带 `CF-Worker` 头，或来自 Cloudflare 为跨区域子请求填写的地址
+  `2a06:98c0:3600::103`）不论 `Origin` 写什么都按 `forbidden_origin` 拒绝，安全日志的说明里记下那个区域：Worker 可以随意填写
+  `Origin`，网页的请求从不经过 Worker（边缘的 WAF 规则也拦它们：TaoChronos `security/rules.yaml` 第 3 条）。
+  这只防浏览器里的盗用与转发；真正限定费用的是下面的限额。
 - **访客看不到上游**：只有 `Tao-S1` 这个名字。请求里 `Tao-S1` 换成 `MODELS` 的第一个模型，加上 `UPSTREAM_FIELDS`
   （`reasoning_split`），网页送回的思考格式 `Tao-…` 还原成上游的 `MiniMax-…`；回复（含流）里的模型名改回 `Tao-S1`、思考格式改成
   `Tao-…`，上游独有的字段（`base_resp`、`*_sensitive`、`usage.total_characters`）去掉。上游的任何报错（HTTP 错误、200 回复里的
