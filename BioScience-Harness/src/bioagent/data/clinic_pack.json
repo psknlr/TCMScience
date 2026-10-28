@@ -2015,6 +2015,402 @@
    "source": "常见中西药相互作用（草案转录，未经审核）"
   }
  ],
+ "drug_classes": {
+  "about": "Specific medicines, by generic name (Chinese and English) and common brand names, mapped to the class word a drug_interactions rule uses, so a record of 呋塞米 or Lasix is read as 利尿剂. A medicine is listed only when its ATC code places it in the ATC groups of one rule class: one that belongs to two (a beta blocker is an antihypertensive and an antiarrhythmic; aspirin an analgesic and an antiplatelet agent) is left to the class words. Names are matched as text within each recorded medication; a medicine not listed here is matched by the class words alone.",
+  "source": "WHO Collaborating Centre for Drug Statistics Methodology, ATC classification index (https://atcddd.fhi.no/atc_ddd_index/); transcribed, not reviewed",
+  "classes": {
+   "利尿剂": {
+    "atc": [
+     "C03A",
+     "C03B",
+     "C03C"
+    ],
+    "note": "thiazides, thiazide-like and high-ceiling (loop) diuretics: the potassium-losing diuretics of the 甘草 rule; potassium-sparing agents (C03D) are not listed"
+   },
+   "地高辛": {
+    "atc": [
+     "C01AA05"
+    ]
+   },
+   "糖皮质激素": {
+    "atc": [
+     "H02AB"
+    ],
+    "note": "glucocorticoids for systemic use"
+   },
+   "单胺氧化酶抑制剂": {
+    "atc": [
+     "N06AF",
+     "N06AG"
+    ],
+    "note": "non-selective and MAO-A inhibitors (antidepressants)"
+   },
+   "降压药": {
+    "atc": [
+     "C02",
+     "C08CA",
+     "C09"
+    ],
+    "note": "the ATC index files antihypertensive agents under C02 and, by mechanism, under C03, C07, C08 and C09; listed here are C02, the dihydropyridine calcium channel blockers (C08CA) and the renin-angiotensin agents (C09). Diuretics are listed under 利尿剂, and beta blockers (C07, also antiarrhythmic) are left to the class words"
+   },
+   "华法林": {
+    "atc": [
+     "B01AA03"
+    ]
+   },
+   "抗血小板": {
+    "atc": [
+     "B01AC"
+    ],
+    "note": "platelet aggregation inhibitors excl. heparin"
+   },
+   "降糖药": {
+    "atc": [
+     "A10B"
+    ],
+    "note": "blood glucose lowering drugs, excl. insulins"
+   },
+   "胰岛素": {
+    "atc": [
+     "A10A"
+    ]
+   },
+   "抗心律失常药": {
+    "atc": [
+     "C01B"
+    ],
+    "note": "antiarrhythmics, class I and III"
+   }
+  },
+  "drugs": [
+   {
+    "atc": "C03CA01",
+    "class": "利尿剂",
+    "names": [
+     "呋塞米",
+     "速尿",
+     "furosemide",
+     "frusemide",
+     "Lasix"
+    ]
+   },
+   {
+    "atc": "C03CA02",
+    "class": "利尿剂",
+    "names": [
+     "布美他尼",
+     "bumetanide",
+     "Bumex"
+    ]
+   },
+   {
+    "atc": "C03CA04",
+    "class": "利尿剂",
+    "names": [
+     "托拉塞米",
+     "torasemide",
+     "torsemide",
+     "Demadex"
+    ]
+   },
+   {
+    "atc": "C03AA03",
+    "class": "利尿剂",
+    "names": [
+     "氢氯噻嗪",
+     "双氢克尿噻",
+     "hydrochlorothiazide"
+    ]
+   },
+   {
+    "atc": "C03BA11",
+    "class": "利尿剂",
+    "names": [
+     "吲达帕胺",
+     "indapamide",
+     "Natrilix"
+    ]
+   },
+   {
+    "atc": "C01AA05",
+    "class": "地高辛",
+    "names": [
+     "Lanoxin"
+    ]
+   },
+   {
+    "atc": "H02AB07",
+    "class": "糖皮质激素",
+    "names": [
+     "泼尼松",
+     "强的松",
+     "prednisone"
+    ]
+   },
+   {
+    "atc": "H02AB06",
+    "class": "糖皮质激素",
+    "names": [
+     "泼尼松龙",
+     "强的松龙",
+     "prednisolone"
+    ]
+   },
+   {
+    "atc": "H02AB04",
+    "class": "糖皮质激素",
+    "names": [
+     "甲泼尼龙",
+     "methylprednisolone",
+     "Medrol",
+     "美卓乐"
+    ]
+   },
+   {
+    "atc": "H02AB02",
+    "class": "糖皮质激素",
+    "names": [
+     "地塞米松",
+     "dexamethasone"
+    ]
+   },
+   {
+    "atc": "H02AB09",
+    "class": "糖皮质激素",
+    "names": [
+     "氢化可的松",
+     "hydrocortisone"
+    ]
+   },
+   {
+    "atc": "N06AF03",
+    "class": "单胺氧化酶抑制剂",
+    "names": [
+     "苯乙肼",
+     "phenelzine",
+     "Nardil"
+    ]
+   },
+   {
+    "atc": "N06AF04",
+    "class": "单胺氧化酶抑制剂",
+    "names": [
+     "反苯环丙胺",
+     "tranylcypromine",
+     "Parnate"
+    ]
+   },
+   {
+    "atc": "N06AF01",
+    "class": "单胺氧化酶抑制剂",
+    "names": [
+     "异卡波肼",
+     "isocarboxazid",
+     "Marplan"
+    ]
+   },
+   {
+    "atc": "N06AG02",
+    "class": "单胺氧化酶抑制剂",
+    "names": [
+     "吗氯贝胺",
+     "moclobemide",
+     "Aurorix"
+    ]
+   },
+   {
+    "atc": "C08CA01",
+    "class": "降压药",
+    "names": [
+     "氨氯地平",
+     "amlodipine",
+     "Norvasc",
+     "络活喜"
+    ]
+   },
+   {
+    "atc": "C08CA05",
+    "class": "降压药",
+    "names": [
+     "硝苯地平",
+     "nifedipine",
+     "Adalat",
+     "拜新同"
+    ]
+   },
+   {
+    "atc": "C08CA02",
+    "class": "降压药",
+    "names": [
+     "非洛地平",
+     "felodipine",
+     "Plendil",
+     "波依定"
+    ]
+   },
+   {
+    "atc": "C09AA01",
+    "class": "降压药",
+    "names": [
+     "卡托普利",
+     "captopril",
+     "Capoten",
+     "开博通"
+    ]
+   },
+   {
+    "atc": "C09AA02",
+    "class": "降压药",
+    "names": [
+     "依那普利",
+     "enalapril",
+     "Vasotec"
+    ]
+   },
+   {
+    "atc": "C09AA07",
+    "class": "降压药",
+    "names": [
+     "贝那普利",
+     "benazepril",
+     "Lotensin",
+     "洛汀新"
+    ]
+   },
+   {
+    "atc": "C09CA01",
+    "class": "降压药",
+    "names": [
+     "氯沙坦",
+     "losartan",
+     "Cozaar",
+     "科素亚"
+    ]
+   },
+   {
+    "atc": "C09CA03",
+    "class": "降压药",
+    "names": [
+     "缬沙坦",
+     "valsartan",
+     "Diovan",
+     "代文"
+    ]
+   },
+   {
+    "atc": "C09CA04",
+    "class": "降压药",
+    "names": [
+     "厄贝沙坦",
+     "irbesartan",
+     "Aprovel",
+     "Avapro",
+     "安博维"
+    ]
+   },
+   {
+    "atc": "B01AA03",
+    "class": "华法林",
+    "names": [
+     "Coumadin",
+     "Jantoven",
+     "Marevan"
+    ]
+   },
+   {
+    "atc": "B01AC04",
+    "class": "抗血小板",
+    "names": [
+     "Plavix",
+     "波立维"
+    ]
+   },
+   {
+    "atc": "B01AC24",
+    "class": "抗血小板",
+    "names": [
+     "替格瑞洛",
+     "ticagrelor",
+     "Brilinta",
+     "Brilique",
+     "倍林达"
+    ]
+   },
+   {
+    "atc": "B01AC22",
+    "class": "抗血小板",
+    "names": [
+     "普拉格雷",
+     "prasugrel",
+     "Effient",
+     "Efient"
+    ]
+   },
+   {
+    "atc": "A10BA02",
+    "class": "降糖药",
+    "names": [
+     "Glucophage",
+     "格华止"
+    ]
+   },
+   {
+    "atc": "A10BF01",
+    "class": "降糖药",
+    "names": [
+     "阿卡波糖",
+     "acarbose",
+     "Glucobay",
+     "拜唐苹"
+    ]
+   },
+   {
+    "atc": "A10AE04",
+    "class": "胰岛素",
+    "names": [
+     "Lantus",
+     "来得时"
+    ]
+   },
+   {
+    "atc": "A10AB05",
+    "class": "胰岛素",
+    "names": [
+     "NovoRapid",
+     "NovoLog",
+     "诺和锐"
+    ]
+   },
+   {
+    "atc": "A10AB04",
+    "class": "胰岛素",
+    "names": [
+     "Humalog",
+     "优泌乐"
+    ]
+   },
+   {
+    "atc": "C01BD01",
+    "class": "抗心律失常药",
+    "names": [
+     "胺碘酮",
+     "amiodarone",
+     "Cordarone",
+     "可达龙"
+    ]
+   },
+   {
+    "atc": "C01BC03",
+    "class": "抗心律失常药",
+    "names": [
+     "普罗帕酮",
+     "propafenone",
+     "Rythmol",
+     "心律平"
+    ]
+   }
+  ]
+ },
  "red_flags": [
   {
    "id": "chest_pain",

@@ -37,6 +37,11 @@ file the user supplied; nothing derived from them is redistributed beyond the sn
 run builds locally, and every edge built from them carries the licence
 ``LicenseRef-user-supplied-unstated``.
 
+Each cell is read as the text it stands for (:func:`read_cell`), by this module's reader and
+by Studio's (``tcmstudio.repository_data.workbook_rows``) alike: the private-use U+E840 that
+the workbook writes for 䓖 (in 芎䓖) is read as 䓖, and Excel's escaped carriage return
+``_x000D_`` as nothing. The workbook is not edited.
+
 A record whose composition is known to be mis-written (桂枝甘草汤《伤寒论》 lists 草 for
 甘草) is read through an erratum (``data/formula_errata.json``, :func:`load_errata`). The
 workbook is not edited and the record keeps its text, row and id; only its components are
@@ -58,16 +63,31 @@ from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 from .materia import MATERIA, normalise_name, resolve_name
 
-__all__ = ["TABLE_FILE", "TABLE_LICENSE", "ERRATA_FILE", "BOOK_ABBREVIATIONS", "Component",
-           "Dose", "Erratum", "FormulaRecord", "FormulaTable", "apply_erratum", "load_errata",
-           "parse_composition", "parse_dose", "load_formula_table", "source_matches",
-           "split_source"]
+__all__ = ["TABLE_FILE", "TABLE_LICENSE", "ERRATA_FILE", "BOOK_ABBREVIATIONS", "CELL_READING",
+           "Component", "Dose", "Erratum", "FormulaRecord", "FormulaTable", "apply_erratum",
+           "load_errata", "parse_composition", "parse_dose", "load_formula_table", "read_cell",
+           "source_matches", "split_source"]
 
 TABLE_FILE = Path(__file__).resolve().parents[4] / "中医方剂数据表.xlsx"
 ERRATA_FILE = Path(__file__).resolve().parents[1] / "data" / "formula_errata.json"
 ERRATA_STATUSES = ("proposed", "accepted", "rejected")
 TABLE_LICENSE = "LicenseRef-user-supplied-unstated"
 COLUMNS = ("名称", "配方", "出处", "炮制", "功效", "使用方法", "注意")
+#: How a cell is read (:func:`read_cell`), as the provenance of the text served.
+CELL_READING = ("U+E840, the private-use code point the GBK code page gives GB 18030 0xFE7B "
+                "(䓖), is read as U+44D6 䓖; Excel's escaped carriage return _x000D_ is removed. "
+                "The workbook is not edited.")
+_PRIVATE_USE = str.maketrans({"\ue840": "\u44d6"})        # U+E840 -> 䓖
+
+
+def read_cell(value: object) -> str:
+    """One workbook cell as the text it stands for: 芎\\ue840 is 芎䓖 (the workbook was written
+    through the GBK code page, which has no 䓖 and gives it a private-use code point no
+    font draws), and the ``_x000D_`` Excel writes for a carriage return before a line break
+    is dropped, the line break kept."""
+    if value is None:
+        return ""
+    return str(value).replace("_x000D_", "").translate(_PRIVATE_USE).strip()
 
 _OPEN, _CLOSE = "（([【〔", "）)]】〕"
 _SEPARATORS = "，,、；;。"
@@ -308,13 +328,17 @@ def _split_dose(bare: str) -> tuple[str, str]:
     """(name, dose) for one bare item.
 
     Several suffixes can read as a dose: in 百合1两 both 百合1两 (百 a numeral, 合 a unit)
-    and 1两 do. The split that leaves a known drug name wins; failing that, the longest
-    dose that still leaves a name; an item that is all dose stays as written.
+    and 1两 do. The split that leaves a known drug name wins; failing that, an item that is
+    itself a known drug has no dose (百合, 三七 and 参三七 written without one); failing
+    that, the longest dose that still leaves a name; an item that is all dose stays as
+    written.
     """
     starts = [i for i in range(len(bare)) if _DOSE.fullmatch(bare[i:])]
     for i in starts:
         if i and resolve_name(bare[:i]):
             return bare[:i], bare[i:]
+    if starts and resolve_name(bare):
+        return bare, ""
     for i in starts:
         if i:
             return bare[:i], bare[i:]
@@ -442,8 +466,8 @@ def _errata_from(path: str) -> tuple[Erratum, ...]:
         written, corrected = parse_composition(e.written), parse_composition(e.corrected)
         if len(written) != len(corrected):
             raise ValueError(f"{p}: {e.id} reads {len(written)} components as "
-                             f"{len(corrected)}; an erratum corrects names, it does not add "
-                             "or remove ingredients")
+                             f"{len(corrected)}; an erratum corrects how ingredients are "
+                             "written, it does not add or remove any")
         blob = "\x1f".join((e.name, e.source, e.written))
         digest = "tcm:formula.fx" + hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
         if e.formula_id and e.formula_id != digest:
@@ -524,7 +548,7 @@ def records_from_rows(rows: Iterable[Sequence[object]]) -> list[FormulaRecord]:
     errata = load_errata()
     out = []
     for i, row in enumerate(rows, start=2):                 # spreadsheet row numbers
-        cells = [str(c).strip() if c is not None else "" for c in (list(row) + [None] * 7)[:7]]
+        cells = [read_cell(c) for c in (list(row) + [None] * 7)[:7]]
         if not cells[0] and not cells[1]:
             continue
         out.append(apply_erratum(FormulaRecord(

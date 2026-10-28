@@ -48,8 +48,8 @@ practitioner (`clinic check`):
 | Pregnancy: 禁用 | stop |
 | Pregnancy: 慎用 | block |
 | Pregnancy status unknown in a woman of child-bearing age | block |
-| Allergy | stop |
-| Interaction with a recorded medication | warn |
+| Allergy, to the herb under any name the seed knowledge base gives it (黄耆 or 北芪 is 黄芪, 芍药 is 白芍, 国老 is 甘草) | stop |
+| Interaction with a recorded medication, named by its class (利尿剂) or by its own name (呋塞米, Lasix) | warn |
 | Caution for a recorded condition | warn |
 | Toxic herb, with its processing and decoction notes | warn |
 | Dose above the (age-scaled) range: toxic herb | block |
@@ -62,6 +62,23 @@ practitioner (`clinic check`):
 Where the Pharmacopoeia and the knowledge base disagree, the stricter applies and the
 report says the sources differ. For example, the Pharmacopoeia 2020 says 孕妇慎用 for
 附子 and the seed's reading says 禁用, so 附子 in pregnancy is a stop.
+
+An allergy entry matches a herb when one name contains the other, or when both name the
+same herb in the seed knowledge base. Its names are a herb's own and its processed forms'
+(炙甘草 is 甘草). The herb is found from the whole entry, or from the name in 对黄耆过敏
+or 黄耆过敏. An entry is not searched for herb names inside it: 花粉过敏 is a pollen
+allergy, not one to 天花粉. The materia table's names are not used. That table groups the
+names of a source, so its 鸡内金 also lists 鸡蛋, and its 海藻 lists 海带 and 昆布. Read
+as one herb, an egg allergy would stop 鸡内金. A herb the knowledge base does not hold
+matches by its name alone.
+
+The interaction rules name classes of medicines. A recorded medicine also counts as its
+class when the pack's mapping lists it. The mapping covers 35 medicines, by generic name
+(Chinese and English) and common brand names. Each one carries its WHO ATC code, and the
+pack refuses a mapping whose code is outside its class's ATC groups or inside another
+class's. A medicine in two classes is left out. For example, a beta blocker is both an
+antihypertensive and an antiarrhythmic. A medicine outside the mapping is matched by the
+class words alone.
 
 ### Follow-up
 
@@ -126,7 +143,8 @@ they are a test, and then says so on the report's first line.
 
 It also holds:
 - the 十八反 / 十九畏 rules;
-- drug interactions;
+- drug interactions, and a mapping of 35 named medicines to the rules' classes by WHO ATC
+  code;
 - condition cautions;
 - red-flag rules;
 - the NEWS2 limits;
@@ -170,8 +188,9 @@ practitioner reviews it, every report repeats that status.
 - 安全核查：
   - 十八反、十九畏：须说明理由；
   - 妊娠禁用：停止；慎用：须说明理由；育龄期患者妊娠状态未知：须先确认；
-  - 过敏：停止；
-  - 中西药相互作用、病证慎用：警示；
+  - 过敏：停止。按药材判断，种子知识库所列别名也算（黄耆、北芪即黄芪，芍药即白芍，国老即甘草），炮制品即其药材（炙甘草即甘草）；按整条过敏记录识别药材，“对黄耆过敏”“黄耆过敏”也识别为黄耆，但不在记录中拆字找药名（花粉过敏指花粉，不是天花粉）；不采用药材名表（materia）的别名：该表按来源归并名称，鸡内金下列有鸡蛋，海藻下列有海带、昆布，若视为同一药材，鸡蛋过敏会误停鸡内金；知识库未收的药材只按名称本身匹配；
+  - 中西药相互作用：警示。西药按类别名（如利尿剂）识别，也按具体药名识别：知识包按 WHO ATC 分类把 35 种药（中英文通用名和常见商品名，如呋塞米、Lasix）对应到规则中的类别，每种附 ATC 编码；同属两类的药（如 β 受体阻滞剂）不列入；
+  - 病证慎用：警示；
   - 毒性药材：警示，并附炮制与煎法；
   - 超量：有毒药材须说明理由，其他药材警示；
   - 来源不一时取较严者，例如附子孕妇用药：药典为“慎用”，知识库为“禁用”，按“禁用”处理；

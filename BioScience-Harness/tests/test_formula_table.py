@@ -45,6 +45,16 @@ def test_a_unit_character_inside_a_name_is_not_read_as_a_dose():
     assert names("百合1两，半夏半两") == [("百合", "1两", "baihe"), ("半夏", "半两", "banxia")]
 
 
+def test_a_drug_written_without_a_dose_is_not_read_as_one():
+    """百合 (百 a numeral, 合 a unit) and 三七 (two numerals) read whole as doses. Written
+    without a dose, as 81 百合 and 16 三七 items of the workbook are, they were parsed as the
+    dose 百合 with no name and as 三 with the dose 七, and their formulas could not be
+    studied. A whole item that is a known drug is that drug."""
+    assert names("百合、三七、参三七，麦冬") == [("百合", "", "baihe"), ("三七", "", "sanqi"),
+                                          ("参三七", "", "sanqi"), ("麦冬", "", "maidong")]
+    assert names("百合（蜜炒），三七3g") == [("百合", "", "baihe"), ("三七", "3g", "sanqi")]
+
+
 def test_processing_names_and_aliases_resolve_to_one_drug():
     for written, drug in [("炙甘草", "gancao"), ("粉草", "gancao"), ("桂心", "rougui"),
                           ("白茯苓", "fuling"), ("川大黄", "dahuang"), ("麸炒枳壳", "zhiqiao"),
@@ -84,6 +94,23 @@ def test_a_formula_id_is_a_digest_of_its_content_not_its_row():
     b = records_from_rows([("x", "y", "z", "", "", "", ""),
                            ("葛芩连汤", "麻黄3两", "《某书》", "", "", "", "")])[1]
     assert a.id == b.id and a.row != b.row
+
+
+def test_the_workbooks_encoding_artefacts_are_read_as_the_text_they_stand_for(tmp_path):
+    """The workbook writes 䓖 as U+E840, the private-use code point the GBK code page gives
+    GB 18030's 0xFE7B (2,409 times, in 芎䓖), and keeps Excel's escaped carriage return
+    ``_x000D_`` literally before line breaks. Both are read as the text they stand for, by
+    either reader; the workbook is not edited."""
+    row = ("芎\ue840散", "芎\ue8401两，川芎\ue840半两，甘草1两。", "《某书》", "", "",
+           "每服2钱。_x000D_\n日3次。_x000D_", "")
+    rec, = records_from_rows([row])
+    assert (rec.name, rec.composition) == ("芎䓖散", "芎䓖1两，川芎䓖半两，甘草1两。")
+    assert rec.usage == "每服2钱。\n日3次。"
+    assert [(c.name, c.drug) for c in rec.components] == [
+        ("芎䓖", "chuanxiong"), ("川芎䓖", "chuanxiong"), ("甘草", "gancao")]
+    assert rec.id == records_from_rows([("芎䓖散", *row[1:])])[0].id, "the id is of the text read"
+    table = load_formula_table(_xlsx(tmp_path / "t.xlsx", [row]))
+    assert (table.records[0].composition, table.records[0].usage) == (rec.composition, rec.usage)
 
 
 def _xlsx(path: Path, rows) -> Path:
@@ -293,6 +320,24 @@ def test_a_misread_composition_is_read_through_its_erratum_and_keeps_its_text():
     nodes, edges = herb_rows(version)
     assert {e["raw"]["written"] for e in edges if e["predicate"] == "contains"} == {"桂枝", "草"}
     assert "第64条" in rec.erratum.authority and rec.erratum.status == "proposed"
+
+
+LIZHONG_ROW = ("理中丸", "人参3钱，干姜3钱，甘草（炙）3钱，白术3两。", "《伤寒论》。",
+               "上为末，炼蜜为丸，如鸡子黄许大。", "", "以沸汤数合，和1丸，研碎，温服之，日3次，夜2次。", "")
+
+
+def test_a_misread_dose_is_read_through_its_erratum_and_keeps_its_text():
+    """理中丸《伤寒论》 (row 37773) writes 人参、干姜、甘草 at 3钱 against 白术 3两, a ratio
+    of 1:1:1:10; §386 gives all four at 三两, as the workbook's own 理中汤《伤寒论》 does."""
+    rec, = records_from_rows([LIZHONG_ROW])
+    assert rec.erratum is not None and rec.erratum.id == "erratum.0002"
+    assert rec.erratum.status == "proposed" and "第386条" in rec.erratum.authority
+    assert rec.composition == LIZHONG_ROW[1], "the workbook is not edited"
+    assert rec.id == rec.erratum.formula_id == "tcm:formula.fx7e936afe6d38"
+    assert [(c.name, c.dose) for c in rec.components] == [
+        ("人参", "3两"), ("干姜", "3两"), ("甘草", "3两"), ("白术", "3两")]
+    assert [c.dose for c in rec.written_components] == ["3钱", "3钱", "3钱", "3两"]
+    assert rec.components[2].processing == "炙"
 
 
 def test_an_erratum_applies_only_to_the_text_it_names(tmp_path, monkeypatch):

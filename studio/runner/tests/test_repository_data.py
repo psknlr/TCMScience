@@ -33,6 +33,31 @@ def test_full_workbook_asset_is_lazy_verified_complete_and_deployable():
     assert result["provenance"]["source_sha256"] == asset["source_sha256"]
 
 
+def test_the_stores_text_carries_no_workbook_encoding_artefacts():
+    """The workbook writes 䓖 as the private-use U+E840 (2,409 compositions and 160 names, in
+    芎䓖) and keeps Excel's escaped carriage return ``_x000D_`` in five cells. The hand reader
+    that builds the store and the web asset reads them as 䓖 and as nothing, like the
+    openpyxl reader, so 芎䓖散 is found by its name and shows a character a browser can draw."""
+    from tcmstudio import repository_data
+    conn = sqlite3.connect(repository_data.formula_store())
+    try:
+        columns = ("name", "composition", "source", "preparation", "actions", "usage", "cautions")
+        pua = " OR ".join(f"instr({c}, char(59456)) > 0" for c in columns)       # U+E840
+        escaped = " OR ".join(f"instr({c}, '_x000D_') > 0" for c in columns)
+        assert conn.execute(f"SELECT count(*) FROM formulas WHERE {pua}").fetchone()[0] == 0
+        assert conn.execute(f"SELECT count(*) FROM formulas WHERE {escaped}").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM formulas WHERE instr(composition, '芎䓖') > 0"
+                            ).fetchone()[0] > 2000
+        usage, = conn.execute("SELECT usage FROM formulas WHERE row = 84141").fetchone()
+        assert "早\n晚分服" in usage
+    finally:
+        conn.close()
+    found = formula_search("芎䓖散", exact=True)
+    xiong = [c for r in found["records"] for c in r["components"] if c["name"] == "芎䓖"]
+    assert found["total"] > 0 and xiong and {c["drug"] for c in xiong} == {"chuanxiong"}
+    assert "U+E840" in found["provenance"]["cell_reading"]
+
+
 def test_broad_native_lookups_preserve_versions_and_identity_scope(browser_ctx):
     formula = call("tcm_formula", {"name": "葛根芩连汤"}, browser_ctx)
     assert formula["status"] == "succeeded", formula["error"]

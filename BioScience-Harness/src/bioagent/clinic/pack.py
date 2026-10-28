@@ -9,8 +9,9 @@ every output built on the pack says so.
 
 ``check`` holds the pack to what the code relies on: every formula's herbs have limits,
 every syndrome's formula exists, every finding a criterion scores is on the intake form,
-no base formula contains a pair the pack itself calls incompatible. A pack that fails is
-not loaded.
+no base formula contains a pair the pack itself calls incompatible, every medicine mapped to
+a drug-interaction class has an ATC code in that class's ATC groups and in no other's. A
+pack that fails is not loaded.
 """
 
 from __future__ import annotations
@@ -114,6 +115,10 @@ class ClinicPack:
     synonyms: Mapping[str, str]
     digest: str
     incompatible_sources: Mapping[str, str] = field(default_factory=dict)   # rule -> source
+    #: a medicine's name (呋塞米, Lasix) -> (the rule class word it is read as, its ATC code)
+    drug_classes: Mapping[str, tuple[str, str]] = field(default_factory=dict)
+    atc_groups: Mapping[str, tuple[str, ...]] = field(default_factory=dict)  # class -> groups
+    drug_classes_source: str = ""
     path: str = ""
     extra: Mapping[str, Any] = field(default_factory=dict)
 
@@ -197,6 +202,13 @@ def _build(data: Mapping[str, Any], digest: str, path: str) -> ClinicPack:
                     patterns=tuple(re.compile(x, re.IGNORECASE) for x in r.get("patterns") or ()),
                     why=str(r["why"]), action=str(r.get("action") or "refer"))
         for r in data["red_flags"])
+    classes = data.get("drug_classes") or {}
+    named: dict[str, tuple[str, str]] = {}
+    for d in classes.get("drugs") or ():
+        entry = (str(d["class"]), str(d["atc"]))
+        for n in _tuple(d["names"]):
+            if named.setdefault(n, entry) != entry:
+                raise PackError(f"drug_classes: {n} is listed as {named[n]} and as {entry}")
     vitals = data.get("vital_limits") or {}
     vital_rules = tuple(
         VitalRule(id=str(v["id"]), field=str(v["field"]),
@@ -212,6 +224,10 @@ def _build(data: Mapping[str, Any], digest: str, path: str) -> ClinicPack:
         incompatible=_pairs(data.get("incompatible") or ()),
         incompatible_sources={str(r["rule"]): str(r.get("source") or "")
                               for r in data.get("incompatible") or ()},
+        drug_classes=named,
+        atc_groups={str(k): _tuple(v.get("atc"))
+                    for k, v in (classes.get("classes") or {}).items()},
+        drug_classes_source=str(classes.get("source") or ""),
         drug_interactions=tuple(data.get("drug_interactions") or ()),
         condition_cautions=tuple(data.get("condition_cautions") or ()),
         red_flags=flags, vital_rules=vital_rules, vital_source=str(vitals.get("source") or ""),
@@ -300,6 +316,15 @@ def check(pack: ClinicPack) -> list[str]:
     for name in pack.emergency_syndromes:
         if name in pack.syndromes and pack.syndromes[name].formula:
             problems.append(f"emergency syndrome {name} must not carry a formula to draft")
+    words = {str(d) for r in pack.drug_interactions for d in r.get("drugs") or ()}
+    for name, (word, atc) in pack.drug_classes.items():
+        groups = [k for k, gs in pack.atc_groups.items() if any(atc.startswith(g) for g in gs)]
+        if word not in words:
+            problems.append(f"drug_classes: {name} is read as {word}, which no interaction "
+                            "rule names")
+        if groups != [word]:
+            problems.append(f"drug_classes: {name} ({atc}) must be in the ATC groups of {word} "
+                            f"and of no other class, not of {groups}")
     ids = [r.id for r in pack.red_flags] + [v.id for v in pack.vital_rules]
     if len(ids) != len(set(ids)):
         problems.append("red-flag and vital-sign rule ids must be unique")

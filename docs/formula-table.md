@@ -21,6 +21,24 @@ someone should establish where the table came from and what it permits.
 
 ## From written names to drugs (`sources/formulas.py`)
 
+Each cell is read as the text it stands for (`formulas.read_cell`). Both readers do this:
+`sources/formulas.py` (openpyxl) and Studio's `repository_data.workbook_rows`, which
+builds the indexed store and the web formula asset. Two encoding artefacts are read, and
+the workbook itself is not edited:
+
+- **U+E840 is read as 䓖 (U+44D6).** The workbook was written through the GBK code page,
+  which has no 䓖. It gives GB 18030's 0xFE7B a private-use code point that no font draws.
+  The character occurs 2,409 times in compositions, 160 times in names and 12 times in the
+  other columns. Almost all are 芎䓖. The names also have 鞠䓖 twice (an old name of
+  芎䓖), and the compositions have 穹䓖 three times and 芍䓖, 川䓖 and 萆䓖 once each.
+- **Excel's escaped carriage return `_x000D_` is removed.** It occurs in 5 cells, before a
+  line break, which is kept.
+
+The store records this reading as `cell_reading` in its provenance. A record's id is the
+digest of its name, source and composition as read. The 2,422 records with an artefact in
+one of those fields got new ids in October 2026. Seven of them also resolve now: their
+川芎䓖 had been written 川芎 + U+E840.
+
 The 配方 column is free text, for example
 `附子1枚（去皮，破八片，炮），甘草2两（炙）`. The parser works as follows:
 
@@ -32,7 +50,11 @@ The 配方 column is free text, for example
    normalised first, and normalising removes punctuation, so 1.5g became 15g and 0.5g
    became 05g; 396 mentions in 195 formulas were affected.) `parse_dose` reads the
    amount and unit, and keeps a number only when writing it back gives the dose exactly
-   as written, so a dose like 05g never reads as a number.
+   as written, so a dose like 05g never reads as a number. Some drug names also read as
+   doses: 百合 (百 a numeral, 合 a unit) and 三七 (two numerals). An item that is a known
+   drug as a whole has no dose. Until October 2026, a 百合 or 三七 written without a dose
+   was parsed as a dose with no name. That affected 97 formulas, and 53 of them were
+   unresolved only because of it.
 3. A fragment that contains only processing instructions (`去皮尖双仁`) is attached to
    the previous ingredient. A fragment with a dose of its own (`蒸馏水100ml`) is an
    ingredient.
@@ -115,16 +137,26 @@ research run lists them as components that contribute no constituents.
 | | |
 | --- | --- |
 | Formulas in the table | 84,294 |
-| Formulas with every ingredient resolved | 50,291 (59.7%) |
-| Ingredient mentions resolved | 583,909 of 639,708 (91.3%) |
+| Formulas with every ingredient resolved | 50,352 (59.7%) |
+| Ingredient mentions resolved | 584,014 of 639,708 (91.3%) |
 | Drugs used by the resolved formulas | 400 |
 
-Before October 2026 the table reported 53,206 resolved formulas. The difference is
+These figures come from `load_formula_table().stats()`, with the two errata below in
+force. With errata turned off (`BIOAGENT_FORMULA_ERRATA=none`), 50,351 formulas and
+584,013 mentions resolve. They include two late-October 2026 changes, both described
+above: 百合 and 三七 written without a dose (53 more formulas), and 䓖 read from U+E840 (7
+more).
+
+Before October 2026 the table reported 53,206 resolved formulas, and the identity fixes
+of early October brought that to 50,291 (without errata). The difference is
 names that resolved only by folding a near name into another drug, or by reading a part,
 a product or a constituent as processing; 2,931 formulas lost a wrong resolution and 16
 gained a right one. 2,552 formulas that resolve both ways changed fingerprint, mostly
 because their doses now keep their decimal points, so herb-layer snapshots built with
-`--formula-table` before then should be rebuilt.
+`--formula-table` before then should be rebuilt. For the same reason, snapshots built
+before the late-October changes should be rebuilt too. Those changes resolved 60 more
+formulas and gave 2,422 records new ids (U+E840 or `_x000D_` in a name, source or
+composition).
 
 The unresolved mentions form a long tail. The largest are left unresolved on
 purpose: 贝母 (1,529 mentions; 川贝母 or 浙贝母), and names whose historical
@@ -168,15 +200,22 @@ A few records are mis-written in the workbook. 桂枝甘草汤《伤寒论》 li
 record could not be studied or compared with 桂枝汤 (which records no palpitations: the
 心下悸 of §64 is 桂枝甘草汤's).
 
+A dose can be mis-written as well. 理中丸《伤寒论》 (row 37773) lists
+`人参3钱，干姜3钱，甘草（炙）3钱，白术3两。`, a ratio of 1:1:1:10. 《伤寒论》第386条 gives
+人参、干姜、甘草（炙）、白术各三两, and the record's preparation and usage are that clause's.
+The workbook's own 理中汤《伤寒论》 (row 37753) has all four at 3两, and the clause's 汤法
+cuts the same four herbs by the same weights. Erratum `erratum.0002` reads the three
+doses in 两. Its drugs are unchanged, so it changes no formula's resolution.
+
 An erratum names one record exactly (name, source and the composition as written) and
 gives the corrected reading, the reason and the text it follows. `sources.formulas`
 applies it when the table is read:
 
 - the workbook is not edited, and the record keeps its text, row and id (a digest of the
-  text as written);
+  text as read, not of the correction);
 - only its components are parsed from the corrected text, and each keeps the name the
-  workbook wrote (`FormulaRecord.written_components`; the herb layer's composition edges
-  carry it as `raw.written`);
+  workbook wrote (`FormulaRecord.written_components`, which also holds the doses as
+  written; the herb layer's composition edges carry the name as `raw.written`);
 - the record carries the erratum, and every output that uses it names it: Studio's
   `tcm_formula` adds a limitation line, the benchmark's artifacts include it, and a
   herb-layer snapshot built from the table hashes `formula_errata.json` as a raw file.
@@ -186,7 +225,8 @@ has been reviewed (`reviewed_by`), `rejected` is not applied. An erratum whose r
 longer reads exactly as `written` does not apply. `BIOAGENT_FORMULA_ERRATA` points to
 another file, or `none` turns errata off. The loader refuses an erratum without an
 authority, one whose formula id does not match its text, and one that would add or remove
-an ingredient: an erratum corrects names, it does not change what a formula contains.
+an ingredient: an erratum corrects how an ingredient is written (its name or its dose),
+it does not change which ingredients a formula contains.
 
 The other 23 bare 草 in the workbook are left as they are: in abbreviated recipes
 (参、苓、术、草) 草 usually is 甘草, but that is a reading of each text, not a rule.

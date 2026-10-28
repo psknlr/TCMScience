@@ -1,6 +1,6 @@
 {
   "schema": "tcmscience.formula_errata/1",
-  "description": "Corrections to how a composition in 中医方剂数据表.xlsx is read. The workbook is never edited: a corrected record keeps its text, its row and its id (a digest of the text as written); only the parse of its composition changes, the written names stay on each component, and every output that uses the record names the erratum. An erratum applies only while the record still reads exactly as 'written'. status: 'proposed' is applied and labelled as awaiting a maintainer's review, 'accepted' has been reviewed, 'rejected' is not applied.",
+  "description": "Corrections to how a composition in 中医方剂数据表.xlsx is read. The workbook is never edited: a corrected record keeps its text, its row and its id (a digest of the text as read, not of the correction); only the parse of its composition changes, the written names and doses stay on each component, and every output that uses the record names the erratum. An erratum applies only while the record still reads exactly as 'written'. status: 'proposed' is applied and labelled as awaiting a maintainer's review, 'accepted' has been reviewed, 'rejected' is not applied.",
   "errata": [
     {
       "id": "erratum.0001",
@@ -15,6 +15,21 @@
       "authority": "《伤寒论》辨太阳病脉证并治中·第64条：发汗过多，其人叉手自冒心，心下悸，欲得按者，桂枝甘草汤主之。桂枝甘草汤方：桂枝四两（去皮），甘草二两（炙）。",
       "status": "proposed",
       "proposed": "2026-10-11",
+      "reviewed_by": ""
+    },
+    {
+      "id": "erratum.0002",
+      "formula_id": "tcm:formula.fx7e936afe6d38",
+      "row": 37773,
+      "name": "理中丸",
+      "source": "《伤寒论》。",
+      "field": "配方",
+      "written": "人参3钱，干姜3钱，甘草（炙）3钱，白术3两。",
+      "corrected": "人参3两，干姜3两，甘草（炙）3两，白术3两。",
+      "reason": "钱 for 两 in three of four doses: the record is the 第386条 formula (its preparation and usage are that clause's: 如鸡子黄许大，以沸汤数合，和一丸，研碎，温服之), which gives 人参、干姜、甘草（炙）、白术各三两. Read as written, 人参, 干姜 and 甘草 are 3钱 against 白术 3两, a ratio of 1:1:1:10 that neither the clause nor the workbook's own 理中汤《伤寒论》 (row 37753, all four at 3两; the clause's 汤法 cuts the same four herbs by the same weights) supports. The drugs are unchanged; only the three doses are read as the clause writes them.",
+      "authority": "《伤寒论》辨霍乱病脉证并治·第386条：霍乱，头痛发热，身疼痛，热多欲饮水者，五苓散主之；寒多不用水者，理中丸主之。理中丸方：人参、干姜、甘草（炙）、白术各三两。……汤法：以四物依两数切。",
+      "status": "proposed",
+      "proposed": "2026-10-28",
       "reviewed_by": ""
     }
   ]
