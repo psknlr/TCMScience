@@ -43,6 +43,16 @@ MODULES = {"scikit-learn": "sklearn", "umap-learn": "umap", "scvi-tools": "scvi"
 VERSION_ARGS = {"kallisto": ["version"], "featureCounts": ["-v"]}
 
 
+def _decoded(data: bytes | None) -> tuple[str, bool]:
+    """A tool's output as text, and whether it was UTF-8. Every byte decodes: one that is not
+    UTF-8 becomes U+FFFD, so no tool's banner can stop the readiness report."""
+    raw = data or b""
+    try:
+        return raw.decode("utf-8"), True
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="replace"), False
+
+
 def load_environments(path: str | Path | None = None) -> dict[str, Any]:
     from ..config import registry_dir
 
@@ -289,14 +299,21 @@ def readiness(groups: Mapping[str, Any] | None = None, *, calculate: bool = True
                 continue
             args = VERSION_ARGS.get(binary, ["--version"])
             try:
-                res = subprocess.run([exe, *args], capture_output=True, text=True,
+                # bytes, not text: a banner is the tool's own encoding. Ubuntu 24.04's samtools
+                # writes its build path as «BUILDPATH» in Latin-1 (byte 0xab), on which
+                # text=True raised UnicodeDecodeError and the whole report was lost (ci 351)
+                res = subprocess.run([exe, *args], capture_output=True, stdin=subprocess.DEVNULL,
                                      timeout=30, check=False)
-                text = (res.stdout or res.stderr).strip().splitlines()[:1]
-                said = text[0] if text else "no output"
-                rec.add(f"{binary}:binary", PASS if res.returncode == 0 else FAIL,
-                        said if res.returncode == 0 else
-                        f"`{binary} {' '.join(args)}` exited {res.returncode}: {said}", path=exe)
             except (OSError, subprocess.SubprocessError) as exc:
                 rec.add(f"{binary}:binary", FAIL, f"{type(exc).__name__}: {exc}")
+                continue
+            (stdout, stdout_ok), (stderr, stderr_ok) = _decoded(res.stdout), _decoded(res.stderr)
+            lines = (stdout if stdout.strip() else stderr).strip().splitlines()[:1]
+            said = lines[0].strip() if lines else "no output"
+            bad = [name for name, ok in (("stdout", stdout_ok), ("stderr", stderr_ok)) if not ok]
+            rec.add(f"{binary}:binary", PASS if res.returncode == 0 else FAIL,
+                    said if res.returncode == 0 else
+                    f"`{binary} {' '.join(args)}` exited {res.returncode}: {said}", path=exe,
+                    **({"not_utf8": bad} if bad else {}))
         out.append(rec)
     return out

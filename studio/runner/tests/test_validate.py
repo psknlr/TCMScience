@@ -134,6 +134,35 @@ def test_the_probes_run_what_ships_no_example_and_write_into_no_hub_they_were_gi
     assert list((tmp_path / "state" / "probe-tcmdb").rglob("*.sqlite"))
 
 
+def test_live_a_network_tool_is_called_for_real_not_through_the_offline_watch(tmp_path,
+                                                                              monkeypatch):
+    """live-data 33: in the live tier the network core tools' probes ran inside the watch that
+    refuses every lookup off the loopback interface, so connector_call and literature_search
+    FAILed with "an offline call looked up rest.uniprot.org" (www.ebi.ac.uk) without a request
+    ever leaving. Live, a network entry reaches the network; the watch is for offline calls.
+    The name lookups here land in a stand-in resolver: no request leaves this machine."""
+    asked: list[str] = []
+
+    def resolver(host, *args, **kwargs):
+        asked.append(str(host))
+        raise socket.gaierror(-2, f"stand-in resolver: {host} is not looked up in tests")
+    for var in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy",
+                "all_proxy"):
+        monkeypatch.delenv(var, raising=False)      # as in CI: the call looks up its host
+    monkeypatch.setattr(socket, "getaddrinfo", resolver)
+    recs = {r.component: r for r in validate.validate_entries(
+        _items("connector_call", "literature_search", "native.gc_content"),
+        ctx_base=_ctx(tmp_path), tier="live", built=set(), log=lambda m: None)}
+    for rid, host in (("connector_call", "rest.uniprot.org"), ("literature_search", "www.ebi.ac.uk")):
+        inv = recs[rid].check("invocation")
+        assert "an offline call" not in inv.detail, (rid, inv.detail)
+        assert host in asked, (rid, asked)
+        assert recs[rid].check("execution_isolation").status == "NOT_APPLICABLE"
+    # an in-process tool is still watched in the live tier, and makes no lookup
+    assert recs["native.gc_content"].check("execution_isolation").status == PASS
+    assert recs["native.gc_content"].check("invocation").status == PASS
+
+
 def test_a_probe_that_answers_not_found_fails(tmp_path, monkeypatch):
     """A probe names what the corpus holds: not_found from it is a failure, never a pass (a
     job id named on purpose is the exception)."""

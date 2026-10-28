@@ -445,7 +445,9 @@ def validate_entries(items: Sequence[tuple[str, str, Mapping[str, Any]]], *, ctx
             env = None
         else:
             t0 = time.perf_counter()
-            with watched_sockets() as attempts:
+            # the watch is for what runs offline; a network entry here is the live tier's
+            # real call, which the watch would refuse before any request left (live-data 33)
+            with (contextlib.nullcontext([]) if network else watched_sockets()) as attempts:
                 env = call(rid, example, here_live if network else here_off)
             elapsed = time.perf_counter() - t0
             status = env["status"]
