@@ -29,7 +29,8 @@ export function hashBadge(hash, { prefix = "sha256", label, compact = false } = 
       toast(ok ? t("ui.hash.copied") : t("ui.toast.copy_failed"), { tone: ok ? "ok" : "warn" });
     },
   },
-  label ? h("span.hash__label", label) : null,
+  // the space makes the text read "in sha256:…" as the accessible name does (the flex box draws none; the margin is the gap)
+  label ? [h("span.hash__label", label), " "] : null,
   prefix ? h("span.hash__prefix", `${prefix}:`) : null,
   h("span.hash__value", short),
   icon("copy", { size: 12, className: "hash__copy" }));

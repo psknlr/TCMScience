@@ -302,6 +302,12 @@ export class App {
           this.#afterRunnerReady();
         }
       });
+      // a runner ready before anyone listened (on loopback it answers while the job service is still loading) sent its
+      // "ready" to no one: what it reports about itself is read now
+      if (runner.status === "ready") {
+        this.#availability("runner", null, "ready");
+        this.#afterRunnerReady();
+      }
     }
     const jobs = this.runtimes.jobs;
     if (jobs) {
@@ -359,7 +365,8 @@ export class App {
     // the runner knows what it can run: merge its catalog
     try {
       this.catalog = await loadCatalog(this.runtimes);
-        this.toolRouter.setCatalog(this.catalog);
+      // none yet while the app boots: it is made from this same merged catalog
+      this.toolRouter?.setCatalog(this.catalog);
       this.emit("catalog", this.catalog);
     } catch { /* keep the built catalog */ }
     this.emit("runtime", { kind: "runner" });

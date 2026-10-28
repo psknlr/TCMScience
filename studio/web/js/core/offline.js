@@ -1,5 +1,6 @@
 // The service worker from the page's side (studio/web/sw.js): register it, tell the page when a new version waits,
-// and switch to it only when the person asks. Without a service worker (an old browser, a private window that refuses
+// and switch to it only when the person asks (in this tab or another: every open page then reloads into the new
+// version). Without a service worker (an old browser, a private window that refuses
 // one, a page that is not a secure context) the app works as before, online.
 //
 // `?nosw` in the address unregisters it and deletes its caches: a way out if a cached version ever misbehaves.
@@ -33,12 +34,21 @@ function watchForUpdates(registration, sw, location, onUpdate) {
   if (typeof onUpdate !== "function") return;
   let offered = false;
   let reloading = false;
+  const reload = () => {
+    if (reloading) return;
+    reloading = true;
+    location.reload();
+  };
+  // A new version that takes over this page reloads it, whichever tab asked for it: activation switches every page of
+  // the site at once and deletes the old version's cache, so a page left as it is would import the new build's modules
+  // into the old build's. A page no version ran (the very first install) has nothing to mix.
+  if (sw.controller) sw.addEventListener?.("controllerchange", reload);
   const apply = (worker) => () => {
-    sw.addEventListener?.("controllerchange", () => {
-      if (reloading) return;
-      reloading = true;
-      location.reload();
-    });
+    // another tab has switched to it already: no controllerchange is coming
+    if (sw.controller === worker) {
+      reload();
+      return;
+    }
     worker.postMessage({ type: "tcmstudio.skip-waiting" });
   };
   const offer = (worker) => {

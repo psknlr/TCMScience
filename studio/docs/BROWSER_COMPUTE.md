@@ -452,12 +452,15 @@ software adapter always reads "software, not evidence".
   SHA-256, and checked against it when cached), Pyodide, and the fonts. The page loads and runs tools with the network
   off. An offline run produced the same output hash as an online one.
 - Each version is a consistent snapshot. A new version installs in the background and is offered ("a new version is
-  ready"); it takes over only when the person reloads.
+  ready"); it takes over only when the person reloads, and then every open tab of the site reloads into it (a tab left
+  on the old version would load the new build's modules into the old build's).
 - It never caches `/v1` (model traffic) or `/api` (database queries), nor range requests. `?nosw` unregisters it and
   deletes its caches, as a way out. Automated browsers get it only when they ask (`?sw`).
 - The Python bundle and data assets were already content-addressed: kept by SHA-256 in the runtime cache and verified
-  before use. Projects, conversations, files and keys stay in IndexedDB. The Python state of governed runs is synced
-  to IndexedDB (IDBFS) where it works, and the receipt says `durable: false` where it does not.
+  before use (a download replaces only older copies of the same file). Projects, conversations, files and keys stay in
+  IndexedDB. The Python state of governed runs, and a dataset store imported into a project's data hub
+  (`tcmdb.import_store`), is synced to IndexedDB (IDBFS) where it works, and the receipt says `durable: false` where it
+  does not.
 - The capability probe reports quota, usage, whether storage is persisted, OPFS and the Cache API.
 
 **Implemented for the research jobs** ([BROWSER_JOBS.md](BROWSER_JOBS.md)): resumable, verified downloads of the

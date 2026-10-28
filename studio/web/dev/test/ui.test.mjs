@@ -20,7 +20,7 @@ import {
 } from "../../js/ui/governance.js";
 import { ICON_NAMES, icon } from "../../js/ui/icons.js";
 import { reproduceCommand } from "../../js/ui/inspector.js";
-import { SHORTCUTS } from "../../js/ui/palette.js";
+import { SHORTCUTS, openPalette } from "../../js/ui/palette.js";
 import { EXAMPLES } from "../../js/ui/pages/project.js";
 import { CATALOG_PARAMS, parseRoute, routeHref, SETTINGS_TABS } from "../../js/ui/router.js";
 import { IMPLEMENTATION, NEEDS, READINESS } from "../../js/core/catalog.js";
@@ -219,6 +219,36 @@ test("icons render at 1.5 px for any size and are decorative unless labelled", (
   assert.ok(b.getAttribute("stroke-dasharray"));
 });
 
+test("the command palette: a search that finds nothing says so beside the listbox, which holds options only", async () => {
+  const proto = window.HTMLElement.prototype;
+  const had = { showModal: proto.showModal, close: proto.close, scrollIntoView: proto.scrollIntoView };
+  if (!proto.showModal) proto.showModal = function showModal() { this.setAttribute("open", ""); };
+  if (!proto.close) proto.close = function close() { this.removeAttribute("open"); };
+  if (!proto.scrollIntoView) proto.scrollIntoView = function scrollIntoView() {};
+  const app = { state: { recent: [], projects: [], settings: { theme: "light" } }, store: { search: async () => [] } };
+  try {
+    openPalette(app);
+    const input = document.querySelector(".palette__input");
+    const list = document.getElementById(input.getAttribute("aria-controls"));
+    assert.ok(list.querySelector("[role=option]"), "the commands, before a search");
+    input.value = "zzzqqq";
+    input.dispatchEvent(new window.Event("input"));
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(list.getAttribute("role"), "listbox");
+    assert.deepEqual([...list.children].filter((c) => !["option", "presentation"].includes(c.getAttribute("role"))).map((c) => c.outerHTML), []);
+    const empty = document.querySelector(".palette__empty");
+    assert.ok(empty && !list.contains(empty), "the message is not in the listbox");
+    assert.equal(empty.getAttribute("role"), "status");
+    assert.match(empty.textContent, /zzzqqq/);
+    assert.equal(input.getAttribute("aria-expanded"), "false");
+  } finally {
+    document.querySelector("dialog.dialog--palette")?.remove();
+    proto.showModal = had.showModal;
+    proto.close = had.close;
+    proto.scrollIntoView = had.scrollIntoView;
+  }
+});
+
 // ------------------------------------------------------------------------------------------------- governance
 
 test("hash badge shows first 8 and last 4 and names the full value", () => {
@@ -226,6 +256,14 @@ test("hash badge shows first 8 and last 4 and names the full value", () => {
   const b = hashBadge(full);
   assert.match(b.textContent, /sha256:0da551c0…626d/);
   assert.match(b.getAttribute("aria-label"), new RegExp(full));
+  // a labelled badge reads as its accessible name begins, word for word (WCAG 2.5.3, axe label-content-name-mismatch):
+  // "in sha256:…", not "insha256:…"
+  for (const [label, prefix] of [["in", "sha256"], ["输入", "sha256"], ["Skill", ""]]) {
+    const labelled = hashBadge(full, { label, prefix, compact: true });
+    const visible = labelled.textContent.trim();
+    assert.equal(visible, `${label} ${prefix ? `${prefix}:` : ""}0da551c0…626d`);
+    assert.ok(labelled.getAttribute("aria-label").startsWith(visible), `${labelled.getAttribute("aria-label")} begins with ${visible}`);
+  }
 });
 
 test("evidence families carry icon and words; predicted is marked", () => {

@@ -165,7 +165,8 @@ and [WebGPU compute](https://gpuweb.github.io/gpuweb/).
 After a first visit the app shell, the Python runtime and the fonts are kept by a
 service worker against a manifest of SHA-256 hashes, so the page opens and runs
 browser tools offline; data files used once stay in the runtime's verified cache.
-A new version is offered, never forced; `?nosw` removes the service worker and its
+A new version is offered, never forced; once the person reloads into it in one tab, the
+site's other open tabs reload with it. `?nosw` removes the service worker and its
 caches. Model calls and database queries still need the network.
 
 Deploy with the existing `studio` workflow. A changed workbook also triggers that

@@ -39,6 +39,8 @@ export function openPalette(app) {
     placeholder: t("ui.palette.placeholder"), "aria-label": t("ui.palette.label"), autocomplete: "off", spellcheck: "false",
   });
   const list = h("div.palette__list", { id: listId, role: "listbox", "aria-label": t("ui.palette.results") });
+  // "nothing found" is said beside the list, never in it: a listbox holds options only
+  const empty = h("p.palette__empty", { role: "status", hidden: true });
   let items = [];
   let active = 0;
   let seq = 0;
@@ -87,8 +89,12 @@ export function openPalette(app) {
   }
 
   function renderList(q) {
+    list.hidden = !items.length;
+    empty.hidden = Boolean(items.length);
+    input.setAttribute("aria-expanded", String(Boolean(items.length)));
     if (!items.length) {
-      fill(list, h("p.palette__empty", t("ui.palette.none", { q })));
+      fill(list);
+      empty.textContent = t("ui.palette.none", { q });
       input.removeAttribute("aria-activedescendant");
       return;
     }
@@ -138,6 +144,7 @@ export function openPalette(app) {
     body: h("div.palette", { "aria-label": t("ui.palette.label") },
       h("div.palette__search", icon("search", { size: 16 }), input, h("kbd.kbd", "Esc")),
       list,
+      empty,
       h("p.palette__foot", h("span", kbd("up"), kbd("down"), ` ${t("ui.palette.move")}`), h("span", kbd("enter"), ` ${t("ui.palette.open")}`))),
     initialFocus: input,
   });

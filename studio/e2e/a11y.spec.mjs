@@ -1,7 +1,8 @@
 // (f) Keyboard and screen-reader behaviour that the other specs only glance at (DESIGN §8, WCAG 2.2 AA): the skip
 // links activated, not just focused; an input method's Enter and Escape left to the input method; where the focus goes
 // after the first send, Stop, an approval decision, and Esc on a menu and on a drawer; what the live regions say; and an
-// axe-core sweep of the main views (light and dark, desktop and phone) that fails on serious and critical issues.
+// axe-core sweep of the main views (light and dark, desktop and phone, Chinese and English; the command palette with
+// nothing found; a governed answer in both languages) that fails on serious and critical issues.
 // The site is served as Cloudflare serves it; the approval needs the real runner.
 
 import { readFileSync } from "node:fs";
@@ -300,59 +301,73 @@ async function axeProblems(page, where) {
     .map((f) => `${where}: ${f.rule} (${f.impact}) ${f.target} — ${f.why}`);
 }
 
-test("axe-core finds no serious or critical WCAG A/AA issue on the main views, light and dark, desktop and phone", async ({ browser }) => {
-  test.setTimeout(300_000);
+test("axe-core finds no serious or critical WCAG A/AA issue on the main views, light and dark, desktop and phone, Chinese and English", async ({ browser }) => {
+  test.setTimeout(600_000);
   const problems = [];
-  for (const colorScheme of ["light", "dark"]) {
-    for (const phone of [false, true]) {
-      const context = await browser.newContext({
-        viewport: phone ? { width: 390, height: 844 } : { width: 1440, height: 900 }, isMobile: phone, hasTouch: phone, colorScheme, locale: "zh-CN",
-      });
-      const page = await context.newPage();
-      await page.addInitScript({ content: AXE });
-      await seedSettings(page, { theme: "system" }, custom());
-      await page.goto(`${site.url}/`);
-      await waitForApp(page);
-      const at = `${colorScheme} ${phone ? "phone" : "desktop"}`;
-      await newProject(page, "E2E axe");
-      problems.push(...await axeProblems(page, `${at} #/project (new)`));
-      await send(page, "你好");
-      await waitForAnswers(page, 1);
-      problems.push(...await axeProblems(page, `${at} #/conversation`));
-      const project = await page.evaluate(() => globalThis.__studio.state.project.id);
-      for (const r of [`#/project/${project}`, "#/settings/models", "#/settings/compute", "#/settings/data", "#/settings/general", "#/settings/privacy", "#/settings/shortcuts", "#/catalog", "#/catalog/native.reverse_complement", "#/catalog?f=needs_runner&be=webgpu", "#/catalog/skill.dock-ligands?f=needs_approval", "#/catalog/tcmdb.query", "#/about"]) {
-        await page.evaluate((h) => { location.hash = h; }, r);
-        await expect.poll(() => page.evaluate(() => location.hash)).toBe(r);
-        problems.push(...await axeProblems(page, `${at} ${r.replace(project, "<id>")}`));
+  for (const lang of ["zh", "en"]) {
+    for (const colorScheme of ["light", "dark"]) {
+      for (const phone of [false, true]) {
+        const context = await browser.newContext({
+          viewport: phone ? { width: 390, height: 844 } : { width: 1440, height: 900 }, isMobile: phone, hasTouch: phone, colorScheme,
+          locale: lang === "zh" ? "zh-CN" : "en-US",
+        });
+        const page = await context.newPage();
+        await page.addInitScript({ content: AXE });
+        await seedSettings(page, { theme: "system", lang }, custom());
+        await page.goto(`${site.url}/`);
+        await waitForApp(page);
+        const at = `${lang} ${colorScheme} ${phone ? "phone" : "desktop"}`;
+        await newProject(page, "E2E axe");
+        problems.push(...await axeProblems(page, `${at} #/project (new)`));
+        await send(page, "你好");
+        await waitForAnswers(page, 1);
+        problems.push(...await axeProblems(page, `${at} #/conversation`));
+        const project = await page.evaluate(() => globalThis.__studio.state.project.id);
+        // the project's overview once it has a conversation; the not-found page on purpose, last
+        for (const r of [`#/p/${project}`, "#/settings/models", "#/settings/compute", "#/settings/data", "#/settings/general", "#/settings/privacy", "#/settings/shortcuts", "#/catalog", "#/catalog/native.reverse_complement", "#/catalog?f=needs_runner&be=webgpu", "#/catalog/skill.dock-ligands?f=needs_approval", "#/catalog/tcmdb.query", "#/about", "#/no-such-page"]) {
+          await page.evaluate((h) => { location.hash = h; }, r);
+          await expect.poll(() => page.evaluate(() => location.hash)).toBe(r);
+          if (r === "#/no-such-page" || r.startsWith("#/p/")) await expect.poll(async () => (await route(page)).name).toBe(r.startsWith("#/p/") ? "project" : "notfound");
+          problems.push(...await axeProblems(page, `${at} ${r.replace(project, "<id>")}`));
+        }
+        // the command palette, with a search that finds nothing
+        await page.evaluate(() => globalThis.__studio.openPalette());
+        await page.locator(".palette__input").fill("zzzqqq");
+        await expect(page.locator(".palette__empty")).toBeVisible();
+        problems.push(...await axeProblems(page, `${at} palette, nothing found`));
+        await page.keyboard.press("Escape");
+        await expect(page.locator("dialog.dialog--palette")).toHaveCount(0);
+        await context.close();
       }
-      await context.close();
     }
   }
   expect(problems, problems.join("\n")).toEqual([]);
 });
 
-test("axe-core: a governed answer, its approval card and its tool card have no serious or critical issue", async ({ page }) => {
-  const watch = watchConsole(page);
-  await page.addInitScript({ content: AXE });
-  await seedSettings(page, {}, custom());
-  await openPaired(page, runner);
-  await newProject(page, "E2E axe 受治理");
-  await send(page, "甘草与甘遂同用，有哪些记载？");
-  const problems = [];
-  // the first tool this project runs on the runner asks first (as in runner.spec.mjs)
-  const card = page.locator(".permission:not(.is-decided)").last();
-  await expect(card).toBeVisible({ timeout: 60000 });
-  problems.push(...await axeProblems(page, "approval card"));
-  await card.locator(".permission__actions .btn--primary").click();
-  const answer = await waitForAnswers(page, 1, { timeout: 180_000 });
-  await expect(answer.locator(".tool-card").first()).toBeVisible();
-  problems.push(...await axeProblems(page, "governed answer"));
-  // the inspector's tabs: the run, its evidence, the claims and what licensed them, the files, the provenance
-  for (const tab of ["#insp-run", "#insp-evidence", "#insp-claims", "#insp-files", "#insp-provenance"]) {
-    await page.locator(tab).click();
-    await expect(page.locator(tab)).toHaveAttribute("aria-selected", "true");
-    problems.push(...await axeProblems(page, `governed answer, inspector ${tab}`));
-  }
-  expect(problems, problems.join("\n")).toEqual([]);
-  watch.expectClean();
-});
+for (const lang of ["zh", "en"]) {
+  test(`axe-core: a governed answer, its approval card and its tool card have no serious or critical issue (${lang})`, async ({ page }) => {
+    const watch = watchConsole(page);
+    await page.addInitScript({ content: AXE });
+    await seedSettings(page, { lang }, custom());
+    await openPaired(page, runner);
+    await newProject(page, "E2E axe 受治理");
+    await send(page, "甘草与甘遂同用，有哪些记载？");
+    const problems = [];
+    // the first tool this project runs on the runner asks first (as in runner.spec.mjs)
+    const card = page.locator(".permission:not(.is-decided)").last();
+    await expect(card).toBeVisible({ timeout: 60000 });
+    problems.push(...await axeProblems(page, `${lang} approval card`));
+    await card.locator(".permission__actions .btn--primary").click();
+    const answer = await waitForAnswers(page, 1, { timeout: 180_000 });
+    await expect(answer.locator(".tool-card").first()).toBeVisible();
+    problems.push(...await axeProblems(page, `${lang} governed answer`));
+    // the inspector's tabs: the run, its evidence, the claims and what licensed them, the files, the provenance
+    for (const tab of ["#insp-run", "#insp-evidence", "#insp-claims", "#insp-files", "#insp-provenance"]) {
+      await page.locator(tab).click();
+      await expect(page.locator(tab)).toHaveAttribute("aria-selected", "true");
+      problems.push(...await axeProblems(page, `${lang} governed answer, inspector ${tab}`));
+    }
+    expect(problems, problems.join("\n")).toEqual([]);
+    watch.expectClean();
+  });
+}

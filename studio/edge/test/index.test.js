@@ -166,6 +166,19 @@ test("a path that matches no file: a navigation gets the app (with the page head
   } finally {
     await empty.done();
   }
+  // a reload: the browser revalidates the copy it keeps (index.html's ETag), and the assets answer 304, as Cloudflare's do
+  const etag = '"563044220e8d9cb6232518cb236842a5"';
+  const cached = setup({ assets: (request) => (request.headers.get("If-None-Match") === etag
+    ? new Response(null, { status: 304, headers: { ETag: etag } })
+    : new Response("<!doctype html><title>TCMScience Studio</title>", { headers: { "Content-Type": "text/html; charset=utf-8", ETag: etag } })) });
+  try {
+    const again = await cached.call("/p/demo/c/1", { headers: { "Sec-Fetch-Mode": "navigate", "If-None-Match": etag } });
+    assert.equal(again.status, 304, "the browser's copy of the app is still good, not a 404");
+    assert.equal(again.headers.get("ETag"), etag);
+    assert.equal((await cached.call("/p/demo/c/1", { headers: { "Sec-Fetch-Mode": "navigate", "If-None-Match": '"older"' } })).status, 200);
+  } finally {
+    await cached.done();
+  }
 });
 
 test("isNavigation: Fetch Metadata when the browser sends it, else Accept", () => {

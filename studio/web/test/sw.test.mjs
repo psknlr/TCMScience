@@ -290,10 +290,37 @@ test("an update is offered only when it would replace a running version, and app
   f.swListeners.controllerchange();
   f.swListeners.controllerchange();
   assert.equal(reloads.length, 1, "one reload");
+  // the version offered is already the one in charge (another tab switched to it): pressing reload reloads at once
+  const already = { postMessage: (m) => posted.push(m) };
+  const late = fakeNav({ controller: {}, waiting: already });
+  let applyLate = null;
+  const lateReloads = [];
+  await registerServiceWorker({ nav: late.nav, location: { search: "", reload: () => lateReloads.push(1) }, onUpdate: (fn) => { applyLate = fn; } });
+  late.nav.serviceWorker.controller = already;
+  late.registration.waiting = null;
+  applyLate();
+  assert.equal(lateReloads.length, 1);
   // the first install of all: no controller, nothing to replace
   let offered = false;
   await registerServiceWorker({ nav: fakeNav({ controller: null, waiting: { postMessage() {} } }).nav, location: { search: "" }, onUpdate: () => { offered = true; } });
   assert.equal(offered, false);
+});
+
+test("another tab applied the update: this page reloads into it too, without being asked (one build at a time)", async () => {
+  // the new version activates for every page of the site and deletes the old version's cache: a page left on the old
+  // version would import the new build's modules lazily
+  const f = fakeNav({ controller: {}, waiting: { postMessage() {} } });
+  const reloads = [];
+  await registerServiceWorker({ nav: f.nav, location: { search: "", reload: () => reloads.push(1) }, onUpdate: () => {} });
+  f.swListeners.controllerchange();
+  f.swListeners.controllerchange();
+  assert.equal(reloads.length, 1);
+  // a page no version ran (the very first install) has nothing to mix: it is left alone
+  const first = fakeNav({ controller: null });
+  const none = [];
+  await registerServiceWorker({ nav: first.nav, location: { search: "", reload: () => none.push(1) }, onUpdate: () => {} });
+  first.swListeners.controllerchange?.();
+  assert.equal(none.length, 0);
 });
 
 test("?nosw: every registration told to stand down, unregistered, and its caches deleted", async () => {
