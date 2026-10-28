@@ -280,30 +280,44 @@ rules wholesale at the next start, and the chain still verified. A filesystem to
 also read the evidence-signing key. Three changes close this
 (`tests/test_audit_2026_10_kernel.py`):
 
-* **The state directory is the kernel's.** `ToolGateway` refuses any path that resolves
-  inside the kernel's state directory, whatever `allowed_paths` says. Only the workspace
-  and the artifact store are handed to tools. The default allowlist is now
-  `state_dir/workspace/*`.
+* **The state directory is the kernel's.** `ToolGateway` refuses a path that resolves
+  inside the kernel's state directory, whatever `allowed_paths` says, wherever the payload
+  names it: under a path-like key (`path`, `file`, `output`, …, relative paths included), as
+  any payload value that is itself an absolute or `~` path (`src`, `input`, `cwd`, …), or as
+  a word of a command line (`cat <state>/secrets/evidence.key`, `--file=<state>/…`). Only
+  the workspace and the artifact store are handed to tools. The default allowlist is now
+  `state_dir/workspace/*`. What the gateway cannot see is a path a command builds at run
+  time: relative to its working directory (`cd <state>; cat secrets/…`), from a variable or
+  through a glob. The execution policy asks about variables and substitutions, but this is
+  not a boundary for a shell tool; only an OS sandbox (`SandboxBackend`) is.
 * **The policy file is integrity-checked.** Every save records the file's SHA-256 in the
   chain (`execpolicy_saved`). At start, a file that does not match the last record is not
   loaded: the shipped rules apply, and an `execpolicy_rejected` event and a warning say so.
-  This also applies to a policy file saved before this change, which carries no record, so
-  its persisted amendments are asked about again once.
+  The refused file is moved aside to `execpolicy.json.rejected-<sha16>`, so the refusal is
+  recorded once and the file's rules stay readable. This also applies to a policy file saved
+  before this change, which carries no record: on the first open after the upgrade it is
+  moved aside, and its persisted amendments are asked about again. `psh verify` and the
+  BioScience `AuditChainAttestor` read the event store without opening a kernel, so
+  verifying a chain never appends to it.
 * **The policy rules on every command a line runs.** Matching only the first word let the
   "read-only inspection" rule allow `find . -delete`, `find . -exec …` and
   `echo hi > /etc/passwd` with no approval. It also let `/usr/bin/sudo`, `env sudo` and
   `rm --recursive --force` reach the PROMPT default instead of their forbidden rules. The
   policy now analyses each command line before matching:
-  * It splits a string at shell operators.
+  * It splits a string at shell operators, where the shell reads them: unquoted and
+    unescaped, with comments read as comments. A quoted `'|'` or an escaped `\;` is a word
+    the shell passes to the command, so `find . '|' ls -delete` is one `find` that deletes.
   * It strips wrappers, assignments and paths.
   * It analyses `sh -c` strings, substitutions and `find -exec` commands as commands of
     their own.
-  * It recognises rm's recursive flags in any position.
+  * It recognises rm's recursive flags in any position, and `--recursive` abbreviated.
 
   Forbidden rules apply to all of these commands. An allow rule allows only the name it was
-  written for. A `find` that deletes, writes or runs, an output redirection into a file and
-  an expansion are always asked about. A policy file cannot drop those questions, because
-  they are not rules.
+  written for. A `find` that deletes, writes or runs, an output redirection into a file, a
+  here-document and an expansion are always asked about. The `find` check also runs a second
+  time over every word of the line, whatever command each ended up in, and over braces and
+  globs that could expand into an action (`-{delete,name}`, `-delet?`). A policy file cannot
+  drop those questions, because they are not rules.
 
 The audit chain also hashes the numeric fields as their columns store them. Before, an
 untouched record with `cost_usd=0` read as tampered with. The audit sink now records a
@@ -313,14 +327,14 @@ detail it cannot serialise, instead of raising into the caller. The release gate
 <!-- zh -->
 默认的工具允许名单是 `state_dir/*`，而 `fnmatch` 的 `*` 会跨越 `/`。因此，一个写文件的工具只需调用一次，就能改写 `execpolicy.json`。该文件会在下次启动时整体替换随包发布的规则，而审计链仍然校验通过。文件系统工具还能读取证据签名密钥。三项改动关闭了这个问题（`tests/test_audit_2026_10_kernel.py`）：
 
-* **状态目录属于内核。** 不论 `allowed_paths` 怎么写，`ToolGateway` 都拒绝任何解析后落在内核状态目录之内的路径。只有工作区和制品存储交给工具使用。默认允许名单现在是 `state_dir/workspace/*`。
-* **策略文件受完整性校验。** 每次保存都会把文件的 SHA-256 记入审计链（`execpolicy_saved`）。启动时，与最后一条记录不符的文件不会被加载：随包发布的规则生效，并由一个 `execpolicy_rejected` 事件和一条警告说明这一点。本次改动之前保存的策略文件没有这样的记录，同样不会被加载，因此其中持久化的修正会被重新询问一次。
+* **状态目录属于内核。** 不论 `allowed_paths` 怎么写，只要解析后落在内核状态目录之内，`ToolGateway` 都会拒绝该路径，无论 payload 在哪里指名它：在类似路径的键下（`path`、`file`、`output` 等，包括相对路径）；作为任何本身就是绝对路径或 `~` 路径的 payload 取值（`src`、`input`、`cwd` 等）；或者作为一行命令中的一个词（`cat <state>/secrets/evidence.key`、`--file=<state>/…`）。只有工作区和制品存储交给工具使用。默认允许名单现在是 `state_dir/workspace/*`。网关看不到的，是命令在运行时才构造出来的路径：相对于其工作目录的路径（`cd <state>; cat secrets/…`）、来自变量的路径，或经由通配符得到的路径。执行策略会对变量和命令替换发出询问，但这对 shell 工具而言并不是边界；只有操作系统沙箱（`SandboxBackend`）才是。
+* **策略文件受完整性校验。** 每次保存都会把文件的 SHA-256 记入审计链（`execpolicy_saved`）。启动时，与最后一条记录不符的文件不会被加载：随包发布的规则生效，并由一个 `execpolicy_rejected` 事件和一条警告说明这一点。被拒绝的文件会被移到一旁，改名为 `execpolicy.json.rejected-<sha16>`，因此拒绝只记录一次，文件中的规则仍然可读。本次改动之前保存的策略文件没有这样的记录，同样如此：升级后第一次打开时它会被移到一旁，其中持久化的修正会被重新询问。`psh verify` 和 BioScience 的 `AuditChainAttestor` 读取事件存储时不打开内核，因此校验审计链永远不会向它追加事件。
 * **策略对一行命令所运行的每一条命令作出裁决。** 只匹配第一个词，曾让“只读检查”规则在无需审批的情况下允许 `find . -delete`、`find . -exec …` 和 `echo hi > /etc/passwd`。它也让 `/usr/bin/sudo`、`env sudo` 和 `rm --recursive --force` 落到 PROMPT 默认值，而不是各自的 forbidden 规则。现在策略在匹配之前先分析每一行命令：
-  * 在 shell 运算符处拆分字符串；
+  * 在 shell 读取运算符的地方拆分字符串：未加引号、未被转义，并把注释当作注释。加了引号的 `'|'` 或被转义的 `\;` 是 shell 传给命令的一个词，因此 `find . '|' ls -delete` 是一条会删除文件的 `find`；
   * 去掉包装命令、赋值和路径；
   * 把 `sh -c` 字符串、命令替换和 `find -exec` 的命令当作独立的命令来分析；
-  * 识别 rm 出现在任意位置的递归标志。
+  * 识别 rm 出现在任意位置的递归标志，以及缩写的 `--recursive`。
 
-  forbidden 规则适用于所有这些命令。一条 allow 规则只允许它所写的那个名字。会删除、写入或运行命令的 `find`、写入文件的输出重定向以及变量展开，总是需要询问。策略文件无法去掉这些询问，因为它们不是规则。
+  forbidden 规则适用于所有这些命令。一条 allow 规则只允许它所写的那个名字。会删除、写入或运行命令的 `find`、写入文件的输出重定向、here-document 以及变量展开，总是需要询问。对 `find` 的检查还会在整行的每一个词上再做一遍，不论每个词最终落在哪条命令里；也会检查可能展开成某个动作的花括号和通配符（`-{delete,name}`、`-delet?`）。策略文件无法去掉这些询问，因为它们不是规则。
 
 审计链现在也按数值字段在列中的存储形式计算其哈希。此前，一条未被改动、`cost_usd=0` 的记录会被判定为遭到篡改。审计 sink 遇到无法序列化的 detail 时，现在会把它记录下来，而不是向调用方抛出异常。发布门与 `Quarantine.inspect` 现在拒绝在暂存之后摘要发生变化的隔离内容。

@@ -40,8 +40,9 @@ from .evidence import (
     EvidenceRecord, Relationship, RetractionStatus, SourceType, VerifiedSpan,
 )
 from .kernel import (
-    AuthorityLattice, ExecutionResult, IngressGateway, ModelCallResult, ModelUsage,
-    PendingOutcome, PersistenceGateway, Quarantine, TrustedKernel, ValidationStatus,
+    AuthorityLattice, EventStore, ExecutionResult, IngressGateway, ModelCallResult,
+    ModelUsage, PendingOutcome, PersistenceGateway, Quarantine, TrustedKernel,
+    ValidationStatus,
 )
 from .labels import (
     DNA_SEQUENCE, PROTEIN_SEQUENCE, RNA_SEQUENCE, SEQUENCE_FORMATS, DataLabel,
@@ -91,6 +92,8 @@ __all__ = [
     "DEFAULT_SYSTEM_PROMPT", "default_state_dir", "environment_report", "__version__",
     "PolicySnapshot", "PolicyLattice", "PolicyViolation", "AuthorityLattice", "IngressGateway", "PersistenceGateway",
     "Quarantine", "ExecutionResult", "ModelCallResult", "ModelUsage", "ValidationStatus",
+    # the audit chain on its own: read and verified without opening (and so writing) a kernel
+    "EventStore",
     # long jobs: work a call started and has not finished is pending, never a result
     "PendingResult", "PendingOutcome", "ResultPending",
     "EvidenceRecord", "VerifiedSpan", "SourceType", "RetractionStatus",

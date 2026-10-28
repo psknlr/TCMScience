@@ -45,20 +45,24 @@ word. Matching the raw prefix alone let the shipped "read-only inspection" rule 
 ``find . -delete``, ``find . -exec sh -c '…' ;`` and ``echo hi > /etc/passwd`` with no
 approval, and let ``/usr/bin/sudo``, ``env sudo`` and ``rm --recursive --force`` reach the
 PROMPT default instead of their forbidden rules. So a command is first analysed
-(``_analyse``): a string is split at shell operators (``;``, ``&&``, ``|``, newlines, …),
-each command loses its wrappers (``env``, ``nice``, ``xargs``, ``timeout``, …), leading
+(``_analyse``): a string is split at shell operators (``;``, ``&&``, ``|``, newlines, …)
+where the shell reads them — unquoted and unescaped, with comments read as comments — so
+``find . '|' ls -delete`` is the one ``find`` the shell runs, not two commands. Each
+command loses its wrappers (``env``, ``nice``, ``xargs``, ``timeout``, …), leading
 assignments and the directory on its name, and ``sh -c`` strings, command substitutions and
 ``find -exec`` commands are analysed as commands of their own. Forbidden rules are checked
-against every one of them, rm's recursive flags in any position included. A rule that
-allows a command allows it only under the name it was written for, so ``./ls`` and
-``env X=… ls`` are asked about, not allowed by the ``ls`` rule. And three shapes a prefix
+against every one of them, rm's recursive flags in any position or abbreviation included.
+A rule that allows a command allows it only under the name it was written for, so ``./ls``
+and ``env X=… ls`` are asked about, not allowed by the ``ls`` rule. And the shapes a prefix
 rule cannot describe are always asked about: a ``find`` that deletes, writes or runs
-(``-delete``, ``-exec``, ``-ok``, ``-fprint``, ``-fls``), an output redirection into a file,
-and an expansion or substitution whose value the policy cannot see.
+(``-delete``, ``-exec``, ``-ok``, ``-fprint``, ``-fls``; checked a second time over the whole
+line, and through braces and globs that could expand into one), an output redirection into
+a file, a here-document, and an expansion or substitution whose value the policy cannot see.
 """
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
 import shlex
@@ -235,8 +239,12 @@ _REDIRECT = PrefixRule(
     "its output is written — confirm", origin="analysis")
 _EXPANSION = PrefixRule(
     ("*",), Decision.PROMPT,
-    "the command line expands a variable or substitutes a command, so what runs depends on "
-    "a value the policy cannot see — confirm", origin="analysis")
+    "the command line expands a variable or a brace pattern or substitutes a command, so "
+    "what runs depends on a value the policy cannot see — confirm", origin="analysis")
+_HEREDOC = PrefixRule(
+    ("*",), Decision.PROMPT,
+    "the command line holds a here-document, whose body the policy cannot tell apart from "
+    "the commands around it — confirm", origin="analysis")
 _RENAMED = PrefixRule(
     ("*",), Decision.PROMPT,
     "the command runs through a wrapper, an assignment or a path, and a rule allowing the "
@@ -270,6 +278,25 @@ _FIND_WRITES = frozenset({"-delete", "-fprint", "-fprint0", "-fprintf", "-fls"})
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 _SUBSTITUTION = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
 _MAX_DEPTH = 8
+#: The shell's operators, longest first. Each begins with one of its metacharacters
+#: (``| & ; ( ) < >`` and newline), so an unquoted metacharacter always ends a word.
+_OPERATORS = tuple(sorted(
+    {"&&", "||", ";;&", ";;", ";&", "|&", "&>>", "&>", "<<<", "<<-", "<<", "<>", "<&", ">&",
+     ">>", ">|", "<(", ">(", "<", ">", "|", "&", ";", "(", ")", "\n"}, key=len, reverse=True))
+
+
+@dataclass(frozen=True, slots=True)
+class _Token:
+    """A word of a command line with its quotes removed, or one of the line's operators."""
+
+    text: str
+    operator: bool = False
+    #: The word holds an unquoted or double-quoted ``$`` or backquote, or a brace pattern
+    #: (``-{delete,name}``): the shell passes on something other than this text.
+    expands: bool = False
+    #: The word holds an unquoted ``*``, ``?`` or ``[``: the shell may replace it with the
+    #: names of the files it matches.
+    globs: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,40 +336,178 @@ def _analyse_line(line: str, out: _Analysis, depth: int) -> None:
         out.ask(_EXPANSION)
         _analyse_line(match.group(1) if match.group(1) is not None else match.group(2),
                       out, depth + 1)
-    lexer = shlex.shlex(line, posix=True, punctuation_chars="();<>|&\n")
-    lexer.whitespace = " \t\r"        # a newline separates commands, so it is an operator
-    lexer.whitespace_split = True
-    lexer.commenters = ""             # never let a "#" hide the rest of a line
-    current: list[str] = []
     try:
-        tokens = list(lexer)
+        tokens = _lex(line)
     except ValueError:
         if depth == 0:
             raise                     # the line itself does not parse: as before, an error
         out.ask(_EXPANSION)           # a nested command that does not parse is asked about
         return
+    _find_backstop(line, tokens, out)
+    current: list[str] = []
     index = 0
     while index < len(tokens):
         token = tokens[index]
         index += 1
-        if token and set(token) <= set("();<>|&\n"):
-            if "<" in token or ">" in token:
-                if "(" in token or ")" in token:      # <( … ) / >( … ): a command runs
-                    out.ask(_EXPANSION)
-                else:                                 # a redirection and its target
-                    target = tokens[index] if index < len(tokens) else ""
-                    index += 1
-                    if ">" in token and not (target == "/dev/null" or (
-                            token.endswith("&") and (target.isdigit() or target == "-"))):
-                        out.ask(_REDIRECT)
-                    continue
-            _analyse_argv(tuple(current), out, depth)
-            current = []
+        if not token.operator:
+            if token.expands:
+                out.ask(_EXPANSION)
+            current.append(token.text)
             continue
-        if "$" in token or "`" in token:
+        op = token.text
+        following = (tokens[index] if index < len(tokens) and not tokens[index].operator
+                     else None)
+        if op in ("<(", ">("):                        # <( … ) / >( … ): a command runs
             out.ask(_EXPANSION)
-        current.append(token)
+        elif op in ("<<", "<<-"):                     # a here-document and its delimiter
+            out.ask(_HEREDOC)
+            if following is not None:
+                index += 1
+            continue
+        elif "<" in op or ">" in op:                  # a redirection and its target
+            target = ""
+            if following is not None:
+                index += 1
+                target = following.text
+                if following.expands:
+                    out.ask(_EXPANSION)
+            if ">" in op and not (target == "/dev/null" or (
+                    op.endswith("&") and (target.isdigit() or target == "-"))):
+                out.ask(_REDIRECT)
+            continue
+        _analyse_argv(tuple(current), out, depth)
+        current = []
     _analyse_argv(tuple(current), out, depth)
+
+
+def _lex(line: str) -> list[_Token]:
+    """Split a command line into words and operators as a POSIX shell does, quotes removed.
+
+    An operator is one only where the shell reads one: unquoted and unescaped. A quoted or
+    escaped ``;``, ``|``, ``&&`` or ``<`` is part of a word, and the shell hands it to the
+    command as one, so ``find . '|' ls -delete`` is a single ``find`` that deletes. (shlex
+    with ``punctuation_chars`` returns a quoted ``'|'`` exactly as it returns ``|``, which is
+    how that line was allowed.) A ``#`` that begins a word comments out the rest of its line,
+    as in the shell: read as a word, a quote inside a comment could hide the next line inside
+    a quoted string. An unterminated quote raises ValueError, as it does in shlex.
+    """
+    tokens: list[_Token] = []
+    chars: list[str] = []
+    started = expands = globs = False
+    brace = 0                         # 1: an unquoted "{" seen; 2: then a "," or ".."
+    index, end = 0, len(line)
+
+    def finish() -> None:
+        nonlocal started, expands, globs, brace
+        if started:
+            tokens.append(_Token("".join(chars), expands=expands, globs=globs))
+        chars.clear()
+        started = expands = globs = False
+        brace = 0
+
+    def inside(position: int) -> str:
+        """The character at ``position`` inside a quoted string, which must not end there."""
+        if position >= end:
+            raise ValueError("No closing quotation")
+        return line[position]
+
+    while index < end:
+        ch = line[index]
+        if ch in " \t":
+            finish()
+            index += 1
+            continue
+        if line.startswith("\\\n", index):           # a line continuation: nothing at all
+            index += 2
+            continue
+        if ch == "#" and not started:                 # a comment, to the end of its line
+            newline = line.find("\n", index)
+            index = end if newline < 0 else newline
+            continue
+        op = (next(o for o in _OPERATORS if line.startswith(o, index))
+              if ch in "|&;()<>\n" else None)
+        if op is not None:
+            finish()
+            tokens.append(_Token(op, operator=True))
+            index += len(op)
+            continue
+        started = True
+        if ch == "\\":
+            if index + 1 == end:
+                raise ValueError("No escaped character")
+            chars.append(line[index + 1])
+            index += 2
+        elif ch == "'":
+            close = line.find("'", index + 1)
+            if close < 0:
+                raise ValueError("No closing quotation")
+            chars.append(line[index + 1:close])
+            index = close + 1
+        elif ch == "$" and line.startswith("'", index + 1):
+            # $'…': a backslash escapes the next character, a quote included. Not decoded,
+            # so the word is an expansion; what matters is where the string ends.
+            expands = True
+            index += 2
+            while inside(index) != "'":
+                step = 2 if line[index] == "\\" else 1
+                chars.append(line[index:index + step])
+                index += step
+            index += 1
+        elif ch == '"':
+            index += 1
+            while (c := inside(index)) != '"':
+                if c == "\\" and line[index + 1:index + 2] in ("$", "`", '"', "\\", "\n"):
+                    if line[index + 1] != "\n":       # backslash-newline joins two lines
+                        chars.append(line[index + 1])
+                    index += 2
+                    continue
+                expands = expands or c in "$`"
+                chars.append(c)
+                index += 1
+            index += 1
+        else:
+            if ch in "$`":
+                expands = True
+            elif ch in "*?[":
+                globs = True
+            elif ch == "{" and not brace:
+                brace = 1
+            elif brace == 1 and (ch == "," or line.startswith("..", index)):
+                brace = 2
+            elif ch == "}" and brace == 2:
+                expands = True                        # {a,b} / {1..3}: brace expansion
+            chars.append(ch)
+            index += 1
+    finish()
+    return tokens
+
+
+def _find_backstop(line: str, tokens: Sequence[_Token], out: _Analysis) -> None:
+    """Ask about a line that names ``find`` and one of its actions, however the line splits.
+
+    The command-by-command analysis decides; this is a second look that does not depend on
+    it. If any word of the line is ``find`` (by any path) and any word is a ``find`` action,
+    or a glob the shell could expand into one (``-delet?``, ``*`` beside a file named
+    ``-delete``), the line is asked about — whichever command the action ended up in.
+    """
+    words = [t.text for t in tokens if not t.operator]
+    views = [words]
+    try:
+        views.append(shlex.split(line))     # a second tokenizer, independent of _lex
+    except ValueError:
+        pass
+    for view in views:
+        if not any(w.rstrip("/").rsplit("/", 1)[-1] == "find" for w in view):
+            continue
+        if any(w in _FIND_RUNS or w in _FIND_WRITES
+               or w.startswith(("-exec", "-ok", "-fprint")) for w in view):
+            out.ask(_FIND_ACTION)
+            return
+        if any(t.globs and any(fnmatch.fnmatchcase(a, t.text) for a in (*_FIND_RUNS,
+                                                                         *_FIND_WRITES))
+               for t in tokens if not t.operator):
+            out.ask(_FIND_ACTION)
+            return
 
 
 def _analyse_argv(literal: tuple[str, ...], out: _Analysis, depth: int) -> None:
@@ -381,7 +546,10 @@ def _analyse_argv(literal: tuple[str, ...], out: _Analysis, depth: int) -> None:
             elif token in _FIND_RUNS:
                 out.ask(_FIND_ACTION)
                 end = index
-                while end < len(argv) and argv[end] not in (";", "+"):
+                # ";" ends the command; "+" ends it only straight after "{}" (find(1)),
+                # anywhere else it is an argument of the command.
+                while end < len(argv) and not (argv[end] == ";" or (
+                        argv[end] == "+" and argv[end - 1] == "{}")):
                     end += 1
                 _analyse_argv(tuple(argv[index:end]), out, depth + 1)
                 index = end + 1
@@ -426,8 +594,8 @@ def _rm_is_recursive(argv: Sequence[str]) -> bool:
     for token in argv[1:]:
         if token == "--":
             return False
-        if token == "--recursive":
-            return True
+        if token.startswith("--r") and "--recursive".startswith(token):
+            return True                       # getopt takes any unambiguous prefix: --r
         if token.startswith("-") and not token.startswith("--") and (
                 "r" in token or "R" in token):
             return True

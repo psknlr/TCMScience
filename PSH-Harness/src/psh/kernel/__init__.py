@@ -207,6 +207,13 @@ class TrustedKernel:
         verified. Every save records the file's SHA-256 in the chain; a file that does not
         match the last record is not loaded, the shipped defaults apply, and the refusal is
         itself an event.
+
+        The refused file is moved aside (``execpolicy.json.rejected-<sha16>``), so the refusal
+        is recorded once. Left in place it was refused again at every open — ``psh verify``
+        and ``psh status`` included — and each refusal grew the chain, so a verify against
+        a published head reported the log rewritten. A policy file saved before saves were
+        recorded is refused this way once, on the first open after the upgrade; its rules
+        stay readable in the moved file.
         """
         from .execpolicy import ExecPolicy
 
@@ -217,12 +224,19 @@ class TrustedKernel:
         recorded = (self.events.latest_detail("execpolicy_saved") or {}).get("sha256", "")
         if digest == recorded:
             return ExecPolicy.from_json(text)
+        aside = path.with_name(f"{path.name}.rejected-{digest[:16]}")
+        try:
+            path.replace(aside)
+        except OSError:                       # not movable: refused again at the next open
+            aside = path
         self.events.append("execpolicy_rejected", run_id="", detail={
-            "file": path.name, "sha256": digest, "recorded_sha256": recorded})
+            "file": path.name, "sha256": digest, "recorded_sha256": recorded,
+            "moved_to": aside.name})
         if on_warning is not None:
             on_warning(f"{path} is not the execution policy this kernel last saved (sha256 "
                        f"{digest[:16]}, chain records {recorded[:16] or 'no save'}); it was "
-                       "not loaded and the shipped default rules apply")
+                       f"not loaded, it is kept as {aside.name}, and the shipped default "
+                       "rules apply")
         return ExecPolicy()
 
     def _save_execpolicy(self, policy: Any, path: Path) -> None:

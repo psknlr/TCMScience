@@ -101,7 +101,8 @@ def _stored_number(name: str, value: Any, kind: type) -> int | float:
     an INTEGER column comes back an int. An untouched record then read as tampered with
     — a provider adapter reporting ``cost_usd=0`` was enough — and the chain stayed broken
     at that record for good. Hashing the value as stored closes it; a value no column holds
-    faithfully (a bool, a string, a fraction of a token, NaN) is refused instead.
+    faithfully (a bool, a string, a fraction of a token, NaN, an int beyond SQLite's 64-bit
+    INTEGER, None in a NOT NULL column) is refused instead.
     """
     try:
         storable = (isinstance(value, numbers.Real) and not isinstance(value, bool)
@@ -113,6 +114,8 @@ def _stored_number(name: str, value: Any, kind: type) -> int | float:
     if kind is int:
         if not isinstance(value, numbers.Integral) and not float(value).is_integer():
             raise ValueError(f"event field {name} must be a whole number, not {value!r}")
+        if not -2**63 <= int(value) < 2**63:   # SQLite would raise OverflowError on insert
+            raise ValueError(f"event field {name} must be a 64-bit integer, not {value!r}")
         return int(value)
     return float(value)
 
