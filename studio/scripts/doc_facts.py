@@ -9,7 +9,7 @@ way the site build builds it) and from ``compat_matrix.rows()`` for the browser 
 core tools, connector sources and operations, native tools and their domains, governed and pinned skills, entries
 that run in the browser and those only the runner runs, and the class counts.
 
-Two kinds of check run over README.md, README.zh-CN.md, USAGE.md, studio/README.md, studio/docs/*.md,
+Two kinds of check run over README.md, README.zh-CN.md, USAGE.md, INSTALL.md, studio/README.md, studio/docs/*.md,
 BioScience-Harness/README.md and docs/*.md:
 
 * anchors: a phrase a given doc is known to use (``| 3 | … | 3 |`` in the class table, ``642 entries: native 150,
@@ -17,10 +17,10 @@ BioScience-Harness/README.md and docs/*.md:
 * phrases anywhere ("N public sources", "N typed operations", "N native tools", "N 个原生工具", "N entries", …):
   every number in one must equal the fact it names.
 
-Versions a doc states (the README's kernel badge, USAGE's example version line) are checked the same way against
-each package's pyproject.toml (``VERSION_ANCHORS``). A table that must list every member of a set (docs/validation.md's
-verification levels) is checked for a row per member (``TABLE_ROWS``), so a deleted row is noticed as well as a wrong
-count. The kernel parity case count is read from ``studio/web/test/fixtures/kernel_cases.json``, and the research
+Versions a doc states (the README's kernel badge, the example version line of USAGE and INSTALL) are checked the same
+way against each package's pyproject.toml (``VERSION_ANCHORS``). A table that must list every member of a set
+(docs/validation.md's verification levels) is checked for a row per member (``TABLE_ROWS``), so a deleted row is noticed
+as well as a wrong count. The kernel parity case count is read from ``studio/web/test/fixtures/kernel_cases.json``, and the research
 files the browser's storage check cannot count (no reviewed size) from ``tcmstudio.datasets.registry_document()``
 (``runtime/datasets.json``); the docs write that one as a word ("the two files", "两个"), which is read as its number.
 
@@ -45,7 +45,7 @@ for src in (STUDIO / "runner" / "src", REPO / "BioScience-Harness" / "src", REPO
         sys.path.insert(0, str(src))
 
 #: the docs whose numbers are checked (globs from the repository root)
-DOCS = ("README.md", "README.zh-CN.md", "USAGE.md", "studio/README.md", "studio/docs/*.md",
+DOCS = ("README.md", "README.zh-CN.md", "USAGE.md", "INSTALL.md", "studio/README.md", "studio/docs/*.md",
         "BioScience-Harness/README.md", "docs/*.md")
 #: the kernel parity fixtures (the cases web/test/kernels.test.mjs and test_kernel_fixtures.py run)
 KERNEL_CASES = "studio/web/test/fixtures/kernel_cases.json"
@@ -56,6 +56,8 @@ HISTORICAL_FILES = {
                                              "the October 2026 release it qualified",
     "docs/audit-2026-09-response.md": "a dated audit response (September 2026)",
     "docs/audit-2026-10-response.md": "a dated audit response (October 2026)",
+    "docs/upgrade-2026-10.md": "a dated upgrade report (2026-10-19): its counts, tests and audit figures are those of "
+                               "the branch it reported on",
 }
 #: sections (from a heading matching the pattern to the next heading of the same or a higher level) that state
 #: the counts of a past version, with the reason
@@ -143,6 +145,9 @@ VERSION_ANCHORS: tuple[tuple[str, str, str], ...] = (
     # the example ResearchArtifact's version line (bioagent.skills.base: psh-<psh>+bioagent-<bioagent>)
     ("USAGE.md", r"runtime=psh-([0-9][0-9.]*[0-9])\+bioagent-", "psh"),
     ("USAGE.md", r"runtime=psh-[0-9.]+\+bioagent-([0-9][0-9.]*[0-9])\|", "bioagent"),
+    # INSTALL.md prints the same line from its Python example
+    ("INSTALL.md", r"runtime=psh-([0-9][0-9.]*[0-9])\+bioagent-", "psh"),
+    ("INSTALL.md", r"runtime=psh-[0-9.]+\+bioagent-([0-9][0-9.]*[0-9])\|", "bioagent"),
 )
 #: (doc, row pattern with one ``{}`` for the member, members): a table that must have its own row for every member
 TABLE_ROWS: tuple[tuple[str, str, tuple[str, ...]], ...] = (

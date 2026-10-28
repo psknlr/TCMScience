@@ -257,6 +257,9 @@ rows. A relation points at the record it summarises, and statistics run on the m
 
 With no dataset built, `check all` says so and exits 1: nothing was checked.
 
+<!-- zh -->
+**数据集使用前：`tcmdb check`（中文摘要）**：`python -m bioagent.cli tcmdb check <key>`（或 `all`）是最低限度的验收：默认文件都在，且没有一个是顶替它的 HTML 页面（登录、验证或错误页；`fetch` 同样拒绝这种页面）；存储已构建，同一批文件重建两次得到相同的关系（每次构建记录与顺序无关的关系摘要）；每行使用已声明的关系类型与已知的证据、效应和结局，上下文是键已知的 JSON；报告每类关系的许可与再利用类别，未声明许可时给出警告；统计待消歧的行。没有已构建的数据集时，`check all` 说明这一点并以 1 退出：什么都没有检查。
+
 ### How a dataset's files are acquired: `tcmdb fetch` and Studio's acquisitions
 
 `python -m bioagent.cli tcmdb fetch <key>` and Studio's acquisition route

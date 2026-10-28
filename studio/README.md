@@ -4,7 +4,7 @@ TCMScience 的研究工作台，网址 <https://science.impf.ai>。它是一个�
 受治理的 Skill，每次工具运行都把**在哪里运行、用了什么证据、证据能支撑哪类主张、内核是否准予发布**写在结果旁边。
 被拒绝的主张和调用会显示出来：拒绝是一种结果，不是故障。
 
-服务器提供网页、默认模型 Tao-S1 中继和受限的数据库网关。**计算在你自己的设备上进行**：Python 工具在浏览器里
+服务器提供网页、默认模型 Tao-S1 中继、受限的数据库网关，以及浏览器研究任务的数据集中转（只转发数据集登记表列出的原始文件，流式传输、不保存）。**计算在你自己的设备上进行**：Python 工具在浏览器里
 （Pyodide，WebAssembly）运行，或在你电脑上的本机 Runner 里运行（CPU 或 GPU，由你选择）。唯一的例外是你在 Runner 上打开
 `allow_remote` 并逐次批准的任务（如把序列发往 ESM Atlas 做结构预测）。没有部署任何远程计算环境：计算目标设为「远程」时，
 调用会失败（`unavailable`，原因 `remote_not_configured`；`catalog_search` 与 `capabilities_status` 仍由页面回答），
@@ -15,7 +15,7 @@ TCMScience 通过浏览器提供对已登记科学能力的访问。轻量工具
 流程需要配置好的本机 Runner，或经授权的远程计算环境，而后者目前没有部署。
 
 ```
-浏览器 ──同源──▶ science.impf.ai：网页 + /v1 Tao-S1 中继 + /api/sources 数据库网关
+浏览器 ──同源──▶ science.impf.ai：网页 + /v1 Tao-S1 中继 + /api/sources 数据库网关 + /api/datasets 数据集中转
    │
    ├── 模型：Tao-S1（经中继）· 你自己的模型 API · 本地模型（Ollama / LM Studio / vLLM / llama.cpp）
    └── 工具：浏览器（Pyodide CPU；7 个序列工具有精确的 WASM SIMD / JS 内核）· 本机 Runner（CPU / GPU）
@@ -37,8 +37,10 @@ TCMScience 通过浏览器提供对已登记科学能力的访问。轻量工具
 运行，运行的是与本机相同的 Python 代码（3 个香港数据查询工具需先导入其本地数据，临床辨证按需加载 numpy/scipy）。与本机
 Python 逐字节对比过的只是其中一部分：7 个内核工具、`benjamini_hochberg`、`fisher_exact`、中医药查询工具、
 排序的方剂检索，以及 4 个固定 Skill 中的 3 个（安全、名称规范化、证据检索）。这些对比由手动运行的运行时核对完成；CI 的端到端
-测试另外核对一个受治理 Skill 的内容哈希与输出文件哈希。网络药理学种子 Skill 还没有被任何测试在 Pyodide 中运行过（逐条目的
-情况见 [docs/compat/summary.md](docs/compat/summary.md)，其 validation 列来自目录中每个条目已提交的验证记录）。注册的在线数据库
+测试另外核对一个受治理 Skill 的内容哈希与输出文件哈希。自 2026-10-28 起，浏览器扫描（`web/test/runtime/sweep.mjs`）在 CI 中
+把浏览器能运行的每个工具（网络药理学种子 Skill 也在其中）的信封与本机 Python 逐个比较，只允许按条目与字段声明并写明原因的差异
+（`studio` #120 中通过；见「开发」一节）；它不提交记录（逐条目的情况见 [docs/compat/summary.md](docs/compat/summary.md)，
+其 validation 列来自目录中每个条目已提交的验证记录）。注册的在线数据库
 可在批准联网后经同源网关调用。大型流程和原生引擎仍显示各自的依赖。
 
 完整的数据驱动网络药理学研究已实现为浏览器任务：`research.snapshot` 与 `research.run`，Runner 的同一套 Python
@@ -50,7 +52,7 @@ Python 逐字节对比过的只是其中一部分：7 个内核工具、`benjami
 从计数矩阵出发的 RNA-seq 差异表达（`pipeline.rnaseq` 的计数矩阵模式）和从计数表出发的单细胞分析（`pipeline.scrna`，
 内置分析与 Harmony）也已实现为浏览器任务：Runner 的同一套 Python 配 Pyodide 的 numpy 与 scipy，输入是项目里的文件，复制到
 任务的私有存储并按记录的 SHA-256 核对（[docs/BROWSER_JOBS.md §3.1](docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)）。
-在两个已知答案参考上与原生命令逐个输出比对：逐字节一致、数值在给定容差内（最大用到容差的 0.133），或不比较并说明原因
+在两个已知答案参考上与原生命令逐个输出比对：逐字节一致、数值在给定容差内（`studio` #91 中最大用到容差的 0.133；自 2026-10-28 起 p 值列的容差更严，一次本地运行中为 0.139），或不比较并说明原因
 （UMAP 布局与图；用户自己的运行不做比较）；显著基因、每个细胞的聚类与细胞类型完全相同，预设答案在浏览器写出的文件上成立。已在本地无头 Chromium
 （Pyodide 314.0.7）中测试，并在 Studio 的 CI（`studio` #91，2026-10-19，使用 jsDelivr 上 Pyodide 的 numpy 与 scipy）中通过。从 FASTQ 出发的运行、PyDESeq2、Scanpy、scVI、10x HDF5 与 `.h5ad`，以及
 超过 6,000 个细胞、单个表超过 66,000,000 个细胞 × 基因或计数矩阵超过 10,000,000 个基因 × 样本的输入（限值依据 Node 下
@@ -207,7 +209,7 @@ tcmstudio serve
   只有软件适配器，它精确但绝不算作加速，故 P3 的实体 GPU 验收仍未满足。提供 WebNN 能力检测，但浏览器能创建 WebNN 的「npu」上下文不等于有
   NPU：只有具备经验证的执行提供程序和硬件执行证据的工作负载才支持真正的 NPU 加速，目前没有这样的工作负载，Studio 不使用也
   不声称 NPU 加速。
-- 浏览器模式的网络药理学只是有限的种子语料网络假说流程，不是完整的数据驱动分析；没有部署任何远程计算环境。
+- 浏览器中的种子 Skill 只是有限的种子语料网络假说流程；完整的数据驱动分析以浏览器任务 `research.snapshot` 与 `research.run` 运行（见上文）；没有部署任何远程计算环境。
 - 完整方剂表是原始来源记录，授权状态未声明；不把这些记录自动升级为临床知识、安全判断或完整靶点网络。
 - 可复现的是输入哈希、Skill 内容哈希和每个输出文件的 SHA-256；整份结果的哈希含运行编号、时间和审计链位置，每次都不同。
 - 中继的来源检查只防止网页被别处盗用，不是身份认证；限额按 IP 计，同一出口的访客（如一个实验室）共用。
@@ -246,6 +248,7 @@ cd studio && npm install && npm run test:e2e
 | `pages.spec.mjs` | 首次引导、设置（经表单添加并测试自定义模型）、工具目录、关于；手机视口 390×844；深色主题；无障碍基本检查（可访问名称、地标、焦点、未翻译的键） |
 | `a11y.spec.mjs` | 键盘与读屏：跳转链接按下后焦点到目标、路由不变；输入法组字时的 Enter 不发送、Esc 不停止回答；首次发送、停止、批准之后以及菜单、抽屉按 Esc 之后焦点的去向；实时区域的播报；axe-core 检查主要页面（浅色/深色、桌面/手机、中文/英文）、没有结果的命令面板与受治理的回答（中文/英文），严重（serious/critical）问题即失败 |
 | `pipeline.spec.mjs` | 不开浏览器，检查 `.github/workflows/studio.yml`：网页打包的 Harness 源码改动也会触发；`RELAY = "off"`（持久暂停）时部署后的检查不要求 Tao-S1 回答；CI 中 Worker 启动失败、Pyodide 的 CDN 不可达都不会被当作跳过 |
+| `science.spec.mjs` | 浏览器研究任务：在按 Cloudflare 方式提供的已构建网页上，任务工作线程（Pyodide 与其 pyarrow）研究已知答案的模拟世界（快照存储、同一进程内的受治理分析、带种子的置换零分布、反驳与九个导出），五张表须与原生 CPython 提交的字节一致；任务服务本身（任务、检查点、回执）由 `web/test/runtime/science.mjs` 检查（CDN 不可达时同上） |
 | `telemetry.spec.mjs` | 真实 Worker（`wrangler dev`）的遥测：征询同意的流程、无论如何都不记录的内容、遥测故障不影响对话、管理员仪表板（登录、双语、手机、删除、导出、退出） |
 
 Chromium 依次取 `$CHROMIUM_PATH`、`$PLAYWRIGHT_BROWSERS_PATH`（或 `/opt/pw-browsers`）中的 `chromium-1194`、Playwright 自带的
@@ -255,7 +258,7 @@ Chromium 依次取 `$CHROMIUM_PATH`、`$PLAYWRIGHT_BROWSERS_PATH`（或 `/opt/pw
 `npm run test:runtime`（真实 Pyodide 中约 20 个调用的信封与本机 Python 逐个比较，名单见
 [docs/BROWSER_COMPUTE.md §10](docs/BROWSER_COMPUTE.md#10-validation)）。它需要能访问 Pyodide 的 CDN（或用 `--pyodide-dir`
 提供本地副本），**只能手动运行，不在 CI 中**。浏览器扫描（`node web/test/runtime/sweep.mjs`）则在 CI 中运行：浏览器能运行的每个工具
-（1,153 个调用）的信封都与本机 Python 逐个比较，只允许 `sweep.mjs` 中按条目与字段声明并写明原因的差异（见同一节）。
+（1,167 个调用）的信封都与本机 Python 逐个比较，只允许 `sweep.mjs` 中按条目与字段声明并写明原因的差异（见同一节）。
 
 ## 部署
 
@@ -273,7 +276,8 @@ science.impf.ai 是一个 Cloudflare Worker（`studio/edge`）：网页作为静
 every tool run shows where it ran, what evidence it used, which kinds of claim that evidence licenses, and whether the
 kernel authorized the release. Refusals are shown as results.
 
-The server serves the page, relays Tao-S1 and forwards approved database queries. **Computation runs on your machine**: in the
+The server serves the page, relays Tao-S1, forwards approved database queries and relays the raw files the dataset
+registry lists for the browser's research jobs (streamed, not stored). **Computation runs on your machine**: in the
 browser (Pyodide) or on the local runner (`tcmstudio serve`, CPU or GPU). The one exception is a runner job you allow to call
 a third-party service (`allow_remote`, approved per call, for example structure prediction on ESM Atlas). No remote compute
 environment is deployed: under compute set to Remote every call fails (`unavailable`, reason `remote_not_configured`; `catalog_search` and
@@ -286,10 +290,12 @@ clinical tool or identifying details), and counts anonymous usage you can switch
   access to its registered scientific capabilities. Lightweight tools execute locally through Pyodide, WebAssembly, and
   selected WebGPU kernels. Resource-intensive pipelines require a configured local Runner or an authorized remote compute
   environment, and none of the latter is deployed. The browser runs the same Python code as the runner; its outputs were
-  compared with native CPython for a named subset only (the seven kernel tools, `benjamini_hochberg`, `fisher_exact`, the
-  TCM lookups, ranked formula search and three of the four pinned skills, by the manual runtime check; CI's end-to-end specs
-  compare one governed skill's content and output hashes). Per entry: [docs/compat/summary.md](docs/compat/summary.md), whose
-  validation column is each entry's committed verification record.
+  compared with native CPython for a named subset by the manual runtime check (the seven kernel tools,
+  `benjamini_hochberg`, `fisher_exact`, the TCM lookups, ranked formula search and three of the four pinned skills), and
+  since 2026-10-28 for every tool the browser runs by the browser sweep in CI, a difference passing only where it is
+  declared with its reason (below); CI's end-to-end specs also compare one governed skill's content and output hashes.
+  Neither comparison commits a record. Per entry: [docs/compat/summary.md](docs/compat/summary.md), whose validation
+  column is each entry's committed verification record.
 - **Network pharmacology in the browser.** The full data-driven research loop runs as browser jobs: `research.snapshot`
   (the 17 raw files downloaded, relayed or imported into the site's private storage, verified and built into snapshots)
   and `research.run` (the sixteen stages and nine exports), the runner's own Python in Pyodide job workers. On the planted
@@ -302,8 +308,8 @@ clinical tool or identifying details), and counts anonymous usage you can switch
   into the job's private storage and checked against their recorded SHA-256
   ([docs/BROWSER_JOBS.md §3.1](docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)). On two known-answer
   references, compared output by output with the native command: identical bytes, numbers within a stated tolerance
-  (at most 0.133 of it), or not compared, with the reason (the UMAP layout and figures; a person's own run is not
-  compared); the genes called and each
+  (at most 0.133 of it in `studio` #91; 0.139 in a local run under the stricter p-value rule of 2026-10-28), or not
+  compared, with the reason (the UMAP layout and figures; a person's own run is not compared); the genes called and each
   cell's cluster and cell type identical, the planted answers found on the browser's files. Tested locally in headless
   Chromium (Pyodide 314.0.7), and passed in Studio's CI (`studio` #91, 2026-10-19, Pyodide's numpy and scipy from
   jsDelivr). A FASTQ run, PyDESeq2, Scanpy, scVI, 10x HDF5 and `.h5ad`, and
@@ -344,6 +350,12 @@ clinical tool or identifying details), and counts anonymous usage you can switch
   governed `dock-ligands` skill needs the runner ([docs/BROWSER_JOBS.md §3.3](docs/BROWSER_JOBS.md#33-docking-from-prepared-structures)).
 - **NPU.** WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified
   execution provider and hardware-backed execution evidence; no workload has either today.
+- **Offline.** After a first visit the page, the Python runtime and the fonts are kept by a service worker against a
+  manifest of SHA-256 hashes, so the page opens and runs browser tools offline; data files used once (the formula
+  workbook, for example) stay in a verified local cache. A new version is offered, never forced; once you reload into
+  it in one tab, the site's other open tabs reload with it (a tab with an answer or job under way, unsent text or a
+  dialog open says so first, and reloads once those are done). `?nosw` removes the service worker and its caches.
+  Model calls and database queries still need the network ([docs/BROWSER_ACCESS.md](docs/BROWSER_ACCESS.md)).
 - **Add the local runner**: in a virtual environment (Ubuntu 23.04+, Debian 12 and Homebrew Python refuse a
   system-wide `pip install` with `externally-managed-environment`; on Debian/Ubuntu `python3 -m venv` first needs
   `sudo apt install python3-venv`): `python3 -m venv ~/.tcmscience/venv && . ~/.tcmscience/venv/bin/activate`
@@ -368,7 +380,8 @@ Tests: `node --test studio/edge/test/*.test.js`, `python3 -m pytest -q studio/ru
 that need Pyodide skip with the reason when its CDN is unreachable, and fail in CI; jsDelivr also serves the web fonts, and
 outside CI what a page could not fetch from it is not counted as a console error, while in CI it is). `npm run test:runtime` compares about
 twenty envelopes from real Pyodide with native CPython; it is run by hand, not in CI. The browser sweep
-(`web/test/runtime/sweep.mjs`) compares every browser tool's envelope (1,153 calls) the same way, in CI; a difference
+(`web/test/runtime/sweep.mjs`) compares every browser tool's envelope (1,167 calls) the same way, in CI (passed in
+`studio` #120, 2026-10-28); a difference
 passes only where it is declared by entry and field, with its reason ([docs/BROWSER_COMPUTE.md §10](docs/BROWSER_COMPUTE.md#10-validation)).
 Deployment: [edge/SETUP.md](edge/SETUP.md).
 

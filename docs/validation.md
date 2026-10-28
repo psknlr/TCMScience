@@ -99,7 +99,7 @@ failure and not a pass. The compatibility matrix's `validation` column
 | `offline_invocation` | the entry's own example ran through the dispatcher, offline | `tcmstudio validate` records it per run (tier 2); no committed record feeds the catalog yet | 0 |
 | `reference_output` | the tool's output equals an expected value established independently of its code | `bioagent/validation/references.py`, held by `tcmstudio validate` | 74 |
 | `kernel_parity` | a browser kernel returns exactly what the Python implementation returns | `studio/web/test/fixtures/kernel_cases.json`, run by the web and runner tests | 7 |
-| `pyodide_parity` | the browser runtime's envelope equals native CPython's | the runtime check (`npm run test:runtime`); it is run by hand and commits no record, so the catalog has none | 0 |
+| `pyodide_parity` | the browser runtime's envelope equals native CPython's | the runtime check (`npm run test:runtime`, run by hand) and the browser sweep (`web/test/runtime/sweep.mjs`, which Studio's CI build job runs since 2026-10-28); neither commits a record, so the catalog has none | 0 |
 | `lock_pin` | a pinned governed skill's code matches its reviewed content hash | `BioScience-Harness/registry/skills.lock.yaml`, checked on every governed run | 4 |
 | `gateway_mock` | the edge gateway (`studio/edge/src/sources.js` `handleSources`) accepted the operation's request and forwarded it to a mocked upstream | reserved for a per-operation run of the gateway's own code; no committed record exists. The connector coverage report's `mock_transport` level (below) does not exercise the gateway, is a separate, lower level, and is reported only in `connectors.md`, never here | 0 |
 | `live_upstream` | the real upstream answered the operation's example | `BioScience-Harness/data/connector_live_verification.csv` (`scripts/verify_connectors.py`), with its date | 444 |
@@ -214,8 +214,11 @@ failures and the ways on.
 - **CI from 2026-10-11 to 2026-10-19**: every `ci` run from #282 to #311 and every
   `live-data` run from #11 to #15 (2026-10-11, 20:06 UTC, to 2026-10-19, 04:24 UTC) ended
   within about a minute, almost all within five seconds, without running its jobs: a
-  condition of the repository's Actions account, not a test result. Jobs run again since
-  2026-10-19 (`ci` #312 onwards). `ci` #317 (run 39236311752, commit e73a1c2) passed every
+  condition of the repository's Actions account, not a test result. Jobs ran again from
+  2026-10-19 (`ci` #312 onwards). The same happened from 2026-10-21 00:24 to 2026-10-23
+  01:31 UTC (`ci` #331 to #338, `studio` #100 to #107, among them the runs on the merge of
+  browser docking, `ci` #332 and `studio` #101); jobs have run since (`ci` #339 and
+  `studio` #108 onwards). `ci` #317 (run 39236311752, commit e73a1c2) passed every
   job a push runs: the PSH and BioScience-Harness unit tiers on Python 3.11 and 3.12, the
   engine jobs (the analysis pipelines with their command-line tools and R's DESeq2, docking
   with real Vina and ADMET, OpenMM and ProteinMPNN, scVI), the MCP, tool-provider and
@@ -249,9 +252,13 @@ failures and the ways on.
   UniProt's files. The committed download record
   (`bioagent/data/live_download_verification.json`) is still the one from 2026-10-11: the
   workflow prints the new record and commits nothing.
-- **Browser runtime parity beyond a subset**: the runtime check compares about twenty
-  envelopes with native CPython, by hand; no test compares every browser entry, and the
-  network-pharmacology seed skill has never been run in Pyodide by a test.
+- **Browser runtime parity as a record**: the runtime check compares about twenty
+  envelopes with native CPython, by hand, and the browser sweep, which Studio's CI build job
+  runs since 2026-10-28, compares every tool the browser runs (1,167 calls; passed in
+  `studio` #120, run 40737603907, 2026-10-28; a difference passes only where it is declared
+  by entry and field, with its reason:
+  [BROWSER_COMPUTE.md §10](../studio/docs/BROWSER_COMPUTE.md#10-validation)). Neither commits
+  a record, so no catalog entry carries the `pyodide_parity` level.
 - **Hardware**: no physical GPU and no NPU. WebGPU has run on a software adapter only, a
   runner GPU is reported by its driver and never verified by a computation, and no
   workload has a verified NPU execution provider. Firefox, Safari, iOS and Android devices

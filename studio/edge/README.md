@@ -102,9 +102,9 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 - `run_worker_first = ["/v1/*", "/api/sources/*", "/api/datasets/*", "/api/telemetry/*", "/api/admin/*", "/admin", "/admin/*"]`：模型、数据库网关、数据中转、
   统计与管理后台运行 Worker；`/admin/*` 的文件也由 Worker 把关（仪表板的代码只给已登录的管理员，页面强制 CSP）。
   其余文件由 Cloudflare 直接发送（免费，不计数）。
-- `not_found_handling = "none"`：找不到文件的路径交给 Worker——浏览器**导航**到它（应用自己的路由，如 `/p/<项目>/c/<会话>`）
-  时返回 `index.html`，其他请求（脚本、网页要的 JSON）返回真正的 404，而不是把网页 HTML 当成那个文件。若用 History API 路由，
-  网页必须用绝对路径引用自己的文件（`/js/…`）。
+- `not_found_handling = "none"`：找不到文件的路径交给 Worker——浏览器**导航**到它（有人输入、分享或收藏了一个非根路径）
+  时返回 `index.html`，其他请求（脚本、网页要的 JSON）返回真正的 404，而不是把网页 HTML 当成那个文件。应用自己的路由是哈希路由
+  （如 `#/p/<项目>/c/<会话>`），只看地址的哈希部分，不会走到这里。若改用 History API 路由，网页必须用绝对路径引用自己的文件（`/js/…`）。
 - [`_headers`](_headers)（部署时复制进 `studio/_site/`；Worker 自己的回答由 `src/site.js` 设置同样的头，测试检查两者一致）：
   - `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: require-corp`：页面跨源隔离，Pyodide 才能用
     SharedArrayBuffer 中断正在运行的 Python。jsDelivr 带 CORS，Pyodide 照常加载。

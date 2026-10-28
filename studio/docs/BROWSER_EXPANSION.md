@@ -60,8 +60,11 @@ preparation-heavy work is attempted.
 as a browser job: the search in AutoDock Vina 1.2.7 compiled to WebAssembly, one Vina run per ligand in dedicated
 workers on the CPU; the plan, analysis and checks `bioagent.docking.prepared` in a Pyodide worker. Its acceptance was
 the exact tier plus the search band of §3; it was compared with native Vina 1.2.7 end to end
-([BROWSER_JOBS.md §3.3](BROWSER_JOBS.md#33-docking-from-prepared-structures)) and passed locally and in `studio` CI.
-Implemented and tested; not deployed-site verified, and no physical GPU is involved (docking uses no GPU).
+([BROWSER_JOBS.md §3.3](BROWSER_JOBS.md#33-docking-from-prepared-structures)) and passed locally and in `studio` CI
+(first in `studio` #99, run 39487835374, 2026-10-20; on `main` from `studio` #114, run 39898204674, 2026-10-23).
+Implemented and tested, and deployed on science.impf.ai since `studio` #114 (the WebAssembly Vina ships with the site);
+not deployed-site verified: the post-deploy check does not exercise docking or any browser job. No physical GPU is
+involved (docking uses no GPU).
 
 **Milestone B — preparation from raw structures (next, not done).** The remaining, larger half: preparing a receptor
 and ligands from raw inputs (a PDB/`PDB:`/`UniProt:` receptor, SMILES/CSV/SDF ligands) with Meeko and RDKit in the
@@ -191,8 +194,10 @@ browser, not a claim that it does; several depend on work not started.
 PDBQT，以及位点：`center`+`size` 或围绕 `reference_ligand` 的盒子），作为浏览器任务运行：搜索由编译为 WebAssembly 的 AutoDock
 Vina 1.2.7 承担，每个配体一次 Vina 运行，在 CPU 上的专用工作线程中进行；计划、分析与检查是 Pyodide 工作线程中的
 `bioagent.docking.prepared`。其验收是 §3 的精确层加搜索带；已与原生 Vina 1.2.7 端到端比对
-（[BROWSER_JOBS.md §3.3](BROWSER_JOBS.md#33-docking-from-prepared-structures)），本地与 `studio` CI 均通过。已实现、已测试；
-未经线上站点验证，也不涉及实体 GPU（对接不使用 GPU）。
+（[BROWSER_JOBS.md §3.3](BROWSER_JOBS.md#33-docking-from-prepared-structures)），本地与 `studio` CI 均通过（首次在 `studio` #99，
+运行 39487835374，2026-10-20；`main` 上自 `studio` #114，运行 39898204674，2026-10-23 起）。已实现、已测试，自 `studio` #114 起
+随站点部署在 science.impf.ai（WebAssembly 版 Vina 随站点提供）；未经线上站点验证：部署后检查不运行对接，也不运行任何浏览器任务。
+不涉及实体 GPU（对接不使用 GPU）。
 
 **里程碑 B——从原始结构出发的准备（下一步，尚未完成）。** 余下更大的一半：在浏览器中用 Meeko 与 RDKit 从原始输入（PDB/`PDB:`/
 `UniProt:` 受体、SMILES/CSV/SDF 配体）准备受体与配体，使从原始结构出发的运行无需 Runner 即可端到端完成；相互作用分析与 SDF

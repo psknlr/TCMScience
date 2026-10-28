@@ -8,6 +8,10 @@ on real data or real hardware, and what is not, with the reason. A claim here re
 or a committed record; nothing counts as working because it is registered, imports, or passes a
 unit test that never reached the thing it describes.
 
+This is a dated report (2026-10-19, brought up to date that day once CI ran jobs again). Its catalog
+counts, test results and audit figures are those of the branch it reported on and are not kept
+current; the catalog's current counts are in [compat/summary.md](../studio/docs/compat/summary.md).
+
 **In one line:** every catalog entry now says what implements it, what evidence it has and whether
 it can run here; every call's receipt says what ran, where, on which data and how far it was
 checked; large datasets are acquired by a service that resumes only onto the same remote file; the
@@ -48,7 +52,7 @@ edited, and `scripts/check_lockfile.py` reports the four pins matched after ever
 |---|---|---|---|
 | Capability state in three dimensions (implementation, readiness, outcome) | implemented, tested | `tcmstudio/capability.py`, `catalog.py`, `core/catalog.js` `entryState` | `test_capability_state.py` (46 tests); readiness per runtime, so the runner's never replaces the browser's |
 | Each entry: implementation, environments, dependencies, datasets, hosts, backends, limits, verification | implemented, tested | catalog `implementation`, `execution.{browser_compute,engines}`, `data`/`data_from`, `hosts`/`hosts_by`, `limits`, `verification` | references resolve (incl. each hand-written op); verification only from committed records; catalog under a 1,000,000-byte budget |
-| Counts agree across manifest, matrix, API, UI and docs | implemented, tested | `studio/scripts/doc_facts.py --check` (35 docs), `compat_matrix.py --check` | 653 entries: 150 native, 11 skill, 444 connector, 5 clinic, 15 tcmdb, 5 study, 12 job, 11 system |
+| Counts agree across manifest, matrix, API, UI and docs | implemented, tested | `studio/scripts/doc_facts.py --check` (35 docs), `compat_matrix.py --check` | 650 entries: 150 native, 11 skill, 444 connector, 5 clinic, 15 tcmdb, 4 study, 11 job, 10 system |
 | Capability audit service | implemented, tested | `system.capability_audit`, `GET /api/capabilities/audit` | a runner in the development container: 634 ready, 5 missing a dependency (docking, ADMET, PaperQA engines), 11 needing a dataset (none built); a committed PASS record for 526 of them, none for 124 |
 | Fixture vs live evidence kept apart | implemented, tested | `studio/docs/compat/connectors.md` | per operation: mock transport PASS 444 (offline), live upstream PASS 444 from the committed record dated 2026-09-17 to 2026-10-07, live through the deployed gateway not verified |
 | Task-aware routing with strict preferences | implemented, tested | `core/router.js` | `auto` stays runner-first (one durable audit chain per project); `browser`, `runner` strict; `remote` always unavailable with need `remote_backend`; an unknown value is reported, never run as `auto`; a missing engine is refused before approval |
@@ -97,7 +101,7 @@ All in the development container (4 CPUs, Linux, Python 3.13, Node 22), on the f
 |---|---|
 | Studio runner (`python -m pytest studio/runner/tests`) | 542 passed |
 | Studio web (`npm test`) | 456 passed, 1 skipped (the Python glossary comparison, which needs the system `python3` to import the packages) |
-| Edge Worker (`node --test studio/edge/test`) | 92 passed |
+| Edge Worker (`node --test studio/edge/test/*.test.js`) | 92 passed |
 | BioScience-Harness unit tier (`pytest -m unit`) | 2,698 passed, 139 skipped, 0 failed (the baseline before this branch: 2,586 passed) |
 | Pipeline, acquisition and research tests (BioScience-Harness, targeted) | 281 passed, 1 skipped (the TDC ADMET archive is not available) |
 | Checks | `compat_matrix --check`, `doc_facts --check`, `connector_coverage --check`, `make_figures --check`, `check_lockfile.py`: all pass |
@@ -141,6 +145,9 @@ All in the development container (4 CPUs, Linux, Python 3.13, Node 22), on the f
   verifies no connector through the gateway.
 
 ## 中文摘要
+
+本报告是一份有日期的报告（2026-10-19，当天 CI 恢复运行后补充过）：其中的目录计数、测试结果与审计数字都是所报告分支当时的数字，不随后更新；
+目录当前的计数见 [compat/summary.md](../studio/docs/compat/summary.md)。
 
 本报告对应分支 `claude/epic-dirac-c1uqll`。每个目录条目现在写明由什么实现、有哪些已提交的核验记录、在当前运行环境能否运行及缺什么；
 每次调用的回执写明在哪里运行、用了哪些数据、核验到什么程度（`tcmstudio.receipt/1`）。大型数据集由 Runner 上的获取服务下载，只在能确认是同一远端
