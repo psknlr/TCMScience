@@ -430,6 +430,57 @@ def test_a_refutation_nobody_can_replicate_leaves_the_leader_provisional():
     assert "replicated" not in conclusion.reason.replace("not replicated", "")
 
 
+def test_a_replicate_of_a_refutation_waits_for_the_refuted_rivals_prediction():
+    """Predictions declared one analysis at a time: once an outcome refutes the rival, its
+    replicate can repeat the refutation only against a prediction the rival sealed for it.
+    The engine asks for that prediction, and refuses to run the replicate without it,
+    rather than recommending a replication that could never count."""
+    hits = ("hit", "miss", "unclear")
+    leader = {"hit": .95, "miss": .03, "unclear": .02}
+    rival = {"hit": 0.0, "miss": .6, "unclear": .4}
+    inquiry = two_rivals([Analysis("a", "screen", SILICO, hits),
+                          Analysis("a-seed", "screen, another seed", SILICO, hits,
+                                   replicates="a")])
+    inquiry.declare("a", {"target": leader, "noise": rival})
+    assert inquiry.observe("a", "hit").refuted == ("noise",)
+    inquiry.declare("a-seed", {"target": leader})          # what the live rivals need
+    assert inquiry.missing("a-seed") == ("noise",)
+    step = inquiry.next_step()
+    assert (step.action, step.pending) == ("declare", ("a-seed",))
+    refused("INQ110", inquiry.observe, "a-seed", "hit")
+    inquiry.declare("a-seed", {"noise": rival})
+    step = inquiry.next_step()
+    assert (step.action, step.analysis_id, step.purpose, step.against) == (
+        "run", "a-seed", Purpose.REPLICATE, "noise")
+    conclusion = run_inquiry(inquiry, lambda a, s: Executed("hit"))
+    assert conclusion.verdict is Verdict.ACCEPTED
+    assert conclusion.replications == {"noise": ("a-seed",)}
+
+
+def test_a_replicate_that_cannot_bear_on_the_rival_is_not_run_as_its_replication():
+    """A replicate in a design that cannot license the rival's claim carries no prediction
+    of the rival, so it cannot repeat the test against it however cheap it is."""
+    inquiry = Inquiry("q", [
+        Explanation("assay", "an artefact of the binding assay", role=Role.ARTEFACT,
+                    prior=0.475),
+        Explanation("binds", "the compound binds the target", ClaimKind.MECHANISM,
+                    prior=0.475)],
+        [Analysis("a", "binding assay", StudyDesign.IN_VITRO, BINARY),
+         Analysis("a-docked", "the same pose, docked", SILICO, BINARY, cost=0.1,
+                  replicates="a"),
+         Analysis("a-lot", "the binding assay, another lot", StudyDesign.IN_VITRO, BINARY,
+                  replicates="a")],
+        StoppingRule(accept_at=0.9))
+    for a in ("a", "a-lot"):
+        inquiry.declare(a, {"assay": row(0.95), "binds": row(0.05)})
+    inquiry.declare("a-docked", {"assay": row(0.95)})        # INQ113 for "binds"
+    inquiry.observe("a", "enriched")
+    assert inquiry.conclude().unreplicated == ("binds",)
+    step = inquiry.next_step()
+    assert (step.action, step.analysis_id, step.purpose) == ("run", "a-lot",
+                                                             Purpose.REPLICATE)
+
+
 def replicated_world(specs, outcomes):
     inquiry = two_rivals([Analysis(i, i, SILICO, BINARY, replicates=r) for i, r in specs],
                          StoppingRule(accept_at=0.9), priors=(0.45, 0.45))
@@ -691,18 +742,120 @@ def first(data, event):
         predictions={"target": {"enriched": "0.5", "not_enriched": 0.5}}),
     lambda d: d["trail"].append("an entry"),
     lambda d: d["trail"][0].pop("body"),
+    lambda d: d["trail"][0]["body"]["explanations"].__setitem__(0, "target"),
+    lambda d: d["trail"][0]["body"]["analyses"].__setitem__(0, 5),
+    lambda d: d["trail"][0]["body"]["rule"].update(catch_all_floor=0.9),
+    lambda d: d["trail"][0]["body"]["explanations"][0].update(prior=0.9),
+    lambda d: d["trail"][1]["body"]["predictions"]["target"].update(enriched=math.nan),
 ], ids=["plan of 9", "plan of no size", "declared nothing", "body a string",
         "observed nothing", "no body", "a string probability", "not an entry",
-        "no opening body"])
+        "no opening body", "an explanation as text", "an analysis as a number",
+        "a stopping rule out of range", "a closed world", "a NaN"])
 def test_a_malformed_trail_entry_is_a_trail_that_does_not_verify(malform):
     """Whoever rewrote the chain around a malformed entry gets the trail's refusal, not an
-    error from deep inside the replay."""
+    error from deep inside the replay, or from a constructor the opening entry calls."""
     inquiry = opened()
     inquiry.plan(2)
     inquiry.observe("assayed", "enriched")
     data = copy.deepcopy(inquiry.as_dict())
     malform(data)
     refused("INQ150", Inquiry.from_dict, rehashed(data))
+
+
+@pytest.mark.parametrize("data", ["a trail", {"schema": 1, "trail": 5}],
+                         ids=["text", "a number for a trail"])
+def test_what_is_not_an_inquiry_is_refused_as_one(data):
+    refused("INQ150", Inquiry.from_dict, data)
+
+
+# ===================================== an inquiry saved under earlier rules still loads
+
+def version_1(inquiry, observations):
+    """``observations`` made as version 1 of the rules made them, each with the advice
+    (purpose, rival, recommended step) that version gave, and the inquiry saved as it saved
+    one: without ``engine``. Version 1 dropped a refuted rival, counted a test replicated by
+    any one replicate that agreed, and asked only the live explanations for predictions.
+    Each trail built here was checked byte for byte against that version's own."""
+    inquiry._engine = 1
+    for analysis_id, outcome, advice in observations:
+        inquiry._observe(analysis_id, outcome, recorded=advice)
+    data = inquiry.as_dict()
+    del data["engine"]
+    return data
+
+
+HITS = ("hit", "miss", "unclear")
+LEADER = {"hit": .95, "miss": .03, "unclear": .02}
+RIVAL = {"hit": 0.0, "miss": .6, "unclear": .4}
+STOPPED = (Purpose.UNRECOMMENDED, "", "")      # version 1 had stopped: nothing recommended
+
+
+def refutation_then_its_replicate():
+    inquiry = two_rivals([Analysis("a", "s", SILICO, HITS),
+                          Analysis("a-seed", "s2", SILICO, HITS, replicates="a"),
+                          Analysis("b", "other", SILICO, HITS)])
+    for a in ("a", "a-seed", "b"):
+        inquiry.declare(a, {"target": LEADER, "noise": RIVAL})
+    inquiry.observe("a", "hit")
+    return version_1(inquiry, [("a-seed", "hit", STOPPED)])
+
+
+def a_replicate_the_refuted_rival_never_predicted():
+    inquiry = two_rivals([Analysis("a", "s", SILICO, HITS),
+                          Analysis("a-seed", "s2", SILICO, HITS, replicates="a")])
+    inquiry.declare("a", {"target": LEADER, "noise": RIVAL})
+    inquiry.observe("a", "hit")
+    inquiry.declare("a-seed", {"target": LEADER})
+    return version_1(inquiry, [("a-seed", "hit", STOPPED)])
+
+
+def a_further_replicate_after_one_went_the_other_way():
+    specs = [("a", ""), ("r1", "a"), ("r2", "a"), ("b", ""), ("c", ""), ("r3", "a")]
+    inquiry = two_rivals([Analysis(i, i, SILICO, BINARY, replicates=r) for i, r in specs],
+                         StoppingRule(accept_at=0.9))
+    for i, _ in specs:
+        inquiry.declare(i, {"target": row(.9), "noise": row(.05)})
+    for i, outcome in [("a", "enriched"), ("b", "enriched"), ("r1", "not_enriched"),
+                       ("c", "enriched"), ("r2", "enriched")]:
+        inquiry.observe(i, outcome)
+    return version_1(inquiry, [("r3", "enriched", STOPPED)])
+
+
+@pytest.mark.parametrize("saved,verdict", [
+    (refutation_then_its_replicate, Verdict.ACCEPTED),
+    (a_replicate_the_refuted_rival_never_predicted, Verdict.PROVISIONAL),
+    (a_further_replicate_after_one_went_the_other_way, Verdict.ACCEPTED),
+], ids=["refutation then its replicate", "a replicate the rival never predicted",
+        "a further replicate"])
+def test_an_inquiry_saved_under_earlier_rules_keeps_the_advice_it_recorded(saved, verdict):
+    """The rules that chose each step have changed since, so the advice is replayed as
+    recorded and the inquiry stays on the earlier version's footing; belief is recomputed
+    as always, and what it concludes now follows the current rules."""
+    from psh.scientist.inquiry import ENGINE
+    data = saved()
+    inquiry = Inquiry.from_dict(data)
+    assert inquiry.updates[-1].purpose is Purpose.UNRECOMMENDED
+    assert inquiry.as_dict()["engine"] == 1
+    inquiry.verify()
+    assert inquiry.conclude().verdict is verdict
+    refused("INQ150", Inquiry.from_dict, {**data, "engine": ENGINE})
+
+
+def test_a_plan_saved_under_earlier_rules_is_kept_as_it_was_recorded():
+    inquiry = opened()
+    assert [o.analysis_id for o in inquiry.plan(2)] == ["assayed", "random"]
+    data = copy.deepcopy(inquiry.as_dict())
+    first(data, "planned")["body"]["analyses"] = ["random", "assayed"]
+    refused("INQ150", Inquiry.from_dict, rehashed(copy.deepcopy(data)))
+    del data["engine"]
+    assert Inquiry.from_dict(rehashed(data)).planned == ("random", "assayed")
+
+
+def test_an_inquiry_says_which_rules_it_was_saved_under():
+    from psh.scientist.inquiry import ENGINE
+    data = opened().as_dict()
+    assert data["engine"] == ENGINE
+    refused("INQ150", Inquiry.from_dict, {**data, "engine": ENGINE + 1})
 
 
 def test_a_refusing_recorder_leaves_the_inquiry_where_it_was():

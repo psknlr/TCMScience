@@ -25,7 +25,8 @@ Two rules are this module's own:
   ``agent:`` and the evidence it cites, which it must give. A test with a runtime
   classifier accepts only data, never a reported outcome, and so does a replicate an agent
   adds to one. Data already recorded (the same numbers, however labelled or written) are
-  refused, as is a replicate citing its original's source in any spelling.
+  refused, as is a replicate citing its original's source: a PMID or DOI however it is
+  written (a label or none, a URL, full-width characters, a note after it).
 
 An agent that can call several tools at once asks for a plan: the engine's batch of up to
 four analyses, valued by the information they carry together and sealed into the trail
@@ -42,6 +43,7 @@ import math
 import os
 import re
 import threading
+import unicodedata
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -326,15 +328,31 @@ def _classifier(record: Mapping[str, Any], analysis_id: str) -> str:
     return str((record.get("tests") or {}).get(analysis_id, {}).get("classifier") or "")
 
 
-def _source(ref: str) -> str:
-    """One spelling of a source: case, spacing and the usual forms of a PMID or DOI do
-    not make a different one."""
-    s = "".join(str(ref or "").split()).casefold()
-    s = re.sub(r"^(?:https?://)?(?:dx\.)?doi\.org/", "doi:", s)
-    s = re.sub(r"^(?:https?://)?pubmed\.ncbi\.nlm\.nih\.gov/(\d+)/?$", r"pmid:\1", s)
-    s = re.sub(r"^(?:pmid|pubmed)[:#]?(?=\d)", "pmid:", s)
-    s = re.sub(r"^doi:?(?=10\.)", "doi:", s)
-    return "doi:" + s if s.startswith("10.") else s
+_DOI = re.compile(r"10\.\d+(?:\.\d+)*/[^\s\"']+")
+_PMID = re.compile(r"(?:pmid|pubmed(?:\.ncbi\.nlm\.nih\.gov)?)\W*(?:(?:id|term)\W*)?"
+                   r"(\d{1,9})(?!\d)")
+_OPENS = {")": "(", "]": "[", ">": "<"}
+_TRAILING = ".,;:。、"         # punctuation after a DOI, which NFKC leaves as it is
+
+
+def _sources(ref: str) -> frozenset[str]:
+    """The sources a reference names: every PMID and DOI in it, however written (a label
+    or none, a URL, full-width characters, punctuation or a note around it), or, when it
+    names neither, the reference itself without case or spacing."""
+    text = unicodedata.normalize("NFKC", str(ref or "")).casefold()
+    found = set()
+    for m in _DOI.finditer(text):
+        doi = m.group(0).rstrip(_TRAILING)
+        # a bracket closing around the DOI, as in "(doi:10.1/x).", is not part of it
+        while doi[-1] in _OPENS and doi.count(doi[-1]) > doi.count(_OPENS[doi[-1]]):
+            doi = doi[:-1].rstrip(_TRAILING)
+        found.add("doi:" + doi)
+    rest = _DOI.sub(" ", text)
+    found |= {f"pmid:{int(m.group(1))}" for m in _PMID.finditer(rest)}
+    bare = "".join(rest.split()).rstrip(".")
+    if not found and bare.isdigit() and len(bare) <= 9:
+        found.add(f"pmid:{int(bare)}")        # a number alone is a PMID
+    return frozenset(found) or frozenset({"".join(text.split())})
 
 
 def _cited(update: Any) -> str:
@@ -351,7 +369,7 @@ def _own_source(inquiry: Any, analysis_id: str, source: str) -> None:
     if not source or not original or not inquiry.observed(original):
         return
     theirs = next(_cited(u) for u in inquiry.updates if u.analysis_id == original)
-    if theirs and _source(theirs) == _source(source):
+    if theirs and _sources(theirs) & _sources(source):
         raise ValueError(f"{analysis_id} replicates {original}: it needs evidence of its "
                          f"own, not the source already recorded for {original}")
 

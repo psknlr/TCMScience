@@ -34,7 +34,8 @@ cannot be changed (``INQ116``). Belief is therefore a function of what was commi
 advance and what came back. The serialised inquiry *is* its trail, and loading it replays
 every step; a posterior that does not recompute, or an entry that cannot be replayed, is
 refused (``INQ150``). The chain's digests are not keyed: they show that a trail is
-consistent, not who wrote it.
+consistent, not who wrote it. A trail saved under earlier rules keeps the advice it recorded
+(``ENGINE``).
 
 **2. A design that cannot license a claim kind cannot move belief in it.** A docking score
 says nothing about clinical efficacy, so a docking analysis may not carry a prediction for
@@ -55,13 +56,15 @@ data it was invented to fit: it earns its posterior on analyses it predicted.
 
 **4. A high posterior is not enough to stop.** The leader is accepted only after it has
 passed a **severe test** against every live rival (an analysis that, had the rival been
-true, would probably not have favoured the leader), and only once each test the acceptance
-rests on has been **replicated**. Severity is computed from the sealed predictions alone, so
-it does not inherit the priors a posterior does. A string of weakly informative,
+true, would probably not have favoured the leader), and only once, against each rival, one
+such test has been **replicated**. Severity is computed from the sealed predictions alone,
+so it does not inherit the priors a posterior does. A string of weakly informative,
 confirmatory analyses raises a posterior; it cannot satisfy this rule. A rival refuted by an
 outcome it gave probability zero is tested by that analysis, and the refutation is
-replicated like any other test. A test counts as replicated when more of its replicates
-favour the leader than do not, and every replication that did not is in the conclusion.
+replicated like any other test, against the prediction the rival seals for the replicate
+(which is why a replicate needs one from every explanation that predicted its original). A
+test counts as replicated when more of its replicates favour the leader than do not, and
+every replication that did not is in the conclusion.
 
 **5. The posterior is not a licence.** How strongly a conclusion may be stated is capped by
 the designs of the observations that bore on it (``MAX_CERTAINTY``) and by the claim kind
@@ -98,8 +101,8 @@ from ..evidence.support import Certainty
 from ..sir.values import LICENSING, MAX_CERTAINTY, ClaimKind, Licensing, StudyDesign
 
 __all__ = [
-    "CATCH_ALL", "INQUIRY_CODES", "MAX_BATCH", "Role", "Purpose", "Verdict", "Explanation",
-    "Analysis",
+    "CATCH_ALL", "ENGINE", "INQUIRY_CODES", "MAX_BATCH", "Role", "Purpose", "Verdict",
+    "Explanation", "Analysis",
     "StoppingRule", "Option", "Step", "Update", "Conclusion", "Executed", "Inquiry",
     "InquiryRefused", "InquiryRecorder", "AnalysisUnavailable",
     "expected_information_gain", "run_inquiry",
@@ -107,6 +110,15 @@ __all__ = [
 
 #: The id the engine gives the catch-all. Reserved: no proposed explanation may take it.
 CATCH_ALL = "catch-all"
+
+#: The version of the rules the engine decides by, saved with every inquiry (``as_dict``).
+#: Version 2 keeps a refuted rival as a rival whose refutation must be replicated, asks a
+#: replicate for the prediction of every explanation that predicted its original, and
+#: counts a test as replicated only by a majority of its replicates. An inquiry begun under
+#: an earlier version replays the advice its trail recorded (each observation's purpose,
+#: rival and recommended step, and each plan) as recorded, because the rules that chose it
+#: have changed since; belief, predictions and outcomes are recomputed whatever the version.
+ENGINE = 2
 
 #: Every refusal the engine can make, with the instruction that repairs it. The message is
 #: the repair instruction when the author is a model, so each names what to write instead.
@@ -130,7 +142,8 @@ INQUIRY_CODES: Mapping[str, tuple[str, str]] = {
                "budget or none, max_steps >= 1"),
     "INQ110": ("the analysis has no sealed prediction for an explanation it bears on",
                "declare, before running it, what every live explanation it bears on "
-               "predicts it will show"),
+               "predicts it will show, and for a replicate every explanation that "
+               "predicted its original, refuted or not"),
     "INQ111": ("unknown analysis or explanation", "use an id the inquiry has recorded"),
     "INQ112": ("a prediction is not a probability distribution over the outcomes",
                "give one finite probability per declared outcome, summing to 1"),
@@ -633,6 +646,7 @@ class Inquiry:
         self._planned: tuple[str, ...] = ()                            # the latest plan
         self._spent = 0.0
         self._trail: list[dict[str, Any]] = []
+        self._engine = ENGINE           # the rules the trail began under (from_dict)
         for analysis in analyses:
             self._check_analysis(analysis)
             self._analyses[analysis.id] = analysis
@@ -714,11 +728,20 @@ class Inquiry:
         return grade is None or grade is not Licensing.UNLICENSED
 
     def missing(self, analysis_id: str) -> tuple[str, ...]:
-        """Live explanations the analysis bears on that have no sealed prediction for it."""
-        self.analysis(analysis_id)
+        """Explanations the analysis bears on that have no sealed prediction for it: every
+        live one and, on a replicate, every one that predicted its original. A refuted
+        rival's test is replicated against the prediction it seals for the replicate, so
+        having been refuted does not excuse it."""
+        return self._missing(analysis_id, ENGINE)
+
+    def _missing(self, analysis_id: str, rules: int) -> tuple[str, ...]:
+        analysis = self.analysis(analysis_id)
         rows = self._declared.get(analysis_id, {})
+        # Version 1 asked only the live explanations.
+        original = self._declared.get(analysis.replicates, {}) if rules >= 2 else {}
         return tuple(h for h, e in self._explanations.items()
-                     if e.role is not Role.CATCH_ALL and self._belief[h] > 0.0
+                     if e.role is not Role.CATCH_ALL
+                     and (self._belief[h] > 0.0 or h in original)
                      and h not in rows and self.bears_on(h, analysis_id))
 
     def ready(self, analysis_id: str) -> bool:
@@ -1055,8 +1078,11 @@ class Inquiry:
             if rule.require_replication:
                 for rival in standing.unreplicated:
                     tests = set(standing.tested.get(rival, ()))
+                    # Only a replicate the rival has a prediction for can repeat its test:
+                    # one whose design cannot bear on the rival would be run for nothing.
                     options = [a for a in unrun if a.replicates in tests
-                               and self.ready(a.id)]
+                               and self.ready(a.id)
+                               and rival in self._declared.get(a.id, {})]
                     if options:
                         analysis = min(options, key=lambda a: (
                             -self.expected_gain(a.id) / a.cost, a.id))
@@ -1161,6 +1187,14 @@ class Inquiry:
     def observe(self, analysis_id: str, outcome: str, *, evidence_ref: str = "",
                 result_digest: str = "") -> Update:
         """Apply one outcome to belief, using the sealed predictions and nothing else."""
+        return self._observe(analysis_id, outcome, evidence_ref, result_digest)
+
+    def _observe(self, analysis_id: str, outcome: str, evidence_ref: str = "",
+                 result_digest: str = "",
+                 recorded: tuple[Purpose, str, str] | None = None) -> Update:
+        """``observe``. ``recorded`` is the advice (purpose, rival, recommended step) a trail
+        begun under earlier rules holds for this observation: its replay keeps it, and asks
+        for the predictions those rules asked for (``ENGINE``)."""
         analysis = self.analysis(analysis_id)
         if analysis_id in self._observed:
             raise InquiryRefused("INQ131", f"{analysis_id} at step "
@@ -1171,7 +1205,7 @@ class Inquiry:
         if outcome not in analysis.outcomes:
             raise InquiryRefused("INQ130", f"{outcome!r} is not among "
                                  f"{list(analysis.outcomes)}")
-        missing = self.missing(analysis_id)
+        missing = self._missing(analysis_id, ENGINE if recorded is None else self._engine)
         if missing:
             raise InquiryRefused("INQ110", f"{analysis_id} lacks predictions for "
                                  f"{list(missing)}")
@@ -1179,13 +1213,17 @@ class Inquiry:
             raise InquiryRefused("INQ132", f"spent {self._spent:g}, step "
                                  f"{len(self._observed)}; {analysis_id} costs "
                                  f"{analysis.cost:g}")
-        recommended = self.next_step()
-        if recommended.action == "run" and recommended.analysis_id == analysis_id:
-            purpose, against = recommended.purpose, recommended.against
-        elif analysis_id in self._planned:
-            purpose, against = Purpose.BATCH, ""
+        if recorded is not None:
+            purpose, against, recommended = recorded
         else:
-            purpose, against = Purpose.UNRECOMMENDED, ""
+            step = self.next_step()
+            if step.action == "run" and step.analysis_id == analysis_id:
+                purpose, against = step.purpose, step.against
+            elif analysis_id in self._planned:
+                purpose, against = Purpose.BATCH, ""
+            else:
+                purpose, against = Purpose.UNRECOMMENDED, ""
+            recommended = step.analysis_id if step.action == "run" else ""
         table = self._table(analysis)
         expected = expected_information_gain(self._belief, table)
         prior = dict(self._belief)
@@ -1213,8 +1251,7 @@ class Inquiry:
                      for h, e in self._explanations.items() if e.role is Role.SUBSTANTIVE}
         update = Update(
             step=len(self._observed) + 1, analysis_id=analysis_id, design=analysis.design,
-            outcome=outcome, purpose=purpose, against=against,
-            recommended=recommended.analysis_id if recommended.action == "run" else "",
+            outcome=outcome, purpose=purpose, against=against, recommended=recommended,
             expected_gain=expected, information=max(0.0, information), prior=prior,
             posterior=posterior, likelihood={h: table[h][outcome] for h in prior},
             bayes_factor=bayes, held_fixed=held, refuted=refuted, licensing=licensing,
@@ -1435,50 +1472,51 @@ class Inquiry:
     # ---------------------------------------------------------- serialisation
     def as_dict(self) -> dict[str, Any]:
         """The trail is the state: ``from_dict`` rebuilds everything else by replay."""
-        return {"schema": 1, "inquiry_id": self.inquiry_id, "trail": list(self.trail),
-                "belief": dict(self._belief), "head": self.head}
+        return {"schema": 1, "engine": self._engine, "inquiry_id": self.inquiry_id,
+                "trail": list(self.trail), "belief": dict(self._belief), "head": self.head}
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any], *,
                   recorder: InquiryRecorder | None = None) -> "Inquiry":
-        """Replay a trail, refusing it if any entry or the final belief does not recompute."""
-        trail = list(data.get("trail") or ())
+        """Replay a trail, refusing it if any entry or the final belief does not recompute.
+
+        A trail saved without ``engine`` was begun under version 1 of the rules; it keeps
+        that version for good, so its advice is replayed as recorded (``ENGINE``).
+        """
+        if not isinstance(data, Mapping) or not isinstance(data.get("trail"), (list, tuple)):
+            raise InquiryRefused("INQ150", "not an inquiry trail")
+        trail = list(data["trail"])
         if (data.get("schema") != 1 or not trail
                 or not all(isinstance(entry, Mapping) for entry in trail)
                 or trail[0].get("event") != "opened"):
             raise InquiryRefused("INQ150", "not an inquiry trail")
+        engine = data.get("engine", 1)
+        if isinstance(engine, bool) or not isinstance(engine, int) \
+                or not 1 <= engine <= ENGINE:
+            raise InquiryRefused("INQ150", f"saved under rules this engine does not know "
+                                 f"(engine {engine!r})")
         prev = ""
         for seq, entry in enumerate(trail):
             body = {"seq": entry.get("seq"), "event": entry.get("event"),
                     "body": entry.get("body"), "prev": entry.get("prev")}
+            try:
+                _canonical(entry)     # JSON has no NaN: an entry holding one was never written
+            except (TypeError, ValueError):
+                raise InquiryRefused("INQ150", f"trail entry {seq} does not verify") from None
             if entry.get("seq") != seq or entry.get("prev") != prev \
                     or entry.get("digest") != _digest(body):
                 raise InquiryRefused("INQ150", f"trail entry {seq} does not verify")
             prev = entry["digest"]
         opened = trail[0].get("body")
-        try:
-            inquiry = cls(opened["question"],
-                          [Explanation.from_dict(e) for e in opened["explanations"]],
-                          [Analysis.from_dict(a) for a in opened["analyses"]],
-                          StoppingRule.from_dict(opened["rule"]),
-                          inquiry_id=opened["inquiry_id"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise InquiryRefused("INQ150", f"the opening entry is malformed: {exc}") from exc
+        inquiry = _replayed("the opening entry", lambda: cls(
+            opened["question"], [Explanation.from_dict(e) for e in opened["explanations"]],
+            [Analysis.from_dict(a) for a in opened["analyses"]],
+            StoppingRule.from_dict(opened["rule"]), inquiry_id=opened["inquiry_id"]))
+        inquiry._engine = engine
         _same(inquiry._trail[0]["body"], opened, "opened")
         for seq, entry in enumerate(trail[1:], start=1):
             event, body = entry.get("event"), entry.get("body")
-            # A chain recomputed around a malformed entry is a trail that does not verify,
-            # whatever step of the replay notices it first.
-            try:
-                inquiry._replay(event, body)
-            except InquiryRefused as exc:
-                if exc.code == "INQ150":
-                    raise
-                raise InquiryRefused("INQ150", f"trail entry {seq} ({event}) does not "
-                                     f"replay: {exc.code} {exc.detail}") from exc
-            except (KeyError, TypeError, ValueError, AttributeError) as exc:
-                raise InquiryRefused("INQ150", f"trail entry {seq} ({event}) is "
-                                     f"malformed: {type(exc).__name__}: {exc}") from exc
+            _replayed(f"trail entry {seq} ({event})", inquiry._replay, event, body)
             _same(inquiry._trail[-1]["body"], body, event)
         if "belief" in data:
             _same(inquiry.belief, data["belief"], "final belief")
@@ -1491,20 +1529,37 @@ class Inquiry:
         return inquiry
 
     def _replay(self, event: Any, body: Any) -> None:
-        """Apply one recorded trail entry again, through the same operation that wrote it."""
+        """Apply one recorded trail entry again, through the same operation that wrote it.
+
+        In a trail begun under earlier rules, an observation keeps the advice it recorded
+        and a plan the analyses it recorded: those rules chose them, and the current ones
+        need not choose the same (``ENGINE``).
+        """
+        earlier = self._engine < ENGINE
         if event == "analysis_added":
             self.add_analysis(Analysis.from_dict(body["analysis"]))
         elif event == "declared":
             self.declare(body["analysis_id"], body["predictions"])
         elif event == "observed":
-            self.observe(body["analysis_id"], body["outcome"],
-                         evidence_ref=body.get("evidence_ref", ""),
-                         result_digest=body.get("result_digest", ""))
+            recorded = ((Purpose(body["purpose"]), str(body["against"]),
+                         str(body["recommended"])) if earlier else None)
+            self._observe(body["analysis_id"], body["outcome"],
+                          body.get("evidence_ref", ""), body.get("result_digest", ""),
+                          recorded)
         elif event == "admitted":
             self.admit([Explanation.from_dict(e) for e in body["explanations"]],
                        body["shares"])
         elif event == "withdrawn":
             self.withdraw(body["analysis_id"], body["reason"])
+        elif event == "planned" and earlier:
+            chosen = body["analyses"]
+            if (not isinstance(chosen, list) or not 1 <= len(chosen) <= MAX_BATCH
+                    or any(not isinstance(a, str) or a not in self._analyses
+                           for a in chosen)):
+                raise InquiryRefused("INQ150", "a recorded plan names analyses the "
+                                     "inquiry does not hold")
+            self._commit("planned", body)
+            self._planned = tuple(chosen)
         elif event == "planned":
             if not self.plan(body.get("size")):
                 raise InquiryRefused("INQ150", "a recorded plan does not recompute")
@@ -1586,6 +1641,22 @@ def _from_posterior(p: float, accept_at: float) -> Certainty:
     if p >= 0.5:
         return Certainty.TENTATIVE
     return Certainty.UNCERTAIN
+
+
+def _replayed(where: str, apply: Callable[..., Any], *args: Any) -> Any:
+    """``apply(*args)``, with any failure to replay ``where`` made the trail's refusal
+    (``INQ150``): a chain recomputed around a malformed entry is a trail that does not
+    verify, whatever step of the replay, or whichever constructor, notices it first."""
+    try:
+        return apply(*args)
+    except InquiryRefused as exc:
+        if exc.code == "INQ150":
+            raise
+        raise InquiryRefused("INQ150", f"{where} does not replay: {exc.code} "
+                             f"{exc.detail}") from exc
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise InquiryRefused("INQ150", f"{where} is malformed: {type(exc).__name__}: "
+                             f"{exc}") from exc
 
 
 def _same(left: Any, right: Any, where: str) -> None:

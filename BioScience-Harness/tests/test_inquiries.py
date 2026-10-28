@@ -353,6 +353,36 @@ def test_one_reported_outcome_that_refutes_the_only_rival_is_not_an_acceptance(s
     assert c["verdict"] == "accepted" and c["replications"] == {"noise": ["a-seed"]}
 
 
+def test_the_replicate_of_a_refutation_asks_for_the_refuted_rivals_prediction(store):
+    """An agent sealing predictions one analysis at a time is told to seal the refuted
+    rival's prediction for the replicate too: without it the replicate could never repeat
+    the refutation, and the inquiry would end provisional with nothing left to run."""
+    screen = {"title": "screen", "design": "in_silico", "outcomes": ["hit", "miss", "unclear"]}
+    target = {"hit": 0.95, "miss": 0.03, "unclear": 0.02}
+    noise = {"hit": 0.0, "miss": 0.6, "unclear": 0.4}
+    iid = inq.open_inquiry(
+        store, question="Does compound X act on target T?",
+        explanations=[{"id": "target", "proposition": "X acts on T",
+                       "claim_kind": "mechanism_hypothesis", "prior": 0.475},
+                      {"id": "noise", "proposition": "assay artefact", "prior": 0.475}],
+        analyses=[{"id": "a", **screen}, {"id": "a-seed", **screen, "replicates": "a"}],
+        predictions={"a": {"target": target, "noise": noise}},
+        rule={"require_replication": True})["inquiry_id"]
+    view = inq.record_reported(store, iid, "a", "hit", "PMID:12345678")
+    assert view["next"]["pending"] == {"a-seed": ["target", "noise"]}
+    view = inq.declare(store, iid, "a-seed", {"target": target})
+    assert (view["next"]["action"], view["next"]["pending"]) == ("declare",
+                                                                 {"a-seed": ["noise"]})
+    with pytest.raises(InquiryRefused, match="INQ110"):
+        inq.record_reported(store, iid, "a-seed", "hit", "PMID:87654321")
+    view = inq.declare(store, iid, "a-seed", {"noise": noise})
+    assert (view["next"]["action"], view["next"]["analysis_id"],
+            view["next"]["purpose"]) == ("run", "a-seed", "replicate")
+    inq.record_reported(store, iid, "a-seed", "hit", "PMID:87654321")
+    c = inq.conclude(store, iid)["conclusion"]
+    assert c["verdict"] == "accepted" and c["replications"] == {"noise": ["a-seed"]}
+
+
 # ================================================== what counts as a replication
 
 HDI = {"herb": "丹参", "drug": "warfarin", "marker": "INR", "threshold": 0.5}
@@ -394,8 +424,27 @@ def test_trials_relabelled_are_the_same_trials(store):
                               tool="native.meta_analysis")
 
 
+def test_the_same_numbers_paired_differently_are_other_data(store):
+    """Each trial's estimate goes with its own standard error: the same two lists paired
+    the other way are other trials, with another pooled result."""
+    iid = inq.open_inquiry(store, scaffold="efficacy", values=EFFICACY)["inquiry_id"]
+    pooled = {"k": 2, "random_effects": {"ci_low": -1.0, "ci_high": -0.5}}
+    inq.record_classified(store, iid, "all_trials",
+                          {"estimates": [-0.8, -0.2], "standard_errors": [0.1, 0.5],
+                           "scale": "raw"}, pooled, tool="native.meta_analysis")
+    view = inq.record_classified(store, iid, "all_trials-rep",
+                                 {"estimates": [-0.8, -0.2], "standard_errors": [0.5, 0.1],
+                                  "scale": "raw"}, pooled, tool="native.meta_analysis")
+    assert view["update"]["by"] == "runtime"
+    assert rivals.inputs("combination", {"cells": [{"dose_a": 1, "dose_b": 2}]}) != \
+        rivals.inputs("combination", {"cells": [{"dose_a": 2, "dose_b": 1}]})
+
+
 @pytest.mark.parametrize("again", ["PMID: 31234567", "pmid 31234567",
-                                   "https://pubmed.ncbi.nlm.nih.gov/31234567/"])
+                                   "https://pubmed.ncbi.nlm.nih.gov/31234567/", "31234567",
+                                   "PMID:31234567.", "PMID 31234567 (replicate cohort)",
+                                   "PMID：31234567",
+                                   "https://www.ncbi.nlm.nih.gov/pubmed/31234567"])
 def test_a_replicate_may_not_cite_its_originals_source_in_another_spelling(store, again):
     iid = inq.open_inquiry(store, scaffold="safety_signal",
                            values={"herb": "何首乌", "event": "liver injury"})["inquiry_id"]
@@ -410,11 +459,15 @@ def test_runtime_data_for_a_replicate_need_a_source_of_their_own(store):
     inq.record_classified(store, iid, "clinical_pk",
                           {"ratio": 1.6, "ci_low": 1.4, "ci_high": 1.8}, None,
                           evidence_ref="doi:10.1000/Study-1")
-    with pytest.raises(ValueError, match="evidence of its own"):
-        inq.record_classified(store, iid, "clinical_pk-rep",
-                              {"ratio": 1.7, "ci_low": 1.5, "ci_high": 1.9}, None,
-                              evidence_ref="https://doi.org/10.1000/study-1")
+    for again in ("https://doi.org/10.1000/study-1", "(DOI：10.1000/STUDY-1)。"):
+        with pytest.raises(ValueError, match="evidence of its own"):
+            inq.record_classified(store, iid, "clinical_pk-rep",
+                                  {"ratio": 1.7, "ci_low": 1.5, "ci_high": 1.9}, None,
+                                  evidence_ref=again)
     assert [o["analysis_id"] for o in inq.status(store, iid)["observed"]] == ["clinical_pk"]
+    inq.record_classified(store, iid, "clinical_pk-rep",
+                          {"ratio": 1.7, "ci_low": 1.5, "ci_high": 1.9}, None,
+                          evidence_ref="doi:10.1000/study-2")
 
 
 def test_a_replicate_the_agent_adds_to_a_runtime_classified_test_takes_its_rule(store):

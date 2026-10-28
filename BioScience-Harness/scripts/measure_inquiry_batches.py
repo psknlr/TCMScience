@@ -5,8 +5,10 @@
 
 The worlds are the calibration worlds of ``tests/test_rivals.py``: for every rival of every
 scaffold, 100 worlds whose outcomes are drawn from that rival's own sealed predictions. Each
-batch size meets the same worlds (the seed is ``scaffold:rival``, as in the calibration),
-so the row for one analysis per round is the calibration itself. A round runs the engine's
+batch size starts from the same seed (``scaffold:rival``, as in the calibration), so the row
+for one analysis per round is the calibration itself. The outcomes are drawn as analyses
+run, so a larger batch, which runs them in another order, draws other ones: the batch
+sizes share seeds, not worlds. A round runs the engine's
 batch (``Inquiry.batch``) and records every outcome in it; the inquiry ends when the batch
 is empty, and its conclusion is counted.
 """
