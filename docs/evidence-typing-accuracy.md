@@ -328,9 +328,11 @@ quasi- and pseudo-randomised allocation (by alternation or admission day; "quasi
 trial", "pseudo-randomized", "半随机", "类随机", "准随机") read as a randomized trial, and so did
 a trial described as "now recruiting". Quasi-random allocation is not randomisation, and
 PubMed does not type it as a randomized trial. A randomisation mention right after "quasi-"
-or "pseudo-" is now set aside, as a negated one is, and "is/are (now) recruiting" marks a
-protocol. The sample holds no such record: `--check` shows no record reading differently,
-and the results were regenerated only for the rules' digest. The cases are in
+or "pseudo-" (or 半, 类, 准, unless they end another word, as in "标准随机" or "一半随机") is now
+set aside, as a negated one is, and a trial or study that "is (now) recruiting", or "we are
+recruiting", marks a protocol; "trials that are currently recruiting", which a review looks
+for, does not. The sample holds no such record: `--check` shows no record reading
+differently, and the results were regenerated only for the rules' digest. The cases are in
 `tests/test_literature_evidence.py`.
 
 One expectation in `tests/test_literature_evidence.py` changed. "A systematic review and
@@ -427,6 +429,6 @@ Tests: `BioScience-Harness/tests/test_evidence_typing_benchmark.py` (offline). I
 - 有歧义的文本仍保持未评估。
 - 测试集上发现的缺口（如"随机分成"、"2例并文献复习"、方案"更新"）只记录，不修改，以免在测试集上调参。
 
-**此后的一处修改（来自样本之外的案例）：** 审查发现半随机/伪随机分配（按交替或入院日期分组；"quasi-randomized trial"、"pseudo-randomized"、"半随机"、"类随机"、"准随机"）会被读作随机对照试验，"now recruiting"（仍在招募）的试验也一样。半随机分配不是随机化，PubMed 也不将其标为随机对照试验。现在紧跟在"quasi-"或"pseudo-"之后的随机化提及与否定提及一样被跳过，"is/are (now) recruiting"视为试验方案。样本中没有此类记录：`--check` 显示没有任何记录的读法改变，结果文件只因规则摘要而重新生成。相应用例见 `tests/test_literature_evidence.py`。
+**此后的一处修改（来自样本之外的案例）：** 审查发现半随机/伪随机分配（按交替或入院日期分组；"quasi-randomized trial"、"pseudo-randomized"、"半随机"、"类随机"、"准随机"）会被读作随机对照试验，"now recruiting"（仍在招募）的试验也一样。半随机分配不是随机化，PubMed 也不将其标为随机对照试验。现在紧跟在"quasi-"或"pseudo-"（或"半""类""准"，但它们作为其他词的末字时除外，如"标准随机""一半随机"）之后的随机化提及与否定提及一样被跳过；试验或研究"is (now) recruiting"或"we are recruiting"视为试验方案，而综述所检索的"trials that are currently recruiting"不算。样本中没有此类记录：`--check` 显示没有任何记录的读法改变，结果文件只因规则摘要而重新生成。相应用例见 `tests/test_literature_evidence.py`。
 
 **CI：** `scripts/run_evidence_typing_benchmark.py --check` 离线运行。出现以下情况即判为回退：某条记录读得比已提交结果差，人工核对为正确的字段读法改变，或样本被改动。

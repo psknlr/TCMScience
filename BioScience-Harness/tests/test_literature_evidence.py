@@ -358,6 +358,9 @@ def test_unknown_fields_stay_unknown(index):
     ("Study protocol for a randomized controlled trial of acupuncture in adults.", ""),
     ("Participants will be randomized to acupuncture or sham acupuncture.", ""),
     ("We describe the design of a randomized trial that is now recruiting.", ""),
+    # ...but the trials a review looked for in registries are not this study
+    ("We conducted a systematic review of randomized trials and searched registries for "
+     "trials that are currently recruiting.", "systematic_review"),
     # quasi-random allocation (by alternation, admission day) is not randomisation
     ("In this quasi-randomized trial, 120 patients received Huangqi decoction or usual "
      "care.", ""),
@@ -366,6 +369,12 @@ def test_unknown_fields_stay_unknown(index):
     ("Patients were quasi-randomly allocated by alternation to two groups.", ""),
     ("采用半随机对照方法，将120例患者分为两组。", ""),
     ("采用类随机分组方法，将120例患者按入院顺序分为两组。", ""),
+    ("采用准随机对照方法，将120例患者按就诊顺序分为两组。", ""),
+    # ...but 半/类/准 ending another word does not qualify the randomisation: standard
+    # randomisation, half of them randomised, approved and then randomised
+    ("采用标准随机分组方法，将120例患者分为治疗组和对照组。", "randomized_trial"),
+    ("其中一半随机分配至治疗组。", "randomized_trial"),
+    ("患者经伦理委员会批准随机分为两组。", "randomized_trial"),
     # a random split of data is not a trial's allocation
     ("将患者按照7∶3随机分为训练集和验证集，建立预后模型。", ""),
     ("We performed a cross-sectional survey of 300 nurses.", "observational"),

@@ -62,8 +62,12 @@ _NEGATED = re.compile(r"(?:\bnot|\bnon[-–]?|\bwithout|未|非|无)\s*$", re.I)
 #: Allocation that only resembles randomisation, just before a randomisation mention:
 #: "quasi-randomized", "pseudo-randomised", "quasi-randomly allocated", "半随机", "类随机",
 #: "准随机". Allocation by alternation, admission day or record number is not
-#: randomisation, and PubMed does not type it as a randomized trial.
-_QUASI = re.compile(r"(?:\bquasi|\bpseudo)[-–]?\s*$|(?:半|类|准)$", re.I)
+#: randomisation, and PubMed does not type it as a randomized trial. 半, 类 and 准 also end
+#: common words that do not qualify the randomisation, and those are not set aside:
+#: "标准随机分组" is standard randomisation, "一半随机分配" half of them randomised,
+#: "经…批准随机分为" approved, then randomised.
+_QUASI = re.compile(r"(?:\bquasi|\bpseudo)[-–]?\s*$"
+                    r"|(?<![一大多过各减折两人分种此该这那同归标水基批核校精])[半类准]$", re.I)
 
 #: The study noun a design mention qualifies, when one follows it through modifiers only
 #: ("randomized, double-blind, placebo-controlled trial", "randomized and non-randomized
@@ -89,13 +93,15 @@ _DATA_SPLIT = re.compile(r"[\w ,()=]{0,40}?\b(?:training|derivation|development)
 
 #: A study still to be done. A protocol reports no results, so it licenses nothing whatever
 #: design it plans: "study protocol for a randomized controlled trial" is not a trial, and
-#: neither is a text whose participants "will be randomized".
+#: neither is a text whose participants "will be randomized", or a trial that "is now
+#: recruiting". Recruiting is read only of a trial or study, or "we": the "trials that are
+#: currently recruiting" a review searched registries for are other studies.
 _PROTOCOL = re.compile(
     r"\b(?:study|trial|research) protocol\b|\bprotocol (?:for|of) (?:a|an|the)"
     r"(?: [\w-]+){0,5}? (?:trial|study|review|cohort|project)\b"
     r"|\brationale and design\b|\bdesign and rationale\b"
     r"|\bwill be (?:randomi[sz]ed|randomly|allocated|assigned|recruited|enrolled)\b"
-    r"|\b(?:is|are) (?:now |currently |still )?recruiting\b"
+    r"|\b(?:(?:trial|study)(?: that)? is|we are) (?:now |currently |still )?recruiting\b"
     r"|\bwe (?:will|plan to) (?:recruit|enrol|enroll|randomi[sz]e)\b", re.I)
 
 _REVIEW = r"(?:systematic (?:literature )?review|(?:network )?meta[-–]?analysis)"

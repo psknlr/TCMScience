@@ -137,6 +137,8 @@ installed first. `--trimmer auto` uses fastp, then the built-in trimmer.
 `--de-backend pydeseq2` runs the test with PyDESeq2 instead, on the same design matrix
 and contrast, into the same result columns. If PyDESeq2 is not installed the run is
 refused, not switched to the built-in test.
+[omics-backends.md](omics-backends.md) says how the two are kept equivalent and where
+they differ.
 
 Without `--contrast`, the last design factor's two levels are compared, the later in
 sorted order against the earlier: `treated` against `control`, but `untreated` against
@@ -145,8 +147,6 @@ control-like level in the denominator instead, so on the same labels the two can
 opposite ways round. A run that chose its contrast says so among its warnings (in
 `report.md` and `run.json`): what it tested, by which rule, and that a log2 fold change
 above 0 means higher in the numerator. Name the contrast when the direction matters.
-[omics-backends.md](omics-backends.md) says how the two are kept equivalent and where
-they differ.
 
 One built-in step goes further than kallisto. By k-mers alone, a read pair whose mates
 both lie in shared exons is also compatible with an isoform that has an extra exon

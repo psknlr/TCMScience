@@ -361,7 +361,8 @@ A read-only public evaluation site ([live](https://psknlr.github.io/TCMScience/a
 
 ```mermaid
 flowchart LR
-    SRC(["declared sources"]) --> SCOUT["monthly scout<br/><i>runs nothing</i>"] --> CAND["candidate registry"]
+    SRC(["declared sources"]) -.->|"declared, not fetched"| SCOUT["monthly scout<br/><i>runs nothing</i>"]
+    SCOUT --> CAND["candidate registry"]
     CAND --> AUDIT["audit · 8 hard rejections"] --> SCORE["100-point review"] --> HUMAN{"human<br/>PromotionDecision"}
     HUMAN -->|approve| STABLE["stable registry"] --> LOCK[("skills.lock.yaml<br/>content-hash pinned")]
     HUMAN -.->|reject · defer| CAND
