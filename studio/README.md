@@ -252,7 +252,8 @@ Chromium 依次取 `$CHROMIUM_PATH`、`$PLAYWRIGHT_BROWSERS_PATH`（或 `/opt/pw
 `$STUDIO_E2E_TMP/screens`（默认 `studio/e2e/test-results/screens`）。另有浏览器运行时的逐项核对：
 `npm run test:runtime`（真实 Pyodide 中约 20 个调用的信封与本机 Python 逐个比较，名单见
 [docs/BROWSER_COMPUTE.md §10](docs/BROWSER_COMPUTE.md#10-validation)）。它需要能访问 Pyodide 的 CDN（或用 `--pyodide-dir`
-提供本地副本），**只能手动运行，不在 CI 中**。
+提供本地副本），**只能手动运行，不在 CI 中**。浏览器扫描（`node web/test/runtime/sweep.mjs`）则在 CI 中运行：浏览器能运行的每个工具
+（1,153 个调用）的信封都与本机 Python 逐个比较，只允许 `sweep.mjs` 中按条目与字段声明并写明原因的差异（见同一节）。
 
 ## 部署
 
@@ -363,7 +364,9 @@ is not evidence of safety, and predicted is not measured.
 Tests: `node --test studio/edge/test/*.test.js`, `python3 -m pytest -q studio/runner/tests`, `cd studio && npm test`,
 `cd studio && npm run test:e2e` (Playwright: the real runner, Pyodide from jsDelivr, `wrangler dev` of the Worker; the specs
 that need Pyodide skip with the reason when its CDN is unreachable, and fail in CI). `npm run test:runtime` compares about
-twenty envelopes from real Pyodide with native CPython; it is run by hand, not in CI.
+twenty envelopes from real Pyodide with native CPython; it is run by hand, not in CI. The browser sweep
+(`web/test/runtime/sweep.mjs`) compares every browser tool's envelope (1,153 calls) the same way, in CI; a difference
+passes only where it is declared by entry and field, with its reason ([docs/BROWSER_COMPUTE.md §10](docs/BROWSER_COMPUTE.md#10-validation)).
 Deployment: [edge/SETUP.md](edge/SETUP.md).
 
 Browser database access: [docs/BROWSER_ACCESS.md](docs/BROWSER_ACCESS.md), and each connector operation by verification level:

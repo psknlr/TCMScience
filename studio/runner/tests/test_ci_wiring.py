@@ -98,6 +98,10 @@ def test_studio_runs_the_browser_chemistry_kernels_and_admet_jobs_with_the_nativ
     studio, on = _load("studio.yml")
     for command in ("studio/web/test/runtime/chem.browser.mjs", "studio/web/test/runtime/gpu-science.mjs --software"):
         _job_with(studio, command)
+    # both WGSL checks on SwiftShader, in the same step: the Tanimoto kernel (gpu-science) and the sequence kernels
+    # (webgpu.browser.mjs, js/runtime/webgpu.js), each failing when the WGSL did not run
+    gpu = _job_with(studio, "studio/web/test/runtime/gpu-science.mjs --software")[-1]
+    assert "node studio/web/test/runtime/webgpu.browser.mjs --software" in gpu["run"]
     # RDKit 2026.9.1 and scikit-learn 1.8.0 installed in the job, before the step that needs them: the fixture's
     # regeneration, the native side of --mode admet, and the runner's ADMET tests (which skip without them)
     for command in ("studio/scripts/make_chem_fixtures.py --check", "science.mjs --mode admet",
@@ -106,6 +110,27 @@ def test_studio_runs_the_browser_chemistry_kernels_and_admet_jobs_with_the_nativ
     # the native side of --mode admet imports admet_world: a change to it runs the workflow
     for event in ("push", "pull_request"):
         assert "BioScience-Harness/tests/admet_world.py" in on[event]["paths"], event
+
+
+def test_studio_sweeps_every_browser_tool_against_native_cpython():
+    # sweep.mjs in the build job, on the --dev site an earlier step built (its test pages serve the sweep), every group
+    # (no --groups, no --keys), its report kept with the other browser reports
+    studio, _ = _load("studio.yml")
+    steps = _job_with(studio, "node studio/web/test/runtime/sweep.mjs")
+    sweep = steps[-1]["run"]
+    assert '--site "$RUNNER_TEMP/site-dev"' in sweep and '--json "$RUNNER_TEMP/science-sweep.json"' in sweep
+    assert "--groups" not in sweep and "--keys" not in sweep, "the whole sweep, not a subset"
+    assert any('build_web.py --out "$RUNNER_TEMP/site-dev" --dev' in str(s.get("run", "")) for s in steps[:-1])
+    assert any("npx playwright install" in str(s.get("run", "")) for s in steps[:-1]), "Chromium installed before"
+    assert steps[-1] in studio["jobs"]["build"]["steps"], "in the build job, which deploys only after it"
+    uploads = [s for s in studio["jobs"]["build"]["steps"] if str(s.get("uses", "")).startswith("actions/upload-artifact@")]
+    assert any(s.get("if") == "always()" and s["with"]["path"].endswith("science-*.json") for s in uploads)
+    # the sweep's rule is run.mjs's comparison, imported, not a copy of it
+    sweep_js = (REPO / "studio" / "web" / "test" / "runtime" / "sweep.mjs").read_text(encoding="utf-8")
+    assert re.search(r'import \{[^}]*\bcompareEnvelopes\b[^}]*\} from "\./run\.mjs"', sweep_js)
+    assert "function compareEnvelopes" not in sweep_js
+    run_js = (REPO / "studio" / "web" / "test" / "runtime" / "run.mjs").read_text(encoding="utf-8")
+    assert "export function compareEnvelopes" in run_js
 
 
 DOCK_PINS = ("vina==1.2.7", "meeko==0.8.0", "gemmi==0.7.5")

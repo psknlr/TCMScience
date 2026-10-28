@@ -434,8 +434,8 @@ a Windows + NVIDIA machine, or any device with a hardware adapter — there are 
 - **From the harness** (a checkout of this repository, with `studio`'s npm dependencies installed for Playwright):
   `node studio/web/test/runtime/gpu-science.mjs --channel chrome --headed` runs the same check in
   the person's own Chrome against its real GPU and prints the report. Without a flag a software-only machine reports
-  "no physical adapter" and exits 0 (not a parity failure); `--software` forces and labels SwiftShader; `--quick` uses
-  the two smaller sizes.
+  "no physical adapter" and exits 0 (not a parity failure); `--software` forces and labels SwiftShader, and exits 1
+  unless the WGSL ran, exact, at every size (no adapter is then a failure); `--quick` uses the two smaller sizes.
 
 The report shows, per size, the GPU time (search and its CPU check) beside the WebAssembly SIMD and JavaScript times,
 whether the GPU's answers were exact, and the per-size verdict, and an overall verdict and label. On a physical adapter
@@ -592,7 +592,10 @@ restated here. The 2026-10-18 additions are covered by
 `web/test/compute.test.mjs` and `web/test/runtime/webgpu.test.mjs` (the classifier, the ladder, the known-answer test,
 like-for-like timing, the receipt), `runner/tests/test_browser_compute.py` (the Worker's own packets bound in Python,
 the evidence Python writes) and `runner/tests/test_devices.py` (device evidence, the runtime report), and by
-`webgpu.browser.mjs --software` in Chromium 141 on SwiftShader.
+`webgpu.browser.mjs --software` in Chromium 141 on SwiftShader. Since 2026-10-28 Studio's CI build job runs
+`webgpu.browser.mjs --software` beside `gpu-science.mjs --software` (which now fails unless the WGSL ran, exact, at
+every size: a machine without a WebGPU adapter used to pass it with the verdict "no physical adapter"), and the
+browser sweep below.
 
 | Suite | What it proves | Result |
 |---|---|---|
@@ -600,7 +603,41 @@ the evidence Python writes) and `runner/tests/test_devices.py` (device evidence,
 | `pytest studio/runner/tests` | The Python side: packets bound to inputs, lying and broken kernels caught, the real JavaScript kernels driven through Node (with SIMD and without) against the original Python, the envelope fast paths against the original code, ranked formula search, the pinned skills' code against their pins, the web build and its service-worker manifest, the matrix | 338 passed |
 | `pytest -m unit BioScience-Harness` | The tools' kernel hooks and checks; everything else in bioagent | 2534 passed, 131 skipped |
 | `node --test studio/edge/test` | The Worker: relay, gateway, headers | 63 passed |
-| `node studio/web/test/runtime/run.mjs` (`npm run test:runtime`; run by hand, **not in CI**) | Real Pyodide in Chromium 141: 48 checks (governed skills, tools, kernels with each acceleration choice, cancellation, ranked formula search), reload from cache, a non-isolated page, a tampered bundle refused; on 2026-10-10, 18 envelopes compared field by field with native CPython. The comparisons are the calls `check.mjs` marks `compare`; as of 2026-10-19 there are 21, not re-run since: the 7 kernel tools; `benjamini_hochberg`, `fisher_exact`; the TCM lookups (`tcm_compatibility` twice, `tcm_herb`, `tcm_syndrome`); ranked `tcmdb.formulas`; `catalog_search`; three of the four pinned skills (safety, normalisation, evidence retrieval); and three refusals, compared as refusals: `connector_call` with web access off (`network_off`), `clinic.sign` (`HUMAN_ONLY`) and a misspelt argument (`bad_arguments`). The network-pharmacology seed skill is not among them | all passed (2026-10-10) |
+| `node studio/web/test/runtime/run.mjs` (`npm run test:runtime`; run by hand, **not in CI**) | Real Pyodide in Chromium 141: 48 checks (governed skills, tools, kernels with each acceleration choice, cancellation, ranked formula search), reload from cache, a non-isolated page, a tampered bundle refused; on 2026-10-10, 18 envelopes compared field by field with native CPython. The comparisons are the calls `check.mjs` marks `compare`; as of 2026-10-19 there are 21: the 7 kernel tools; `benjamini_hochberg`, `fisher_exact`; the TCM lookups (`tcm_compatibility` twice, `tcm_herb`, `tcm_syndrome`); ranked `tcmdb.formulas`; `catalog_search`; three of the four pinned skills (safety, normalisation, evidence retrieval); and three refusals, compared as refusals: `connector_call` with web access off (`network_off`), `clinic.sign` (`HUMAN_ONLY`) and a misspelt argument (`bad_arguments`). The network-pharmacology seed skill is not among them. Every browser tool's envelope is compared by the sweep, the next row | all passed (2026-10-10); re-run on 2026-10-28 (headless Chromium 141, Pyodide 314.0.7 from a local copy, `--sci`): 71 checks (full 53, reload 7, not isolated 9, tampered bundle 2), the 21 comparisons identical |
+| `node studio/web/test/runtime/sweep.mjs` (the browser sweep; in Studio's CI build job since 2026-10-28, Pyodide from jsDelivr) | Every tool the browser runs, called in Chromium through `BrowserRuntime` as the router calls it and natively as `tcmstudio call … --where browser --no-network` makes it, each pair of envelopes held to `run.mjs`'s comparison (`compareEnvelopes`, imported, not copied). The calls (`sweep_calls.py`): the entries the compatibility matrix runs in the browser (classes 1, 2, 3 and 5; 189 of them) and the 27 core tools, each with the input `tcmstudio validate` gives it (its example or probe), which 175 of those entries and 20 core tools have (the other 14 and 7 are called with the runner tests' inputs, `sweep_inputs.json`), the 444 connector operations with web access off (both sides must refuse them as `network_off`), 206 calls with a wrongly typed argument (the refusals compared), the native tools' 74 reference cases, each entry by its own id (175), 24 kernel calls above the kernels' thresholds, and 14 calls that need the complete formula workbook, on a fresh page of their own: 1,153 calls. A difference passes only where `KNOWN` in `sweep.mjs` declares it, by entry id and field, with its reason (below); any other difference, a call that fails on one side only or does not finish, or a connector not refused, fails the step | 2026-10-28, headless Chromium 141, Pyodide 314.0.7 from a local copy: 1,134 identical, 19 different only as declared, 0 failed, in 54.5 s (the browser 36 s, native CPython 18 s); the same with the native side in a Python installed as the CI job installs it (CPython 3.12, no openpyxl), 52.5 s |
+
+**The differences the sweep declares** (`sweep.mjs` `KNOWN`), each set aside by entry id and field, and nothing else:
+
+- The project's state root in the result (`/persist` in the browser, a temporary directory natively), for
+  `native.hk_cmm_dna_lookup`, `native.hkbu_formula_lookup`, `native.hkcmms_standard_lookup`, `tcmdb.status`,
+  `system.audit_verify`, `system.capabilities` and `capabilities_status`: compared with each side's root written
+  `<state root>`, they are identical.
+- `system.audit_verify`'s `head_hash`: each record carries its own time and run id, so it differs between two native
+  runs too; the records, the events by kind and `intact` are compared.
+- `system.capabilities` and `capabilities_status`: the host's own facts, namely the interpreter, which optional packages
+  import here (natively the host's installation; in the browser Pyodide loads numpy, scipy and pandas on first use),
+  the formula workbook (available natively, loaded on demand in the browser) and the browser's device report. The text
+  is compared up to its `Result:` line, the result leaf by leaf.
+- `system.capability_audit`: the connectors' verification. The browser runtime's bundle does not carry the committed
+  connector live-verification record (`BioScience-Harness/data/connector_live_verification.csv`), so in the browser its
+  444 connectors read `UNVERIFIED` (82 pass against 526 natively), and the envelope's limitations say so. The
+  site's `catalog.json` is built where the record is read, so the catalog shows them as passing. The two views differ
+  by design; the summary's count, that limitation and the counts by verification and implementation are set aside, and
+  every other number of the audit is compared.
+- `study.effect_modification` (with the runner tests' input): `numpy.linalg.lstsq` and `inv` (OpenBLAS natively,
+  Pyodide's numpy in the browser) differ in the last bits of float64: 11 numbers, at most 2.8e-14 relative (the
+  interaction's lower confidence limit) and 1.2e-15 absolute. Its result and text are held within 1e-12 relative
+  (`compare.mjs` `RELATIVE`), everything else exactly. `study.contrast_formula_monomer`, also numpy, is identical.
+- `clinic.assess` and `clinic_assess`: the session's id, its start and end times and the interpreter version it records.
+- `skill.draft-tcm-prescription`: `clinic_summary.json` records its own run directory, and the composite version's
+  source digest covers the source cards' `snapshot_at` times; both differ between two native runs too (the skill is
+  unpinned and never released on either side). The file is compared by its content, apart from that directory.
+
+`receipt.output_sha256` hashes the result as written, so it is set aside exactly where the result differs as declared.
+`receipt.input_sha256` is compared: like `run.mjs`, the sweep gives the native side the arguments as JavaScript writes
+them, and JavaScript has one number type (the catalog example's `3.0` reaches both sides as `3`; see CONTRACTS.md §3 on
+what the hash covers). The sweep does not cover a sequence across a reload, such as a store imported and then read back
+after the page reloads, or Cache Storage after the formula workbook loads: those are separate checks.
 
 **Cross-platform status.** Tested: Chromium 141 headless on Linux x86-64, isolated and not isolated; Node 22 (V8)
 for the kernels; native CPython 3.13 for the comparisons. The repository's Playwright suite also emulates a phone (390 ×

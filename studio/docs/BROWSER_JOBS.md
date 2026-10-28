@@ -255,7 +255,9 @@ recorded digest and compared file by file:
 | the UMAP's structure instead of its numbers | — | the same cells in the same order, all coordinates finite, and the share of each cell's 15 nearest UMAP neighbours in its own cluster: browser 0.9985, native 0.9983 (required: at least 0.95 and within 0.01 of the native) |
 
 The tolerance, for each numeric cell: |a − b| ≤ 1e-6 + 1e-4·max(|a|,|b|) + one unit in the sixth significant digit of
-max(|a|,|b|) (the tables print `%.6g`). Every table that differed is a DESeq2 fit's (`deseq2_results.tsv`,
+max(|a|,|b|) (the tables print `%.6g`); since 2026-10-28, in the probability columns (`p_value`, `p_adjusted`) without
+the 1e-6 term, since the most significant genes' p-values lie far below it (70 of the 1,999 tested in
+`deseq2_results.tsv`, 8 in the B-cell pseudobulk), where that term alone let any two values pass. Every table that differed is a DESeq2 fit's (`deseq2_results.tsv`,
 `de_diagnostics.tsv`, the four pseudobulk tables): the dispersion search, a grid then golden sections on a flat
 likelihood, turns a last-bit difference between the native build of numpy, scipy and BLAS and Pyodide's wasm32 build
 into a difference the six printed digits can show. Harmony's embedding is printed in no table, and what follows from
@@ -269,7 +271,14 @@ Since the runs above, the harness gives each figure that is not the same bytes i
 holds what it draws only where one does (`plots/pca.svg`, `pca_variance.svg` and `sample_distances.svg` draw what no
 table holds), and holds `report.html` to identical text with its figures set aside, with no tolerance on its text
 (in both runs above it was identical so). One local run with these rules, from the bundle the limits below were
-checked with, gave the same rows and known answers.
+checked with, gave the same rows and known answers. Since 2026-10-28 the harness also holds `run.json` and
+`stages.json` field by field, their numbers under the rule, apart from what names the process, its time and its paths
+(`started`, `finished`, `python`, `numpy`, `scipy`, `summary.out_dir`, each stage's `seconds`; the outputs' digests
+are their files' own rows, and the inputs are compared by file name and digest); before, it compared only the stages'
+outcomes and the outputs' names. A local run with these two changes (headless Chromium 141, Pyodide 314.0.7 from a
+local copy) gave the same rows and known answers, the largest share of the bound 0.139 (the same `p_adjusted`, now
+without the 1e-6 term), the run records' numbers (each DESeq2 fit's dispersion trend and prior variance, the
+clustering's modularity) within the rule.
 
 **Known answers on the browser's files** (a Python checker natively reading them, its bounds from
 `bioagent/data/pipeline_references.json`; the native files give the same). RNA-seq: the inputs are `omics_counts_world`
@@ -437,7 +446,7 @@ as refused and why, not as "could not be read".
 **The comparison, and its rules.** `science.mjs --mode admet` runs `admet.models` (the archive as a project file) then
 `pipeline.admet` as jobs of the page's job service in headless Chromium 141 (Pyodide 314.0.7, RDKit.js 2026.9.1), and
 compares every output with a native run (RDKit 2026.9.1, scikit-learn 1.8.0, one thread). It holds the browser to
-exactness, not to a tolerance, with two named exceptions:
+exactness, not to a tolerance, with three named exceptions:
 
 - A **model card** is compared field by field apart from what names the process that wrote the model, not the model:
   the model file's and the domain file's SHA-256 (a pickle's bytes depend on the process — wasm32 here, 64-bit
@@ -456,6 +465,11 @@ exactness, not to a tolerance, with two named exceptions:
   native glibc and numpy 2.4.6 on this AVX-512 machine): Pyodide's power differed from glibc's `pow` on 65 (0.07%) and
   from numpy's AVX-512 power on 5,317 (5.3%), by 1 unit; its `exp` from glibc's on 72; `expit` on 34 (0.03%), by at
   most 2 units.
+- A **descriptor** of the chemistry's float64 values: `qed` (`compare.mjs` `ADMET_ULP_DESCRIPTORS`) may differ by at
+  most 4 units in the last place, and only where it is equal as float32, the precision the models read (V8's
+  `Math.exp` and `Math.log` are not glibc's: the chemistry's parity above). Each such molecule is named and the row is
+  never called identical; every other descriptor is compared exactly. On the 39-molecule set `qed` differed on 10
+  molecules, by at most 2 units.
 
 **The GPU domain search, and its evidence.** The domain search (batch Tanimoto max over packed 2048-bit Morgan bits:
 per query, the nearest training molecule — smallest index on ties — and the integer intersection and union, Python
@@ -832,7 +846,8 @@ RNA-seq：`counts.tsv`、`vst.tsv`、`report.md`、`limitations.md` 与四张图
 最大相对差 1.81e-5）；各伪批量检验的显著基因同为 16、0、0、0 个；全部 1,077 个细胞的聚类与细胞类型、聚类表完全相同；
 UMAP 坐标与三张 UMAP 图不比较（`paga.svg` 的边是 `paga.tsv` 中已比较的连接度，其节点位于各簇 UMAP 坐标的中位数），改查结构：每个细胞 15 个最近 UMAP 邻居中同簇的比例，浏览器 0.9985、原生 0.9983（要求
 至少 0.95，且与原生相差不超过 0.01）。容差为：|a − b| ≤ 1e-6 + 1e-4·max(|a|,|b|) + max(|a|,|b|) 第六位有效数字的一个
-单位（表格按 `%.6g` 输出）。不同的表都是 DESeq2 拟合的输出（`deseq2_results.tsv`、`de_diagnostics.tsv` 与四个伪批量表）：
+单位（表格按 `%.6g` 输出）；自 2026-10-28 起，概率列（`p_value`、`p_adjusted`）不含 1e-6 一项：最显著基因的 p 值远小于它
+（`deseq2_results.tsv` 检验的 1,999 个基因中 70 个，B 细胞伪批量中 8 个），仅这一项就会让任意两个这样的值通过。不同的表都是 DESeq2 拟合的输出（`deseq2_results.tsv`、`de_diagnostics.tsv` 与四个伪批量表）：
 离散度搜索把原生构建与 Pyodide 的 wasm32 构建之间末位的差异放大到打印出的六位数字；Harmony 的嵌入不出现在任何表中，由它
 得出的 `clusters.tsv`、`paga.tsv`、`markers.tsv` 与 `cells.tsv`（UMAP 除外）完全相同。表头、基因与细胞顺序、NA 位置、
 True/False 标记和文字必须完全相同；跨越 alpha 的基因判为失败，
@@ -840,7 +855,11 @@ True/False 标记和文字必须完全相同；跨越 alpha 的基因判为失�
 界的 0.157（一个血小板伪批量 p 值），而更严的 1e-7 + 1e-5·max 被超出 1.55 倍。这一容差是在两个模拟参考上拟合的，对其他数据未经确立。
 此后比对工具对每张不逐字节一致的图给出各自的原因（只在确有表格包含其所画数值时指明该表；`plots/pca.svg`、`pca_variance.svg`
 与 `sample_distances.svg` 所画的数值不在任何表中），并要求 `report.html` 去掉内嵌图后文字完全相同，不设容差（上述两次运行
-中均如此）。用这些规则在本地运行过一次（所用应用包与下文核对限值的相同），比对结果与已知答案与上面相同。已知答案在浏览器写出的
+中均如此）。用这些规则在本地运行过一次（所用应用包与下文核对限值的相同），比对结果与已知答案与上面相同。自 2026-10-28 起，比对工具
+还逐字段比对 `run.json` 与 `stages.json`，其中数值按上述容差，只略去标识进程、时间与路径的字段（`started`、`finished`、`python`、`numpy`、
+`scipy`、`summary.out_dir`、各阶段的 `seconds`；各输出的摘要由各文件自己的行比对，输入按文件名与摘要比对）；此前只比对各阶段的结局与输出名。
+含这两处改动的一次本地运行（无头 Chromium 141，Pyodide 314.0.7 来自本地副本）比对结果与已知答案与上面相同，最大用到容差界的 0.139（同一个
+`p_adjusted`，现已不含 1e-6 一项），运行记录中的数值（各次 DESeq2 拟合的离散度趋势与先验方差、聚类的模块度）在容差内。已知答案在浏览器写出的
 文件上成立（原生文件亦然）：RNA-seq 上调 40/40、下调 40/40（各至少 38），方向错误 0，90 个显著中假发现 10 个（至多 15），
 检验 1,999 个基因；单细胞聚类 ARI 1.0000（887 个细胞），四种细胞类型，B 细胞伪批量中 20 个预设基因找到 16 个（至少 12），
 其他类型各 0 个（至多 1），批次混合度 1.0253（大于 0.8）。两个回执都在其记录的摘要处，`outputs_verified`，设备证据
@@ -950,7 +969,7 @@ C++ 异常时，该分子同样被拒绝（`RDKit.js exception`），化学工�
 
 **比对及其规则**：`science.mjs --mode admet` 在无头 Chromium 141（Pyodide 314.0.7、RDKit.js 2026.9.1）中，以页面任务服务的任务先运行
 `admet.models`（归档作为项目文件）再运行 `pipeline.admet`，并把每个输出与原生运行（RDKit 2026.9.1、scikit-learn 1.8.0、单线程）比对。它要求
-完全一致，不设容差，只有两个点名的例外：**模型卡**逐字段比对，只略去标识写出模型的进程而非模型本身的字段——模型文件与适用域文件的 SHA-256（pickle
+完全一致，不设容差，只有三个点名的例外：**模型卡**逐字段比对，只略去标识写出模型的进程而非模型本身的字段——模型文件与适用域文件的 SHA-256（pickle
 的字节取决于进程：此处为 wasm32，原生为 64 位，因此模型文件本身不比对；适用域 `.npy` 的字节单列一行比对）、训练 `seconds` 与化学引擎名称；原生
 模型用浏览器化学保留的分子训练。**预测**是模型的原始输出（提升树之和，完全一致地比对）经过一个初等函数：分类终点为 scipy 的 `expit`（其 `exp`
 来自 C 库），log10 终点为 numpy 的 `10 **`。这些末位在不同库之间不同，因此最终值可能在 float64 末位相差**至多 4 个单位**，逐个点名，绝不称作
@@ -958,7 +977,9 @@ C++ 异常时，该分子同样被拒绝（`RDKit.js exception`），化学工�
 numpy 的 `10 **` 用其自带的 SIMD 幂运算而非 glibc 的 `pow`，因此原生 log10 终点的末位本身就会因 CPU 是否有 AVX-512 而不同（核查的 vdss_lombardo 值在浏览器中与
 glibc 的一致，与众不同的是原生 numpy 的值）。在合成归档上实测：至多 2 个单位，16,120 个测试集预测中 52 个，所有原始输出一致。在 [−4, 4] 内的 100,000 个值上（Node 下的 Pyodide 314.0.7 对照
 本机原生的 glibc 与 AVX-512 上的 numpy 2.4.6）：Pyodide 的幂运算与 glibc 的 `pow` 不同者 65 个（0.07%），与 numpy 的 AVX-512 幂运算不同者 5,317 个（5.3%），都差 1 个单位；其 `exp` 与 glibc 的不同者 72 个；`expit` 34 个（0.03%），
-至多 2 个单位。
+至多 2 个单位。**描述符**：`qed`（`compare.mjs` 的 `ADMET_ULP_DESCRIPTORS`）的 float64 值可在末位相差至多 4 个单位，且只在作为 float32
+相等时（模型读取的精度；V8 的 `Math.exp`/`Math.log` 不是 glibc 的，见上文化学引擎的一致性），逐个分子点名，该行绝不称作一致；其他描述符都完全一致地
+比对。在 39 个分子的集合上，`qed` 在 10 个分子上不同，至多差 2 个单位。
 
 **GPU 适用域检索及其证据**：适用域检索（打包 2048 位 Morgan 位上的批量 Tanimoto 最大值：每个查询的最近训练分子——平局取最小下标——及整数交集与
 并集，由 Python 以 float64 相除）经 `science-scheduler.js` 在本设备的内核上运行。在用户的加速设置下，只有本设备自身的检查（`device-check.js`）测得
