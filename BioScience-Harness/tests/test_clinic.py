@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -294,6 +295,83 @@ def test_check_reviews_a_practitioners_own_prescription(pack):
     assert found["unknown_herb:不在知识包的药"] == "block"
 
 
+@pytest.mark.parametrize("allergy,herb", [("黄耆", "黄芪"), ("北芪", "黄芪"), ("绵芪", "黄芪"),
+                                          ("炙黄芪", "黄芪"), ("芍药", "白芍"), ("国老", "甘草"),
+                                          ("国老", "炙甘草"), ("黄芪", "黄芪")])
+def test_an_allergy_written_under_another_name_of_the_herb_stops_it(pack, allergy, herb):
+    # 黄耆 is how Taiwan and the classics write 黄芪, 北芪 a trade name: the same herb
+    it = parse_intake(case(*SPLEEN, allergies=[allergy]), pack)
+    found = {i.id: i for i in check([Line(herb, 9, "practitioner")], it, pack)}
+    assert found[f"allergy:{herb}"].severity == "stop", sorted(found)
+    assert allergy in found[f"allergy:{herb}"].message
+
+
+def test_an_allergy_to_another_herb_is_not_read_as_this_one(pack):
+    # 赤芍 is not 白芍, 党参 is not 人参, and a name that only shares a character is nothing
+    # and an entry is not searched for names inside it: 花粉过敏 is pollen, not 天花粉
+    for allergy, herb in (("赤芍", "白芍"), ("党参", "人参"), ("青霉素", "黄芪"), ("黄芩", "黄芪"),
+                          ("花粉过敏", "天花粉")):
+        it = parse_intake(case(*SPLEEN, allergies=[allergy]), pack)
+        assert not [i for i in check([Line(herb, 9, "practitioner")], it, pack)
+                    if i.code == "allergy"], (allergy, herb)
+
+
+@pytest.mark.parametrize("medication,herb,klass,atc", [
+    ("呋塞米 20mg qd", "炙甘草", "利尿剂", "C03CA01"),
+    ("氢氯噻嗪片 25mg", "甘草", "利尿剂", "C03AA03"),
+    ("泼尼松 10mg", "甘草", "糖皮质激素", "H02AB07"),
+    ("Coumadin 3 mg", "当归", "华法林", "B01AA03"),
+    ("华法林钠片 3mg", "当归", "华法林", None),          # the class word itself, as before
+    ("苯乙肼 15mg tid", "麻黄", "单胺氧化酶抑制剂", "N06AF03"),
+    ("氨氯地平 5mg", "麻黄", "降压药", "C08CA01"),
+    ("Norvasc 5 mg", "麻黄", "降压药", "C08CA01"),
+])
+def test_a_medicine_named_specifically_is_read_as_its_atc_class(pack, medication, herb, klass,
+                                                               atc):
+    # 甘草 with a loop diuretic (hypokalaemia) is the case the rule was written for, but the
+    # rule's words are classes (利尿剂, diuretic): a record of 呋塞米 matched none of them
+    it = parse_intake(case(*SPLEEN, meds=[medication]), pack)
+    hits = [i for i in check([Line(herb, 6, "practitioner")], it, pack) if i.code == "interaction"]
+    assert len(hits) == 1, (medication, herb)
+    assert hits[0].severity == "warn" and klass in hits[0].message
+    if atc:
+        assert f"ATC {atc}" in hits[0].message and "WHO" in hits[0].source
+
+
+def test_a_medicine_outside_the_mapping_or_its_rule_raises_no_interaction(pack):
+    for medication, herb in (("螺内酯 20mg", "甘草"),      # potassium-sparing: not the rule's risk
+                             ("阿莫西林", "甘草"), ("呋塞米", "麻黄"), ("美托洛尔", "麻黄")):
+        it = parse_intake(case(*SPLEEN, meds=[medication]), pack)
+        assert not [i for i in check([Line(herb, 6, "practitioner")], it, pack)
+                    if i.code == "interaction"], (medication, herb)
+
+
+def test_every_mapped_medicine_names_one_rule_class_and_its_atc_group(pack, tmp_path):
+    assert pack.drug_classes, "the pack maps specific medicines to its rules' classes"
+    rule_words = {d for r in pack.drug_interactions for d in r["drugs"]}
+    seen: dict[str, str] = {}
+    for name, (klass, atc) in pack.drug_classes.items():
+        assert klass in rule_words, (name, klass)
+        assert re.fullmatch(r"[A-Z]\d\d[A-Z][A-Z]\d\d", atc), (name, atc)
+        assert seen.setdefault(name, klass) == klass        # one class per name
+    data = json.loads(Path(pack.path).read_text(encoding="utf-8"))
+    data["drug_classes"]["drugs"].append({"atc": "C07AB02", "class": "降压药",
+                                          "names": ["美托洛尔"]})          # a beta blocker
+    bad = tmp_path / "pack.json"
+    bad.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(P.PackError, match="C07AB02"):
+        P.load_pack(bad)
+
+
+def test_assess_blocks_the_draft_for_an_allergy_under_another_name(pack, tmp_path):
+    sinking = (["脘腹重坠", "久泻", "脱肛", "内脏下垂", "神疲乏力", "少气懒言"], ["舌淡，苔白"],
+               ["脉缓弱"])
+    for allergy in ("黄芪", "黄耆", "北芪"):
+        s = assess(case(*sinking, allergies=[allergy]), tmp_path / allergy, pack=pack)
+        assert "黄芪" in {ln.herb for ln in s.prescription.lines}
+        assert s.status == "blocked" and "allergy:黄芪" in {i.id for i in s.prescription.issues}
+
+
 # ----------------------------------------------------------------- sign-off
 def test_a_draft_is_signed_only_with_reasons_and_verifies(pack, tmp_path):
     out = tmp_path / "s"
@@ -477,3 +555,5 @@ def test_the_doc_states_the_packs_real_counts(pack):
         row = next(ln for ln in text.splitlines() if ln.startswith(f"| {what}"))
         assert f"| {n} |" in row, row
     assert pack.version in text and "not reviewed" in text
+    medicines = len({atc for _, atc in pack.drug_classes.values()})
+    assert f"{medicines} named medicines" in text and f"{medicines} 种药" in text

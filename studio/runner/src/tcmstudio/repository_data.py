@@ -38,7 +38,11 @@ def workbook_path() -> Path | None:
 
 
 def workbook_rows(path: Path) -> Iterator[list[str]]:
-    """Stream XLSX values without an optional build-time dependency."""
+    """Stream XLSX values without an optional build-time dependency. Each cell is read as
+    the openpyxl reader reads it (``formulas.read_cell``: 芎\\ue840 as 芎䓖, ``_x000D_`` dropped),
+    so both give a record the same text and id."""
+    from bioagent.sources.formulas import read_cell
+
     with zipfile.ZipFile(path) as archive:
         strings: list[str] = []
         if "xl/sharedStrings.xml" in archive.namelist():
@@ -65,14 +69,15 @@ def workbook_rows(path: Path) -> Iterator[list[str]]:
                         text = strings[int(text)]
                     elif cell.get("t") == "inlineStr":
                         text = "".join(t.text or "" for t in cell.iter(_NS + "t"))
-                    cells[column - 1] = text.strip()
+                    cells[column - 1] = read_cell(text)
                 yield cells
                 node.clear()
 
 
 def build_formula_store(workbook: Path, destination: Path) -> dict[str, Any]:
-    """Keep all seven original columns; index names; record source digests and row count."""
-    from bioagent.sources.formulas import _clean_name
+    """Keep all seven original columns; index names; record source digests, row count and
+    how the cells were read."""
+    from bioagent.sources.formulas import CELL_READING, _clean_name
 
     digest = hashlib.sha256(workbook.read_bytes()).hexdigest()
     rows = workbook_rows(workbook)
@@ -102,7 +107,8 @@ def build_formula_store(workbook: Path, destination: Path) -> dict[str, Any]:
         conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
         conn.executemany("INSERT INTO metadata VALUES (?,?)", [
             ("source_name", workbook.name), ("source_sha256", digest),
-            ("license", FORMULA_LICENSE), ("rows", str(count))])
+            ("license", FORMULA_LICENSE), ("rows", str(count)),
+            ("cell_reading", CELL_READING)])
     return {"rows": count, "source_sha256": digest, "license": FORMULA_LICENSE,
             "source_name": workbook.name}
 

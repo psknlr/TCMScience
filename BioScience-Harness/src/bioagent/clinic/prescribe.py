@@ -127,6 +127,23 @@ def _resolve(kb: Any, herb: str) -> Any:
     return r.entity if getattr(r, "found", False) else None
 
 
+def _identity(kb: Any, name: str) -> set[str]:
+    """The herb a written name denotes, by the seed knowledge base's names (北芪, 绵芪) and
+    the materia table's (黄耆, 芍药, 国老, 炙黄芪): a processed form is its herb. Only a whole
+    name resolves; a name that is part of another (天花粉 in 花粉过敏) is not read as it."""
+    from ..sources.materia import resolve_name
+    out: set[str] = set()
+    entity = _resolve(kb, name)
+    if entity is not None:
+        herb = getattr(entity, "herb_id", "") or entity.id
+        if herb.startswith("herb."):
+            out.add(herb)
+    drug = resolve_name(name)
+    if drug:
+        out.add(f"materia:{drug}")
+    return out
+
+
 def _line_for(pack: ClinicPack, herb: str, dose: float | None, fraction: float, *,
               basis: str, textbook: float | None = None) -> tuple[Line, list[Issue]]:
     spec = pack.herbs.get(herb)
@@ -367,22 +384,36 @@ def check(lines: Sequence[Line], intake: Intake, pack: ClinicPack, *, kb: Any = 
         _pregnancy(issues, ln.herb, spec.pregnancy, entity, kb, patient)
     _incompatibility(issues, herbs, entities, kb, pack)
     if intake.allergies:
+        # by name and by identity: 黄耆, 北芪 and 黄芪 are one herb, 芍药 is 白芍, 国老 is 甘草
+        allergic = {a: _identity(kb, a) for a in intake.allergies}
         for h in herbs:
+            same = _identity(kb, h)
             for a in intake.allergies:
                 if normalise(h) in a or (len(a) >= 2 and a in normalise(h)):
                     issues.append(Issue(f"allergy:{h}", "stop", "allergy",
                                         f"过敏史记录“{a}”：处方含{h}", (h,)))
+                elif same & allergic[a]:
+                    issues.append(Issue(f"allergy:{h}", "stop", "allergy",
+                                        f"过敏史记录“{a}”：处方含{h}（{a}与{h}为同一药材）",
+                                        (h,)))
     if intake.medications is not None:
         meds = [normalise(m) for m in intake.medications]
+        named = _named_medicines(pack, meds)
         for rule in pack.drug_interactions:
             present = [h for h in herbs if h in rule["herbs"]]
             drugs = [d for d in rule["drugs"] if any(normalise(d) in m for m in meds)]
-            if present and drugs:
-                issues.append(Issue(f"interaction:{'+'.join(present)}:{drugs[0]}", "warn",
+            # a medicine recorded by name (呋塞米, Lasix) is read as its ATC class (利尿剂)
+            by_name = [(n, word, atc) for n, word, atc in named if word in rule["drugs"]]
+            if present and (drugs or by_name):
+                labels = drugs + [f"{n}（{word}，ATC {atc}）" for n, word, atc in by_name]
+                source = str(rule.get("source") or "")
+                if by_name:
+                    source += f"；药物分类：{pack.drug_classes_source}"
+                issues.append(Issue(f"interaction:{'+'.join(present)}:"
+                                    f"{(drugs or [n for n, _, _ in by_name])[0]}", "warn",
                                     "interaction",
-                                    f"{'、'.join(present)}与正在使用的{'、'.join(drugs)}："
-                                    f"{rule['risk']}", tuple(present),
-                                    str(rule.get("source") or "")))
+                                    f"{'、'.join(present)}与正在使用的{'、'.join(labels)}："
+                                    f"{rule['risk']}", tuple(present), source))
     if intake.conditions:
         conds = [normalise(c) for c in intake.conditions]
         for rule in pack.condition_cautions:
@@ -394,6 +425,23 @@ def check(lines: Sequence[Line], intake: Intake, pack: ClinicPack, *, kb: Any = 
                                     f"既往{'、'.join(hit)}：{'、'.join(present)}，{rule['why']}",
                                     tuple(present), str(rule.get("source") or "")))
     return _dedupe(issues)
+
+
+def _named_medicines(pack: ClinicPack, meds: Sequence[str]) -> list[tuple[str, str, str]]:
+    """(name, class word, ATC code) of each medicine the pack's ATC mapping finds in the
+    recorded medications, once per ATC code. A name inside a longer one found in the same
+    record is that one's (泼尼松 in 泼尼松龙 is prednisolone, not prednisone)."""
+    out: list[tuple[str, str, str]] = []
+    codes: set[str] = set()
+    for m in meds:
+        found = [n for n in pack.drug_classes if normalise(n) and normalise(n) in m]
+        for n in found:
+            word, atc = pack.drug_classes[n]
+            if atc in codes or any(n != o and normalise(n) in normalise(o) for o in found):
+                continue
+            codes.add(atc)
+            out.append((n, word, atc))
+    return out
 
 
 def _pregnancy(issues: list[Issue], herb: str, pack_note: str, entity: Any, kb: Any,

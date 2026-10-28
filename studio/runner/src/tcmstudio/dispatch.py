@@ -2450,6 +2450,14 @@ def _exec_skill(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
 
 # ------------------------------------------------------------------ 十八反 / 十九畏
 
+def _rule_key(name: str) -> str:
+    """How the rule table keys a herb: its materia id, or its name as written when the
+    materia table does not hold it (西洋参, 红大戟, 平贝母, 狼毒 …). The table and every
+    lookup in it key names this one way, so such a pair still fires."""
+    from bioagent.sources.materia import normalise_name, resolve_name
+    return resolve_name(name) or normalise_name(name)
+
+
 @functools.lru_cache(maxsize=1)
 def _rule_pairs() -> tuple[dict[str, dict[tuple[str, str], dict[str, str]]], str, str]:
     """The clinic pack's 十八反 and 十九畏 table by crude drug: drug -> {(other drug, rule):
@@ -2458,12 +2466,11 @@ def _rule_pairs() -> tuple[dict[str, dict[tuple[str, str], dict[str, str]]], str
     table has them all. It is outside the pinned skills, so their runs are unchanged and the
     table is added beside them, labelled as what it is."""
     from bioagent.clinic.pack import load_pack
-    from bioagent.sources.materia import resolve_name
 
     pack = load_pack()
     by: dict[str, dict[tuple[str, str], dict[str, str]]] = {}
     for a, b, rule in pack.incompatible:
-        da, db = resolve_name(a) or a, resolve_name(b) or b
+        da, db = _rule_key(a), _rule_key(b)
         source = pack.incompatible_sources.get(rule, "")
         by.setdefault(da, {}).setdefault((db, rule), {"name": b, "source": source})
         by.setdefault(db, {}).setdefault((da, rule), {"name": a, "source": source})
@@ -2480,14 +2487,12 @@ def _rule_label(status: str) -> tuple[str, str]:
 def _safety_rule_table(args: Mapping[str, Any], outputs: Mapping[str, Any], result: dict[str, Any],
                        g: dict[str, Any], summary: str, summary_en: str) -> tuple[str, str]:
     """A safety report on a herb, with every pair the 十八反/十九畏 table names for it."""
-    from bioagent.sources.materia import resolve_name
     try:
         by, status, version = _rule_pairs()
     except (OSError, ValueError, KeyError):
         return summary, summary_en
     subject = str(args.get("subject") or "")
-    drug = resolve_name(subject.strip())
-    pairs = by.get(drug or "", {})
+    pairs = by.get(_rule_key(subject), {})
     if not pairs:
         return summary, summary_en
     seed = {str(r.get("counterpart") or "").split(".", 1)[-1]
@@ -2507,7 +2512,7 @@ def _safety_rule_table(args: Mapping[str, Any], outputs: Mapping[str, Any], resu
                         f"with {names}; the seed corpus records "
                         f"{sum(r['in_seed_corpus'] for r in rows)} of these pairs."]
     co = [str(x) for x in args.get("co_administered") or ()]
-    hit = [r for r in rows for c in co if resolve_name(c.strip()) == r["drug"]]
+    hit = [r for r in rows for c in co if _rule_key(c) == r["drug"]]
     if hit:
         # the seed's "no incompatibility recorded" for this combination is not the answer
         result["rule_table"]["co_administered_conflicts"] = hit
@@ -2526,7 +2531,6 @@ def _safety_rule_table(args: Mapping[str, Any], outputs: Mapping[str, Any], resu
 def _compatibility_rules(args: Mapping[str, Any], o: Outcome) -> Outcome:
     """A compatibility check with the pairs the 十八反/十九畏 table forbids that the seed
     corpus cannot see (its 23 herbs do not include 海藻, 大戟 or 芫花)."""
-    from bioagent.sources.materia import resolve_name
     if o.status != "succeeded" or not isinstance(o.result, Mapping):
         return o
     try:
@@ -2539,7 +2543,7 @@ def _compatibility_rules(args: Mapping[str, Any], o: Outcome) -> Outcome:
         names.extend(expanded.get(str(h), [str(h)]))
     drugs = {}
     for n in dict.fromkeys(names):
-        d = resolve_name(n.strip())
+        d = _rule_key(n)
         if d:
             drugs.setdefault(d, n)
     seen = {frozenset(str(c.get(k) or "").split(".", 1)[-1] for k in ("first_id", "second_id"))
