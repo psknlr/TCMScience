@@ -33,7 +33,18 @@ model may say what it expects; it does not decide what was learned.**
    result is an accommodation, and is refused (`INQ115`). A sealed one cannot be changed
    (`INQ116`). The serialised inquiry *is* its hash-chained trail. Loading it replays every
    step, and a recorded belief that does not recompute from the sealed predictions and the
-   outcomes is refused (`INQ150`). Rewriting the hash chain does not get past this.
+   outcomes is refused (`INQ150`), as is an entry the replay cannot apply. Recomputing the
+   hash chain does not get an edited belief past this. It does not stop an edited
+   prediction: the digests are not keyed, so whoever can write the stored file can change a
+   sealed prediction, replay the outcomes and recompute every digest, and the trail loads.
+   That a prediction was sealed in advance rests on who can write the store. In Studio the
+   runtime keeps it and the agent reaches it only through the tool. A recorder (below) also
+   writes each entry's digest to the kernel's audit chain, which loading does not consult.
+   A saved inquiry names the version of the rules it was begun under (`engine`; none before
+   version 2). One begun under earlier rules keeps the advice its trail recorded (each
+   observation's purpose, rival and recommended step, and each plan), because the rules
+   that chose it have changed since. Its belief, predictions and outcomes are recomputed as
+   for any other, and what it concludes now follows the current rules.
 2. **A design that cannot license a claim kind cannot move belief in it.** A docking run may
    not carry a prediction about clinical efficacy (`INQ113`). The engine holds such an
    explanation's probability fixed by giving it the predictive distribution of the others,
@@ -47,12 +58,22 @@ model may say what it expects; it does not decide what was learned.**
    out of the catch-all's *current* mass, so it gets no credit for the data it was invented
    to fit.
 4. **A high posterior is not enough to stop.** The leader is accepted only after it has
-   passed a **severe test** against every live rival and each such test has been
-   **replicated**. A severe test would probably fail the leader if the rival were true, and
-   probably pass it if the leader were (both at 0.8 by default), so passing one carries a
-   likelihood ratio of at least 4. Both numbers come from the sealed predictions alone, not
-   from the priors. A run of weakly informative confirmatory analyses raises a posterior and
-   cannot meet this rule.
+   passed a **severe test** against every live rival and, against each rival, one such
+   test has been **replicated**. A severe test would probably fail the leader if the rival
+   were true, and probably pass it if the leader were (both at 0.8 by default), so passing
+   one carries a likelihood ratio of at least 4. Both numbers come from the sealed
+   predictions alone, not from the priors. A run of weakly informative confirmatory
+   analyses raises a posterior and cannot meet this rule. A rival refuted by an outcome it
+   gave probability 0 is tested by that analysis, and the refutation must be replicated
+   like any other test, so one confident zero cannot end an inquiry. The replicate repeats
+   it against the prediction the rival seals for the replicate, so a replicate needs a
+   prediction from every explanation that predicted its original, refuted or not
+   (`INQ110`), and the engine asks for it. A replicate that cannot carry the rival's
+   prediction (its design cannot license the rival's claim) is not run as that test's
+   replication. A test counts as replicated when more of its replicates favour the leader
+   than do not: running replicates until one agrees does not replicate it. Every
+   replication that went the other way is listed in the conclusion (`failed_replications`
+   and the limitations), whatever the verdict.
 5. **The posterior is not a licence.** How strongly a conclusion may be stated is capped by
    the designs of the observations that bore on it (`MAX_CERTAINTY`) and by the claim kind
    those designs reach (`LICENSING`). Ten in-silico analyses at a posterior of 0.99 license
@@ -123,20 +144,25 @@ analysis that tells a different story. The budget, the step limit and `min_gain`
 they do to single steps. `Inquiry.plan(k)` seals the batch into the trail before any of it
 runs. Each of its analyses is then recorded as part of the engine's batch
 (`Purpose.BATCH`), not as unrecommended. A replay recomputes the plan from the state it was
-made in, so a plan written after the fact is refused (`INQ150`).
+made in, so a plan written after the fact is refused (`INQ150`). An inquiry begun under
+earlier rules keeps the plans it recorded (rule 1).
 
 Measured on the eight scaffolds of the Studio chat ([below](#in-the-studio-chat)), in the
-noisy worlds of their calibration (100 per rival, 2,400 in all):
+noisy worlds of their calibration (100 per rival, 2,400 in all). Every batch size starts
+from the calibration's seeds, so the first row is the calibration itself. Outcomes are
+drawn as analyses run, so a larger batch, which runs them in another order, meets other
+draws: the rows share seeds, not worlds.
+`BioScience-Harness/scripts/measure_inquiry_batches.py` prints this table:
 
 | Analyses per round | Rounds (mean) | Cost (mean) | True rival accepted | Wrong rival accepted |
 | --- | ---: | ---: | ---: | ---: |
-| 1, the engine's next step | 3.95 | 8.90 | 1,309 | 9 |
-| 2 | 2.26 | 9.68 | 1,233 | 10 |
-| 3 | 1.71 | 10.75 | 1,196 | 6 |
-| 4 | 1.35 | 10.34 | 1,167 | 8 |
+| 1, the engine's next step | 3.97 | 8.88 | 1,300 | 7 |
+| 2 | 2.27 | 9.71 | 1,237 | 6 |
+| 3 | 1.72 | 10.91 | 1,162 | 5 |
+| 4 | 1.37 | 10.34 | 1,150 | 6 |
 
 Batches of two take 43% fewer rounds for 9% more cost. A batch is chosen before any of its
-outcomes is known, so it cannot change course on them. It decides somewhat less often (6%
+outcomes is known, so it cannot change course on them. It decides somewhat less often (5%
 fewer true acceptances), and a wrong rival stays as rare. `tests/test_rivals.py` checks
 both for every rival.
 
@@ -238,10 +264,16 @@ values do not match it.
 in the same call. Its arguments are validated first, and the runtime classifies the result
 by the scaffold's rule, recording `runtime:<tool>:<digest>` as the evidence. Only a tool that
 needs no approval, job or network runs this way, so nothing nested skips an approval. The same data
-recorded again (a replicate that is not one) is refused. A test without a classifier takes
-an `outcome` with `evidence_ref`, recorded as `agent:<ref>`. A replicate may not cite its
-original's evidence, and the conclusion counts the outcomes each way. A test with a
-classifier never takes a reported outcome.
+recorded again (a replicate that is not one) is refused. What is compared is the numbers the
+classifier reads, so relabelled trials, an extra key or 1 written as 1.0 are still the same
+data. Each trial's estimate stays with its standard error and each cell's numbers with their
+keys, so the same numbers paired differently are other data. A test without a classifier
+takes an `outcome` with `evidence_ref`, recorded as `agent:<ref>`. A replicate may not cite
+its original's source, whoever classified either: a PMID or DOI is the same source however
+it is written (with a label or without, as a URL, in full-width characters, with
+punctuation or a note after it). The conclusion counts the outcomes each way. A test
+with a classifier never takes a reported outcome, and neither does a replicate an agent adds
+to it: that replicate is classified by its original's rule, from data.
 
 **The bar can be raised, never lowered.** A `rule` may ask for a higher acceptance
 threshold, severity or catch-all floor, a lower alarm, or fewer steps. It cannot turn
@@ -287,7 +319,7 @@ through `tcm_applicability` and the release gate, and the tool's summary says so
 | INQ101 | a closed world: the catch-all opens below its floor |
 | INQ102 | fewer than two named explanations |
 | INQ103 / 104 / 105 | a malformed explanation, analysis or stopping rule |
-| INQ110 | running an analysis before every live explanation it bears on has a sealed prediction |
+| INQ110 | running an analysis before every live explanation it bears on, and for a replicate every explanation that predicted its original, has a sealed prediction |
 | INQ111 | an unknown analysis or explanation |
 | INQ112 | a prediction that is not a distribution over the declared outcomes |
 | INQ113 | a prediction from a design that cannot license the explanation's claim kind |
@@ -333,10 +365,10 @@ write-ahead refusal),
 - **内核负责决定：** 按期望信息增益（每单位成本）选择下一个分析；只用预先封存的预测做贝叶斯更新；按停止规则决定何时结束；结论的强度由证据许可表封顶，不由后验概率决定。
 
 **五条规则：**
-- **预测先于结果封存。** 事后声明的似然被拒绝（INQ115），已封存的预测不可修改（INQ116）。审计轨迹可以重放，信念无法复算即被拒绝（INQ150）。
+- **预测先于结果封存。** 事后声明的似然被拒绝（INQ115），已封存的预测不可修改（INQ116）。审计轨迹可以重放，信念无法复算、或某一条目无法重放即被拒绝（INQ150）。重算哈希链不能让改过的信念通过，但哈希不带密钥：能写入存储文件的人可以改动已封存的预测，重放结果并重算全部哈希，轨迹仍能加载。所以预测是否确实事先封存，取决于谁能写入存储。在 Studio 中由运行时保存，智能体只能通过工具访问；记录器另把每个条目的哈希写入内核审计链，但加载时不核对它。保存的探究注明它开始时所用的规则版本（`engine`；版本 2 之前没有这一字段）。按早期规则开始的探究，重放时沿用审计轨迹记录的建议（每次观察的目的、针对的对手和推荐的步骤，以及每个计划），因为选出这些建议的规则已经改变；其信念、预测和结果照常重算，现在的结论按现行规则得出。
 - **证据类型不能许可的主张，其信念不能被它移动。** 例如对接结果不能携带对临床疗效的预测（INQ113）。该解释的概率被精确固定，等价于"这一观察与它无关"。
 - **世界永不封闭。** 始终保留"以上皆非"兜底项，开局有概率下限（INQ101）。结果出乎所有已有解释的预料时，概率流向兜底项，超过警戒线后引擎要求提出新解释。新解释只能从兜底项的当前概率中分得份额，不能为它事后拟合的数据邀功。
-- **后验高不足以停止。** 领先解释必须通过针对每个存活对手的严格检验：对手为真时大概率不利于领先者，领先者为真时大概率有利于它。每个这样的检验还须被重复。
+- **后验高不足以停止。** 领先解释必须通过针对每个存活对手的严格检验：对手为真时大概率不利于领先者，领先者为真时大概率有利于它。针对每个对手，至少有一个这样的检验还须被重复。对手若被一个它给出概率 0 的结果否定，这一分析就算对它的检验，这一否定同样须被重复，所以一个过于自信的 0 不能结束探究。重复检验对照的是对手为重复检验封存的预测，所以凡对原检验作过预测的解释，无论是否已被否定，都须对重复检验作出预测（INQ110），引擎会要求补上；设计无法许可对手主张、因而无法带有其预测的重复检验，不作为该检验的重复来运行。一个检验只有在支持领先者的重复多于不支持的重复时才算被重复，反复做重复直到有一次一致并不算数。未能支持领先者的重复，无论裁决如何，都列在结论中（`failed_replications` 和局限）。
 - **后验不是许可。** 十个计算机模拟分析即使使后验达到 0.99，也只许可一个"试探性的机制假说"。
 
 **葛根芩连汤通路信号的应用：**
@@ -347,8 +379,8 @@ write-ahead refusal),
 - **人工世界的局限：** 它们展示机制、防止回归，不证明引擎能正确判断真实问题。
 
 **同时运行与敏感性：**
-- **批次：** `Inquiry.batch(k)`（k 最多为 4）以引擎的下一步开头，再逐个加入与已选分析合起来每单位成本信息量最多的分析。合起来的信息量（`joint_gain`）按引擎自身的更新计算；重复检验对原检验补充的信息少于它单独的增益，所以批次更倾向讲述不同故事的分析。`plan` 在运行前把批次封存进审计轨迹，重放时重新计算，事后写入的计划被拒绝（INQ150）。
-- **实测：** 在八套模板的 2,400 个噪声世界中，两项一批使轮数减少 43%，成本增加 9%。批次在看到任何结果之前选定，无法随结果调整，因此真实解释被接受的次数少 6%，错误解释被接受同样罕见（10 对 9 次）。
+- **批次：** `Inquiry.batch(k)`（k 最多为 4）以引擎的下一步开头，再逐个加入与已选分析合起来每单位成本信息量最多的分析。合起来的信息量（`joint_gain`）按引擎自身的更新计算；重复检验对原检验补充的信息少于它单独的增益，所以批次更倾向讲述不同故事的分析。`plan` 在运行前把批次封存进审计轨迹，重放时重新计算，事后写入的计划被拒绝（INQ150）；按早期规则开始的探究沿用其记录的计划。
+- **实测：** 在八套模板的 2,400 个噪声世界中（各批次大小都从模板校准的随机种子开始，所以第一行就是校准本身；结果在分析运行时抽取，批次越大运行顺序越不同，抽到的结果也不同，因此各行共享的是种子而非世界），两项一批使轮数减少 43%，成本增加 9%。批次在看到任何结果之前选定，无法随结果调整，因此真实解释被接受的次数少 5%，错误解释被接受同样罕见（6 对 7 次）。表格由 `BioScience-Harness/scripts/measure_inquiry_batches.py` 生成。
 - **两步前瞻不采用：** 在 960 个噪声世界中，两步前瞻接受真实解释 365 次，一步选择为 528 次（七套模板更少，一套持平）。
 - **对预测把握程度的敏感性：** `sensitivity` 把每个封存的预测与其结果上的均匀分布按权重 t 混合，再重放已记录的结果：各解释偏向的结果不变，似然比向 1 收缩。领先者随 t 增大保持不变，说明结论来自各解释偏向哪个结果；领先者改变，说明结论来自预测有多确定，常见情形是一个为 0 的预测否定了其他结果都支持的解释。裁决不重算：放宽的预测按构造就不再严格，重算只反映严格度门槛。在上述世界中被接受的 1,303 个结论，领先者在 t = 0.1、0.2、0.3 下全部不变。
 
@@ -360,7 +392,7 @@ write-ahead refusal),
 - **工具：** 核心工具 `research_inquiry`（目录条目 `study.inquiry`，浏览器和 Runner 均可运行）让对话中的智能体使用同一引擎。它先写下竞争解释和各自的预测，信念、下一步和停止由引擎决定。
 - **八套模板：** `bioagent.research.rivals` 为常见问题准备了竞争解释、检验、封存的预测和产生结果的工具，包括通路信号、复方与主要成分、联合用药、体内暴露、疗效、安全信号、药材–药物相互作用、靶点结合。`action: "scaffolds"` 列出全部模板，也可以自己提出竞争解释。
 - **判定标准同样封存：** 等效界值、最小重要获益、联合作用的参照模型、临床相关变化都是模板参数，写入检验标题，与预测一起进入审计轨迹。按其他标准分析的数据被拒绝。
-- **谁判定的结果写在轨迹里：** 提供 `data` 时，模板指定的工具在同一次调用中运行，由运行时按模板规则判定，证据记为 `runtime:<工具>:<摘要>`。同一数据不能记录两次。没有判定器的检验由智能体报告结果，必须给出 `evidence_ref`，记为 `agent:`；重复检验不能引用原检验的证据。结论分别计数两类结果。
+- **谁判定的结果写在轨迹里：** 提供 `data` 时，模板指定的工具在同一次调用中运行，由运行时按模板规则判定，证据记为 `runtime:<工具>:<摘要>`。同一数据不能记录两次：比较的是判定器读取的数字，改换试验标签、多加字段或把 1 写成 1.0 仍是同一数据；每个试验的估计值与其标准误、每个孔的数值与其字段保持配对，同样的数字换一种配对则是另一组数据。没有判定器的检验由智能体报告结果，必须给出 `evidence_ref`，记为 `agent:`；重复检验不能引用原检验的来源（不论由谁判定；PMID 或 DOI 无论怎样书写，带不带标签、写成网址、用全角字符或后附标点、说明，都视为同一来源）。智能体为运行时判定的检验添加的重复检验，同样按原检验的规则从数据判定，不接受报告的结果。结论分别计数两类结果。
 - **门槛只能提高：** `rule` 可以提高接受阈值、严格度或兜底下限，降低警戒线或减少步数，但不能关闭重复要求，也不能放宽任何一项。探究按项目保存，每次加载都重放审计轨迹（INQ150）。
 - **撤回也是发现：** 无法运行的检验连同原因撤回，结论在 `to_decide` 中列出它们，以及其他能严格区分存活解释、尚未运行的检验，也就是能解决问题的研究。安全信号不等待接受：暂定或未决不等于安全。
 - **同时运行：** `action: "plan"`（`size` 为 2 到 4）封存引擎的批次，并给出每项分析的运行工具和增加的信息量；智能体并行运行后逐项记录。每个结论附带 `sensitivity`；领先者改变时，这一点排在模板警示之后的第一条局限，摘要也用一句话说明。

@@ -42,13 +42,15 @@ an inquiry's record says which outcomes were which.
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
-__all__ = ["CLASSIFIERS", "CLASSIFIER_DATA", "CLASSIFIER_TOOLS", "GAP_NOTE", "Param", "Rival",
-           "SCAFFOLDS", "Scaffold", "Test", "Unclassifiable", "classify", "describe",
-           "matches", "open_scaffold", "parameters", "rendered", "scaffold"]
+__all__ = ["CLASSIFIERS", "CLASSIFIER_DATA", "CLASSIFIER_INPUTS", "CLASSIFIER_TOOLS",
+           "GAP_NOTE", "Param", "Rival", "SCAFFOLDS", "Scaffold", "Test", "Unclassifiable",
+           "classify", "describe", "inputs", "matches", "open_scaffold", "parameters",
+           "rendered", "scaffold"]
 
 
 class Unclassifiable(ValueError):
@@ -939,6 +941,14 @@ CLASSIFIER_TOOLS: Mapping[str, str] = {
     "exposure": "study.exposure_screen", "meta": "native.meta_analysis",
     "ratio_interval": "", "difference_interval": ""}
 
+#: The arguments each classifier's data are in (:func:`inputs`). A tuple of names is read
+#: as rows, the n-th value of each together: a trial's estimate with its standard error.
+CLASSIFIER_INPUTS: Mapping[str, tuple[str | tuple[str, ...], ...]] = {
+    "contrast": ("formula", "monomer"), "combination": ("cells",),
+    "exposure": ("exposures", "assays"), "meta": (("estimates", "standard_errors"),),
+    "ratio_interval": ("ratio", "ci_low", "ci_high"),
+    "difference_interval": ("estimate", "ci_low", "ci_high")}
+
 #: What ``data`` holds for each classifier, for the model.
 CLASSIFIER_DATA: Mapping[str, str] = {
     "contrast": "the arguments of study.contrast_formula_monomer",
@@ -948,6 +958,34 @@ CLASSIFIER_DATA: Mapping[str, str] = {
             "scale)",
     "ratio_interval": "{ratio, ci_low, ci_high}: a geometric mean ratio and its 90% CI",
     "difference_interval": "{estimate, ci_low, ci_high}: a difference and its 95% CI"}
+
+
+def inputs(classifier: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
+    """The data a classifier reads, in a form two recordings can be compared in: for each
+    argument its data are in, every number as a float, each record (a cell, an exposure, a
+    trial's estimate and standard error) keeping its numbers together under their keys, and
+    the records and values in sorted order. Labels and study names, other arguments, the
+    order of the records and whether a number is written 1 or 1.0 do not make a second
+    data set; the same numbers paired differently do."""
+    def canonical(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            fields = [[str(k), canonical(v)] for k, v in value.items()]
+            return sorted(f for f in fields if f[1] is not None)
+        if isinstance(value, (list, tuple)):
+            return sorted((canonical(v) for v in value), key=json.dumps)
+        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(value)):
+            return float(value)
+        return None                                   # text: a label, a name, a note
+    out: dict[str, Any] = {}
+    for name in CLASSIFIER_INPUTS[classifier]:
+        if isinstance(name, tuple):
+            columns = [arguments.get(n) for n in name]
+            rows = zip(*(c if isinstance(c, (list, tuple)) else () for c in columns))
+            out["+".join(name)] = canonical([list(row) for row in rows])
+        else:
+            out[name] = canonical(arguments.get(name))
+    return out
 
 
 def classify(scaffold_id: str, test_id: str, values: Mapping[str, Any],
