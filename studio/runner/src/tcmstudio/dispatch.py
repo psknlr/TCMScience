@@ -1560,9 +1560,54 @@ def _seed_label(formulas: bool = False) -> tuple[str, str]:
     return "种子语料 · ", "Seed corpus · "
 
 
+#: The seed lookups' arguments that may name a syndrome, and the kind each is resolved as.
+_SYNDROME_ARGS = {"tcm_syndrome": (("name", "syndrome"),),
+                  "tcm_applicability": (("subject", ""), ("object", ""))}
+
+
+def _syndrome_names(name: str, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """A syndrome named without its closing 证, as the classics write it (太阳中风, 伤寒论
+    第12条), read as the seed's name for it (太阳中风证): only when the name as given names
+    nothing in the seed exactly (a partial match is no name: 气虚, part of 气虚证 and of
+    脾胃气虚证, is read as 气虚证) and the name with 证 names exactly one syndrome. Anything
+    else is left as given, so a partial match whose name with 证 names nothing (中风, 太阳)
+    stays a suggestion (``repository_data.syndrome_terms`` drops the 证 the other way, for
+    the workbook's 功效 text). Returns the arguments to run and ``{argument: {given, read,
+    as}}`` for each name read so (``as``: the seed's name for the syndrome ``read`` names,
+    itself or the syndrome whose recorded alias it is)."""
+    from bioagent.tcm.knowledge import Syndrome, default_knowledge
+    kb = default_knowledge()
+    out, read = dict(args), {}
+    for key, kind in _SYNDROME_ARGS.get(name, ()):
+        given = args.get(key)
+        if not isinstance(given, str) or not given.strip() or given.strip().endswith("证"):
+            continue
+        if kb.resolve(given, kind=kind).match == "exact":
+            continue                                    # it names something (or several)
+        alt = kb.resolve(given.strip() + "证", kind="syndrome")
+        if alt.found and isinstance(alt.entity, Syndrome):
+            out[key] = alt.entity.chinese
+            read[key] = {"given": given, "read": given.strip() + "证", "as": alt.entity.chinese}
+    return out, read
+
+
+def _read_as(o: Outcome, read: Mapping[str, Mapping[str, str]]) -> Outcome:
+    """The answer about a syndrome name read with its closing 证, saying so."""
+    o.result = {**o.result, "read_as": dict(read)}
+    g = dict(o.governance or gv.empty("native"))
+    g["limitations"] = [*(g.get("limitations") or []), *(
+        f"「{r['given']}」 was read as {r['read']}, the same name with its closing 证 (the "
+        "classics write a syndrome without it)"
+        + ("" if r["as"] == r["read"] else f", which the seed records as {r['as']}")
+        for r in read.values())]
+    o.governance = g
+    return o
+
+
 def _exec_native(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Outcome:
     name = entry["id"].split(".", 1)[1]
     domain = entry.get("domain", "")
+    args, read_as = _syndrome_names(name, args) if name in _SYNDROME_ARGS else (args, {})
     licences = [gv.licence_entry(f"native.{name}", "MIT", note="tool code (BioScience-Harness)")]
     if name in _KB_TOOLS:
         licences.append(gv.licence_entry(**_SEED_LICENCE))
@@ -1607,6 +1652,8 @@ def _exec_native(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
                      limits=_native_limits(name, domain, value, args))
     if o.status == "succeeded":
         o.summary, o.summary_en = _native_summary(name, entry["title"], args, o.result)
+        if read_as and isinstance(o.result, Mapping):
+            o = _read_as(o, read_as)
     elif name in _KB_TOOLS and (o.error or {}).get("type") == "not_found":
         m = re.search(r"'([^']+)' names nothing", str((o.error or {}).get("message", "")))
         what = m.group(1) if m else ""
@@ -4213,22 +4260,27 @@ def _routes(args: Mapping[str, Any], ctx: Context, g: dict[str, Any]) -> Outcome
     built = _built(ctx)
     kind_missing = _kind_missing(ctx)
 
-    def judge(entry_id: str, fixed: Mapping[str, Any]) -> list[dict[str, Any]]:
+    def judge(entry_id: str, args: Mapping[str, Any]) -> list[dict[str, Any]]:
         entry = items.get(entry_id)
         if entry is None:
             return [capability.requirement(
                 "dependency", f"{entry_id} in this runtime's catalog (its section did not load)",
                 "capabilities_status and the catalog document's errors say which section failed "
                 "and why.")]
-        # the entry as such, except the dataset a data hub query names
+        # the entry as such, except the dataset a data hub query names, and for a browser job
+        # the arguments its runner_only rules read (a '<…>' by the kind of value it stands
+        # for): the call the route names goes where those rules send it
         source = entry.get("data_from")
+        fixed = rt.fixed_args(args)
         call = ({source["param"]: fixed[source["param"]]}
-                if isinstance(source, Mapping) and source.get("param") in fixed else None)
+                if isinstance(source, Mapping) and source.get("param") in fixed else {})
+        rules = ((entry.get("execution") or {}).get("browser_job") or {}).get("runner_only") or ()
+        call.update((r["arg"], args[r["arg"]]) for r in rules if r.get("arg") in args)
         return [r for _, r in capability.requirements(
             entry, where=ctx.where, network=ctx.network, jobs=ctx.jobs is not None,
             browser_jobs=ctx.browser_jobs, browser_snapshots=ctx.browser_snapshots,
-            browser_admet_models=ctx.browser_admet_models, built=built, args=call,
-            kind_missing=kind_missing.get(entry_id))]
+            browser_admet_models=ctx.browser_admet_models, built=built,
+            args=call if call or rules else None, kind_missing=kind_missing.get(entry_id))]
 
     name = str(args.get("route") or "").strip()
     question = " ".join(str(args.get("question") or "").split())

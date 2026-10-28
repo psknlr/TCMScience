@@ -515,6 +515,41 @@ def test_applicability_names_the_licensing_set_and_says_when_nothing_is_recorded
     assert "随机对照试验或系统评价" in e["summary"]
 
 
+def test_a_syndrome_named_as_the_classics_write_it_is_the_seeds_syndrome(runner_ctx):
+    """伤寒论 第12条 writes 太阳中风 for the syndrome the seed records as 太阳中风证: the name
+    with its closing 证 is read, and the answer says so. A name that is only part of one stays
+    a suggestion."""
+    e = call("tcm_syndrome", {"name": "太阳中风"}, runner_ctx)
+    assert e["status"] == "succeeded", e["error"]
+    assert e["result"]["syndrome"]["chinese"] == "太阳中风证"
+    assert [f["chinese"] for f in e["result"]["formulas"]] == ["桂枝汤"]
+    assert e["result"]["read_as"] == {"name": {"given": "太阳中风", "read": "太阳中风证",
+                                               "as": "太阳中风证"}}
+    assert any(x.startswith("「太阳中风」 was read as 太阳中风证")
+               for x in e["governance"]["limitations"])
+    assert call("tcm_syndrome", {"name": "太阳伤寒"}, runner_ctx)["result"]["syndrome"][
+        "chinese"] == "太阳伤寒证"
+    # its recorded alias with 证 names it too, and the answer names the alias read
+    alias = call("tcm_syndrome", {"name": "表虚"}, runner_ctx)
+    assert alias["result"]["syndrome"]["chinese"] == "太阳中风证"
+    assert any("read as 表虚证" in x and "records as 太阳中风证" in x
+               for x in alias["governance"]["limitations"])
+    a = call("tcm_applicability", {"subject": "桂枝汤", "object": "太阳中风",
+                                   "claim_kind": "attribution"}, runner_ctx)
+    b = call("tcm_applicability", {"subject": "桂枝汤", "object": "太阳中风证",
+                                   "claim_kind": "attribution"}, runner_ctx)
+    assert a["status"] == "succeeded" and a["result"]["object"]["chinese"] == "太阳中风证"
+    assert a["result"]["verdict"] == b["result"]["verdict"] == "within_scope"
+    assert set(a["result"]["read_as"]) == {"object"} and "read_as" not in b["result"]
+    # a partial match is no name: 气虚, part of 气虚证 and of 脾胃气虚证, is read as 气虚证
+    qi = call("tcm_syndrome", {"name": "气虚"}, runner_ctx)
+    assert qi["result"]["read_as"] == {"name": {"given": "气虚", "read": "气虚证", "as": "气虚证"}}
+    # a name that names something, or only part of one and nothing with 证, is left as given
+    assert call("tcm_syndrome", {"name": "中风"}, runner_ctx)["error"]["type"] == "not_found"
+    assert call("tcm_syndrome", {"name": "太阳"}, runner_ctx)["status"] == "failed"
+    assert "read_as" not in call("tcm_syndrome", {"name": "脾胃气虚证"}, runner_ctx)["result"]
+
+
 def test_significance_wording_follows_the_p_value(runner_ctx):
     e = call("call_tool", {"tool": "native.fisher_exact",
                            "arguments": {"a": 20, "b": 1, "c": 1, "d": 20}}, runner_ctx)

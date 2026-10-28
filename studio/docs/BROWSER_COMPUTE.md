@@ -461,7 +461,7 @@ software adapter always reads "software, not evidence".
 - The capability probe reports quota, usage, whether storage is persisted, OPFS and the Cache API.
 
 **Implemented for the research jobs** ([BROWSER_JOBS.md](BROWSER_JOBS.md)): resumable, verified downloads of the
-research files into OPFS (a storage check on the reviewed sizes before a job starts: the three files with no reviewed
+research files into OPFS (a storage check on the reviewed sizes before a job starts: the two files with no reviewed
 size are not counted, and the job's log names them; `If-Range` resumes), read in place by Python through
 synchronous access handles, and a *Keep this data* button that asks for persistent storage. **Proposed**: the same for
 model downloads (none ships).
