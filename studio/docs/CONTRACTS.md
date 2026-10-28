@@ -315,6 +315,11 @@ Rules:
   against the envelopes of the same turn first, then the earlier turns on the path; an id found nowhere stays unresolved.
 - `receipt.output_sha256` hashes the whole result, which includes the run id, the time and the audit-chain position: it
   differs on every run. What is reproducible is `input_sha256`, `content_hash` and each `governance.outputs[].sha256`.
+  `input_sha256` hashes the arguments as the dispatcher received them, in canonical JSON with Python's number spelling,
+  so it is comparable between calls whose client wrote the numbers the same way: JavaScript has one number type, so a
+  page sends `3` where a Python caller (the CLI, `validate`, an MCP client in Python) may send `3.0`, and the two hashes
+  differ for the same value (`native.anion_gap`'s catalog example, `albumin_g_dl: 3.0`). The browser runtime check and
+  the sweep (`web/test/runtime/run.mjs`, `sweep.mjs`) give the native side the arguments as JavaScript writes them.
 - `text` is what the model reads. It must restate the limits (`absence of a record is not evidence
   of safety`, `predicted ≠ measured`, `draft for a licensed practitioner`) when the result has them.
 - Wrong arguments produce `status:"failed"`, `error.type:"bad_arguments"`, and a hint such as "Did you mean 'names'?".

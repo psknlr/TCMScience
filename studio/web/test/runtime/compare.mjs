@@ -57,16 +57,18 @@ export function compareTable(got, want) {
   return diffs.length ? { status: "different", first: diffs.slice(0, 5), count: diffs.length } : { status: "within_tolerance", max_relative: worst };
 }
 
-/** Two JSON values, numbers within `tolerance` (relative; 0: equal), the paths in `skip` ("a.b.c", "*" a key at that
- * level) set aside → {same: bool, first: [path...]} (the paths that differ, at most five). */
+/** Two JSON values, numbers within `tolerance` (relative; 0: equal; or a function (a, b) → whether two numbers agree),
+ * the paths in `skip` ("a.b.c", "*" a key at that level) set aside → {same: bool, first: [path...]} (the paths that
+ * differ, at most five). */
 export function compareJson(got, want, skip = [], tolerance = RELATIVE) {
   const skips = skip.map((p) => p.split("."));
   const skipped = (path) => skips.some((s) => s.length === path.length && s.every((k, i) => k === "*" || k === path[i]));
+  const near = typeof tolerance === "function" ? tolerance : (a, b) => !(relative(a, b) > tolerance);
   const out = [];
   const walk = (a, b, path) => {
     if (out.length >= 5 || skipped(path)) return;
     if (typeof a === "number" && typeof b === "number") {
-      if (a !== b && relative(a, b) > tolerance) out.push(path.join("."));
+      if (a !== b && !near(a, b)) out.push(path.join("."));
       return;
     }
     if (Array.isArray(a) && Array.isArray(b)) {
@@ -180,9 +182,17 @@ export function compareExports(browserFiles, nativeOf) {
 // the graph that amplifies last-bit differences: its coordinates (cells.tsv umap_1, umap_2) and the figures are not
 // compared; its structure is (umapAgreement). A figure that is not the same bytes says whether what it draws is
 // compared, and in which table (FIGURES). report.html must be identical with each figure set aside: no tolerance on its
-// text.
+// text. The probability columns (OMICS_P_COLUMNS) are held without the rule's 1e-6 term: the most significant genes'
+// p-values are far below it, where it alone would let any two values pass. run.json and stages.json are compared field
+// by field under the same rule, apart from what names the process, its time and its paths (OMICS_RUN_SET_ASIDE).
 
-export const OMICS_RULE = "|a − b| ≤ 1e-6 + 1e-4·max(|a|,|b|) + one unit in the sixth significant digit of max(|a|,|b|) (the tables print %.6g)";
+export const OMICS_RULE = "|a − b| ≤ 1e-6 + 1e-4·max(|a|,|b|) + one unit in the sixth significant digit of max(|a|,|b|) (the tables print %.6g); p_value and p_adjusted without the 1e-6 term";
+/** The columns of probabilities: held to OMICS_RULE without its absolute term, so a p-value of 1e-40 is not "within"
+ * 8e-7 of another. */
+export const OMICS_P_COLUMNS = Object.freeze(["p_value", "p_adjusted"]);
+/** run.json and stages.json fields that name the process that wrote them, its time or its paths, not the run: set
+ * aside. The outputs' digests are each file's own row; the inputs are compared by file name and digest. */
+export const OMICS_RUN_SET_ASIDE = Object.freeze(["started", "finished", "python", "numpy", "scipy", "inputs", "outputs", "summary.out_dir", "stages.*.seconds"]);
 /** The UMAP's structure: each cell's UMAP_K nearest neighbours in the layout, the share of them in its cluster. */
 export const UMAP_K = 15;
 export const UMAP_AGREEMENT_MIN = 0.95;
@@ -208,17 +218,17 @@ const FIGURES = {
   "plots/umap_pseudotime.svg": "the pseudotime it is coloured by is compared in cells.tsv",
 };
 
-/** The bound OMICS_RULE holds a numeric cell to: 1e-6 + 1e-4·m + u6, m = max(|a|, |b|), u6 one unit in m's sixth
- * significant digit. */
-export function omicsBound(a, b) {
+/** The bound OMICS_RULE holds a numeric cell to: absolute + 1e-4·m + u6, m = max(|a|, |b|), u6 one unit in m's sixth
+ * significant digit; absolute is 1e-6, and 0 for a probability (OMICS_P_COLUMNS). */
+export function omicsBound(a, b, absolute = 1e-6) {
   const m = Math.max(Math.abs(a), Math.abs(b));
   const u6 = m > 0 ? 10 ** (Math.floor(Math.log10(m)) - 5) : 0;
-  return 1e-6 + 1e-4 * m + u6;
+  return absolute + 1e-4 * m + u6;
 }
 
 /** The share of OMICS_RULE's bound a difference uses (≤ 1: within it). */
-export function omicsFraction(a, b) {
-  return Math.abs(a - b) / omicsBound(a, b);
+export function omicsFraction(a, b, absolute = 1e-6) {
+  return Math.abs(a - b) / omicsBound(a, b, absolute);
 }
 
 const tsvRows = (text) => text.split(/\r?\n/).filter((l, i, all) => l !== "" || i < all.length - 1).map((l) => l.split("\t"));
@@ -237,6 +247,7 @@ export function compareOmicsTable(got, want, { exclude = [] } = {}) {
   const rb = tsvRows(want);
   const header = rb[0] || [];
   const skip = new Set(exclude.map((c) => header.indexOf(c)).filter((j) => j >= 0));
+  const probability = new Set(OMICS_P_COLUMNS.map((c) => header.indexOf(c)).filter((j) => j >= 0));
   const diffs = [];
   let worst = null;
   let numeric = 0;
@@ -254,7 +265,7 @@ export function compareOmicsTable(got, want, { exclude = [] } = {}) {
       if (nu !== null && nv !== null) {
         numeric += 1;
         maxRelative = Math.max(maxRelative, relative(nu, nv));
-        const fraction = omicsFraction(nu, nv);
+        const fraction = omicsFraction(nu, nv, probability.has(j) ? 0 : 1e-6);
         if (!worst || fraction > worst.fraction) worst = { fraction, row: i, column: header[j] ?? j, got: u, want: v };
         if (fraction <= 1) continue;
       }
@@ -408,6 +419,26 @@ export function compareOmics(kind, browserFiles, nativeFiles) {
     const outs = (r) => Object.keys(r.outputs || {}).sort();
     const sameOut = JSON.stringify(outs(rb)) === JSON.stringify(outs(rn));
     row("run.json: outputs", sameOut ? "same" : "different", sameOut ? `the same ${outs(rn).length} outputs recorded` : `browser ${outs(rb).join(", ")} / native ${outs(rn).join(", ")}`);
+    // every other field, the numbers within the rule; the inputs (the job's copies in the browser, the files natively)
+    // by file name, each with its digest
+    const byFile = (inputs) => Object.fromEntries(Object.entries(inputs || {}).map(([k, v]) => [baseName(k), v?.path ? { ...v, path: baseName(v.path) } : v]));
+    const inputs = compareJson(byFile(rb.inputs), byFile(rn.inputs), [], 0);
+    const exact = compareJson(rb, rn, OMICS_RUN_SET_ASIDE, 0);
+    const within = compareJson(rb, rn, OMICS_RUN_SET_ASIDE, (x, y) => omicsFraction(x, y) <= 1);
+    const apart = `apart from ${OMICS_RUN_SET_ASIDE.join(", ")}; the inputs by file name and digest (${Object.keys(byFile(rn.inputs)).join(", ")})`;
+    row("run.json: every other field", !inputs.same || !within.same ? "different" : exact.same ? "same" : "within_tolerance",
+      !inputs.same || !within.same ? `differs at ${[...inputs.first.map((p) => `inputs.${p}`), ...within.first].join(", ")}`
+        : `${exact.same ? "the same values" : `the same fields, the numbers within the rule (${exact.first.join(", ")}${exact.first.length >= 5 ? ", …" : ""} not identical)`}, ${apart}`);
+  }
+  const sb = json(textB("stages.json"));
+  const sn = json(textN("stages.json"));
+  if (textB("stages.json") === undefined && textN("stages.json") === undefined) { /* written by neither run */ }
+  else if (!sb || !sn) row("stages.json", "missing", !sb ? "no readable stages.json from the browser" : "no readable native stages.json");
+  else {
+    const exact = compareJson(sb, sn, ["stages.*.seconds"], 0);
+    const within = compareJson(sb, sn, ["stages.*.seconds"], (x, y) => omicsFraction(x, y) <= 1);
+    row("stages.json", !within.same ? "different" : exact.same ? "same" : "within_tolerance", !within.same ? `differs at ${within.first.join(", ")}`
+      : `${(sn.stages || []).length} stages, ${exact.same ? "the same values" : "the numbers within the rule"} apart from each stage's seconds`);
   }
 
   // the discrete results, exactly
