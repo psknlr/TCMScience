@@ -199,9 +199,18 @@ class ToolGateway(_GateBase):
     def __init__(self, *, allowed_paths: Sequence[str] = (),
                  ceilings: Mapping[Destination, Sensitivity] | None = None,
                  audit: Callable[..., Any] | None = None,
-                 policy: Any = None) -> None:
+                 policy: Any = None,
+                 kernel_owned: Sequence[str | Path] = (),
+                 tool_areas: Sequence[str | Path] = ()) -> None:
         super().__init__(ceilings=ceilings, audit=audit)
         self.allowed_paths = tuple(allowed_paths)
+        #: Directories that belong to the kernel (its state directory), refused to every
+        #: tool whatever ``allowed_paths`` says, except the ``tool_areas`` inside them that
+        #: the kernel hands to tools. Resolved once, as the targets are.
+        self.kernel_owned = tuple(Path(p).expanduser().resolve(strict=False)
+                                  for p in kernel_owned)
+        self.tool_areas = tuple(Path(p).expanduser().resolve(strict=False)
+                                for p in tool_areas)
         #: The declarative execution policy (Codex execpolicy pattern). When present it is
         #: consulted BEFORE the regex denylist and can return allow / prompt / forbidden. The
         #: regex list stays as a second layer for shell shapes a token-prefix rule cannot
@@ -264,6 +273,16 @@ class ToolGateway(_GateBase):
             target = Path(candidate).expanduser().resolve(strict=False)
         except (OSError, RuntimeError) as exc:   # RuntimeError: symlink loop
             return False, f"path could not be resolved ({exc})"
+        # The kernel's own files first, and whatever the allowlist says: an allowlist that
+        # names the state directory (the old default did) must not hand a tool the policy
+        # file, the event store or the evidence key.
+        if any(target == owned or owned in target.parents for owned in self.kernel_owned) \
+                and not any(target == area or area in target.parents
+                            for area in self.tool_areas):
+            return False, (f"resolves to {target}, which is the kernel's own state; no "
+                           "allowed path grants it")
+        if not self.allowed_paths:
+            return True, "no allowed paths are configured"
         for root, pattern in self._allowed_roots():
             try:
                 inside = target == root or root in target.parents
@@ -380,7 +399,8 @@ class ToolGateway(_GateBase):
                     reason=(f"payload matches a denied command pattern "
                             f"({pattern.pattern[:40]}); refused regardless of autonomy")))
 
-        if (manifest.mutates or manifest.requires_filesystem) and self.allowed_paths:
+        if (manifest.mutates or manifest.requires_filesystem) and (
+                self.allowed_paths or self.kernel_owned):
             scanned = _candidate_paths(raw)
             if not scanned.complete:
                 return self._record(EgressDecision(

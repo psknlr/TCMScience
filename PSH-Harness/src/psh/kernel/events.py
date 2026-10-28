@@ -13,6 +13,8 @@ chain. Publish ``anchor()`` after each session for a stronger guarantee.
 from __future__ import annotations
 
 import json
+import math
+import numbers
 import sqlite3
 import threading
 import time
@@ -84,6 +86,35 @@ def _sanitise(value: Any, classifier: Any, _depth: int = 0) -> Any:
     if isinstance(value, (list, tuple)):
         return [_sanitise(v, classifier, _depth + 1) for v in value]
     return value
+
+
+#: Envelope fields held in numeric columns, and the type each column gives back.
+_NUMERIC_FIELDS = (("cost_usd", float), ("latency_s", float), ("tokens", int), ("at", float))
+
+
+def _stored_number(name: str, value: Any, kind: type) -> int | float:
+    """A numeric envelope field as the type its column stores it as, or a ValueError.
+
+    The hash covers the Python value and ``verify()`` recomputes it from the column, and
+    SQLite's affinity changes the type on the way in: an int in a REAL column comes back
+    a float (``1`` hashed as ``1`` and verified as ``1.0``), a float or a numeric string in
+    an INTEGER column comes back an int. An untouched record then read as tampered with
+    — a provider adapter reporting ``cost_usd=0`` was enough — and the chain stayed broken
+    at that record for good. Hashing the value as stored closes it; a value no column holds
+    faithfully (a bool, a string, a fraction of a token, NaN) is refused instead.
+    """
+    try:
+        storable = (isinstance(value, numbers.Real) and not isinstance(value, bool)
+                    and math.isfinite(float(value)))
+    except OverflowError:                       # an int no column can hold
+        storable = False
+    if not storable:
+        raise ValueError(f"event field {name} must be a finite number, not {value!r}")
+    if kind is int:
+        if not isinstance(value, numbers.Integral) and not float(value).is_integer():
+            raise ValueError(f"event field {name} must be a whole number, not {value!r}")
+        return int(value)
+    return float(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +206,9 @@ class EventStore:
                      "cost_usd", "tokens", "latency_s", "status"}
             detail = {k: v for k, v in fields.items() if k not in known}
             fields = {k: v for k, v in fields.items() if k in known}
+        for name, kind in _NUMERIC_FIELDS:
+            if name in fields:
+                fields[name] = _stored_number(name, fields[name], kind)
 
         event = EventEnvelope(
             seq=seq, event_type=event_type, run_id=run_id, principal_id=principal_id,
@@ -217,7 +251,10 @@ class EventStore:
                     fields = {k: (v if k in known else _sanitise(v, classifier))
                               for k, v in fields.items()}
                 self.append(event_type, run_id, **fields)
-            except ValueError as exc:
+            except (ValueError, TypeError) as exc:
+                # TypeError too: a detail whose keys mix types ({1: …, "a": …}) cannot be
+                # serialised canonically, and an unknown field cannot be built into an
+                # envelope; either is a malformed event, not a reason to abort the caller.
                 self.append("event_payload_rejected", run_id,
                             detail={"event_type": event_type, "error": str(exc)[:200]})
         return _sink
@@ -252,6 +289,13 @@ class EventStore:
     def by_run(self, run_id: str) -> list[sqlite3.Row]:
         return list(self._conn.execute(
             "SELECT * FROM events WHERE run_id = ? ORDER BY seq", (run_id,)))
+
+    def latest_detail(self, event_type: str) -> dict[str, Any] | None:
+        """The detail of the most recent event of a type, or None when there is none."""
+        row = self._conn.execute(
+            "SELECT detail FROM events WHERE event_type = ? ORDER BY seq DESC LIMIT 1",
+            (event_type,)).fetchone()
+        return json.loads(row["detail"]) if row else None
 
     @property
     def head_hash(self) -> str:

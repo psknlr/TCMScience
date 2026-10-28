@@ -8,6 +8,10 @@ value on stdout. This script is that entrypoint for bridged components::
     python exec.py --manifest /path/to/component.yaml     # the admitted manifest
     python exec.py --component public.connector.hgnc      # by id, from the default runtime
 
+The bridge also passes ``--manifest-digest``, the SHA-256 of the manifest file it wrote, and
+a file whose digest differs is refused before anything runs: the child runs the manifest
+that was admitted, not whatever the file says later.
+
 It bootstraps ``bioagent`` from its own location because the environment carries no
 path, builds the smallest runtime that can serve the component, and reports failures on
 stderr with a non-zero exit so the kernel records a contract violation rather than a
@@ -30,6 +34,7 @@ finished the child writes ``{"$psh": {"status": "pending", "reference": ..., "re
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -43,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--manifest", help="path to the admitted BioScience manifest (YAML)")
     group.add_argument("--component", help="component id in the packaged catalogue/sources")
+    parser.add_argument("--manifest-digest",
+                        help="the SHA-256 of that manifest file, as admitted")
     parser.add_argument("--profile", default="biomedical-research")
     parser.add_argument("--workspace", help="the workspace root the admitting process resolved")
     parser.add_argument("--data-lake", help="the data-lake root the admitting process resolved")
@@ -126,11 +133,28 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 1
 
+    # The manifest is checked the same way: a file whose digest differs from the one it was
+    # admitted under would run an entrypoint nobody admitted.
+    admitted = None
+    if args.manifest:
+        raw = Path(args.manifest).read_bytes()
+        found = hashlib.sha256(raw).hexdigest()
+        if args.manifest_digest is not None and found != args.manifest_digest:
+            print(f"ContractViolation: the manifest {args.manifest} has digest {found[:16]}, "
+                  f"not the {args.manifest_digest[:16]} it was admitted under; refusing to "
+                  "run a component nobody admitted", file=sys.stderr)
+            return 1
+        admitted = ComponentManifest.from_yaml(raw.decode("utf-8"))
+    elif args.manifest_digest:
+        print("ContractViolation: --manifest-digest is the digest of a --manifest",
+              file=sys.stderr)
+        return 2
+
     if tool is not None:
-        bio = ComponentManifest.load(args.manifest)
+        bio = admitted
         runtime = tool.runtime(bio)
-    elif args.manifest:
-        bio = ComponentManifest.load(args.manifest)
+    elif admitted is not None:
+        bio = admitted
         connector = bio.id.startswith("public.connector.")
         runtime = default_runtime(catalogue=False, public_apis=connector,
                                   extra_manifests=() if connector else (bio,),

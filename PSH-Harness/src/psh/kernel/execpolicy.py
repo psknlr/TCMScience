@@ -39,11 +39,28 @@ A command is a token list (``shlex``-split when given as a string). A pattern is
 list of tokens; each element is either a literal string or a list of alternatives, and ``*``
 matches any single token. A pattern matches a command when the command *begins with* the
 pattern — a prefix rule, exactly as in Codex.
+
+What a rule is matched against is every command the line would run, not only its first
+word. Matching the raw prefix alone let the shipped "read-only inspection" rule allow
+``find . -delete``, ``find . -exec sh -c '…' ;`` and ``echo hi > /etc/passwd`` with no
+approval, and let ``/usr/bin/sudo``, ``env sudo`` and ``rm --recursive --force`` reach the
+PROMPT default instead of their forbidden rules. So a command is first analysed
+(``_analyse``): a string is split at shell operators (``;``, ``&&``, ``|``, newlines, …),
+each command loses its wrappers (``env``, ``nice``, ``xargs``, ``timeout``, …), leading
+assignments and the directory on its name, and ``sh -c`` strings, command substitutions and
+``find -exec`` commands are analysed as commands of their own. Forbidden rules are checked
+against every one of them, rm's recursive flags in any position included. A rule that
+allows a command allows it only under the name it was written for, so ``./ls`` and
+``env X=… ls`` are asked about, not allowed by the ``ls`` rule. And three shapes a prefix
+rule cannot describe are always asked about: a ``find`` that deletes, writes or runs
+(``-delete``, ``-exec``, ``-ok``, ``-fprint``, ``-fls``), an output redirection into a file,
+and an expansion or substitution whose value the policy cannot see.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import shlex
 from dataclasses import dataclass, field
 from enum import Enum
@@ -201,6 +218,237 @@ DEFAULT_RULES: tuple[PrefixRule, ...] = (
 )
 
 
+# ------------------------------------------------------------------ command analysis
+#
+# Not a shell. Enough of one to find every command a line runs, conservatively: where the
+# analysis cannot tell what runs, the line is asked about rather than allowed.
+
+#: Rules the analysis itself applies. Not in any rule list, so a policy file cannot drop
+#: them, and only ever PROMPT: they can raise an ALLOW to a question, never relax anything.
+_FIND_ACTION = PrefixRule(
+    ("find",), Decision.PROMPT,
+    "find with -delete, -exec, -execdir, -ok, -okdir, -fprint or -fls deletes or writes "
+    "files or runs commands; it is not read-only inspection — confirm", origin="analysis")
+_REDIRECT = PrefixRule(
+    ("*",), Decision.PROMPT,
+    "the command line redirects output into a file; a rule describes a command, not where "
+    "its output is written — confirm", origin="analysis")
+_EXPANSION = PrefixRule(
+    ("*",), Decision.PROMPT,
+    "the command line expands a variable or substitutes a command, so what runs depends on "
+    "a value the policy cannot see — confirm", origin="analysis")
+_RENAMED = PrefixRule(
+    ("*",), Decision.PROMPT,
+    "the command runs through a wrapper, an assignment or a path, and a rule allowing the "
+    "bare name does not allow it — confirm", origin="analysis")
+_TOO_DEEP = PrefixRule(
+    ("*",), Decision.PROMPT,
+    "commands nested this deep are not analysed — confirm", origin="analysis")
+
+#: Commands that run the command named by their arguments, with their options that take a
+#: separate argument. Stripped (repeatedly) to find the command that actually runs.
+_WRAPPERS: dict[str, frozenset[str]] = {
+    "env": frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}),
+    "command": frozenset(),
+    "exec": frozenset({"-a"}),
+    "nice": frozenset({"-n", "--adjustment"}),
+    "nohup": frozenset(),
+    "setsid": frozenset(),
+    "time": frozenset({"-f", "--format", "-o", "--output"}),
+    "timeout": frozenset({"-s", "--signal", "-k", "--kill-after"}),
+    "stdbuf": frozenset({"-i", "-o", "-e", "--input", "--output", "--error"}),
+    "xargs": frozenset({"-a", "--arg-file", "-d", "--delimiter", "-E", "-I", "-L",
+                        "--max-lines", "-n", "--max-args", "-P", "--max-procs", "-s",
+                        "--max-chars"}),
+}
+_SHELLS = frozenset({"sh", "bash", "dash", "zsh", "ksh", "ash", "fish"})
+#: Shell words that may open a command without being one.
+_RESERVED = frozenset({"{", "}", "!", "if", "then", "else", "elif", "fi", "do", "done",
+                       "while", "until", "case", "esac", "for", "select", "function"})
+_FIND_RUNS = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
+_FIND_WRITES = frozenset({"-delete", "-fprint", "-fprint0", "-fprintf", "-fls"})
+_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+_SUBSTITUTION = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+_MAX_DEPTH = 8
+
+
+@dataclass(frozen=True, slots=True)
+class _Command:
+    """One command a line runs: as written, and as matched against forbidden rules."""
+
+    literal: tuple[str, ...]
+    argv: tuple[str, ...]
+
+
+@dataclass(slots=True)
+class _Analysis:
+    commands: list[_Command] = field(default_factory=list)
+    #: The first structural reason to ask, if any.
+    prompt: PrefixRule | None = None
+
+    def ask(self, rule: PrefixRule) -> None:
+        if self.prompt is None:
+            self.prompt = rule
+
+
+def _analyse(command: str | Sequence[str]) -> _Analysis:
+    out = _Analysis()
+    if isinstance(command, str):
+        _analyse_line(command, out, 0)
+    else:
+        _analyse_argv(tuple(str(t) for t in command), out, 0)
+    return out
+
+
+def _analyse_line(line: str, out: _Analysis, depth: int) -> None:
+    """A command line a shell interprets: split at its operators, each command analysed."""
+    if depth > _MAX_DEPTH:
+        out.ask(_TOO_DEEP)
+        return
+    for match in _SUBSTITUTION.finditer(line):
+        out.ask(_EXPANSION)
+        _analyse_line(match.group(1) if match.group(1) is not None else match.group(2),
+                      out, depth + 1)
+    lexer = shlex.shlex(line, posix=True, punctuation_chars="();<>|&\n")
+    lexer.whitespace = " \t\r"        # a newline separates commands, so it is an operator
+    lexer.whitespace_split = True
+    lexer.commenters = ""             # never let a "#" hide the rest of a line
+    current: list[str] = []
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        if depth == 0:
+            raise                     # the line itself does not parse: as before, an error
+        out.ask(_EXPANSION)           # a nested command that does not parse is asked about
+        return
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        index += 1
+        if token and set(token) <= set("();<>|&\n"):
+            if "<" in token or ">" in token:
+                if "(" in token or ")" in token:      # <( … ) / >( … ): a command runs
+                    out.ask(_EXPANSION)
+                else:                                 # a redirection and its target
+                    target = tokens[index] if index < len(tokens) else ""
+                    index += 1
+                    if ">" in token and not (target == "/dev/null" or (
+                            token.endswith("&") and (target.isdigit() or target == "-"))):
+                        out.ask(_REDIRECT)
+                    continue
+            _analyse_argv(tuple(current), out, depth)
+            current = []
+            continue
+        if "$" in token or "`" in token:
+            out.ask(_EXPANSION)
+        current.append(token)
+    _analyse_argv(tuple(current), out, depth)
+
+
+def _analyse_argv(literal: tuple[str, ...], out: _Analysis, depth: int) -> None:
+    """One command: strip what runs it, record it, and analyse what it runs in turn."""
+    if depth > _MAX_DEPTH:
+        out.ask(_TOO_DEEP)
+        return
+    argv = list(literal)
+    for _ in range(16):                       # bounded: wrappers may nest, not forever
+        while argv and (argv[0] in _RESERVED or _ASSIGNMENT.match(argv[0])):
+            argv.pop(0)
+        if argv and "/" in argv[0]:
+            argv[0] = argv[0].rstrip("/").rsplit("/", 1)[-1]
+        if not argv or argv[0] not in _WRAPPERS:
+            break
+        argv = _strip_wrapper(argv)
+    if not argv:
+        return
+    name = argv[0]
+    if name == "rm" and _rm_is_recursive(argv):
+        # Recursive in any position or spelling: -r, -R, -fr, -vrf, --recursive, after an
+        # operand. Matched against the rules as the canonical "rm -r …".
+        argv = ["rm", "-r", *[t for t in argv[1:] if not t.startswith("-")]]
+    out.commands.append(_Command(literal=literal, argv=tuple(argv)))
+    if name in _SHELLS:
+        script = _shell_script(argv)
+        if script is not None:
+            _analyse_line(script, out, depth + 1)
+    elif name == "find":
+        index = 1
+        while index < len(argv):
+            token = argv[index]
+            index += 1
+            if token in _FIND_WRITES:
+                out.ask(_FIND_ACTION)
+            elif token in _FIND_RUNS:
+                out.ask(_FIND_ACTION)
+                end = index
+                while end < len(argv) and argv[end] not in (";", "+"):
+                    end += 1
+                _analyse_argv(tuple(argv[index:end]), out, depth + 1)
+                index = end + 1
+
+
+def _strip_wrapper(argv: list[str]) -> list[str]:
+    """Drop a wrapper and its options; what is left starts with the command it runs."""
+    name, rest = argv[0], argv[1:]
+    takes_argument = _WRAPPERS[name]
+    index = 0
+    while index < len(rest):
+        token = rest[index]
+        if token == "--":
+            index += 1
+            break
+        if name == "env" and token in ("-S", "--split-string") and index + 1 < len(rest):
+            # env -S splits its argument into the command it runs.
+            return _split(rest[index + 1]) + rest[index + 2:]
+        if name == "env" and token.startswith("--split-string="):
+            return _split(token.split("=", 1)[1]) + rest[index + 1:]
+        if token.startswith("-") and len(token) > 1:
+            index += 2 if token in takes_argument else 1
+            continue
+        if name == "env" and _ASSIGNMENT.match(token):
+            index += 1
+            continue
+        break
+    if name == "timeout" and index < len(rest):
+        index += 1                            # the duration
+    return rest[index:]
+
+
+def _split(text: str) -> list[str]:
+    """Split a string a wrapper runs; one that does not split is kept whole (no rule names it)."""
+    try:
+        return shlex.split(text)
+    except ValueError:
+        return [text]
+
+
+def _rm_is_recursive(argv: Sequence[str]) -> bool:
+    for token in argv[1:]:
+        if token == "--":
+            return False
+        if token == "--recursive":
+            return True
+        if token.startswith("-") and not token.startswith("--") and (
+                "r" in token or "R" in token):
+            return True
+    return False
+
+
+def _shell_script(argv: Sequence[str]) -> str | None:
+    """The command string a shell is told to run with -c, if it is told one."""
+    seen_c = False
+    tokens = iter(argv[1:])
+    for token in tokens:
+        if token in ("-o", "+o", "-O", "+O", "--rcfile", "--init-file"):
+            next(tokens, None)                # an option that takes an argument
+            continue
+        if len(token) > 1 and token[0] in "-+":
+            seen_c = seen_c or (not token.startswith("--") and "c" in token[1:])
+            continue
+        return token if seen_c else None
+    return None
+
+
 class ExecPolicy:
     """An ordered rule set with forbidden → prompt → allow evaluation."""
 
@@ -214,28 +462,56 @@ class ExecPolicy:
         self.amendments = 0
 
     def evaluate(self, command: str | Sequence[str]) -> PolicyEvaluation:
-        """Return the decision for a command. Forbidden rules are consulted first, always."""
+        """Return the decision for a command. Forbidden rules are consulted first, always.
+
+        The decision covers every command the line runs (see "Matching model"): forbidden
+        if any of them is, otherwise the most cautious of their decisions, and a question
+        where the analysis found a shape no rule describes.
+        """
         self.evaluations += 1
         tokens = _tokenize(command)
+        analysis = _analyse(command)
         # Forbidden first, absolutely: a forbidden rule is checked against every command
         # before any prompt or allow rule gets a say, and specificity is irrelevant.
-        for rule in self.rules:
-            if rule.decision is Decision.FORBIDDEN and rule.matches(tokens):
-                return PolicyEvaluation(Decision.FORBIDDEN, rule, tokens)
+        for each in analysis.commands:
+            for rule in self.rules:
+                if rule.decision is Decision.FORBIDDEN and (
+                        rule.matches(each.argv) or rule.matches(each.literal)):
+                    return PolicyEvaluation(Decision.FORBIDDEN, rule, tokens)
+        decided: PolicyEvaluation | None = None
+        for each in analysis.commands:
+            decision, rule = self._decide(each)
+            if decided is None or decision.rank < decided.decision.rank:
+                decided = PolicyEvaluation(decision, rule, tokens)
+        if decided is None:
+            decided = PolicyEvaluation(self.default, None, tokens)
+        if analysis.prompt is not None and decided.decision is Decision.ALLOW:
+            return PolicyEvaluation(Decision.PROMPT, analysis.prompt, tokens)
+        return decided
+
+    def _decide(self, command: _Command) -> tuple[Decision, PrefixRule | None]:
         # Between prompt and allow, the most specific (longest) matching pattern wins, so an
         # amendment "allow git push origin" relaxes "prompt on git push" — but nothing here
         # can ever reach a command a forbidden rule already refused.
         best: PrefixRule | None = None
+        as_written = False
         for rule in self.rules:
-            if rule.decision is not Decision.FORBIDDEN and rule.matches(tokens):
+            if rule.decision is Decision.FORBIDDEN:
+                continue
+            literal = rule.matches(command.literal)
+            if literal or rule.matches(command.argv):
                 # >= : on equal specificity the LATER rule wins. Amendments are appended, so
                 # a fresh "allow git push" beats the shipped "prompt git push" — the more
                 # recent decision is the operative one.
                 if best is None or len(rule.pattern) >= len(best.pattern):
-                    best = rule
-        if best is not None:
-            return PolicyEvaluation(best.decision, best, tokens)
-        return PolicyEvaluation(self.default, None, tokens)
+                    best, as_written = rule, literal
+        if best is None:
+            return self.default, None
+        if best.decision is Decision.ALLOW and not as_written:
+            # The rule names the bare command; what runs is that name behind a wrapper, an
+            # assignment or a path ("env LD_PRELOAD=… ls", "./ls"), which it did not allow.
+            return Decision.PROMPT, _RENAMED
+        return best.decision, best
 
     def add_rule(self, rule: PrefixRule) -> None:
         """Add a rule. Rule self-tests ran at construction; nothing further to validate."""

@@ -7,6 +7,7 @@ policy is not governed by it.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -101,22 +102,26 @@ class TrustedKernel:
                                           audit=sink)
         # One declarative execution policy, shared by the gateway that consults it and the
         # approval engine that may amend it. Loaded from the state dir when a policy file
-        # exists there, so persisted amendments survive restarts; the shipped defaults
-        # otherwise.
+        # exists there and is the file this kernel's chain says it last saved, so persisted
+        # amendments survive restarts; the shipped defaults otherwise.
         from .approvals import AmendingApprovalEngine
-        from .execpolicy import ExecPolicy
 
         policy_path = self.config.state_dir / "execpolicy.json"
-        self.execpolicy = (ExecPolicy.load(policy_path) if policy_path.exists()
-                           else ExecPolicy())
+        self.execpolicy = self._load_execpolicy(policy_path, on_warning)
+        # The state directory is the kernel's: its policy, audit log, keys, quarantine and
+        # sandboxes. A tool is handed its workspace and artifact store and nothing else in
+        # it, whatever the allowlist says. The default allowlist was ``state_dir/*``, which
+        # let one call of a file-writing tool rewrite execpolicy.json (every forbidden rule
+        # gone at the next start) or read the evidence-signing key.
         self.tool_gateway = ToolGateway(
-            allowed_paths=allowed_paths or [str(self.config.state_dir / "*")],
+            allowed_paths=allowed_paths or [str(self.config.git_workspace / "*")],
             ceilings=self.config.destination_ceilings or None, audit=sink,
-            policy=self.execpolicy)
+            policy=self.execpolicy, kernel_owned=[self.config.state_dir],
+            tool_areas=[self.config.git_workspace, self.config.artifact_store])
         self.delegation_gateway = DelegationGateway(audit=sink)
         self.approvals = AmendingApprovalEngine(
             approval_handler, policy=self.execpolicy, audit=sink,
-            persist=lambda pol: pol.save(policy_path))
+            persist=lambda pol: self._save_execpolicy(pol, policy_path))
         self.budget = BudgetGovernor(self.policy.budget, on_warning=on_warning, audit=sink)
 
         self.graph = WorkGraph(self.config.index_store)
@@ -190,6 +195,43 @@ class TrustedKernel:
                                       require_citation=self.policy.require_citation,
                                       audit=sink,
                                       citation_patterns=self.config.citation_patterns)
+
+    # ---------------------------------------------------------- execution policy
+    def _load_execpolicy(self, path: Path,
+                         on_warning: Callable[[str], None] | None) -> Any:
+        """The persisted policy, if it is exactly the file this kernel's chain says it saved.
+
+        The file replaces the shipped rules wholesale, so a file nobody saved through
+        :meth:`_save_execpolicy` — a tool's write, a hand edit, a copy from another state
+        directory — could drop every forbidden rule at the next start while the chain still
+        verified. Every save records the file's SHA-256 in the chain; a file that does not
+        match the last record is not loaded, the shipped defaults apply, and the refusal is
+        itself an event.
+        """
+        from .execpolicy import ExecPolicy
+
+        if not path.exists():
+            return ExecPolicy()
+        text = path.read_text(encoding="utf-8")
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        recorded = (self.events.latest_detail("execpolicy_saved") or {}).get("sha256", "")
+        if digest == recorded:
+            return ExecPolicy.from_json(text)
+        self.events.append("execpolicy_rejected", run_id="", detail={
+            "file": path.name, "sha256": digest, "recorded_sha256": recorded})
+        if on_warning is not None:
+            on_warning(f"{path} is not the execution policy this kernel last saved (sha256 "
+                       f"{digest[:16]}, chain records {recorded[:16] or 'no save'}); it was "
+                       "not loaded and the shipped default rules apply")
+        return ExecPolicy()
+
+    def _save_execpolicy(self, policy: Any, path: Path) -> None:
+        """Write the policy and record its digest in the chain, which the next load checks."""
+        text = policy.to_json()
+        path.write_text(text, encoding="utf-8")
+        self.events.append("execpolicy_saved", run_id="", detail={
+            "file": path.name, "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "rules": len(policy.rules)})
 
     # ------------------------------------------------------------ classification
     @property
