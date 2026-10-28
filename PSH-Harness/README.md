@@ -786,6 +786,20 @@ configuration) — editable installs may not survive a session restart.
 <!-- zh -->
 用 `PYTHONPATH=src` 运行测试（组合配置则用 `PYTHONPATH=../sable_pkg/src:src`）—— 可编辑安装（editable install）可能无法在一次会话重启后存活。
 
+### Upgrading a state directory · 升级已有的状态目录
+
+A state directory written before the October 2026 kernel fixes may hold an
+`execpolicy.json` whose save the audit chain does not record. The kernel does not load it.
+On the first open it moves the file aside to `execpolicy.json.rejected-<sha16>`, records
+one `execpolicy_rejected` event, warns, and applies the shipped rules. Amendments persisted
+before the upgrade are therefore asked about again; their rules stay readable in the moved
+file. Inside the state directory, tools now reach only `workspace/` and `artifacts/`, and
+the default tool allowlist is `state_dir/workspace/*`. Details:
+`docs/RUNTIME_SECURITY_REVIEW.md`.
+
+<!-- zh -->
+在 2026 年 10 月的内核修复之前写下的状态目录，可能含有一个 `execpolicy.json`，而审计链中没有它被保存的记录。内核不会加载它。第一次打开时，内核把该文件移到一旁，改名为 `execpolicy.json.rejected-<sha16>`，记录一条 `execpolicy_rejected` 事件，发出警告，并应用随包发布的规则。因此，升级之前持久化的修正会被重新询问；它们的规则在被移走的文件中仍然可读。在状态目录之内，工具现在只能触及 `workspace/` 和 `artifacts/`，默认的工具允许名单是 `state_dir/workspace/*`。详见 `docs/RUNTIME_SECURITY_REVIEW.md`。
+
 
 ## Use · 使用
 

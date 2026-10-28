@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
+import shlex
 import threading
 import time
 from dataclasses import dataclass, field
@@ -199,9 +200,18 @@ class ToolGateway(_GateBase):
     def __init__(self, *, allowed_paths: Sequence[str] = (),
                  ceilings: Mapping[Destination, Sensitivity] | None = None,
                  audit: Callable[..., Any] | None = None,
-                 policy: Any = None) -> None:
+                 policy: Any = None,
+                 kernel_owned: Sequence[str | Path] = (),
+                 tool_areas: Sequence[str | Path] = ()) -> None:
         super().__init__(ceilings=ceilings, audit=audit)
         self.allowed_paths = tuple(allowed_paths)
+        #: Directories that belong to the kernel (its state directory), refused to every
+        #: tool whatever ``allowed_paths`` says, except the ``tool_areas`` inside them that
+        #: the kernel hands to tools. Resolved once, as the targets are.
+        self.kernel_owned = tuple(Path(p).expanduser().resolve(strict=False)
+                                  for p in kernel_owned)
+        self.tool_areas = tuple(Path(p).expanduser().resolve(strict=False)
+                                for p in tool_areas)
         #: The declarative execution policy (Codex execpolicy pattern). When present it is
         #: consulted BEFORE the regex denylist and can return allow / prompt / forbidden. The
         #: regex list stays as a second layer for shell shapes a token-prefix rule cannot
@@ -246,6 +256,47 @@ class ToolGateway(_GateBase):
         self._roots_cache = (self.allowed_paths, out)
         return out
 
+    def _kernel_owns(self, target: Path) -> bool:
+        """Whether a resolved path is the kernel's own state rather than a tool's area."""
+        return (any(target == owned or owned in target.parents for owned in self.kernel_owned)
+                and not any(target == area or area in target.parents
+                            for area in self.tool_areas))
+
+    def _kernel_state_named(self, raw: Any, command: Any) -> str | None:
+        """A path into the kernel's own state the payload names anywhere, or None.
+
+        The allowlist check reads only values under path-like keys (``path``, ``file``,
+        ``output`` …), and only for filesystem tools. The kernel's state is refused more
+        widely, because it is refused to every tool: any payload value that is itself a path
+        (``{"src": …}``, ``{"cwd": …}``), and any word of a command line that is an absolute
+        or home-relative path (``cat <state>/secrets/evidence.key``, ``--file=<state>/…``,
+        ``><state>/execpolicy.json``). A path a command builds — relative to its working
+        directory, or from a variable — is not visible here; the execution policy asks about
+        expansions, and only an OS sandbox bounds what a shell can reach.
+        """
+        strings: list[str] = []
+        _flatten_into(raw, strings, [_WALK_MAX_NODES], 0)
+        candidates = {s.strip() for s in strings
+                      if s.strip()[:1] in ("/", "~") and "\n" not in s.strip()}
+        if command is not None:
+            texts = [command] if isinstance(command, str) else [str(c) for c in command]
+            if isinstance(command, str):
+                try:
+                    texts += shlex.split(command)       # quotes removed: '/st'ate/…
+                except ValueError:
+                    pass
+            candidates.update(piece for text in texts
+                              for piece in _COMMAND_WORD_SPLIT.split(text)
+                              if piece[:1] in ("/", "~"))
+        for candidate in sorted(candidates):
+            try:
+                target = Path(candidate).expanduser().resolve(strict=False)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if self._kernel_owns(target):
+                return candidate
+        return None
+
     def _path_permitted(self, candidate: str) -> tuple[bool, str]:
         """Whether a path a payload names lies inside the allowed roots, after resolution.
 
@@ -264,6 +315,14 @@ class ToolGateway(_GateBase):
             target = Path(candidate).expanduser().resolve(strict=False)
         except (OSError, RuntimeError) as exc:   # RuntimeError: symlink loop
             return False, f"path could not be resolved ({exc})"
+        # The kernel's own files first, and whatever the allowlist says: an allowlist that
+        # names the state directory (the old default did) must not hand a tool the policy
+        # file, the event store or the evidence key.
+        if self._kernel_owns(target):
+            return False, (f"resolves to {target}, which is the kernel's own state; no "
+                           "allowed path grants it")
+        if not self.allowed_paths:
+            return True, "no allowed paths are configured"
         for root, pattern in self._allowed_roots():
             try:
                 inside = target == root or root in target.parents
@@ -380,7 +439,18 @@ class ToolGateway(_GateBase):
                     reason=(f"payload matches a denied command pattern "
                             f"({pattern.pattern[:40]}); refused regardless of autonomy")))
 
-        if (manifest.mutates or manifest.requires_filesystem) and self.allowed_paths:
+        if self.kernel_owned and (command is not None or manifest.mutates
+                                  or manifest.requires_filesystem):
+            named = self._kernel_state_named(raw, command)
+            if named is not None:
+                return self._record(EgressDecision(
+                    allowed=False, destination=destination, label=label, gate=self.name,
+                    target=target,
+                    reason=(f"payload names {named!r}, which is the kernel's own state; no "
+                            "tool is handed it, whatever the allowed paths say")))
+
+        if (manifest.mutates or manifest.requires_filesystem) and (
+                self.allowed_paths or self.kernel_owned):
             scanned = _candidate_paths(raw)
             if not scanned.complete:
                 return self._record(EgressDecision(
@@ -924,6 +994,9 @@ def _flatten_into(value: Any, out: list[str], budget: list[int], depth: int) -> 
 
 
 _PATH_KEYS = ("path", "file", "filename", "dest", "destination", "output", "target")
+#: Where a word of a command line may hold a path: between blanks, after "=" or ":"
+#: (``--file=/x``, ``PATH=/a:/b``), against an operator (``>/x``), inside quotes or braces.
+_COMMAND_WORD_SPLIT = re.compile(r"""[\s=:<>|;&()`'",{}]+""")
 _COMMAND_KEYS = ("command", "cmd", "argv", "args", "shell")
 
 

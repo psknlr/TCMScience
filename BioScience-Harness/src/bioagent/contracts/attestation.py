@@ -23,7 +23,7 @@ The digest is recomputed from the artifact in hand, so an artifact edited after 
 claim, its provenance, the head it names) no longer matches what the run recorded.
 
 The attestor reads a PSH event store and nothing else. PSH is imported only to open one
-from a state directory, through its public ``TrustedKernel``, so the contracts keep no
+from a state directory, through its public ``psh.EventStore``, so the contracts keep no
 import-time dependency on PSH and never reach into the kernel's internals.
 """
 
@@ -69,9 +69,11 @@ class AuditChainAttestor:
         """The attestor for the kernel state kept under ``state_dir``."""
         if not (Path(state_dir) / "events.db").is_file():
             raise FileNotFoundError(f"no audit chain under {state_dir}")
-        from psh import PSHConfig, TrustedKernel
-        kernel = TrustedKernel(PSHConfig(state_dir=Path(state_dir)))
-        return cls(kernel.events, owner=kernel)
+        # The store alone, not a kernel: attesting reads the chain and must not write to it,
+        # and opening a kernel can append (a refused policy file is recorded).
+        from psh import EventStore, PSHConfig
+        events = EventStore(PSHConfig(state_dir=Path(state_dir)).event_store)
+        return cls(events, owner=events)
 
     def attest(self, artifact: Any) -> tuple[bool, str]:
         """Whether the chain records ``artifact`` as released, and why not if it does not."""
