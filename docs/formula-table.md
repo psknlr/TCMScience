@@ -28,7 +28,9 @@ the workbook itself is not edited:
 
 - **U+E840 is read as 䓖 (U+44D6).** The workbook was written through the GBK code page,
   which has no 䓖. It gives GB 18030's 0xFE7B a private-use code point that no font draws.
-  The character occurs 2,409 times in compositions and 160 times in names, all in 芎䓖.
+  The character occurs 2,409 times in compositions, 160 times in names and 12 times in the
+  other columns. Almost all are 芎䓖. The names also have 鞠䓖 twice (an old name of
+  芎䓖), and the compositions have 穹䓖 three times and 芍䓖, 川䓖 and 萆䓖 once each.
 - **Excel's escaped carriage return `_x000D_` is removed.** It occurs in 5 cells, before a
   line break, which is kept.
 
@@ -210,7 +212,7 @@ gives the corrected reading, the reason and the text it follows. `sources.formul
 applies it when the table is read:
 
 - the workbook is not edited, and the record keeps its text, row and id (a digest of the
-  text as written);
+  text as read, not of the correction);
 - only its components are parsed from the corrected text, and each keeps the name the
   workbook wrote (`FormulaRecord.written_components`, which also holds the doses as
   written; the herb layer's composition edges carry the name as `raw.written`);

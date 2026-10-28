@@ -466,8 +466,8 @@ def _errata_from(path: str) -> tuple[Erratum, ...]:
         written, corrected = parse_composition(e.written), parse_composition(e.corrected)
         if len(written) != len(corrected):
             raise ValueError(f"{p}: {e.id} reads {len(written)} components as "
-                             f"{len(corrected)}; an erratum corrects names, it does not add "
-                             "or remove ingredients")
+                             f"{len(corrected)}; an erratum corrects how ingredients are "
+                             "written, it does not add or remove any")
         blob = "\x1f".join((e.name, e.source, e.written))
         digest = "tcm:formula.fx" + hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
         if e.formula_id and e.formula_id != digest:

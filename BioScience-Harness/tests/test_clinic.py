@@ -297,13 +297,15 @@ def test_check_reviews_a_practitioners_own_prescription(pack):
 
 @pytest.mark.parametrize("allergy,herb", [("黄耆", "黄芪"), ("北芪", "黄芪"), ("绵芪", "黄芪"),
                                           ("炙黄芪", "黄芪"), ("芍药", "白芍"), ("国老", "甘草"),
-                                          ("国老", "炙甘草"), ("黄芪", "黄芪")])
+                                          ("国老", "炙甘草"), ("黄芪", "黄芪"),
+                                          ("黄耆过敏", "黄芪"), ("对北芪过敏", "黄芪")])
 def test_an_allergy_written_under_another_name_of_the_herb_stops_it(pack, allergy, herb):
     # 黄耆 is how Taiwan and the classics write 黄芪, 北芪 a trade name: the same herb
     it = parse_intake(case(*SPLEEN, allergies=[allergy]), pack)
     found = {i.id: i for i in check([Line(herb, 9, "practitioner")], it, pack)}
     assert found[f"allergy:{herb}"].severity == "stop", sorted(found)
     assert allergy in found[f"allergy:{herb}"].message
+    assert "过敏与" not in found[f"allergy:{herb}"].message    # 黄耆与黄芪, not 黄耆过敏与黄芪
 
 
 def test_an_allergy_to_another_herb_is_not_read_as_this_one(pack):
@@ -314,6 +316,19 @@ def test_an_allergy_to_another_herb_is_not_read_as_this_one(pack):
         it = parse_intake(case(*SPLEEN, allergies=[allergy]), pack)
         assert not [i for i in check([Line(herb, 9, "practitioner")], it, pack)
                     if i.code == "allergy"], (allergy, herb)
+
+
+@pytest.mark.parametrize("allergy,herb", [("鸡蛋", "鸡内金"), ("鸡子", "鸡内金"), ("乌鸡", "鸡内金"),
+                                          ("海带", "海藻"), ("昆布", "海藻"), ("山芋", "山药"),
+                                          ("萝卜", "莱菔子"), ("杏子", "苦杏仁")])
+def test_another_product_of_the_herbs_source_is_not_the_herb(pack, allergy, herb):
+    # the materia table groups names by source, for network pharmacology: its 鸡内金 lists
+    # 鸡蛋 and 乌鸡 (Gallus gallus), its 海藻 海带 and 昆布, its 山药 山芋 (in many places
+    # today a sweet potato), its 莱菔子 萝卜. Read as the herb, an egg allergy was an
+    # unsignable stop for 鸡内金 that said the two were one drug.
+    it = parse_intake(case(*SPLEEN, allergies=[allergy]), pack)
+    assert not [i for i in check([Line(herb, 9, "practitioner")], it, pack)
+                if i.code == "allergy"], (allergy, herb)
 
 
 @pytest.mark.parametrize("medication,herb,klass,atc", [

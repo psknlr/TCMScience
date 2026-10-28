@@ -48,7 +48,7 @@ practitioner (`clinic check`):
 | Pregnancy: 禁用 | stop |
 | Pregnancy: 慎用 | block |
 | Pregnancy status unknown in a woman of child-bearing age | block |
-| Allergy, to the herb under any of its names (黄耆 or 北芪 is 黄芪, 芍药 is 白芍, 国老 is 甘草) | stop |
+| Allergy, to the herb under any name the seed knowledge base gives it (黄耆 or 北芪 is 黄芪, 芍药 is 白芍, 国老 is 甘草) | stop |
 | Interaction with a recorded medication, named by its class (利尿剂) or by its own name (呋塞米, Lasix) | warn |
 | Caution for a recorded condition | warn |
 | Toxic herb, with its processing and decoction notes | warn |
@@ -64,9 +64,13 @@ report says the sources differ. For example, the Pharmacopoeia 2020 says 孕妇�
 附子 and the seed's reading says 禁用, so 附子 in pregnancy is a stop.
 
 An allergy entry matches a herb when one name contains the other, or when both name the
-same herb. The herb is found from the whole entry, by the seed knowledge base's names and
-the materia table's. An entry is not searched for herb names inside it: 花粉过敏 is a
-pollen allergy, not one to 天花粉.
+same herb in the seed knowledge base. Its names are a herb's own and its processed forms'
+(炙甘草 is 甘草). The herb is found from the whole entry, or from the name in 对黄耆过敏
+or 黄耆过敏. An entry is not searched for herb names inside it: 花粉过敏 is a pollen
+allergy, not one to 天花粉. The materia table's names are not used. That table groups the
+names of a source, so its 鸡内金 also lists 鸡蛋, and its 海藻 lists 海带 and 昆布. Read
+as one herb, an egg allergy would stop 鸡内金. A herb the knowledge base does not hold
+matches by its name alone.
 
 The interaction rules name classes of medicines. A recorded medicine also counts as its
 class when the pack's mapping lists it. The mapping covers 35 medicines, by generic name
@@ -184,7 +188,7 @@ practitioner reviews it, every report repeats that status.
 - 安全核查：
   - 十八反、十九畏：须说明理由；
   - 妊娠禁用：停止；慎用：须说明理由；育龄期患者妊娠状态未知：须先确认；
-  - 过敏：停止。按药材判断，别名也算（黄耆、北芪即黄芪，芍药即白芍，国老即甘草）；只按整条过敏记录识别药材，不在记录中拆字找药名（花粉过敏指花粉，不是天花粉）；
+  - 过敏：停止。按药材判断，种子知识库所列别名也算（黄耆、北芪即黄芪，芍药即白芍，国老即甘草），炮制品即其药材（炙甘草即甘草）；按整条过敏记录识别药材，“对黄耆过敏”“黄耆过敏”也识别为黄耆，但不在记录中拆字找药名（花粉过敏指花粉，不是天花粉）；不采用药材名表（materia）的别名：该表按来源归并名称，鸡内金下列有鸡蛋，海藻下列有海带、昆布，若视为同一药材，鸡蛋过敏会误停鸡内金；知识库未收的药材只按名称本身匹配；
   - 中西药相互作用：警示。西药按类别名（如利尿剂）识别，也按具体药名识别：知识包按 WHO ATC 分类把 35 种药（中英文通用名和常见商品名，如呋塞米、Lasix）对应到规则中的类别，每种附 ATC 编码；同属两类的药（如 β 受体阻滞剂）不列入；
   - 病证慎用：警示；
   - 毒性药材：警示，并附炮制与煎法；

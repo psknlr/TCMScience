@@ -128,20 +128,20 @@ def _resolve(kb: Any, herb: str) -> Any:
 
 
 def _identity(kb: Any, name: str) -> set[str]:
-    """The herb a written name denotes, by the seed knowledge base's names (北芪, 绵芪) and
-    the materia table's (黄耆, 芍药, 国老, 炙黄芪): a processed form is its herb. Only a whole
-    name resolves; a name that is part of another (天花粉 in 花粉过敏) is not read as it."""
-    from ..sources.materia import resolve_name
-    out: set[str] = set()
+    """The herb a whole written name denotes by the seed knowledge base's names (黄耆, 北芪 and
+    绵芪 are 黄芪, 芍药 is 白芍, 国老 is 甘草); a processed form is its herb (炙甘草). Not by
+    the materia table's: it groups the names of a source, so its 鸡内金 also lists 鸡蛋 and
+    乌鸡, its 海藻 海带 and 昆布, and a food allergy would read as the herb."""
     entity = _resolve(kb, name)
-    if entity is not None:
-        herb = getattr(entity, "herb_id", "") or entity.id
-        if herb.startswith("herb."):
-            out.add(herb)
-    drug = resolve_name(name)
-    if drug:
-        out.add(f"materia:{drug}")
-    return out
+    if entity is None:
+        return set()
+    herb = getattr(entity, "herb_id", "") or entity.id
+    return {herb} if herb.startswith("herb.") else set()
+
+
+def _allergen(entry: str) -> str:
+    """The name in an allergy entry written as 对黄耆过敏 or 黄耆过敏."""
+    return entry.removeprefix("对").removesuffix("过敏") or entry
 
 
 def _line_for(pack: ClinicPack, herb: str, dose: float | None, fraction: float, *,
@@ -385,7 +385,7 @@ def check(lines: Sequence[Line], intake: Intake, pack: ClinicPack, *, kb: Any = 
     _incompatibility(issues, herbs, entities, kb, pack)
     if intake.allergies:
         # by name and by identity: 黄耆, 北芪 and 黄芪 are one herb, 芍药 is 白芍, 国老 is 甘草
-        allergic = {a: _identity(kb, a) for a in intake.allergies}
+        allergic = {a: _identity(kb, _allergen(a)) for a in intake.allergies}
         for h in herbs:
             same = _identity(kb, h)
             for a in intake.allergies:
@@ -394,7 +394,8 @@ def check(lines: Sequence[Line], intake: Intake, pack: ClinicPack, *, kb: Any = 
                                         f"过敏史记录“{a}”：处方含{h}", (h,)))
                 elif same & allergic[a]:
                     issues.append(Issue(f"allergy:{h}", "stop", "allergy",
-                                        f"过敏史记录“{a}”：处方含{h}（{a}与{h}为同一药材）",
+                                        f"过敏史记录“{a}”：处方含{h}"
+                                        f"（{_allergen(a)}与{h}为同一药材）",
                                         (h,)))
     if intake.medications is not None:
         meds = [normalise(m) for m in intake.medications]

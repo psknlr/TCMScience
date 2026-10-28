@@ -1,6 +1,6 @@
 {
   "schema": "tcmscience.formula_errata/1",
-  "description": "Corrections to how a composition in 中医方剂数据表.xlsx is read. The workbook is never edited: a corrected record keeps its text, its row and its id (a digest of the text as written); only the parse of its composition changes, the written names stay on each component, and every output that uses the record names the erratum. An erratum applies only while the record still reads exactly as 'written'. status: 'proposed' is applied and labelled as awaiting a maintainer's review, 'accepted' has been reviewed, 'rejected' is not applied.",
+  "description": "Corrections to how a composition in 中医方剂数据表.xlsx is read. The workbook is never edited: a corrected record keeps its text, its row and its id (a digest of the text as read, not of the correction); only the parse of its composition changes, the written names and doses stay on each component, and every output that uses the record names the erratum. An erratum applies only while the record still reads exactly as 'written'. status: 'proposed' is applied and labelled as awaiting a maintainer's review, 'accepted' has been reviewed, 'rejected' is not applied.",
   "errata": [
     {
       "id": "erratum.0001",
