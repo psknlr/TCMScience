@@ -102,10 +102,11 @@ that did not happen. The analysis itself is the same code either way, which is w
 ## 2. The data
 
 `runtime/datasets.json` (`tcmstudio.datasets/1`, built from `bioagent.sources.pipeline.required_files` and the licence
-records) lists the 17 files: URL, host, reviewed size and checksum where one exists (LOTUS is checked by md5; three
-files have neither a reviewed checksum nor a reviewed size and are kept as UNVERIFIED, as on the runner), licence, what
-is known about redistribution — from a reviewed licence record, or "unknown — downloading is not permission to
-redistribute" — and the pace bioagent keeps with its host (`rate_rps`: zenodo.org 0.1 a second, its robots.txt
+records) lists the 17 files: URL, host, reviewed size and checksum where one exists (LOTUS is checked by md5; STRING's
+aliases file, a frozen release, by the size and SHA-256 two live downloads read; two files, Reactome's UniProt mapping and
+the UniProt accession list, have neither a reviewed checksum nor a reviewed size and are kept as UNVERIFIED, as on the
+runner), licence, what is known about redistribution — from a reviewed licence record, or "unknown — downloading is not
+permission to redistribute" — and the pace bioagent keeps with its host (`rate_rps`: zenodo.org 0.1 a second, its robots.txt
 Crawl-delay; reactome.org 5; rest.uniprot.org 10; otherwise 1), which the relay keeps too. A second group, `admet`,
 lists one file, the TDC ADMET group archive the ADMET model build reads ([§3.2](#32-admet)): its URL and host
 (dataverse.harvard.edu), the SHA-256 bioagent pins (`bd0005246cb6…`) and the pinned archive's size (1,472,501 bytes),
@@ -116,7 +117,7 @@ No relayed download of it has been run in a browser: in CI (`live-data` #24) the
 given to the page as a project file ([§3.2](#32-admet)).
 
 Before a snapshot build starts, the browser's free storage is checked against the reviewed sizes of the files still
-missing (×1.1); the three files without a reviewed size are not guessed at, and the job's log names them.
+missing (×1.1); the two files without a reviewed size are not guessed at, and the job's log names them.
 
 A file reaches OPFS by one of three routes, recorded per file in `.meta/<file>.json`:
 
@@ -744,8 +745,10 @@ bit for bit across engines or CPUs and is held to the measured band of §3.3.
 - **Browsers.** Run in Chromium only. The page writes job records' files (receipts, checkpoints, the snapshot marker) with
   `createWritable`; a browser whose main thread lacks it (older Safari) refuses those writes, and the job fails rather
   than pretending to have kept them. Firefox and Safari have not been run.
-- **Archives without a checksum.** The runner reads a `.gz` through its CRC before keeping it; the browser does not, so a
-  truncated STRING aliases file (no reviewed checksum) is kept as UNVERIFIED and fails later, when Python parses it.
+- **Archives without a checksum.** The runner reads a `.gz` through its CRC before keeping it; the browser does not. Every
+  `.gz` the registry lists has a reviewed checksum (STRING's aliases file too, pinned from two live downloads), so a
+  truncated copy fails its checksum and nothing is kept; a `.gz` added without one would be kept as UNVERIFIED and fail
+  later, when Python parses it.
 - **Two tabs downloading the same file** do not corrupt it, but one finished download can be discarded and fetched again.
 
 ## 中文摘要
@@ -760,7 +763,7 @@ WebAssembly 的 CPython 3.14）和经 SHA-256 校验的应用包的 Web Worker�
 用一个线程，因此目前同一时间只有一个线程在计算。17 个原始文件（418 MB）
 保存在本站的私有文件系统（OPFS）中，Python 通过同步访问句柄就地只读读取；下载可直连上游、经本站边缘中转（流式、
 不存储、按 bioagent 对各主机的节奏限速）或由用户导入，并在构建快照时按审核过的校验和再次核验。构建前按已审核的文件
-大小检查剩余存储空间；三个没有审核大小的文件不做估计，任务日志会列出它们。浏览器 Worker 不能启动子进程，因此受治理的
+大小检查剩余存储空间；两个没有审核大小的文件不做估计，任务日志会列出它们。浏览器 Worker 不能启动子进程，因此受治理的
 分析在同一进程内经同一个 PSH 代理与审计链运行，产物如实记录 `isolation: "in_process"`。任务记录存于 IndexedDB，可取消；
 页面关闭时任务中断，下次可从已核验的阶段继续。每个任务写出回执：运行位置、运行时、各线程的 WebAssembly 内存峰值、
 每个输出（包括快照与账本）的两次独立哈希读取；运行了内核调用的阶段（ADMET 的适用域检索）另记其计算事实（`compute`，见下文 ADMET 段）。
@@ -1107,5 +1110,6 @@ AutoDock Vina 1.2.7（锁定的 SHA-256）对接，其 `score`/`optimize` 与原
 `.h5ad` 需要 Runner；从原始结构出发的对接（受体与配体准备：Meeko、RDKit，里程碑 B，尚未完成）与结构预测在浏览器中没有引擎，ADMET 的 SDF 或 `.mol` 文件、受治理的 `predict-admet` 与 `dock-ligands` Skill 运行也需要 Runner）、逐位可复现的对接（`score`/`optimize` 与原生 Vina 逐位一致，但带种子的蒙特卡洛搜索不是逐位可复现的，只被约束在种子 1–8 上的经测量带内，§3.3）、组学与 ADMET 输出与原生的逐字节一致（组学在两个参考上表格末位数字在
 容差内不同，UMAP 不比较，只比对过两个参考的参数，用户自己的运行不做比较；ADMET 的适用域文件与 `admet.tsv` 是原生运行的字节，模型卡逐字段与原生一致（模型文件摘要、秒数与化学名称除外：pickle 的字节取决于进程），模型原始输出与适用域检索完全一致，但经 `expit`/`10 **` 的最终预测值可能在 float64 末位相差几个单位（C 库的 `exp`，或 numpy 自带的 AVX-512 幂运算），逐个点名、绝不称作一致，qed 与 BertzCT 的 float64 末位可能相差而 float32 相等；浏览器化学拒绝了 Runner 的 RDKit 能读的训练分子时（真实 TDC 归档上拒绝了 81,809 个分子中的 202 个，0.25%），浏览器构建的模型可能与 Runner 的不同（模型卡计数，比对用同样保留的分子训练原生参考）；浏览器中的比对在小的已知答案归档、TDC 规模的合成归档以及（CI 中）真实 TDC 归档上运行，真实归档上 16,353 个测试集预测中 36 个在末位差 1 个单位）、组学任务超出限值的输入（超过 6,000 个细胞、单个表
 超过 66,000,000 个细胞 × 基因、计数矩阵超过 10,000,000 个基因 × 样本，交给 Runner）、在实体 GPU 上验证 ADMET 适用域检索（本机与 CI 无实体 GPU，P3 验收仍未满足）、手机端与浏览器标签页内存的测量。目前只在 Chromium 中运行过（Firefox、Safari 未运行；主线程缺少 `createWritable` 的浏览器写不了任务记录，
-任务会失败而不是假装已保存）；浏览器不像 Runner 那样在保存前校验 `.gz` 的 CRC，没有审核校验和的 STRING 别名文件若被
-截断，会标为 UNVERIFIED，并在 Python 解析时失败。
+任务会失败而不是假装已保存）；浏览器不像 Runner 那样在保存前校验 `.gz` 的 CRC，但清单中的每个 `.gz` 都有审核过的校验和
+（STRING 别名文件这一冻结版本也已按两次独立实际下载读到的大小与 SHA-256 固定），截断的副本会因校验和不符而
+不被保留；今后若加入没有校验和的 `.gz`，截断时会标为 UNVERIFIED，并在 Python 解析时失败。

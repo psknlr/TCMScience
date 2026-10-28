@@ -263,10 +263,13 @@ failures and the ways on.
 - **Live downloads from this development sandbox**: its egress proxy refuses bidd.group,
   zenodo.org and stringdb-downloads.org. The live tier runs on GitHub's runners instead;
   what it found is in [the release qualification report](release-qualification-2026-10.md).
-- **STRING aliases, Reactome's UniProt mapping and the UniProt accession list**: no
-  reviewed checksum (Reactome's `current` file and the UniProt query change with every
-  release), so the stages that read them stay `UNVERIFIED`, with the SHA-256 of what was
-  read, for a maintainer to review and pin.
+- **Reactome's UniProt mapping and the UniProt accession list**: no reviewed checksum
+  (Reactome's `current` file and the UniProt query change with every release), so the
+  stages that read them stay `UNVERIFIED`, with the SHA-256 of what was read, for a
+  maintainer to review and pin. STRING's aliases file, a frozen release (v12.0), is pinned
+  to the size and SHA-256 two independent live downloads read (19,777,800 bytes,
+  `b65f730b…`; live-data runs 38127338070 and 40307982154): it is not in the reviewed
+  acquisition table, but it is held to that pin like the files that are.
 - **The four pinned governed skills** still read the illustrative seed corpus; changing
   them changes their content hashes, which only a maintainer's review may re-pin
   (`docs/proposals/repin-tcm-skills.md`). Studio routes around the corpus's limits

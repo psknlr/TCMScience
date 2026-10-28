@@ -5,7 +5,8 @@ cannot run here (CONTRACTS §2: catalog entry system.routes, core tool research_
 A route is a map, not a pipeline: it names catalog entries and runs nothing. Each step answers
 one part of the question with every source that can answer it, the most direct evidence
 first. ``view`` judges each source against this runtime (the readiness catalog_search uses,
-plus the data hub's datasets for a relation kind) and, for a source that cannot run here,
+plus the data hub's datasets for a relation kind, and for a job the browser runs only on some
+inputs, the kind of input its call names) and, for a source that cannot run here,
 names the one in the same step that covers it and what that changes, so a switch is never
 silent. The agent makes the calls itself, each through the dispatcher with its own approvals,
 network permission and governance: nothing here widens what a call may do.
@@ -104,12 +105,15 @@ NOT_ROUTED: dict[str, str] = {
 @dataclass(frozen=True)
 class Use:
     """One source for a step: a catalog entry, the arguments to give it ('<…>' marks what to
-    fill in from the question or an earlier result), the kind of evidence it gives, and what
-    it adds when its title does not say."""
+    fill in from the question or an earlier result; a file ends with its suffix outside it,
+    '<…>.pdbqt', so its kind can be judged before it is named), the kind of evidence it
+    gives, what it adds when its title does not say, and, for a job a step runs on two kinds
+    of input, which of them this call is (``mode``, in its label)."""
     entry: str
     evidence: str
     args: Mapping[str, Any] = field(default_factory=dict)
     note: str = ""
+    mode: str = ""
 
 
 @dataclass(frozen=True)
@@ -156,8 +160,28 @@ def _e(entry: str, evidence: str, note: str = "", /, **args: Any) -> Use:
     return Use(entry, evidence, args, note)
 
 
+def _job(entry: str, mode: str, evidence: str, note: str, /, **args: Any) -> Use:
+    """A job on one kind of its inputs, where the browser runs some of them and only the
+    runner the rest (the entry's ``execution.browser_job.runner_only`` rules judge which)."""
+    return Use(entry, evidence, args, note, mode)
+
+
 _PINYIN = "<pinyin, upper case, e.g. HUANG QI>"
 _GENES = "<gene symbols, space-separated>"
+_CENTER = ["<x>", "<y>", "<z>"]
+_SIZE = ["<x, Å>", "<y, Å>", "<z, Å>"]
+#: Docking, from a structure (prepared on the runner) and from prepared inputs (either runtime).
+_DOCK = (
+    _job("job.pipeline.dock", "from a structure", "predicted", "receptor and ligands prepared "
+         "on the runner (meeko, RDKit); a PDB:<id> or UniProt:<acc> receptor is fetched with "
+         "allow_remote: true; the site as center and size, or as site_ligand",
+         receptor="<PDB:id, UniProt:accession or a PDB file>",
+         ligands="<SMILES, or a CSV, SDF or .smi file>", center=_CENTER, size=_SIZE),
+    _job("job.pipeline.dock", "prepared inputs", "predicted", "a prepared rigid receptor and "
+         "prepared ligands: docks in the browser too; the site as center and size, or as "
+         "reference_ligand (the co-crystal ligand prepared in its crystal pose, .pdbqt)",
+         receptor="<prepared receptor>.pdbqt", ligands="<prepared ligands>.pdbqt",
+         center=_CENTER, size=_SIZE))
 
 ROUTES: tuple[Route, ...] = (
     Route(
@@ -372,14 +396,15 @@ ROUTES: tuple[Route, ...] = (
         "databases are often other stereoisomers or salts.",
         then=("compound_targets", "exposure_metabolism", "spectra_identification", "safety"),
         cautions=("A name-only match is ambiguous: give the identifier the answer rests on.",),
-        ids=(r"\b[A-Z]{14}-[A-Z]{10}-[A-Z]\b", r"\bCID:?\s*\d+", r"\bCHEMBL\d+"),
+        ids=(r"\b[A-Z]{14}-[A-Z]{10}-[A-Z]\b", r"\b(?i:cid):?\s*\d+", r"\b(?i:chembl)\d+"),
     ),
     Route(
         "compound_targets", ("化合物的作用靶点", "What a compound acts on"),
         "Which proteins a compound acts on, with measured activities kept apart from curated "
         "links and from predictions, and how many independent sources agree.",
         ("靶点", "作用靶点", "结合", "抑制", "激动", "活性", "亲和力", "ic50", "ki", "target",
-         "binding", "inhibit", "inhibitor", "agonist", "affinity", "mechanism of action"),
+         "protein targets", "which proteins does", "bind", "binding", "inhibit",
+         "inhibitor", "agonist", "affinity", "mechanism of action"),
         (Step("measured", "activities measured in assays", (
             _hub("compound_target", subject="<compound>"),
             _hub("compound_assay", subject="<compound>"),
@@ -408,9 +433,8 @@ ROUTES: tuple[Route, ...] = (
          Step("agreement", "how many independent sources support each target", (
              _e("tcmdb.consensus", "per_row", kind="ingredient_target", subject="<compound>"),
              _e("tcmdb.consensus", "per_row", kind="compound_target", subject="<compound>"))),
-         Step("binding", "a structure-based prediction for a shortlisted target (a job)", (
-             _e("job.pipeline.dock", "predicted", receptor="<PDB:id, UniProt:accession or file>",
-                ligands="<SMILES or file>"),))),
+         Step("binding", "a structure-based prediction for a shortlisted target (a job)",
+              _DOCK)),
         "List measured targets first with their values and assays, then curated links, then "
         "predictions; tcmdb_consensus counts independent lineages once.",
         scaffold="target_engagement",
@@ -686,7 +710,7 @@ ROUTES: tuple[Route, ...] = (
         "registered.",
         scaffold="efficacy",
         then=("safety",),
-        ids=(r"\bNCT\d{8}\b", r"\bChiCTR[-\w]+"),
+        ids=(r"\b(?i:nct)\d{8}\b", r"\b(?i:chictr)[-\w]+"),
         cautions=("A registered trial is a plan and a search hit is a pointer to read; an "
                   "efficacy claim is licensed only by tcm_applicability and the release gate.",),
     ),
@@ -695,9 +719,11 @@ ROUTES: tuple[Route, ...] = (
         "What is known about harm from a herb, formula or compound: recorded cautions and "
         "incompatibilities, toxicity data and adverse outcome pathways, and adverse-event "
         "reports.",
-        ("安全", "毒性", "不良反应", "副作用", "肝毒性", "肾毒性", "禁忌", "孕妇", "十八反", "十九畏",
-         "配伍禁忌", "反药", "一起用", "同用", "safety", "safe", "toxicity", "toxic", "adverse",
-         "side effect", "hepatotoxicity", "nephrotoxicity", "contraindication", "pregnancy"),
+        ("安全", "毒性", "不良反应", "副作用", "肝毒性", "肾毒性", "肝损伤", "肝损害", "肾损伤",
+         "禁忌", "孕妇", "十八反", "十九畏", "配伍禁忌", "反药", "一起用", "同用", "safety", "safe",
+         "toxicity", "toxic", "adverse", "side effect", "hepatotoxicity", "nephrotoxicity",
+         "hepatotoxic", "nephrotoxic", "liver injury", "kidney injury", "dili",
+         "contraindication", "pregnancy"),
         (Step("recorded", "recorded cautions, incompatibilities and the governed safety report", (
             _e("skill.assess-tcm-safety", "recorded", subject="<herb or formula>"),
             _e("native.tcm_compatibility", "recorded", herbs=["<herb>", "<herb>"]),
@@ -873,8 +899,7 @@ ROUTES: tuple[Route, ...] = (
              _e("skill.predict-protein-structure", "predicted", "the governed structure "
                 "prediction skill (a job)", sequences="<sequences>"))),
          Step("docking", "whether a compound could fit (a job)", (
-             _e("job.pipeline.dock", "predicted", receptor="<PDB:id, UniProt:accession or file>",
-                ligands="<SMILES or file>"),
+             *_DOCK,
              _e("skill.dock-ligands", "predicted", "the governed docking skill (a job)",
                 receptor="<receptor>", ligands="<SMILES or file>")))),
         "Prefer an experimental structure with a ligand bound at the site docked into; a "
@@ -929,7 +954,12 @@ ROUTES: tuple[Route, ...] = (
         then=("herb_drug_interaction", "disease_links"),
         cautions=("A predicted consequence (VEP) is not a measured effect, and guidance applies "
                   "to the drug it names.",),
-        ids=(r"\brs\d{3,}\b", r"\b[cgnp]\.\d+", r"\b[A-Z0-9]{3,}\*\d+"),
+        # HGVS: a change at a c./g./n. position (c.1799T>A, c.35delG), a p. residue (p.Val600Glu,
+        # p.V600E); never p.05, a p-value
+        ids=(r"\brs\d{3,}\b",
+             r"\b[cgn]\.[-*]?\d+(?:[-+]\d+)?(?:_[-*]?\d+(?:[-+]\d+)?)?"
+             r"(?:[ACGT]+>[ACGT]+|del|dup|ins|inv)",
+             r"\bp\.\(?(?:[A-Z][a-z]{2}|[A-Z*])\d+", r"\b[A-Z0-9]{3,}\*\d+"),
     ),
     Route(
         "omics_datasets", ("组学数据：表达、单细胞、蛋白质组与代谢组",
@@ -995,19 +1025,31 @@ ROUTES: tuple[Route, ...] = (
              _c("hf_datasets_server", "rows", "data", repo_id="<owner/name>"),
              _c("ebi_search", "search", "data", domain="<EBI Search domain>", query="<text>"),
              _c("ebi_search", "domains", "reference"))),
-         Step("analysis", "analyse a dataset here (jobs, with approval)", (
-             _e("job.pipeline.rnaseq", "analysis", samples="<sample sheet>"),
-             _e("job.pipeline.scrna", "analysis", source="<h5ad or 10x matrix>"),
+         Step("analysis", "analyse a bulk expression dataset here (jobs, with approval), or "
+                          "values you have", (
+             _job("job.pipeline.rnaseq", "count matrix", "analysis", "differential expression "
+                  "from a count table: runs in the browser too",
+                  counts="<gene × sample count table>", samples="<sample table>"),
+             _job("job.pipeline.rnaseq", "FASTQ", "analysis", "QC, trimming and quantification, "
+                  "then differential expression: on the runner",
+                  samples="<sample sheet of FASTQ files>"),
              _e("skill.rnaseq-differential-expression", "analysis", "the governed FASTQ-to-DESeq2 "
                 "skill (a job)", sample_sheet="<sample sheet>"),
-             _e("skill.scrna-cell-atlas", "analysis", "the governed single-cell atlas skill (a "
-                "job)", source="<count matrices>"),
              _e("native.cpm", "analysis", counts=["<count>"]),
              _e("native.tpm", "analysis", counts=["<count>"], lengths_bp=["<length>"]),
              _e("native.log2_fold_change", "analysis", treated=["<value>"],
                 control=["<value>"]),
              _e("native.welch_t_test", "analysis", x=["<value>"], y=["<value>"]),
-             _e("native.correlation", "analysis", x=["<value>"], y=["<value>"])))),
+             _e("native.correlation", "analysis", x=["<value>"], y=["<value>"]))),
+         Step("single_cell_analysis", "analyse a single-cell dataset here (jobs, with "
+                                      "approval)", (
+             _job("job.pipeline.scrna", "count tables", "analysis", "the built-in analysis of "
+                  "count tables: runs in the browser too",
+                  source="<count tables (CSV/TSV), or a sample sheet of them>"),
+             _job("job.pipeline.scrna", "AnnData or 10x HDF5", "analysis", "an .h5ad, or a 10x "
+                  ".h5: on the runner", source="<AnnData file>.h5ad"),
+             _e("skill.scrna-cell-atlas", "analysis", "the governed single-cell atlas skill (a "
+                "job)", source="<count matrices>")))),
         "Cite each dataset by accession with its organism, tissue, design and licence; a "
         "reanalysis inherits the dataset's design.",
         then=("pathways_networks",),
@@ -1312,7 +1354,7 @@ ROUTES: tuple[Route, ...] = (
         then=("efficacy_evidence",),
         cautions=("A hit is a pointer to read, not evidence: nothing is licensed until the study "
                   "itself has been assessed.", "A co-mention in text mining is not a finding."),
-        ids=(r"\bPMID:?\s*\d+", r"\b10\.\d{4,9}/\S+", r"\bPMC\d+"),
+        ids=(r"\b(?i:pmid):?\s*\d+", r"\b10\.\d{4,9}/\S+", r"\bPMC\d+"),
     ),
     Route(
         "ontology_mapping", ("术语与标识符映射", "Terms and identifiers across vocabularies"),
@@ -1434,8 +1476,10 @@ ROUTES: tuple[Route, ...] = (
 
 ROUTE_BY_ID: dict[str, Route] = {r.id: r for r in ROUTES}
 
-#: What an entry lacks here for a call with these fixed arguments: capability requirements
-#: ({need, detail, remedy}), empty when it can run.
+#: What an entry lacks here for a call with the route's arguments ('<…>' still to fill in;
+#: ``fixed_args`` keeps the others): capability requirements ({need, detail, remedy}), empty
+#: when it can run. A '<…>' tells only the kind of value it stands for (a job's input that
+#: only the runner runs: a PDB receptor, FASTQ reads).
 Judge = Callable[[str, Mapping[str, Any]], list[dict[str, Any]]]
 
 
@@ -1449,9 +1493,10 @@ def _placeholder(value: Any) -> bool:
     return False
 
 
-def fixed_args(use: Use) -> dict[str, Any]:
+def fixed_args(use: Use | Mapping[str, Any]) -> dict[str, Any]:
     """The arguments a route gives outright (no '<…>' to fill in)."""
-    return {k: v for k, v in use.args.items() if not _placeholder(v)}
+    args = use.args if isinstance(use, Use) else use
+    return {k: v for k, v in args.items() if not _placeholder(v)}
 
 
 def call_for(entry: str, args: Mapping[str, Any]) -> dict[str, Any]:
@@ -1475,11 +1520,11 @@ def call_for(entry: str, args: Mapping[str, Any]) -> dict[str, Any]:
 
 def label(use: Use) -> str:
     """A use as the agent and the docs name it: the entry, with the relation kind or dataset
-    it is given."""
+    it is given, or the kind of input it runs on."""
     for key in ("kind", "dataset"):
         if key in use.args and not _placeholder(use.args[key]):
             return f"{use.entry} {use.args[key]}"
-    return use.entry
+    return f"{use.entry} ({use.mode})" if use.mode else use.entry
 
 
 _DATASETS: list[Any] | None = None
@@ -1552,7 +1597,7 @@ def view(route: Route, judge: Judge | None = None, *, built: Sequence[str] | Non
                 item["datasets"] = hub_datasets(kind)
             needs: list[dict[str, Any]] = []
             if judge is not None:
-                needs = list(judge(use.entry, fixed_args(use)))
+                needs = list(judge(use.entry, use.args))
                 if kind and built is not None:
                     extra = _kind_requirement(kind, built, where)
                     if extra is not None:
@@ -1573,7 +1618,11 @@ def view(route: Route, judge: Judge | None = None, *, built: Sequence[str] | Non
                     continue
                 cover = next(((u, it) for u, it in ready if u.evidence == use.evidence), ready[0])
                 item["covered_by"] = cover[1]["source"]
-                item["changes"] = _changes(use.evidence, cover[0].evidence)
+                same_job = cover[0].entry == use.entry and cover[0].mode
+                item["changes"] = (
+                    f"the same job on {cover[0].mode}, the inputs it runs on here: give it those, "
+                    "and say which inputs it ran on" if same_job
+                    else _changes(use.evidence, cover[0].evidence))
             if not ready:
                 out["unanswered_here"] = {
                     "needs": _unique(r["detail"] for _, _, n in rows for r in n),
@@ -1614,12 +1663,15 @@ _ASCII = re.compile(r"^[\x00-\x7f]+$")
 def match(question: str, limit: int = 3) -> list[tuple[Route, float]]:
     """The routes whose keywords a question uses, best first (a Chinese keyword counts as a
     substring, twice its length; an English one as a word, its plural included; an
-    identifier a route's ``ids`` recognise, an rsID or an NCT number, as a keyword of eight)."""
+    identifier a route's ``ids`` recognise, an rsID or an NCT number, as a keyword of eight).
+    Identifiers are matched as written: an HGVS c. or p. and an ontology prefix are
+    case-significant (p.05 is a p-value, 'go' is not GO); a pattern that is not says so
+    with ``(?i:…)``."""
     raw = str(question or "")
     text = raw.lower()
     scored = []
     for order, route in enumerate(ROUTES):
-        score = 8.0 * sum(1 for p in route.ids if re.search(p, raw, re.IGNORECASE))
+        score = 8.0 * sum(1 for p in route.ids if re.search(p, raw))
         for kw in route.keywords:
             k = kw.lower()
             if _ASCII.match(k):

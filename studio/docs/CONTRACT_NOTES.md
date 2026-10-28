@@ -685,7 +685,11 @@ offset, next_offset, corpus_rows, records: [{id, row, name, source, composition}
 [{id, row, name, source, actions}], scope, more?}`, the workbook formulas whose recorded 功效 (`actions`) mentions the
 syndrome's names without their closing 证 (脾胃气虚证 as 脾胃气虚; never matched in the 注意 `cautions`), beside the seed's
 curated `formulas`; a syndrome outside the seed stays `not_found`, its summary and hint saying how many workbook formulas
-mention it and how to list them; `tcm_compatibility`
+mention it and how to list them. A syndrome named without its closing 证, as the classics write it (太阳中风, 伤寒论
+第12条), is read with it when the name as given names nothing in the seed and the name with 证 names exactly one
+syndrome (`tcm_syndrome` `name`, `tcm_applicability` `subject` and `object`; the dispatcher's `_syndrome_names`): the
+result adds `read_as` `{argument: {given, read, as}}` and a limitation says so; a name that is only part of one stays a
+suggestion; `tcm_compatibility`
 adds `expanded_formulas` `[{formula, row, name, source, composition, herbs}]` for a formula outside the seed that the
 workbook holds once and `ambiguous_formulas` `[{formula, versions, hint}]` for one it holds several times (a name the
 materia table knows is checked as that herb, never as a workbook formula of the same name); `tcmdb.formulas` takes

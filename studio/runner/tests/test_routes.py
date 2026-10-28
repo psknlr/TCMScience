@@ -210,7 +210,7 @@ def test_a_source_that_cannot_run_names_what_covers_it_and_what_that_changes():
     assert tcm["unanswered_here"]["needs"] and tcm["unanswered_here"]["to_answer_it"] == [
         "Turn web access on."]
     assert all("covered_by" not in s for s in tcm["sources"])
-    assert view["counts"] == {"sources": 18, "runnable_now": 2}
+    assert view["counts"] == {"sources": 19, "runnable_now": 2}
     assert view["scaffold"]["id"] == "target_engagement"
     assert "research_inquiry" in view["scaffold"]["how"]
     assert view["rules"] == list(rt.RULES) and set(view["evidence"]) <= set(rt.EVIDENCE)
@@ -273,8 +273,13 @@ def test_research_routes_lists_shows_and_matches(runner_ctx, jobs, monkeypatch):
 
 def test_readiness_is_the_capability_audits(browser_ctx, monkeypatch):
     # the same entries, judged by the two code paths, in the browser with web access on and off
-    for network in (True, False):
-        ctx = {**browser_ctx, "network": network}
+    # and its job service off and on; a browser job's call also by the entry's own rules for
+    # the inputs it names (capability.runner_only), which the audit of the entry as such does
+    # not read
+    from tcmstudio import capability
+    catalog = {e["id"]: e for e in entries("browser")}
+    for network, browser_jobs in ((True, False), (False, False), (True, True)):
+        ctx = {**browser_ctx, "network": network, "browser_jobs": browser_jobs}
         audit = call("call_tool", {"tool": "system.capability_audit",
                                    "arguments": {"limit": 1000}}, ctx)
         ready = {r["id"]: r["readiness"] == "ready" for r in audit["result"]["entries"]}
@@ -282,7 +287,84 @@ def test_readiness_is_the_capability_audits(browser_ctx, monkeypatch):
             view = call("research_routes", {"route": r.id}, ctx)["result"]
             for step, s in zip(r.steps, view["steps"]):
                 for u, row in zip(step.uses, s["sources"]):
-                    assert row["runnable_now"] == ready[u.entry], (network, r.id, u.entry)
+                    runner_only = capability.runner_only(catalog[u.entry], dict(u.args))
+                    assert row["runnable_now"] == (ready[u.entry] and not runner_only), (
+                        network, browser_jobs, r.id, u.entry)
+
+
+def _rows(view, step):
+    return {s["source"]: s for s in next(x for x in view["steps"] if x["step"] == step)["sources"]}
+
+
+def test_a_browser_job_is_judged_by_the_inputs_its_call_names(browser_ctx, runner_ctx):
+    """A route's job call runs here only when the entry's own browser rules run the inputs it
+    names: docking from a structure, RNA-seq from FASTQ and single-cell from an .h5ad need the
+    runner, so the same job on prepared PDBQT files, a count table or count tables covers
+    each, and says so."""
+    ctx = {**browser_ctx, "network": True, "browser_jobs": True}
+    dock = _rows(call("research_routes", {"route": "structure_binding"}, ctx)["result"], "docking")
+    raw = dock["job.pipeline.dock (from a structure)"]
+    prepared = dock["job.pipeline.dock (prepared inputs)"]
+    assert prepared["runnable_now"] is True
+    assert prepared["call"]["arguments"]["arguments"]["receptor"].endswith(".pdbqt")
+    # the receptor and the ligands each need the runner, which prepares them
+    assert raw["runnable_now"] is False
+    assert len([n for n in raw["needs"] if "runner" in n and ".pdbqt" in n]) == 2
+    assert raw["covered_by"] == "job.pipeline.dock (prepared inputs)"
+    assert raw["changes"].startswith("the same job on prepared inputs")
+    assert dock["skill.dock-ligands"]["covered_by"] == "job.pipeline.dock (prepared inputs)"
+    # both calls name the docking site, which either runtime requires
+    assert {"center", "size"} <= set(raw["call"]["arguments"]["arguments"])
+    assert {"center", "size"} <= set(prepared["call"]["arguments"]["arguments"])
+    targets = call("research_routes", {"route": "compound_targets"}, ctx)["result"]
+    binding = next(s for s in targets["steps"] if s["step"] == "binding")
+    assert "unanswered_here" not in binding
+    assert [s["runnable_now"] for s in binding["sources"]] == [False, True]
+
+    omics = call("research_routes", {"route": "omics_datasets"}, ctx)["result"]
+    bulk, single = _rows(omics, "analysis"), _rows(omics, "single_cell_analysis")
+    assert bulk["job.pipeline.rnaseq (count matrix)"]["runnable_now"] is True
+    fastq = bulk["job.pipeline.rnaseq (FASTQ)"]
+    assert fastq["runnable_now"] is False and "without counts" in fastq["needs"][0]
+    assert fastq["covered_by"] == "job.pipeline.rnaseq (count matrix)"
+    assert single["job.pipeline.scrna (count tables)"]["runnable_now"] is True
+    h5ad = single["job.pipeline.scrna (AnnData or 10x HDF5)"]
+    assert h5ad["runnable_now"] is False and ".h5ad" in h5ad["needs"][0]
+    # a single-cell atlas is covered by the single-cell job, never by a bulk RNA-seq one
+    assert single["skill.scrna-cell-atlas"]["covered_by"] == "job.pipeline.scrna (count tables)"
+
+    # the rules are the browser's: the runner judges the two calls of a job alike
+    on_runner = _rows(call("research_routes", {"route": "structure_binding"},
+                           runner_ctx)["result"], "docking")
+    assert on_runner["job.pipeline.dock (from a structure)"]["runnable_now"] == on_runner[
+        "job.pipeline.dock (prepared inputs)"]["runnable_now"]
+
+
+def test_a_job_template_is_judged_as_the_call_it_stands_for():
+    """Each '<…>' of a job a route names stands for a value of one kind: with the '<…>'
+    filled in, the entry's browser rules send the call where they send the template."""
+    import re
+
+    from tcmstudio import capability
+    catalog = {e["id"]: e for e in entries("browser")}
+
+    def fill(value):
+        if isinstance(value, str):
+            return re.sub(r"<[^>]*>", "x", value)
+        if isinstance(value, list):
+            return [fill(v) for v in value]
+        return value
+    judged = 0
+    for r, s, u in _uses():
+        rules = ((catalog[u.entry].get("execution") or {}).get("browser_job") or {}).get(
+            "runner_only")
+        if not rules:
+            continue
+        template = capability.runner_only(catalog[u.entry], dict(u.args))
+        filled = capability.runner_only(catalog[u.entry], {k: fill(v) for k, v in u.args.items()})
+        assert template == filled, (r.id, s.id, rt.label(u))
+        judged += 1
+    assert judged >= 7
 
 
 def test_a_built_dataset_makes_its_relation_kind_runnable(runner_ctx, monkeypatch):
@@ -327,9 +409,33 @@ def test_a_built_dataset_makes_its_relation_kind_runnable(runner_ctx, monkeypatc
     ("葛根芩连汤是否比单用小檗碱更有效？", "formula_composition"),
     ("What did NCT01234567 find?", "efficacy_evidence"),
     ("Re-analyse GSE12345 for Huangqi treatment", "omics_datasets"),
+    # the safety_signal scaffold's own example event, and how it is asked
+    ("Does Polygonum multiflorum cause drug-induced liver injury?", "safety"),
+    ("何首乌会引起肝损伤吗？", "safety"),
+    ("何首乌导致药物性肝损伤的证据", "safety"),
+    ("Is Heshouwu hepatotoxic?", "safety"),
+    ("What are the protein targets of quercetin?", "compound_targets"),
+    ("Which proteins does quercetin bind?", "compound_targets"),
+    ("What is the effect of BRAF p.Val600Glu on vemurafenib response?",
+     "variants_pharmacogenomics"),
+    ("Is c.1799T>A pathogenic?", "variants_pharmacogenomics"),
+    ("What does GO:0008150 map to?", "ontology_mapping"),
+    ("What is ChEMBL25?", "compound_identity"),
 ])
 def test_a_question_finds_its_route(question, expected):
     assert rt.match(question)[0][0].id == expected
+
+
+@pytest.mark.parametrize("question,not_expected", [
+    # a p-value is not an HGVS protein change, and 'go' is not the GO prefix: identifiers
+    # are matched as they are written
+    ("Is the effect significant at p.05?", "variants_pharmacogenomics"),
+    ("Is the effect significant at P.05?", "variants_pharmacogenomics"),
+    ("go: 1", "ontology_mapping"),
+    ("hp: 2", "ontology_mapping"),
+])
+def test_text_that_only_looks_like_an_identifier_finds_no_route_by_it(question, not_expected):
+    assert not_expected not in [r.id for r, _ in rt.match(question)]
 
 
 def test_the_routes_document_is_generated_from_the_module():

@@ -98,6 +98,55 @@ def test_the_watch_refuses_and_records_lookups_and_connections_off_loopback():
     socket.getaddrinfo("localhost", 80)                              # restored
 
 
+def test_every_capability_that_is_not_a_job_has_an_input_to_run_it_with():
+    from tcmstudio.catalog import get_entry
+    every = [c["name"] for c in CORE_TOOLS] + [e["id"] for e in entries("runner", probe=False)]
+    unrun = []
+    for rid, kind, item in _items(*every):
+        entry = (get_entry(item.get("maps_to") or "") or {}) if kind == "core" else item
+        job = item.get("job") if kind == "core" else entry.get("job")
+        if not job and not isinstance(item.get("example"), dict) and rid not in validate.PROBES:
+            unrun.append(rid)
+    assert not unrun, f"give these a probe in tcmstudio/validate.py PROBES: {unrun}"
+
+
+PROBED = ("clinic_assess", "clinic_check_prescription", "clinic_followup", "clinic.assess",
+          "clinic.check", "clinic.verify", "skill.draft-tcm-prescription", "study.combination",
+          "study.effect_modification", "study.exposure_screen", "tcmdb.consensus",
+          "tcmdb.compare", "tcmdb.import_store", "tcmdb.tables", "tcmdb.query",
+          "tcmdb.unresolved")
+
+
+def test_the_probes_run_what_ships_no_example_and_write_into_no_hub_they_were_given(tmp_path):
+    recs = _run(tmp_path, *PROBED, "connector_call", "literature_search", "system.provider_call",
+                "system.job_status", "tcm_syndrome", "tcm_applicability")
+    for rid in (*PROBED, "tcm_syndrome", "tcm_applicability"):
+        inv = recs[rid].check("invocation")
+        assert inv.status == PASS and inv.detail.startswith("succeeded"), (rid, inv.detail)
+        assert recs[rid].check("execution_isolation").status == PASS, rid
+    for rid in ("connector_call", "literature_search", "system.provider_call"):
+        assert recs[rid].check("invocation").status == SKIPPED
+        assert recs[rid].check("execution_isolation").status == PASS, "refused with network_off"
+    # without a job service it is refused as unavailable, never counted as a pass
+    assert recs["system.job_status"].check("invocation").status == "BLOCKED"
+    # the store the import probe wrote is in the validator's own hub, not the one it was given
+    assert not (tmp_path / "tcmdb").exists() or not list((tmp_path / "tcmdb").rglob("*.sqlite"))
+    assert list((tmp_path / "state" / "probe-tcmdb").rglob("*.sqlite"))
+
+
+def test_a_probe_that_answers_not_found_fails(tmp_path, monkeypatch):
+    """A probe names what the corpus holds: not_found from it is a failure, never a pass (a
+    job id named on purpose is the exception)."""
+    monkeypatch.setitem(validate.PROBES, "tcm_syndrome", {"name": "肝郁脾虚证"})
+    monkeypatch.setitem(validate.PROBES, "tcm_applicability",
+                        {"subject": "桂枝汤", "object": "肝郁脾虚证"})
+    recs = _run(tmp_path, "tcm_syndrome", "tcm_applicability")
+    for rid in ("tcm_syndrome", "tcm_applicability"):
+        inv = recs[rid].check("invocation")
+        assert inv.status == FAIL and "answered not_found" in inv.detail, (rid, inv.detail)
+        assert recs[rid].status == FAIL
+
+
 def test_the_command_writes_every_report(tmp_path):
     from tcmstudio.cli import main
     out = tmp_path / "reports"
