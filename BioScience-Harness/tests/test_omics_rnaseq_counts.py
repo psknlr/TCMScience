@@ -284,6 +284,25 @@ def test_a_run_refuses_before_writing_what_it_cannot_run(world, tmp_path):
         assert not out.exists()
 
 
+def test_a_contrast_the_run_chose_says_which_way_round(world, tmp_path):
+    """Without a named contrast the later level in sorted order is the numerator: with
+    'treated' and 'untreated' that is untreated vs treated (the single-cell pipeline puts a
+    control-like level in the denominator), so the run says what it tested and why."""
+    samples = tmp_path / "samples.tsv"
+    samples.write_text(world["samples"].read_text().replace("\tcontrol", "\tuntreated"))
+    run = C.run_rnaseq_counts(world["counts"], samples, C.RNASeqCountsConfig(), tmp_path / "o")
+    assert run.contrast == ("condition", "untreated", "treated")
+    (note,) = [w for w in run.warnings if w.startswith("no contrast was named")]
+    assert "untreated vs treated was tested" in note
+    assert "the later of condition's two levels in sorted order against the earlier" in note
+    assert "a log2 fold change > 0 means higher in untreated" in note
+    assert note in (tmp_path / "o" / "report.md").read_text()
+    assert note in json.loads((tmp_path / "o" / "run.json").read_text())["warnings"]
+    named = C.run_rnaseq_counts(world["counts"], samples, C.RNASeqCountsConfig(
+        contrast=("condition", "treated", "untreated")), tmp_path / "named")
+    assert not any(w.startswith("no contrast was named") for w in named.warnings)
+
+
 def test_pydeseq2_is_refused_when_it_is_not_installed(world, tmp_path):
     import importlib.util
     if importlib.util.find_spec("pydeseq2") is not None:

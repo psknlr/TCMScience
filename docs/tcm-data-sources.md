@@ -255,6 +255,8 @@ rows. A relation points at the record it summarises, and statistics run on the m
   warning;
 - the unresolved rows are counted.
 
+With no dataset built, `check all` says so and exits 1: nothing was checked.
+
 ### How a dataset's files are acquired: `tcmdb fetch` and Studio's acquisitions
 
 `python -m bioagent.cli tcmdb fetch <key>` and Studio's acquisition route

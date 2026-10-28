@@ -60,6 +60,8 @@ ENTRY_URL = "https://files.rcsb.org/download/1UBQ.pdb"
 CHEMCOMP_URL = "https://data.rcsb.org/rest/v1/core/chemcomp/BEN"
 REDIRECT_URL = "https://files.rcsb.org/download/MOVED.pdb"
 ENTRY = b"HEADER    CANNED ENTRY\nEND\n"
+#: where the probe's datagrams go: a listener a test binds on the loopback
+DATAGRAM_TO: dict[str, tuple[str, int]] = {"address": ("192.0.2.1", 9)}   # TEST-NET-1
 UBQ = "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"
 #: hen egg-white lysozyme, 129 residues: long enough that PSH would floor it as
 #: uninspectable content if the fold did not declare its field a protein sequence
@@ -149,6 +151,15 @@ def probe_operations(mode: str = "declared", *, run_id: str = "") -> ResearchArt
             sock = socket.socket()
             try:
                 sock.connect(("192.0.2.1", 80))                      # TEST-NET-1
+            finally:
+                sock.close()
+        elif mode in ("sendto", "sendmsg"):                           # UDP, no connect
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                if mode == "sendto":
+                    sock.sendto(b"probe", DATAGRAM_TO["address"])
+                else:
+                    sock.sendmsg([b"probe"], [], 0, DATAGRAM_TO["address"])
             finally:
                 sock.close()
         outcome = "ran"
@@ -294,6 +305,28 @@ def test_a_connection_around_the_broker_is_refused_and_recorded(probe, canned, m
     assert entry["operation"] == "unbrokered" and entry["declared"] is False
     assert entry["status"] == "DENIED" and entry["checks"] == ["egress_guard:refused"]
     assert "outside the operation broker" in entry["reason"]
+    assert run.artifact.provenance["outcome"] == "carried on after PermissionError"
+    assert len(_operation_events(state)) == 1
+    assert not run.released and "ART118" in run.verdict.codes
+
+
+@pytest.mark.parametrize("mode", ["sendto", "sendmsg"])
+def test_a_datagram_around_the_broker_is_refused_and_recorded(probe, monkeypatch, mode):
+    """A datagram needs no connect: sendto and sendmsg are watched too, or a skill that
+    declares no network could send one unrecorded and still be released."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.settimeout(0.5)
+    monkeypatch.setitem(DATAGRAM_TO, "address", listener.getsockname())
+    try:
+        run, state = probe(mode)
+        with pytest.raises(TimeoutError):
+            listener.recv(64)                                    # nothing was sent
+    finally:
+        listener.close()
+    (entry,) = run.operations
+    assert entry["operation"] == "unbrokered" and entry["status"] == "DENIED"
+    assert "a datagram to 127.0.0.1:" in entry["reason"]
     assert run.artifact.provenance["outcome"] == "carried on after PermissionError"
     assert len(_operation_events(state)) == 1
     assert not run.released and "ART118" in run.verdict.codes

@@ -4,10 +4,16 @@ name: monthly-skill-scout
 #
 # What this job may do, and what it may not:
 #
-#   it MAY  discover sources, audit candidates, score them, build a candidate
-#           report and open a pull request with it
+#   it MAY  audit and score the candidates in the local skill trees (skills/tcm,
+#           skills/candidates, at any depth), build a candidate report and keep it
+#           as the run's artifact
 #   it MAY NOT promote anything into the stable registry, and it may not touch a
 #           frozen benchmark Season
+#
+# Fetching the sources declared in registry/skill_sources.yaml is not implemented:
+# the report notes each one as declared, not fetched. The report is uploaded, not
+# opened as a pull request: this repository does not let GitHub Actions create pull
+# requests (the scheduled run of 2026-10-01 failed there).
 #
 # That is not a convention here — `Registry.promote` is the only writer of a
 # stable entry and it requires a `PromotionDecision` naming a human. A scheduled
@@ -20,12 +26,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   scout:
-    name: Discover, audit and score candidate skills
+    name: Audit and score the candidate skills
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,41 +39,24 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip && pip install -e "BioScience-Harness[dev]"
 
-      - name: Run the scout over the declared sources
+      - name: Run the scout over the local skill trees
         working-directory: BioScience-Harness
         env:
           PYTHONPATH: src:../PSH-Harness/src
+        shell: bash                      # -o pipefail: the scout's exit, not tee's
         run: |
           python -m bioagent.cli scout \
             --sources registry/skill_sources.yaml \
             --skills skills \
-            --out candidate-report.json
+            --out candidate-report.json | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Refuse the run if any candidate could reach production unreviewed
         working-directory: BioScience-Harness
         run: python scripts/check_no_autopromotion.py candidate-report.json
 
-      - name: Open a pull request with the candidate report
-        uses: peter-evans/create-pull-request@v6
+      - name: Keep the candidate report
+        uses: actions/upload-artifact@v4
         with:
-          branch: scout/candidates-${{ github.run_id }}
-          title: "Candidate skills: monthly scout run"
-          commit-message: |
-            Record the monthly candidate scan
-
-            Candidates only. Nothing here is promoted: the stable registry
-            changes only through a reviewed PromotionDecision.
-          body: |
-            Monthly candidate scan. **Nothing in this pull request is active.**
-
-            Reviewing this means reading `candidate-report.json`:
-            which skills were found, which were eliminated and by which code,
-            and how the rest scored. Promoting one is a separate, attributed
-            decision — see `docs/adr/0001`.
-
-            Candidates eliminated by a hard condition are listed with the
-            condition, not omitted. They are the backlog, and hiding them would
-            make the pipeline look healthier than it is.
-          add-paths: |
-            BioScience-Harness/candidate-report.json
-          delete-branch: true
+          name: candidate-report-${{ github.run_id }}
+          path: BioScience-Harness/candidate-report.json
+          if-no-files-found: error

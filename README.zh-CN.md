@@ -371,7 +371,8 @@ CI 设定为在每次推送时运行离线层，在 GitHub 的运行器上运行
 
 ```mermaid
 flowchart LR
-    SRC(["已声明来源"]) --> SCOUT["月度 scout<br/><i>不运行任何东西</i>"] --> CAND["候选目录"]
+    SRC(["已声明来源"]) -.->|"已声明，未抓取"| SCOUT["月度 scout<br/><i>不运行任何东西</i>"]
+    SCOUT --> CAND["候选目录"]
     CAND --> AUDIT["审计 · 8 项硬淘汰"] --> SCORE["100 分制评审"] --> HUMAN{"人工决策<br/>PromotionDecision"}
     HUMAN -->|批准| STABLE["稳定注册表"] --> LOCK[("skills.lock.yaml<br/>按内容哈希锁定")]
     HUMAN -.->|拒绝 · 推迟| CAND

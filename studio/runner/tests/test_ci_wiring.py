@@ -178,6 +178,17 @@ def test_studio_holds_the_webassembly_vina_to_the_tier_s_rule_over_every_fixture
                                               if str(s.get("uses", "")).startswith("actions/checkout@"))
 
 
+def test_every_test_that_needs_rdkit_or_sklearn_is_named_by_a_job_that_runs_it():
+    # the unit tier has neither, so such a test skips there: 43 of the 46 ADMET build and engine tests ran nowhere
+    ci, _ = _load("ci.yml")
+    named = set(re.findall(r"tests/(test_\w+\.py)", "\n".join(_runs(job) for job in ci["jobs"].values())))
+    tests = REPO / "BioScience-Harness" / "tests"
+    needing = {p.name for p in tests.glob("test_*.py")
+               if re.search(r"""need_module\(["'](?:rdkit|sklearn)["']\)""", p.read_text(encoding="utf-8"))}
+    assert {"test_admet_build.py", "test_admet_engine.py"} <= needing
+    assert needing <= named, sorted(needing - named)
+
+
 def test_molecular_tools_runs_the_prepared_docking_tests_with_real_vina_127():
     ci, _ = _load("ci.yml")
     steps = ci["jobs"]["molecular-tools"]["steps"]

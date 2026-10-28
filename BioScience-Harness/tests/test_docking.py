@@ -290,6 +290,55 @@ def test_the_skill_claims_only_poses_that_pass_from_a_complete_run(tmp_path, mon
     assert "no claim is made for it" in text
 
 
+def test_ligand_names_are_made_file_safe_and_unique(tmp_path, monkeypatch):
+    """A name names the ligand's pose file and keys its scores, pose checks and contacts:
+    a repeated title (an SDF's stereoisomers, a .smi file) or a path in a name must not
+    overwrite another ligand's poses, crash the run or write outside it."""
+    _modules()
+    from rdkit import Chem
+    from bioagent.docking import engine
+    monkeypatch.setattr(engine, "dock", _stand_in())
+    smi = tmp_path / "l.smi"
+    smi.write_text(f"{BENZAMIDINE} cmpd\nCCO cmpd\nCO Cmpd\nCN bza/1\nC ../../escaped\n"
+                   "N /abs/x.mol\n")                  # small molecules: the stand-in's poses
+    out = tmp_path / "a" / "b" / "run"                # at the box centre pass the checks
+    run = run_docking(str(POCKET), str(smi), DockConfig(site_ligand="BEN",
+                                                        site_ligand_smiles=BENZAMIDINE), out)
+    names = [r.ligand.name for r in run.results]
+    assert names == ["cmpd", "cmpd_2", "Cmpd_3", "bza_1", "_.._escaped", "_abs_x.mol"]
+    assert sorted(p.name for p in (out / "poses").iterdir()) == sorted(f"{n}.sdf"
+                                                                      for n in names)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["a", "l.smi"]   # nothing escaped
+    for r in run.results:                    # each pose file holds its own ligand
+        (smiles,) = {Chem.MolToSmiles(Chem.RemoveHs(m))
+                     for m in Chem.SDMolSupplier(str(out / "poses" / f"{r.ligand.name}.sdf"))}
+        assert smiles == r.ligand.smiles
+    assert sorted(run.pose_checks) == sorted(names) and sorted(run.contacts) == sorted(names)
+    manifest = json.loads((out / "run.json").read_text())
+    given = {x["name"]: x.get("given_name") for x in manifest["ligands"]}
+    assert given == {"cmpd": None, "cmpd_2": "cmpd", "Cmpd_3": "Cmpd", "bza_1": "bza/1",
+                     "_.._escaped": "../../escaped", "_abs_x.mol": "/abs/x.mol"}
+    assert any("file-safe and unique" in w and "'bza/1' as bza_1" in w for w in run.warnings)
+    rows = (out / "scores.tsv").read_text().splitlines()[1:]
+    assert sorted(r.split("\t")[0] for r in rows) == sorted(names)
+    assert run.complete and verify_run(out) == (True, [])
+
+
+def test_the_skill_quotes_each_ligand_its_own_row(tmp_path, monkeypatch):
+    _modules()
+    from bioagent.docking import engine
+    from bioagent.skills.molecular.docking import dock_ligands
+    monkeypatch.setattr(engine, "dock", _stand_in())
+    smi = tmp_path / "l.smi"
+    smi.write_text(f"{BENZAMIDINE} cmpd\nCCO cmpd\n")
+    art = dock_ligands(str(POCKET), str(smi), out_dir=str(tmp_path / "run"),
+                       site_ligand="BEN", site_ligand_smiles=BENZAMIDINE)
+    assert sorted(e.id for e in art.evidence) == ["dock.cmpd", "dock.cmpd_2"]
+    assert len({c.id for c in art.claims}) == 2
+    for e in art.evidence:
+        assert e.quote.split("\t")[1] == e.subject     # the row of this molecule
+
+
 def test_the_reference_manifest_names_this_fixture(run):
     from bioagent.runrecord import pipeline_references
     ref = next(r for r in pipeline_references()["references"] if r["id"] == "3ptb_pocket")

@@ -38,8 +38,9 @@ MODULES = {"scikit-learn": "sklearn", "umap-learn": "umap", "scvi-tools": "scvi"
            "paper-qa": "paperqa"}
 
 #: binary -> the arguments that print its version, where ``--version`` is not one: kallisto
-#: reads ``--version`` as an unknown command, prints its usage and exits 1
-VERSION_ARGS = {"kallisto": ["version"]}
+#: reads ``--version`` as an unknown command, prints its usage and exits 1; featureCounts
+#: reads it as an unknown option (its version option is ``-v``)
+VERSION_ARGS = {"kallisto": ["version"], "featureCounts": ["-v"]}
 
 
 def load_environments(path: str | Path | None = None) -> dict[str, Any]:

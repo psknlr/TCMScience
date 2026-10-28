@@ -141,7 +141,7 @@ Negatives typed: 0/36 (0%; 0%–10%); as a trial 0/36 (0%; 0%–10%), as a revie
 
 ## Before and after the rule changes
 
-Before: rules `0b111264cdeb`; after: rules `9f78756177f8` (SHA-256 of the `evidence.py` each was read from). How and why they changed: `docs/evidence-typing-accuracy.md`.
+Before: rules `0b111264cdeb`; after: rules `0662286944d5` (SHA-256 of the `evidence.py` each was read from). How and why they changed: `docs/evidence-typing-accuracy.md`.
 
 | Split | Studies typed | Readings right (negatives included) | Wrong readings | Negatives typed |
 | --- | --- | --- | ---: | --- |

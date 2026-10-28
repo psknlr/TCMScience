@@ -173,3 +173,22 @@ def test_a_binary_is_asked_for_its_version_the_way_it_answers(tmp_path, monkeypa
     broken = rec.check("salmon:binary")
     assert broken.status == FAIL and "exited 127" in broken.detail and "shared libraries" in broken.detail
     assert rec.check("fastp:binary").status == BLOCKED
+
+
+def test_readiness_checks_every_tool_the_rnaseq_pipeline_runs(tmp_path, monkeypatch):
+    # `bioagent rnaseq --engine hisat2` is refused without hisat2-build, samtools and
+    # featureCounts too; featureCounts reads --version as an unknown option and its version
+    # option is -v
+    from bioagent.omics import backends
+    from bioagent.validation.dependencies import VERSION_ARGS, load_environments, readiness
+    group = load_environments()["groups"]["transcriptomics"]
+    assert set(backends.VERSION_ARGS) <= set(group["binaries"])
+    for tool, args in backends.VERSION_ARGS.items():
+        assert VERSION_ARGS.get(tool, ["--version"]) == args, tool
+    _tool(tmp_path / "featureCounts", 'if [ "$1" = -v ]; then echo >&2; '
+                                      'echo "featureCounts v2.0.6" >&2; exit 0; fi\n'
+                                      'echo "Unrecognized option" >&2; exit 255\n')
+    monkeypatch.setenv("PATH", str(tmp_path))
+    rec, = readiness({"groups": {"t": {"packages": {}, "binaries": ["featureCounts"]}}})
+    assert rec.check("featureCounts:binary").status == PASS
+    assert rec.check("featureCounts:binary").detail == "featureCounts v2.0.6"

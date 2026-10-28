@@ -302,6 +302,18 @@ def test_arguments_are_coerced_from_the_signature():
         coerce_arguments(retrieve_tcm_evidence, {"subject": "x", "max_results": "many"})
 
 
+def test_an_optional_list_written_with_a_bar_is_a_list():
+    # `list[str] | None` (PEP 604) is a types.UnionType, which typing.Union is not:
+    # "emperor" stayed a string, and the skill iterated it character by character
+    from bioagent.governed import candidate_callables, coerce_arguments
+
+    def skill(doc_ids: list[str] | None = None) -> None: ...
+    assert coerce_arguments(skill, {"doc_ids": "emperor"}) == {"doc_ids": ["emperor"]}
+    retrieve = candidate_callables()["retrieve-literature-evidence"]
+    assert coerce_arguments(retrieve, {"question": "q", "doc_ids": "emperor, ctx"}) == {
+        "question": "q", "doc_ids": ["emperor", "ctx"]}
+
+
 def test_a_manifest_that_names_another_callable_is_refused(tmp_path):
     from bioagent.governed import GovernedRunRefused, run_governed
     from bioagent.skills.p0 import retrieve_tcm_evidence

@@ -34,7 +34,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     r.add_argument("--design", default="~ condition", help="e.g. '~ batch + condition'")
     r.add_argument("--contrast", default="",
                    help="factor,numerator,denominator, e.g. condition,treated,control "
-                        "(default: the last design factor's two levels)")
+                        "(default: the last design factor's two levels, the later in sorted "
+                        "order against the earlier)")
     r.add_argument("--covariate", action="append", default=[],
                    help="a numeric design variable; every other one is a factor")
     # the FASTQ-only options default to None, so the count-matrix mode can tell one given
@@ -90,7 +91,8 @@ def register(sub: argparse._SubParsersAction) -> None:
                    help="root cluster or cell type for diffusion pseudotime")
     c.add_argument("--contrast", default="",
                    help="factor,numerator,denominator for pseudobulk (default: the "
-                        "condition column's two levels)")
+                        "condition column's two levels, against a control-like one such as "
+                        "control or untreated, else against the earlier in sorted order)")
     c.add_argument("--seed", type=int, default=0)
     c.add_argument("--verify", default="", help="re-check a finished run directory and exit")
     c.add_argument("--json", action="store_true")

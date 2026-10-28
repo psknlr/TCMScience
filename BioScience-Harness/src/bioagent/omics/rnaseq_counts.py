@@ -332,7 +332,7 @@ def run_rnaseq_counts(counts: str | Path, samples: str | Path, config: RNASeqCou
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     rec = StageRecorder(out, PIPELINE, plan=STAGES)
-    warnings: list[str] = []
+    warnings: list[str] = [] if config.contrast else [R._chosen_contrast_note(contrast)]
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     # the counts, read in full and matched to the sample table by name
