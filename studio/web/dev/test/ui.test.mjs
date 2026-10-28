@@ -231,6 +231,9 @@ test("the command palette: a search that finds nothing says so beside the listbo
     const input = document.querySelector(".palette__input");
     const list = document.getElementById(input.getAttribute("aria-controls"));
     assert.ok(list.querySelector("[role=option]"), "the commands, before a search");
+    // the status is there already, empty: a live region that appears together with its text is often not announced
+    const status = document.querySelector(".palette__empty");
+    assert.deepEqual([status?.hidden, status?.textContent], [false, ""]);
     input.value = "zzzqqq";
     input.dispatchEvent(new window.Event("input"));
     await new Promise((r) => setTimeout(r, 0));
@@ -238,6 +241,8 @@ test("the command palette: a search that finds nothing says so beside the listbo
     assert.deepEqual([...list.children].filter((c) => !["option", "presentation"].includes(c.getAttribute("role"))).map((c) => c.outerHTML), []);
     const empty = document.querySelector(".palette__empty");
     assert.ok(empty && !list.contains(empty), "the message is not in the listbox");
+    assert.equal(empty, status, "the same element, only its text changed");
+    assert.equal(empty.hidden, false);
     assert.equal(empty.getAttribute("role"), "status");
     assert.match(empty.textContent, /zzzqqq/);
     assert.equal(input.getAttribute("aria-expanded"), "false");

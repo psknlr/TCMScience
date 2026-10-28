@@ -8,7 +8,7 @@ import { createHash, webcrypto } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
-import { registerServiceWorker, removeServiceWorker } from "../js/core/offline.js";
+import { IDLE_CHECK_MS, registerServiceWorker, removeServiceWorker } from "../js/core/offline.js";
 
 const SOURCE = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 const MARKER = "const PRECACHE = null; // filled by the build: {version, index_url, files: [{path, sha256}]}";
@@ -321,6 +321,56 @@ test("another tab applied the update: this page reloads into it too, without bei
   await registerServiceWorker({ nav: first.nav, location: { search: "", reload: () => none.push(1) }, onUpdate: () => {} });
   first.swListeners.controllerchange?.();
   assert.equal(none.length, 0);
+});
+
+test("another tab applied the update while this page holds work: it waits until a reload loses nothing, and says so", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  return (async () => {
+    const f = fakeNav({ controller: {}, waiting: { postMessage() {} } });
+    const reloads = [];
+    const told = [];
+    let busy = true; // an answer under way, text typed and not sent…
+    let offered = null;
+    await registerServiceWorker({
+      nav: f.nav, location: { search: "", reload: () => reloads.push(1) }, onUpdate: (fn) => { offered = fn; },
+      busy: () => busy, onReplaced: (reload) => told.push(reload),
+    });
+    f.swListeners.controllerchange();
+    f.swListeners.controllerchange();
+    assert.equal(reloads.length, 0, "nothing lost under the person");
+    assert.equal(told.length, 1, "told once");
+    t.mock.timers.tick(IDLE_CHECK_MS * 3);
+    assert.equal(reloads.length, 0, "still busy");
+    busy = false;
+    t.mock.timers.tick(IDLE_CHECK_MS);
+    assert.equal(reloads.length, 1, "then it follows by itself");
+    t.mock.timers.tick(IDLE_CHECK_MS * 3);
+    assert.equal(reloads.length, 1, "once");
+    // busy, and the person reloads from the notice (or from this page's own offer, the version already in charge)
+    const g = fakeNav({ controller: {}, waiting: { postMessage() {} } });
+    const now = [];
+    let notice = null;
+    await registerServiceWorker({ nav: g.nav, location: { search: "", reload: () => now.push(1) }, onUpdate: () => {}, busy: () => true, onReplaced: (reload) => { notice = reload; } });
+    g.swListeners.controllerchange();
+    notice();
+    assert.equal(now.length, 1);
+    // nothing held: it follows at once
+    const idle = fakeNav({ controller: {}, waiting: { postMessage() {} } });
+    const at = [];
+    await registerServiceWorker({ nav: idle.nav, location: { search: "", reload: () => at.push(1) }, onUpdate: () => {}, busy: () => false, onReplaced: () => assert.fail("not told") });
+    idle.swListeners.controllerchange();
+    assert.equal(at.length, 1);
+    // asked for in this page: at once, busy or not (the person chose it here)
+    const posted = [];
+    const own = fakeNav({ controller: {}, waiting: { postMessage: (m) => posted.push(m) } });
+    const ownReloads = [];
+    let apply = null;
+    await registerServiceWorker({ nav: own.nav, location: { search: "", reload: () => ownReloads.push(1) }, onUpdate: (fn) => { apply = fn; }, busy: () => true, onReplaced: () => assert.fail("not told") });
+    apply();
+    own.swListeners.controllerchange();
+    assert.deepEqual([posted.length, ownReloads.length], [1, 1]);
+    assert.equal(typeof offered, "function");
+  })();
 });
 
 test("?nosw: every registration told to stand down, unregistered, and its caches deleted", async () => {

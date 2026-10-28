@@ -453,7 +453,9 @@ software adapter always reads "software, not evidence".
   off. An offline run produced the same output hash as an online one.
 - Each version is a consistent snapshot. A new version installs in the background and is offered ("a new version is
   ready"); it takes over only when the person reloads, and then every open tab of the site reloads into it (a tab left
-  on the old version would load the new build's modules into the old build's).
+  on the old version would load the new build's modules into the old build's). The tab where the person reloaded does
+  so at once; another tab that holds what a reload would lose (an answer or a browser job under way, text typed or
+  files attached and not sent, a dialog open) says so, and reloads once that is done (looked at every three seconds).
 - It never caches `/v1` (model traffic) or `/api` (database queries), nor range requests. `?nosw` unregisters it and
   deletes its caches, as a way out. Automated browsers get it only when they ask (`?sw`).
 - The Python bundle and data assets were already content-addressed: kept by SHA-256 in the runtime cache and verified

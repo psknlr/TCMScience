@@ -505,14 +505,22 @@ function upstreamText(raw, model, fields, cfg) {
 
 // The keys whose values the relay checks before a text goes out as it came: the output caps and thinking. (`n` is
 // always removed, which re-serializes; a second "model" can only repeat the public name, the last one being checked.)
-const CHECKED_KEY = /"(max_tokens|max_completion_tokens|thinking)"\s*:/g;
+// JSON may write any letter of a key as a \u escape ("max\u005ftokens" is max_tokens to JSON.parse), so each letter is
+// matched as itself or as its escape, hex digits in either case.
+const spelled = (key) => [...key].map((c) => {
+  const hex = c.charCodeAt(0).toString(16).padStart(4, "0").replace(/[a-f]/g, (d) => `[${d}${d.toUpperCase()}]`);
+  return `(?:${c}|\\\\u${hex})`;
+}).join("");
+const CHECKED_KEY = new RegExp(String.raw`"(${["max_tokens", "max_completion_tokens", "thinking"].map(spelled).join("|")})"\s*:`, "g");
 
-/** Whether the text names a checked key more than once (anywhere: a tool's schema with such a property counts too). */
+/** Whether the text names a checked key more than once, however it is spelled (anywhere: a tool's schema with such a
+ * property counts too). */
 function repeatsCheckedKey(raw) {
   const seen = new Set();
   for (const m of raw.matchAll(CHECKED_KEY)) {
-    if (seen.has(m[1])) return true;
-    seen.add(m[1]);
+    const key = JSON.parse(`"${m[1]}"`); // the name JSON.parse reads: letters and escapes only, so it parses
+    if (seen.has(key)) return true;
+    seen.add(key);
   }
   return false;
 }

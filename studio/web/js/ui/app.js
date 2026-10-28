@@ -210,13 +210,31 @@ export class App {
 
   /** The service worker that keeps the app and its runtime usable offline (core/offline.js, /sw.js). */
   #offline() {
+    let offer = () => {};
     import("../core/offline.js")
       .then((m) => m.registerServiceWorker({
-        // a new version waits until the person chooses to reload into it: nothing changes under an open page
-        onUpdate: (apply) => toast(t("ui.offline.update"), { action: { label: t("ui.offline.reload"), onClick: apply }, timeout: 0 }),
+        // a new version waits until the person chooses to reload into it, in this tab or another
+        onUpdate: (apply) => { offer = toast(t("ui.offline.update"), { action: { label: t("ui.offline.reload"), onClick: apply }, timeout: 0 }); },
+        // chosen in another tab: this page follows (the old version's files are gone) once that loses nothing here,
+        // and says so meanwhile
+        busy: () => this.#holdsWork(),
+        onReplaced: (reload) => {
+          offer();
+          toast(t("ui.offline.replaced"), { tone: "warn", action: { label: t("ui.offline.reload"), onClick: reload }, timeout: 0 });
+        },
       }))
       .then((r) => { this.state.serviceWorker = r?.state || null; })
       .catch(() => { this.state.serviceWorker = "failed"; });
+  }
+
+  /**
+   * Whether a reload now would lose something of this page: an answer or a browser job under way, text typed or files
+   * attached in the composer, a dialog open.
+   */
+  #holdsWork() {
+    if (this.state.turn || this.runtimes?.jobs?.service?.active || hasOverlay()) return true;
+    if (document.getElementById("composer-input")?.value.trim()) return true;
+    return document.querySelector(".composer__attachments")?.hidden === false;
   }
 
   // ----------------------------------------------------------------------------------------------- connectivity

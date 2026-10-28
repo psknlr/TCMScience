@@ -718,6 +718,7 @@ details.json[open] { display: block; }
 .palette__sub { font-size: var(--text-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette__hint { font-size: var(--text-xs); color: var(--ink-3); white-space: nowrap; }
 .palette__empty { padding: 28px 16px; text-align: center; color: var(--ink-3); font-size: var(--text-sm); }
+.palette__empty:empty { padding: 0; }
 .palette__foot { display: flex; gap: 16px; padding: 8px 14px; border-top: 1px solid var(--rule-2); font-size: var(--text-xs); color: var(--ink-3); }
 .palette__foot .kbd { margin-right: 2px; }
 

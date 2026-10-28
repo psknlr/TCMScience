@@ -59,15 +59,19 @@ test("a request the relay need not reshape is edited as text: model and formats 
   await own.call("/v1/chat/completions", post({ model: "Tao-S1", messages: history, reasoning_split: false, max_completion_tokens: 100 }));
   assert.equal(own.calls[0].body.reasoning_split, false);
   // a key the relay checks, named twice: the relay read the last, a service may keep the first, so what goes out is what
-  // the relay read, each key once
+  // the relay read, each key once. JSON may spell a key's letters as \u escapes: one letter, or all in upper-case hex.
+  const escaped = (key, all) => key.replace(all ? /./g : /^./, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")[all ? "toUpperCase" : "toLowerCase"]()}`);
   for (const [key, first, last] of [["max_tokens", 1000000, 8192], ["max_completion_tokens", 1000000, 100], ["thinking", { type: "enabled" }, { type: "disabled" }]]) {
-    const twice = relay();
-    const capped = key === "thinking" ? '"max_completion_tokens":100,' : ""; // nothing else for the relay to change
-    const text = `{"model":"Tao-S1","${key}":${JSON.stringify(first)},"messages":[{"role":"user","content":"hi"}],${capped}"${key}":${JSON.stringify(last)}}`;
-    await (await twice.call("/v1/chat/completions", post(text))).text();
-    const out = twice.calls[0].init.body;
-    assert.equal(out.split(`"${key}"`).length - 1, 1, `${key} once: ${out}`);
-    assert.deepEqual(twice.calls[0].body[key], last);
+    for (const spelling of [key, escaped(key, false), escaped(key, true)]) {
+      assert.equal(JSON.parse(`"${spelling}"`), key);
+      const twice = relay();
+      const capped = key === "thinking" ? '"max_completion_tokens":100,' : ""; // nothing else for the relay to change
+      const text = `{"model":"Tao-S1","${spelling}":${JSON.stringify(first)},"messages":[{"role":"user","content":"hi"}],${capped}"${key}":${JSON.stringify(last)}}`;
+      await (await twice.call("/v1/chat/completions", post(text))).text();
+      const out = twice.calls[0].init.body;
+      assert.equal(out, JSON.stringify(JSON.parse(out)), `${spelling}: each key once, as read: ${out}`);
+      assert.deepEqual(twice.calls[0].body[key], last);
+    }
   }
 });
 

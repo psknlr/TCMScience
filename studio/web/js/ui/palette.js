@@ -39,8 +39,9 @@ export function openPalette(app) {
     placeholder: t("ui.palette.placeholder"), "aria-label": t("ui.palette.label"), autocomplete: "off", spellcheck: "false",
   });
   const list = h("div.palette__list", { id: listId, role: "listbox", "aria-label": t("ui.palette.results") });
-  // "nothing found" is said beside the list, never in it: a listbox holds options only
-  const empty = h("p.palette__empty", { role: "status", hidden: true });
+  // "nothing found" is said beside the list, never in it: a listbox holds options only. The status stays in place,
+  // empty while there are results, so that only its text changes and a screen reader says it
+  const empty = h("p.palette__empty", { role: "status" });
   let items = [];
   let active = 0;
   let seq = 0;
@@ -90,11 +91,10 @@ export function openPalette(app) {
 
   function renderList(q) {
     list.hidden = !items.length;
-    empty.hidden = Boolean(items.length);
+    empty.textContent = items.length ? "" : t("ui.palette.none", { q });
     input.setAttribute("aria-expanded", String(Boolean(items.length)));
     if (!items.length) {
       fill(list);
-      empty.textContent = t("ui.palette.none", { q });
       input.removeAttribute("aria-activedescendant");
       return;
     }
