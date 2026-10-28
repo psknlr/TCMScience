@@ -1568,11 +1568,13 @@ _SYNDROME_ARGS = {"tcm_syndrome": (("name", "syndrome"),),
 def _syndrome_names(name: str, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """A syndrome named without its closing 证, as the classics write it (太阳中风, 伤寒论
     第12条), read as the seed's name for it (太阳中风证): only when the name as given names
-    nothing in the seed and the name with 证 names exactly one syndrome. Anything else is left
-    as given, so a partial match stays a suggestion (``repository_data.syndrome_terms`` drops
-    the 证 the other way, for the workbook's 功效 text). Returns the arguments to run and
-    ``{argument: {given, read, as}}`` for each name read so (``as``: the seed's name for the
-    syndrome ``read`` names, itself or the syndrome whose recorded alias it is)."""
+    nothing in the seed exactly (a partial match is no name: 气虚, part of 气虚证 and of
+    脾胃气虚证, is read as 气虚证) and the name with 证 names exactly one syndrome. Anything
+    else is left as given, so a partial match whose name with 证 names nothing (中风, 太阳)
+    stays a suggestion (``repository_data.syndrome_terms`` drops the 证 the other way, for
+    the workbook's 功效 text). Returns the arguments to run and ``{argument: {given, read,
+    as}}`` for each name read so (``as``: the seed's name for the syndrome ``read`` names,
+    itself or the syndrome whose recorded alias it is)."""
     from bioagent.tcm.knowledge import Syndrome, default_knowledge
     kb = default_knowledge()
     out, read = dict(args), {}

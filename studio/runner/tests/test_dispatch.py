@@ -541,7 +541,10 @@ def test_a_syndrome_named_as_the_classics_write_it_is_the_seeds_syndrome(runner_
     assert a["status"] == "succeeded" and a["result"]["object"]["chinese"] == "太阳中风证"
     assert a["result"]["verdict"] == b["result"]["verdict"] == "within_scope"
     assert set(a["result"]["read_as"]) == {"object"} and "read_as" not in b["result"]
-    # a name that names something, or only part of one, is left as given
+    # a partial match is no name: 气虚, part of 气虚证 and of 脾胃气虚证, is read as 气虚证
+    qi = call("tcm_syndrome", {"name": "气虚"}, runner_ctx)
+    assert qi["result"]["read_as"] == {"name": {"given": "气虚", "read": "气虚证", "as": "气虚证"}}
+    # a name that names something, or only part of one and nothing with 证, is left as given
     assert call("tcm_syndrome", {"name": "中风"}, runner_ctx)["error"]["type"] == "not_found"
     assert call("tcm_syndrome", {"name": "太阳"}, runner_ctx)["status"] == "failed"
     assert "read_as" not in call("tcm_syndrome", {"name": "脾胃气虚证"}, runner_ctx)["result"]
