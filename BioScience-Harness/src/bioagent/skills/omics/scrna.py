@@ -48,7 +48,7 @@ def scrna_cell_atlas(source: str, *, experiment_design: str = "in_vitro",
     ``integration_method`` (``none``, ``harmony`` or ``scvi``) and ``de_backend``
     (``builtin`` or ``pydeseq2``, for the pseudobulk test) are independent; what ran,
     with versions, is in the provenance."""
-    from ...omics.scrna import ScConfig, run_scrna
+    from ...omics.scrna import ScConfig, pseudobulk_files, run_scrna
 
     if experiment_design not in EXPERIMENT_DESIGNS:
         raise ValueError(f"experiment_design is one of {', '.join(EXPERIMENT_DESIGNS)}")
@@ -80,9 +80,10 @@ def scrna_cell_atlas(source: str, *, experiment_design: str = "in_vitro",
     evidence: list[EvidenceItem] = []
     tested: dict[str, int] = {}
     pb = run.pseudobulk
+    files = pseudobulk_files(pb.results) if pb is not None else {}
     if pb is not None:
         for ct, res in sorted(pb.results.items()):
-            safe = "".join(ch if ch.isalnum() else "_" for ch in ct)
+            safe = files[ct]
             text = (out / "pseudobulk" / f"{safe}.tsv").read_text(encoding="utf-8")
             lines = {ln.split("\t", 1)[0]: ln for ln in text.splitlines()[1:]}
             sig = sorted(res.significant(), key=lambda i: (res.p_adjusted[i], res.genes[i]))
@@ -117,7 +118,7 @@ def scrna_cell_atlas(source: str, *, experiment_design: str = "in_vitro",
     for ct, n_sig in sorted(tested.items()):
         if not n_sig or not run.complete:
             continue
-        safe = "".join(ch if ch.isalnum() else "_" for ch in ct)
+        safe = files[ct]
         items = [e for e in evidence if e.id.startswith(f"pb.{safe}.")]
         res = pb.results[ct]
         population = items[0].population

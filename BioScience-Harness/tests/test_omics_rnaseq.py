@@ -121,6 +121,16 @@ def test_a_contrast_must_name_real_levels(world, tmp_path):
         R.run_rnaseq(world.sheet, config, tmp_path)
 
 
+@pytest.mark.parametrize("alpha", [0.0, 1.0, 1.5, -0.1])
+def test_an_fdr_level_outside_0_to_1_is_refused_before_anything_is_written(world, tmp_path,
+                                                                           alpha):
+    config = R.RNASeqConfig(transcripts=world.transcripts, annotation=world.gtf,
+                            engine="builtin", alpha=alpha)
+    with pytest.raises(R.RNASeqError, match="alpha is the FDR level, between 0 and 1"):
+        R.run_rnaseq(world.sheet, config, tmp_path / "run")
+    assert not (tmp_path / "run").exists()
+
+
 def test_a_numeric_batch_is_a_factor(tmp_path):
     from bioagent.omics import deseq
     rows = [{"batch": b, "condition": c} for b, c in

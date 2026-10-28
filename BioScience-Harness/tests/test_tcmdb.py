@@ -428,6 +428,15 @@ def test_a_fetch_that_asks_for_no_file_is_not_a_success(tmp_path, capsys):
     assert "every file of mesh is optional" in err
 
 
+def test_checking_all_with_nothing_built_says_so(tmp_path, capsys):
+    # the documented acceptance check on a fresh install raised IndexError; nothing was
+    # checked, so it is not a pass either
+    from bioagent.cli import main
+    assert main(["tcmdb", "--root", str(tmp_path), "check", "all"]) == 1
+    out, err = capsys.readouterr()
+    assert out == "" and err.startswith("no built dataset to check")
+
+
 # ------------------------------------------------- SymMap / HERB site query endpoints
 class _Result:
     def __init__(self, value, status="SUCCEEDED"):

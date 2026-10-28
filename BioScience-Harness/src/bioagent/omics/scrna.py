@@ -60,7 +60,7 @@ import platform
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 from scipy import sparse
@@ -82,7 +82,7 @@ from .sc import qc as sc_qc
 from .sc import trajectory as sc_traj
 
 __all__ = ["ScConfig", "ScRun", "ScError", "read_sheet", "run_scrna", "verify_run", "STAGES",
-           "LIMITATIONS"]
+           "LIMITATIONS", "pseudobulk_files"]
 
 PIPELINE = "bioagent.omics.scrna"
 #: The stages of a run, in order. ``integrate`` is not applicable with one batch,
@@ -419,6 +419,8 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
     # 9. conditions
     pb = None
     contrast = config.contrast or _infer_contrast(info)
+    if contrast is not None and not config.contrast:
+        warnings.append(_chosen_contrast_note(contrast))
     if contrast is not None:
         with rec.stage("pseudobulk_de", required=False,
                        engine="builtin-de" if config.de_backend == "builtin" else "pydeseq2"
@@ -494,15 +496,29 @@ def _root_cluster(root: str, cell_types: Mapping[str, str], clusters: np.ndarray
     return max(named, key=lambda c: int((clusters.astype(str) == c).sum()))
 
 
+_CONTROL_LIKE = ("control", "ctrl", "untreated", "vehicle", "normal", "healthy")
+
+
 def _infer_contrast(info: Mapping[str, Mapping[str, str]]) -> tuple[str, str, str] | None:
+    """The condition column's two levels, against a control-like one (``_CONTROL_LIKE``)
+    or else against the earlier in sorted order; None without two levels."""
     levels = sorted({v.get("condition", "") for v in info.values()} - {""})
     if len(levels) != 2:
         return None
-    ref = next((lv for lv in levels if lv.lower() in ("control", "ctrl", "untreated",
-                                                      "vehicle", "normal", "healthy")),
-               levels[0])
+    ref = next((lv for lv in levels if lv.lower() in _CONTROL_LIKE), levels[0])
     other = next(lv for lv in levels if lv != ref)
     return ("condition", other, ref)
+
+
+def _chosen_contrast_note(contrast: tuple[str, str, str]) -> str:
+    """What a run says when it chose the contrast (``_infer_contrast``): which way round,
+    and by what rule, for the sign of every fold change follows from it."""
+    factor, num, den = contrast
+    why = ("a control-like level" if den.lower() in _CONTROL_LIKE else
+           f"the earlier of {factor}'s two levels in sorted order (neither is control-like)")
+    return (f"no contrast was named, so {num} vs {den} was tested in each cell type: {den} "
+            f"as the reference, {why} (a log2 fold change > 0 means higher in {num}); name "
+            "the contrast (factor,numerator,denominator) to choose")
 
 
 # ============================================================== outputs
@@ -585,8 +601,9 @@ def _write(run: ScRun, m: sc_io.CellMatrix, config: ScConfig, qmetrics: dict[str
             pdir = out / "pseudobulk"
             pdir.mkdir(exist_ok=True)
             contract = [attr for _, attr, _ in de_backends.CONTRACT]
+            files = pseudobulk_files(run.pseudobulk.results)
             for ct, res in run.pseudobulk.results.items():
-                safe = _safe(ct)
+                safe = files[ct]
                 _tsv(pdir / f"{safe}.tsv", ["gene", *contract],
                      [[r["gene"], *(r[c] for c in contract)] for r in res.table()])
                 written.append(f"pseudobulk/{safe}.tsv")
@@ -641,6 +658,25 @@ def _safe(name: str) -> str:
     return "".join(ch if ch.isalnum() else "_" for ch in name)
 
 
+def pseudobulk_files(cell_types: Iterable[str]) -> dict[str, str]:
+    """{cell type: the stem of its table, ``pseudobulk/<stem>.tsv``}, in the order of the
+    tests: the name with every character that is not a letter or digit as ``_``, then
+    ``_2``, ``_3``... when another cell type took that stem without regard to case ("CD16+
+    NK" and "CD16- NK" are both CD16__NK, and on macOS or Windows "NK" and "nk" are one
+    file), so no table overwrites another."""
+    taken: set[str] = set()
+    out: dict[str, str] = {}
+    for ct in cell_types:
+        stem = _safe(ct)
+        unique, n = stem, 1
+        while unique.casefold() in taken:
+            n += 1
+            unique = f"{stem}_{n}"
+        taken.add(unique.casefold())
+        out[ct] = unique
+    return out
+
+
 def _content_problems(out: Path, manifest: Mapping[str, Any]) -> list[str]:
     """The tables against the run record: a row per analysed cell and per cluster, the
     columns this version writes, a table per pseudobulk test."""
@@ -660,9 +696,9 @@ def _content_problems(out: Path, manifest: Mapping[str, Any]) -> list[str]:
         if rows is not None and n != rows:
             found.append(f"{name}: {n} rows, where the run record has {rows}")
     tests = ((manifest.get("pseudobulk") or {}).get("tests") or {})
-    for ct in tests:
-        if not (out / "pseudobulk" / f"{_safe(ct)}.tsv").is_file():
-            found.append(f"pseudobulk/{_safe(ct)}.tsv is missing for the {ct} test")
+    for ct, stem in pseudobulk_files(tests).items():
+        if not (out / "pseudobulk" / f"{stem}.tsv").is_file():
+            found.append(f"pseudobulk/{stem}.tsv is missing for the {ct} test")
     return found
 
 
@@ -809,6 +845,7 @@ def _markdown(run: ScRun, config: ScConfig, contrast: tuple[str, str, str] | Non
     lines.append("")
     if run.pseudobulk is not None and contrast is not None:
         lines += [f"## {contrast[1]} vs {contrast[2]}, per cell type (pseudobulk)", "",
+                  f"(a log2 fold change > 0 means higher in {contrast[1]})", "",
                   "| cell type | samples | genes at FDR < 0.05 | up | down |",
                   "|---|---|---|---|---|"]
         for ct, res in sorted(run.pseudobulk.results.items()):

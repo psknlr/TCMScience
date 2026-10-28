@@ -288,6 +288,23 @@ def test_pseudobulk_finds_the_condition_effect_only_where_planted(removed, world
             assert len(res.significant()) <= 1
 
 
+def test_a_contrast_the_run_chose_says_which_way_round(removed):
+    """No contrast was named: a control-like level is the denominator (bulk RNA-seq takes
+    the later level in sorted order instead), and the run says so where it is read."""
+    assert next(iter(removed.pseudobulk.results.values())).contrast == \
+        ("condition", "treated", "control")
+    (note,) = [w for w in removed.warnings if w.startswith("no contrast was named")]
+    assert "treated vs control was tested in each cell type" in note
+    assert "control as the reference, a control-like level" in note
+    assert "a log2 fold change > 0 means higher in treated" in note
+    md = (removed.out_dir / "report.md").read_text()
+    assert note in md and "(a log2 fold change > 0 means higher in treated)" in md
+    assert S._infer_contrast({"a": {"condition": "disease"}, "b": {"condition": "healthy"}}) \
+        == ("condition", "disease", "healthy")
+    assert S._infer_contrast({"a": {"condition": "x2"}, "b": {"condition": "x1"}}) \
+        == ("condition", "x2", "x1")
+
+
 def test_without_a_root_nothing_is_ordered(removed):
     assert removed.pseudotime is None
     assert "No pseudotime" in (removed.out_dir / "report.md").read_text()
@@ -425,6 +442,48 @@ def test_running_out_of_memory_is_not_a_random_start(monkeypatch):
     monkeypatch.setattr(umap, "eigsh", no_convergence)
     layout, start = umap.umap_layout(ring, n_epochs=5)
     assert layout.shape == (20, 2) and start.startswith("random: the spectral start failed")
+
+
+def test_cell_types_whose_names_come_to_one_file_name_keep_their_own_tables(world, tmp_path,
+                                                                          monkeypatch):
+    """'Mono+' and 'Mono-' are both Mono_ as a file name: each keeps a table of its own,
+    the record checks one distinct table per test, and the skill quotes each cell type's
+    evidence from its own table."""
+    from bioagent.omics.sc.annotate import default_panel
+    from bioagent.skills.omics import scrna_cell_atlas
+    runs = []
+    real = S.run_scrna
+    monkeypatch.setattr(S, "run_scrna", lambda *a, **k: runs.append(real(*a, **k)) or runs[-1])
+    types = dict(default_panel()["cell_types"])
+    types["Mono+"] = types.pop("B cell")                # the planted condition effect
+    types["Mono-"] = types.pop("CD14+ monocyte")
+    panel = tmp_path / "panel.json"
+    panel.write_text(json.dumps({"about": "two names, one file name", "cell_types": types}))
+    assert S.pseudobulk_files(["Mono+", "Mono-", "NK cell", "nk_cell"]) == {
+        "Mono+": "Mono_", "Mono-": "Mono__2", "NK cell": "NK_cell", "nk_cell": "nk_cell_2"}
+    art = scrna_cell_atlas(str(world.sheet), experiment_design="observational",
+                           markers=str(panel), out_dir=str(tmp_path / "run"))
+    out = tmp_path / "run"
+    results = runs[0].pseudobulk.results
+    assert {"Mono+", "Mono-"} <= set(results)
+    assert len(results["Mono+"].significant()) > len(results["Mono-"].significant())
+    files = S.pseudobulk_files(results)
+    assert sorted(f"{stem}.tsv" for stem in files.values()) == \
+        sorted(p.name for p in (out / "pseudobulk").iterdir())
+    for ct, res in results.items():                      # each table is its own test's
+        rows = [ln.split("\t") for ln in
+                (out / "pseudobulk" / f"{files[ct]}.tsv").read_text().splitlines()]
+        col = rows[0].index("p_adjusted")
+        called = sum(r[col] != "NA" and float(r[col]) < res.alpha for r in rows[1:])
+        assert called == len(res.significant()), ct
+    assert S.verify_run(out) == (True, [])
+    (out / "pseudobulk" / "Mono__2.tsv").unlink()
+    ok, problems = S.verify_run(out)
+    assert not ok and "pseudobulk/Mono__2.tsv is missing for the Mono- test" in problems
+    mono = [e for e in art.evidence if e.population.endswith("Mono+")]
+    assert mono and all(e.id.startswith("pb.Mono_.") for e in mono)
+    assert all(e.identifier.startswith("pseudobulk/Mono_.tsv#") for e in mono)
+    assert [c.id for c in art.claims] == ["scrna.pseudobulk.Mono_"]
 
 
 def test_verify_run_checks_the_tables_against_the_record(removed, tmp_path):

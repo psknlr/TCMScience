@@ -137,6 +137,14 @@ installed first. `--trimmer auto` uses fastp, then the built-in trimmer.
 `--de-backend pydeseq2` runs the test with PyDESeq2 instead, on the same design matrix
 and contrast, into the same result columns. If PyDESeq2 is not installed the run is
 refused, not switched to the built-in test.
+
+Without `--contrast`, the last design factor's two levels are compared, the later in
+sorted order against the earlier: `treated` against `control`, but `untreated` against
+`treated` and `healthy` against `disease`. The single-cell pseudobulk default puts a
+control-like level in the denominator instead, so on the same labels the two can be
+opposite ways round. A run that chose its contrast says so among its warnings (in
+`report.md` and `run.json`): what it tested, by which rule, and that a log2 fold change
+above 0 means higher in the numerator. Name the contrast when the direction matters.
 [omics-backends.md](omics-backends.md) says how the two are kept equivalent and where
 they differ.
 
@@ -248,6 +256,12 @@ Three choices are independent of one another:
 - `--integration none|harmony|scvi` sets the batch integration (for scVI,
   `--scvi-epochs` and `--scvi-threads` set its training);
 - `--de-backend pydeseq2` runs the pseudobulk test with PyDESeq2.
+
+Without `--contrast`, the pseudobulk test compares the `condition` column's two levels
+against a control-like one (`control`, `ctrl`, `untreated`, `vehicle`, `normal`,
+`healthy`), else against the earlier in sorted order. Bulk RNA-seq's default differs (the
+later level in sorted order against the earlier), so a run that chose its contrast says so
+among its warnings, with which way round a fold change reads.
 
 `run.json` records which implementation ran each stage. See
 [omics-backends.md](omics-backends.md).
@@ -412,9 +426,13 @@ bioagent dock --verify dock/
 
 The receptor can be a PDB file, an RCSB entry (`PDB:<id>[:chains]`) or an AlphaFold DB
 model (`UniProt:<accession>`); fetching either of the last two needs `--allow-remote`.
-The ligands can be a CSV (`name,smiles`), an SDF, a `.smi` file or one SMILES. The site
-can be a co-crystal ligand (`--site-ligand`), residues (`--site-residue A:189`) or an
-explicit box (`--center`, `--size`).
+The ligands can be a CSV (`name,smiles`), an SDF, a `.smi` file or one SMILES. A ligand's
+name names its pose file (`poses/<name>.sdf`), so a path separator, a control character or
+one of `:*?"<>|` in it becomes `_`, leading dots are dropped, and a name that repeats an
+earlier one without regard to case (an SDF's stereoisomers often share a title) gets
+`_2`, `_3`...; each change is a warning, and `run.json` keeps the name as given
+(`given_name`). The site can be a co-crystal ligand (`--site-ligand`), residues
+(`--site-residue A:189`) or an explicit box (`--center`, `--size`).
 
 ### Steps
 
@@ -961,6 +979,7 @@ data".
 - `--counts` 是基因 × 样本的 TSV 或 CSV 表（可 gzip）：`gene_id`、可选 `gene_name`，然后每个样本一列，每个值都必须是非负整数。以下情况被拒绝，并指明行与样本：非数字、负数、非有限值、非整数（「请先把估计计数取整」）、2^53 及以上、重复的基因 ID 或样本名、少于两个样本、某样本计数全为零、gzip 数据流损坏或被截断的表（「… cannot be read to its end (…)」，不会崩溃）、名称中含制表符或换行。
 - 此时 `--samples` 是样本表：`sample` 列加设计变量，每个计数列一行。FASTQ 样本表（含 `fastq_1`/`fastq_2`）被拒绝：读段要走完整流程。
 - FASTQ 专用选项（`--transcripts`、`--genome`、`--annotation`、`--engine`、`--trimmer`、`--fragment-mean`、`--fragment-sd`、`--strand`）被拒绝（退出码 2），绝不忽略。`--design`、`--contrast`、`--covariate`、`--de-backend` 与 `--alpha` 含义与 FASTQ 模式相同。
+- 未给出 `--contrast` 时，比较设计中最后一个因子的两个水平，按排序靠后的对靠前的：`treated` 对 `control`，但 `untreated` 对 `treated`、`healthy` 对 `disease`。单细胞伪批量的默认做法则以类似对照的水平为分母，因此同样的标签下两者方向可能相反。自行选定对比的运行会在警告中（`report.md` 与 `run.json`）说明检验了什么、依据哪条规则，以及 log2 倍数变化大于 0 表示在分子组中更高。方向重要时请明确给出对比。
 - 从计数开始，步骤与完整流程相同、代码相同：差异表达、VST、PCA、样本距离、相同的表格与图、`report.md`/`report.html`、`limitations.md` 与 `run.json`。没有看到任何读段，因此没有质控、修剪和定量，`limitations.md` 注明计数按原样分析。把 FASTQ 参考的计数取整成表后，这一模式写出的 `deseq2_results.tsv`、`de_diagnostics.tsv` 与 `vst.tsv` 与完整流程逐字节相同（有测试检查）。
 - `run.json` 把流程记为 `bioagent.omics.rnaseq_counts`、输入类型 `counts`，记录每个输入（路径、SHA-256、大小）以及规范化计数表和样本表的内容摘要；`bioagent rnaseq --verify` 两种模式都能复核。阶段为 `validate_counts`、`differential_expression`、`explore`、`report`、`verify`。它无法检查计数是如何得到的（建库、比对或定量工具、注释、过滤都不可知）。
 
@@ -988,6 +1007,8 @@ data".
 计数表逐行读取，只保留每行的非零计数，所需内存取决于计数而非文本（矩阵与整体解析相同；在 Pyodide 中，单个 1,356 个细胞 × 33,000 个基因的表在运行峰值时用 1.55 GB 而非 2.0 GB；读入之后占主导的是双细胞评分的稠密矩阵）。空行跳过；值的个数不对的行被拒绝（「rows have N values for M cells」）；gzip 数据流损坏或被截断的计数表或 Cell Ranger 文件被拒绝并说明原因（「… cannot be read to its end (…)」）；样本表中 `path` 为空的行被拒绝（「line N of <样本表> names no path」）。
 
 分析后端（内置或 Scanpy）、批次整合方法（none、harmony 或 scvi）和伪批量检验实现（内置或 PyDESeq2）三者可独立选择，见 omics-backends.md。
+
+未给出 `--contrast` 时，伪批量检验比较 `condition` 列的两个水平，以类似对照的水平（`control`、`ctrl`、`untreated`、`vehicle`、`normal`、`healthy`）为参照，否则以排序靠前的为参照。批量 RNA-seq 的默认做法不同（排序靠后的对靠前的），因此自行选定对比的运行会在警告中说明，以及倍数变化的方向如何解读。
 
 验证有两类：
 - 与参考实现对比：高变基因、Wilcoxon 分数和 Leiden 模块度与 Scanpy/leidenalg 一致，UMAP 连接度与 umap-learn 的差异在 5×10⁻⁶ 以内；
@@ -1030,7 +1051,7 @@ data".
 
 输入：
 - 受体：PDB 文件、RCSB 条目或 AlphaFold DB 模型；
-- 配体：CSV、SDF、`.smi` 或单个 SMILES。
+- 配体：CSV、SDF、`.smi` 或单个 SMILES。配体名即其构象文件名（`poses/<名称>.sdf`），因此名称中的路径分隔符、控制字符和 `:*?"<>|` 会换成 `_`，开头的点会去掉；与前面某个名称（不区分大小写）重复的名称（SDF 中的立体异构体常共用一个标题）依次加上 `_2`、`_3`……；每处改动都记为警告，`run.json` 保留原名（`given_name`）。
 
 流程：
 - 受体处理：用 meeko 模板加极性氢、Gasteiger 电荷和原子类型；

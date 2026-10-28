@@ -63,7 +63,7 @@ only when the document's text gives exactly one reading:
 
 | Field | Rules (ids in `bioagent.literature.evidence`) | Left unassessed when |
 | --- | --- | --- |
-| design | statements of a design, English and Chinese: `randomized`, `randomly assigned`, `随机对照/双盲/分组`, `随机、双盲`; `prospective cohort`, `case-control`, `observational study`, `队列研究`, `观察性研究`; `systematic review`, `meta-analysis`, `系统评价`; `case report`, `a 45-year-old man`, `病例报告`, `1例…并文献复习`; `mice`, `rats`, `121 dogs`, `大鼠`; `in vitro`, `cell lines`, cell assays, named cell lines, `细胞系`. A review that names itself one (`this meta-analysis`, `本meta分析`) reads as a review whatever else it names | no rule matches; the text states two designs as its own; it is a protocol (`study protocol for a … trial`, `will be randomized`). A mention is set aside when negated (`non-randomized`, `未随机`), plural (`randomized controlled trials` are the ones a review pools or an introduction cites) or a split of data (`随机分为训练集`) |
+| design | statements of a design, English and Chinese: `randomized`, `randomly assigned`, `随机对照/双盲/分组`, `随机、双盲`; `prospective cohort`, `case-control`, `observational study`, `队列研究`, `观察性研究`; `systematic review`, `meta-analysis`, `系统评价`; `case report`, `a 45-year-old man`, `病例报告`, `1例…并文献复习`; `mice`, `rats`, `121 dogs`, `大鼠`; `in vitro`, `cell lines`, cell assays, named cell lines, `细胞系`. A review that names itself one (`this meta-analysis`, `本meta分析`) reads as a review whatever else it names | no rule matches; the text states two designs as its own; it is a protocol (`study protocol for a … trial`, `will be randomized`, `is now recruiting`). A mention is set aside when negated (`non-randomized`, `未随机`), quasi-random (`quasi-randomized`, `pseudo-randomized`, `半随机`, `类随机`: allocation by alternation or admission day is not randomisation), plural (`randomized controlled trials` are the ones a review pools or an introduction cites) or a split of data (`随机分为训练集`) |
 | population | `in/among <patients…> with/aged/who …`, `cohort/trial of <adults…> …`, `纳入N名<…患者>` | no rule matches, or two different phrases |
 | comparator | `placebo`, `安慰剂`, `compared with …` (not baseline), `与…相比` | as above |
 | outcome | `primary outcome was …`, `reduced the risk of …`, `was associated with <higher/lower …> …` or `… (hazard ratio …)`, `降低了…` | as above |
@@ -283,8 +283,8 @@ offline by `tests/test_evidence_typing_benchmark.py`.
 **定位与标注：**
 - **定位：** 每个段落都带偏移量，每个证据条目都带引文凭据（内容哈希加偏移量），`validate_artifact` 会重新核对，偏移量差一个字符即报 `ART115`。
 - **标注：** 研究设计、人群、对照、结局只由固定的文本规则填写，且只在原文只给出一种读法时填写。
-  - 原文陈述两种自身设计时，保持未评估。试验方案（"study protocol""will be randomized"）也不读设计，因为它没有结果。
-  - 以下提及会被跳过：被否定的（"非随机""未随机"）、复数的（"randomized controlled trials"，指被汇总或被引用的其他研究）、数据划分（"随机分为训练集"）。
+  - 原文陈述两种自身设计时，保持未评估。试验方案（"study protocol""will be randomized""is now recruiting"）也不读设计，因为它没有结果。
+  - 以下提及会被跳过：被否定的（"非随机""未随机"）、半随机的（"quasi-randomized""pseudo-randomized""半随机""类随机"：按交替或入院日期分配不是随机化）、复数的（"randomized controlled trials"，指被汇总或被引用的其他研究）、数据划分（"随机分为训练集"）。
   - 自称系统评价/荟萃分析的文本读作系统评价。
   - 每次读取都记录规则、匹配片段及其偏移量。
   - 在 478 篇真实摘要上的测量见 [evidence-typing-accuracy.md](evidence-typing-accuracy.md)。在留出的测试集上，读出的设计 97% 与 PubMed 一致，78% 的研究被读出设计。

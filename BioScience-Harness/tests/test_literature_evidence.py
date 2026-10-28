@@ -357,6 +357,15 @@ def test_unknown_fields_stay_unknown(index):
     # a protocol reports no results, whatever design it plans
     ("Study protocol for a randomized controlled trial of acupuncture in adults.", ""),
     ("Participants will be randomized to acupuncture or sham acupuncture.", ""),
+    ("We describe the design of a randomized trial that is now recruiting.", ""),
+    # quasi-random allocation (by alternation, admission day) is not randomisation
+    ("In this quasi-randomized trial, 120 patients received Huangqi decoction or usual "
+     "care.", ""),
+    ("In this quasi randomised trial, 120 patients received usual care.", ""),
+    ("Patients were pseudo-randomized by day of admission to two groups.", ""),
+    ("Patients were quasi-randomly allocated by alternation to two groups.", ""),
+    ("采用半随机对照方法，将120例患者分为两组。", ""),
+    ("采用类随机分组方法，将120例患者按入院顺序分为两组。", ""),
     # a random split of data is not a trial's allocation
     ("将患者按照7∶3随机分为训练集和验证集，建立预后模型。", ""),
     ("We performed a cross-sectional survey of 300 nurses.", "observational"),

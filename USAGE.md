@@ -405,6 +405,7 @@ python scripts/run_inquiry.py --snapshots WORK/snapshots --ledger WORK/audit/sna
 ## Running the governance layer · 运行治理层
 
 ```bash
+cd BioScience-Harness
 # what would the monthly scan propose?  (never promotes)
 python -m bioagent.cli scout --sources registry/skill_sources.yaml --skills skills
 
@@ -412,12 +413,20 @@ python -m bioagent.cli scout --sources registry/skill_sources.yaml --skills skil
 python -m bioagent.cli registry-release --release-id registry-1.0.0 --season season-1
 ```
 
+The scout audits and ranks the local skill trees, at any depth (`skills/tcm/<id>`,
+`skills/candidates/<group>/<id>`: 11 skills today). Fetching the sources declared in
+`registry/skill_sources.yaml` is not implemented: the report notes each one as declared,
+not fetched. The monthly workflow runs the same command and keeps the report as the run's
+artifact.
+
 The scout **cannot promote**, and that is structural rather than conventional:
 `Registry.promote` is the only writer of a stable entry and it requires a
 `PromotionDecision` naming a human. A scheduled run has no code path to one. See
 `docs/adr/0001`.
 
 <!-- zh -->
+scout 审计并排序本地的 Skill 目录树，任意深度（`skills/tcm/<id>`、`skills/candidates/<组>/<id>`：目前共 11 个 Skill）。抓取 `registry/skill_sources.yaml` 中声明的来源尚未实现：报告会把每个来源记为"已声明、未抓取"。月度工作流运行同一命令，并把报告保存为该次运行的产物。
+
 scout **无法执行晋级**，而这是结构性的，不是约定俗成的：`Registry.promote` 是稳定注册表条目的唯一写入者，而且它要求一份指名到人的 `PromotionDecision`。定时运行根本没有通往它的代码路径。见 `docs/adr/0001`。
 
 ### Measuring the governance · 测量治理
@@ -463,7 +472,7 @@ python scripts/run_evidence_typing_benchmark.py --check benchmarks/evidence_typi
 | --- | --- |
 | `ModuleNotFoundError: No module named 'psh'` | Install the kernel: `pip install -e PSH-Harness`. The two packages are separate and `bioagent` imports `psh`. |
 | `ModuleNotFoundError: No module named 'yaml'` | `pip install pyyaml`. It is a declared dependency, so this only happens on a very old install. |
-| `no skills found under skills/tcm` | You are not in the repository root. Pass `--dir BioScience-Harness/skills/tcm`. |
+| `no skills found under skills/tcm: it is not a directory` | A relative `--dir` is read from the current directory. From the repository root pass `--dir BioScience-Harness/skills/tcm`; without `--dir` the installed TCM skills are listed. |
 | `skill '...' needs --arg <name>=<value>` | The skill wants a different argument name. The message lists its parameters. |
 | An artifact comes back `REFUSED` | Read the violation codes. `ART101` means no sources, `ART106` means a clinical claim on prediction-only evidence, `ART110` means no limitations were stated. |
 
@@ -472,6 +481,6 @@ python scripts/run_evidence_typing_benchmark.py --check benchmarks/evidence_typi
 | --- | --- |
 | `ModuleNotFoundError: No module named 'psh'` | 安装内核：`pip install -e PSH-Harness`。这两个包是分开的，而 `bioagent` 会导入 `psh`。 |
 | `ModuleNotFoundError: No module named 'yaml'` | `pip install pyyaml`。它已是声明过的依赖，所以只有在非常老的安装里才会出现这种情况。 |
-| `no skills found under skills/tcm` | 你不在仓库根目录。请加上 `--dir BioScience-Harness/skills/tcm`。 |
+| `no skills found under skills/tcm: it is not a directory` | 相对路径的 `--dir` 从当前目录读取。在仓库根目录请加上 `--dir BioScience-Harness/skills/tcm`；不加 `--dir` 时列出已安装的 TCM Skill。 |
 | `skill '...' needs --arg <name>=<value>` | 该技能要的是另一个参数名。报错信息里会列出它的参数。 |
 | An artifact comes back `REFUSED` | 去看违规码。`ART101` 表示没有来源，`ART106` 表示在只有预测证据的情况下提出了临床主张，`ART110` 表示没有声明任何局限。 |

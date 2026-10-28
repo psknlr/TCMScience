@@ -2,7 +2,7 @@
  "benchmark": "evidence-typing",
  "reference": "PubMed publication types, with MeSH Animals/Humans and cell-culture headings for animal and in-vitro studies; an imperfect reference assigned by indexers",
  "sample_sha256": "d6b6080e9b80f0728488fbb65c8be49a4c0c6166a4c412a841fb041442c70c12",
- "rules_sha256": "9f78756177f8c96dcdd67191c9784c24c1a346e4b6fdf46fea51e95ceaa88a74",
+ "rules_sha256": "7f489670b948bca5e2afb97d9324c0eb3a3c3dca1ebbacf3022d59f298f9ea68",
  "splits": {
   "dev": {
    "records": 176,

@@ -45,10 +45,11 @@ artifact declares against the chain (:mod:`bioagent.contracts.attestation`).
 
 **The egress guard.** Were the door only a convention, a pipeline that opened a connection
 itself would never meet it. While a broker is installed, a Python audit hook watches
-``urllib.Request`` and ``socket.connect``. Outside an operation, a ``urllib`` request or
-an IP socket connection (loopback included) is refused and recorded as an unbrokered
-operation; inside one, a ``urllib`` request to a host the operation does not declare is
-refused, a redirect included. What the guard cannot see
+``urllib.Request``, ``socket.connect`` and the datagram sends that need no connection,
+``socket.sendto`` and ``socket.sendmsg``. Outside an operation, a ``urllib`` request, an
+IP socket connection or an IP datagram (loopback included) is refused and recorded as an
+unbrokered operation; inside one, a ``urllib`` request to a host the operation does not
+declare is refused, a redirect included. What the guard cannot see
 is stated rather than implied: the sockets of a subprocess (which is why a ColabFold run is
 an operation of its own), threads the skill starts (a context variable does not follow
 them), and the host behind a raw socket inside an operation (behind a proxy the address is
@@ -529,7 +530,12 @@ class OperationBroker:
                                                                       socket.AF_INET6):
             return
         address = args[1] if len(args) > 1 else ""
-        raise self._unbrokered(f"a connection to {_address(address)} outside the operation "
+        if event == "socket.connect":
+            raise self._unbrokered(f"a connection to {_address(address)} outside the "
+                                   "operation broker")
+        if address is None:              # sendmsg on a connected socket: ruled on at connect
+            return
+        raise self._unbrokered(f"a datagram to {_address(address)} outside the operation "
                                "broker")
 
     def _unbrokered(self, what: str) -> PermissionError:
@@ -549,7 +555,7 @@ class OperationBroker:
 
 _GUARD_LOCK = threading.Lock()
 _GUARD_INSTALLED = False
-_WATCHED = frozenset({"urllib.Request", "socket.connect"})
+_WATCHED = frozenset({"urllib.Request", "socket.connect", "socket.sendto", "socket.sendmsg"})
 
 
 def _install_guard() -> None:

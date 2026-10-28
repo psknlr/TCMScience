@@ -195,7 +195,8 @@ order:
 3. With the rules fixed, the test split was run for the first time, with both versions of
    the rules (`baseline.json` holds the earlier one).
 4. Test errors were then read, to describe them below. The rules were not changed after
-   that.
+   that to fit test; one later change came from a case outside the sample (below), and moved
+   no record.
 
 **The test split is now public.** These numbers measure the rules as they were before anyone
 saw test. A later change made with these results in view will score better on test than it
@@ -322,6 +323,16 @@ went the other way:
 Dev improved more than test (98% against 97% right, 86% against 78% typed), as tuning on dev
 predicts. Most of the gain held.
 
+**A later change, from a case outside the sample.** A review of the rules found that
+quasi- and pseudo-randomised allocation (by alternation or admission day; "quasi-randomized
+trial", "pseudo-randomized", "半随机", "类随机", "准随机") read as a randomized trial, and so did
+a trial described as "now recruiting". Quasi-random allocation is not randomisation, and
+PubMed does not type it as a randomized trial. A randomisation mention right after "quasi-"
+or "pseudo-" is now set aside, as a negated one is, and "is/are (now) recruiting" marks a
+protocol. The sample holds no such record: `--check` shows no record reading differently,
+and the results were regenerated only for the rules' digest. The cases are in
+`tests/test_literature_evidence.py`.
+
 One expectation in `tests/test_literature_evidence.py` changed. "A systematic review and
 meta-analysis of randomized trials in adults" now reads as a systematic review: the trials
 are what it pools. A text with two designs of its own ("we report a randomized trial and a
@@ -415,5 +426,7 @@ Tests: `BioScience-Harness/tests/test_evidence_typing_benchmark.py` (offline). I
 - "in vitro fertilization"不再算体外实验。
 - 有歧义的文本仍保持未评估。
 - 测试集上发现的缺口（如"随机分成"、"2例并文献复习"、方案"更新"）只记录，不修改，以免在测试集上调参。
+
+**此后的一处修改（来自样本之外的案例）：** 审查发现半随机/伪随机分配（按交替或入院日期分组；"quasi-randomized trial"、"pseudo-randomized"、"半随机"、"类随机"、"准随机"）会被读作随机对照试验，"now recruiting"（仍在招募）的试验也一样。半随机分配不是随机化，PubMed 也不将其标为随机对照试验。现在紧跟在"quasi-"或"pseudo-"之后的随机化提及与否定提及一样被跳过，"is/are (now) recruiting"视为试验方案。样本中没有此类记录：`--check` 显示没有任何记录的读法改变，结果文件只因规则摘要而重新生成。相应用例见 `tests/test_literature_evidence.py`。
 
 **CI：** `scripts/run_evidence_typing_benchmark.py --check` 离线运行。出现以下情况即判为回退：某条记录读得比已提交结果差，人工核对为正确的字段读法改变，或样本被改动。
