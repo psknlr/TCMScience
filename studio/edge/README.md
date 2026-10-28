@@ -61,7 +61,8 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
 - **不思考**：请求带 `thinking: {type: "disabled"}`（网页问身份时这样做）时，回复里的思考字段和 `<think>…</think>` 一律去掉，
   无论流怎样切分。最后一条用户消息在问助手的身份或模型时，中继自己也会加上它（与网页同一个判断，`src/identity.js`），
   不依赖客户端。
-- **上限**：输出 token 不超过 `MAX_OUTPUT_TOKENS`（`max_tokens` / `max_completion_tokens` 被截到上限，没写就补上）；去掉 `n`；
+- **上限**：输出 token 不超过 `MAX_OUTPUT_TOKENS`（`max_tokens` / `max_completion_tokens` 被截到上限，没写就补上；同一个键写了两次时，
+  无论键名是否用 `\u` 转义书写，送出的只有中继读到并检查过的那一个）；去掉 `n`；
   请求体不超过 `MAX_BODY_BYTES` 字节（按字节算，汉字 3 字节；超过时边读边停，不先读完）。
 - **限额**（`LIMITER` Durable Object，全站一个，SQLite）：每位访客每分钟 `PER_MINUTE`、每天 `PER_DAY` 次模型调用，全体每天
   `TOTAL_PER_DAY` 次；每位访客每天 `TOKENS_PER_DAY`、全体每天 `TOTAL_TOKENS_PER_DAY` 个 token（输入 + 输出）。调用发出时先按请求

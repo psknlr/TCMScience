@@ -557,10 +557,12 @@ pyodide_ready, bundle, packages, unpack, persist, import, packages_on_demand, re
 `state_root:"/persist"` and `durable` to the context. After a fatal error every op answers `fatal`.
 
 **Persistence and caches.** `/persist` is IDBFS (IndexedDB database `/persist`), proven by a write at boot, else
-memory (`durable:false`). Calls whose entry is `skill`, `clinic`, `system.audit_verify` or `study.inquiry` (an
-inquiry's file) run under the Web Lock `tcmstudio.persist` with `syncfs(true)` before and `syncfs(false)` after, so
-two tabs extend one chain instead of overwriting each other; a failed sync sets `receipt.durable:false` and
-`receipt.persist_error`. Cache Storage `tcmstudio-runtime-v1` holds the bundle (re-verified by SHA-256 on every boot; older bundles pruned) and the compiled
+memory (`durable:false`). Calls whose entry is `skill`, `clinic`, `system.audit_verify`, `study.inquiry` (an
+inquiry's file) or `tcmdb.import_store` (a store written into the project's data hub, `/persist/<project>/tcmdb`) run
+under the Web Lock `tcmstudio.persist` with `syncfs(true)` before and `syncfs(false)` after, so
+two tabs extend one chain instead of overwriting each other, and a file written under `/persist` reaches IndexedDB
+before the next `syncfs(true)` (which deletes local files IndexedDB lacks); a failed sync sets `receipt.durable:false` and
+`receipt.persist_error`. Cache Storage `tcmstudio-runtime-v1` holds the bundle and the formula workbook (each re-verified by SHA-256 before use; a download prunes only older copies of the same file, never the other one) and the compiled
 modules: `sys.pycache_prefix = "/pycache"`, saved after a call that imported new modules (after its reply) under the
 key `runtime/.pycache/<sha16>-pyodide-<version>.tar` (never fetched; its own SHA-256 in a header) and restored before
 the imports — about a second off the first call of a later visit. numpy/scipy are loaded on demand from the entry's

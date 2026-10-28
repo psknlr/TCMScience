@@ -6,6 +6,7 @@
 // (cancel by terminate + restart) | tamper (a wrong bundle hash must refuse to boot). ?project=ID ?index=URL ?sci=1
 
 import { BrowserRuntime } from "../../js/runtime/browser.js";
+import { CACHE_NAME } from "../../js/runtime/pyboot.js";
 
 const q = new URLSearchParams(location.search);
 const mode = q.get("mode") || "full";
@@ -113,6 +114,17 @@ async function startChecked() {
   check("progress events", loading.length >= 4 && loading.every((p, i) => i === 0 || p >= loading[i - 1]) && out.statuses.at(-1)?.progress === 100,
     `${loading.length} loading events, monotonic, ending at 100`);
   return info;
+}
+
+/** The paths the runtime keeps in its Cache Storage (js/runtime/pyboot.js), or null without Cache Storage. */
+async function runtimeCacheFiles() {
+  try {
+    if (typeof caches === "undefined") return null;
+    const cache = await caches.open(CACHE_NAME);
+    return (await cache.keys()).map((r) => new URL(r.url).pathname).sort();
+  } catch {
+    return null;
+  }
 }
 
 async function cancelCheck({ expectInterrupt }) {
@@ -238,6 +250,12 @@ async function full() {
     [JSON.stringify(e.result?.repository_formulas?.herb?.searched) === JSON.stringify(["黄芪", "黄耆"]), "also searched as 黄耆"],
     [!(e.governance?.limitations || []).some((x) => /^Seed corpus only/.test(x)), "no longer labelled seed corpus only"],
   ], { compare: true });
+  // the workbook's download kept the app bundle in Cache Storage beside it (it replaces only older copies of itself):
+  // checked here, because the fatal-error check below restarts the worker, which would put the bundle back
+  const kept = await runtimeCacheFiles();
+  check("the workbook and the app bundle both in Cache Storage", kept === null
+    || (kept.some((p) => /\/tcms-py\.[0-9a-f]{12}\.tar\.gz$/.test(p)) && kept.some((p) => /\/formulas\.[0-9a-f]{12}\.tar\.gz$/.test(p))),
+  kept === null ? "no Cache Storage here" : kept.join(", "));
   await run("tcm_syndrome 脾胃气虚证 (formulas whose 功效 mentions it)", "tcm_syndrome", { name: "脾胃气虚证" }, (e) => [
     [e.status === "succeeded", `succeeded (got ${e.status})`],
     [e.result?.repository_formulas?.total > 100 && JSON.stringify(e.result?.repository_formulas?.indication?.terms) === JSON.stringify(["脾胃气虚"]), `${e.result?.repository_formulas?.total} workbook formulas mention 脾胃气虚`],

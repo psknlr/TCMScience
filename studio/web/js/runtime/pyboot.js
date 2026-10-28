@@ -4,7 +4,9 @@
 // so a job runs exactly the code a tool call runs.
 
 export const CACHE_NAME = "tcmstudio-runtime-v1";
-export const BUNDLE_RE = /\/tcms-py\.[0-9a-f]{12}\.tar\.gz$/;
+// a content-addressed file of the runtime: its name with the hash taken out is what a newer build's copy shares with it
+// (runtime/tcms-py.<sha12>.tar.gz, runtime/formulas.<sha12>.tar.gz)
+const HASHED_RE = /\.[0-9a-f]{12}(?=\.tar\.gz$)/;
 export const PYCACHE_RE = /\/runtime\/\.pycache\/[^/]+\.tar$/;
 export const PYCACHE_ROOT = "/pycache";
 
@@ -47,10 +49,19 @@ export async function fetchBundle(url, meta, onFraction) {
   if (cache) {
     try {
       await cache.put(url, new Response(bytes, { headers: { "content-type": "application/gzip" } }));
-      for (const req of await cache.keys()) if (req.url !== url && BUNDLE_RE.test(new URL(req.url).pathname)) await cache.delete(req);
+      // older copies of this same file go (an earlier build's bundle, an earlier workbook), never another file: the
+      // workbook's download must not take the app bundle with it
+      const family = familyOf(url);
+      if (family) for (const req of await cache.keys()) if (req.url !== url && familyOf(req.url) === family) await cache.delete(req);
     } catch { /* quota or private mode: still runs, downloads again next time */ }
   }
   return { bytes, fromCache: false };
+}
+
+/** A content-addressed file's path without its hash (/runtime/tcms-py.tar.gz), or null for any other file. */
+function familyOf(url) {
+  const path = new URL(url).pathname;
+  return HASHED_RE.test(path) ? path.replace(HASHED_RE, "") : null;
 }
 
 export async function readAll(res, expected, onFraction) {

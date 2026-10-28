@@ -8,7 +8,9 @@
 // Rules:
 // - One build at a time. The shell (HTML, modules, styles, fonts, the runtime's boot.json and catalog) is served from
 //   the cache of the version that installed it, so a page never mixes modules of two builds: the app imports many
-//   modules lazily. A new version installs in the background and waits; the page offers to reload into it.
+//   modules lazily. A new version installs in the background and waits; the page offers to reload into it. When one
+//   tab does, the others follow (core/offline.js); one that holds unsent work says so and reloads once that is done,
+//   and until then a module it had not loaded yet comes from the new build.
 // - Installing checks every file against its SHA-256: a deploy that lands while files are being fetched fails the
 //   install (retried on the next visit) instead of caching a mixture.
 // - Never cached: the model relay (/v1/*), the database gateway and the telemetry (/api/*), the admin dashboard

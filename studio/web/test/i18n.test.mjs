@@ -97,16 +97,18 @@ print(json.dumps({
   "quality": {n: [[m.value if isinstance(m.value, str) else m.name.lower(), m.chinese] for m in getattr(q, n)] for n in ["RiskOfBias", "Directness", "Precision", "Consistency"]},
 }, ensure_ascii=False))
 `;
-  try {
-    return JSON.parse(execFileSync("python3", ["-I", "-c", script], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 60000 }));
-  } catch {
-    return null;
+  // $PYTHON first (CI's convention, as the other tests that read the runner's Python), then python3
+  for (const python of [process.env.PYTHON, "python3"].filter(Boolean)) {
+    try {
+      return JSON.parse(execFileSync(python, ["-I", "-c", script], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 60000 }));
+    } catch { /* the next one */ }
   }
+  return null;
 }
 
 const py = pythonTables();
 
-test("glossary matches the Python tables (bioagent, psh)", { skip: py ? false : "bioagent/psh are not installed for python3" }, () => {
+test("glossary matches the Python tables (bioagent, psh)", { skip: py ? false : "bioagent/psh are not installed for $PYTHON or python3" }, () => {
   assert.deepEqual(TIERS.map((x) => [x.name, x.rank, x.zh]), py.tiers);
   assert.deepEqual(CLAIM_SUPPORT, py.support);
   for (const [table, prefix] of [[py.art, "ART"], [py.clm, "CLM"], [py.skill, "SKILL"], [py.gate, "GATE"]]) {

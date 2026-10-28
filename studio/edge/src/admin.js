@@ -135,11 +135,12 @@ export async function authenticate(request, cfg, now = Date.now(), epoch = 0) {
 
 // ------------------------------------------------------------------------------------------------- CSV
 
-/** One CSV cell: quoted when needed; a cell a spreadsheet would read as a formula is prefixed with ' (CSV injection). */
+/** One CSV cell: quoted when needed; a cell a spreadsheet would read as a formula is prefixed with ' (CSV injection).
+ * A number (a negative one too) and the counts' bare "-" (no registered source) are no formula: written as they are. */
 export function csvCell(v) {
   if (v === null || v === undefined) return "";
   let s = typeof v === "object" ? JSON.stringify(v) : String(v);
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  if (typeof v !== "number" && s !== "-" && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

@@ -58,6 +58,21 @@ test("a request the relay need not reshape is edited as text: model and formats 
   const own = relay();
   await own.call("/v1/chat/completions", post({ model: "Tao-S1", messages: history, reasoning_split: false, max_completion_tokens: 100 }));
   assert.equal(own.calls[0].body.reasoning_split, false);
+  // a key the relay checks, named twice: the relay read the last, a service may keep the first, so what goes out is what
+  // the relay read, each key once. JSON may spell a key's letters as \u escapes: one letter, or all in upper-case hex.
+  const escaped = (key, all) => key.replace(all ? /./g : /^./, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")[all ? "toUpperCase" : "toLowerCase"]()}`);
+  for (const [key, first, last] of [["max_tokens", 1000000, 8192], ["max_completion_tokens", 1000000, 100], ["thinking", { type: "enabled" }, { type: "disabled" }]]) {
+    for (const spelling of [key, escaped(key, false), escaped(key, true)]) {
+      assert.equal(JSON.parse(`"${spelling}"`), key);
+      const twice = relay();
+      const capped = key === "thinking" ? '"max_completion_tokens":100,' : ""; // nothing else for the relay to change
+      const text = `{"model":"Tao-S1","${spelling}":${JSON.stringify(first)},"messages":[{"role":"user","content":"hi"}],${capped}"${key}":${JSON.stringify(last)}}`;
+      await (await twice.call("/v1/chat/completions", post(text))).text();
+      const out = twice.calls[0].init.body;
+      assert.equal(out, JSON.stringify(JSON.parse(out)), `${spelling}: each key once, as read: ${out}`);
+      assert.deepEqual(twice.calls[0].body[key], last);
+    }
+  }
 });
 
 test("a visitor sees none of the upstream: model, reasoning formats and own fields renamed or dropped, however the stream is cut", async () => {
@@ -418,6 +433,11 @@ test("tokens: a call is charged its size as it goes out, settled by what the ans
   const first = await r.call("/v1/chat/completions", post(tidy));
   const reserved = r.tokens();
   assert.ok(reserved > 30 && reserved < 250, String(reserved)); // about a third of the body's bytes, charged at once
+  // bytes, not characters: a Chinese character is three bytes of the request
+  const chinese = relay({ env: { TOKENS_PER_DAY: "100000" }, upstream: () => sse(stream) });
+  const long = JSON.stringify({ ...tidy, messages: [{ role: "user", content: "桂".repeat(3000) }] });
+  await (await chinese.call("/v1/chat/completions", post(long))).text();
+  assert.equal(chinese.gates[0].reserve, Math.ceil(Buffer.byteLength(long) / 3));
   await first.text(); // read to its end, as a browser does
   await r.settle();
   assert.equal(r.tokens(), 110);

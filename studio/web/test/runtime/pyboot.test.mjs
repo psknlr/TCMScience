@@ -6,7 +6,7 @@
 import "../fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadPackages, loadedVersions, pinScipyThreads } from "../../js/runtime/pyboot.js";
+import { CACHE_NAME, fetchBundle, loadPackages, loadedVersions, pinScipyThreads, sha256Hex } from "../../js/runtime/pyboot.js";
 
 const LOCK = {
   numpy: { version: "2.4.6", depends: [] },
@@ -75,6 +75,50 @@ test("scipy's reader is held to one thread whenever scipy is loaded, also as a d
   assert.match(py.ran[0], /_fast_matrix_market as _fmm\n {4}_fmm\.PARALLELISM = 1/);
   assert.deepEqual(loadedVersions(py), { joblib: "1.5.3", numpy: "2.4.6", pyarrow: "22.0.0", "scikit-learn": "1.8.0", scipy: "1.18.0" });
   assert.deepEqual(loadedVersions({ loadedPackages: { numpy: "x" } }), { numpy: null }, "a Pyodide without a lockfile reports no version");
+});
+
+test("Cache Storage keeps the app bundle and the formula workbook side by side; a download prunes only older copies of itself", async () => {
+  const SITE = "https://science.impf.ai/runtime/";
+  const stores = new Map();
+  const cache = {
+    async match(url) { const r = stores.get(String(url)); return r ? r.clone() : undefined; },
+    async put(url, res) { stores.set(String(url), res); },
+    async delete(req) { return stores.delete(typeof req === "string" ? req : req.url); },
+    async keys() { return [...stores.keys()].map((url) => new Request(url)); },
+  };
+  const online = { up: true };
+  const files = {};
+  const saved = { caches: globalThis.caches, fetch: globalThis.fetch };
+  globalThis.caches = { async open(name) { assert.equal(name, CACHE_NAME); return cache; } };
+  globalThis.fetch = async (url) => {
+    if (!online.up) throw new TypeError("Failed to fetch");
+    return files[url] ? new Response(files[url]) : new Response("missing", { status: 404 });
+  };
+  const asset = async (name, text) => {
+    const bytes = new TextEncoder().encode(text);
+    files[SITE + name] = bytes;
+    return [SITE + name, { sha256: await sha256Hex(bytes), bytes: bytes.byteLength }];
+  };
+  const names = () => [...stores.keys()].map((u) => u.slice(SITE.length)).sort();
+  try {
+    const bundle = await asset("tcms-py.aaaaaaaaaaaa.tar.gz", "the app");
+    const older = await asset("tcms-py.bbbbbbbbbbbb.tar.gz", "an older app");
+    const workbook = await asset("formulas.cccccccccccc.tar.gz", "the workbook");
+    const oldWorkbook = await asset("formulas.dddddddddddd.tar.gz", "an older workbook");
+    await fetchBundle(...older, () => {});
+    await fetchBundle(...oldWorkbook, () => {});
+    assert.equal((await fetchBundle(...bundle, () => {})).fromCache, false);
+    assert.deepEqual(names(), ["formulas.dddddddddddd.tar.gz", "tcms-py.aaaaaaaaaaaa.tar.gz"], "the new bundle replaced the older one");
+    assert.equal((await fetchBundle(...workbook, () => {})).fromCache, false);
+    assert.deepEqual(names(), ["formulas.cccccccccccc.tar.gz", "tcms-py.aaaaaaaaaaaa.tar.gz"], "the workbook replaced its older copy, and only that");
+    // offline, the next visit starts from Cache Storage
+    online.up = false;
+    assert.equal((await fetchBundle(...bundle, () => {})).fromCache, true);
+    assert.equal((await fetchBundle(...workbook, () => {})).fromCache, true);
+  } finally {
+    globalThis.caches = saved.caches;
+    globalThis.fetch = saved.fetch;
+  }
 });
 
 test("a package whose lockfile entry is named otherwise than its key (pillow, Pillow) counts as loaded under either", async () => {

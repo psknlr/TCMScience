@@ -186,11 +186,20 @@ export function pyodideSkipReason(reachable, indexUrl, untested, env = process.e
 
 /** Skip with the reason outside CI; in CI an unreachable CDN is a failure (`pyodideSkipReason`). */
 export function requirePyodide(test, reachable, indexUrl, untested, env = process.env) {
+  const why = pyodidePartSkipped(reachable, indexUrl, untested, env);
+  test.skip(Boolean(why), why ?? "");
+}
+
+/**
+ * For a part of a test that needs Pyodide: null when its CDN answers; outside CI, the reason the part is skipped (for
+ * the test's annotations); in CI it throws, as `requirePyodide` does.
+ */
+export function pyodidePartSkipped(reachable, indexUrl, untested, env = process.env) {
   const why = pyodideSkipReason(reachable, indexUrl, untested, env);
   if (!reachable && !why) {
     throw new Error(`Pyodide's CDN (${indexUrl}) is not reachable in CI: ${untested} would go untested, which is a failure here, not a skip`);
   }
-  test.skip(Boolean(why), why ?? "");
+  return why;
 }
 
 // ------------------------------------------------------------------------------------------------ the Worker
