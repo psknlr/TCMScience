@@ -322,3 +322,118 @@ def test_a_conclusion_carried_by_how_sure_a_prediction_was_says_so_first(store):
     limitations = done["conclusion"]["limitations"]
     assert limitations[0].startswith("3 of the 3 outcomes were classified by the agent")
     assert "real leads instead of artefact" in limitations[1]
+
+
+def test_one_reported_outcome_that_refutes_the_only_rival_is_not_an_acceptance(store):
+    """An agent's own predictions with a zero: one reported outcome removes the rival, and
+    the replicate of that outcome is still the next step and a study that would decide."""
+    screen = {"title": "screen", "design": "in_silico", "outcomes": ["hit", "miss", "unclear"]}
+    # the refutation is not a severe test of target (it predicts the hit at 0.75 only)
+    rows = {"target": {"hit": 0.75, "miss": 0.15, "unclear": 0.1},
+            "noise": {"hit": 0.0, "miss": 0.6, "unclear": 0.4}}
+    iid = inq.open_inquiry(
+        store, question="Is the screen's hit real?",
+        explanations=[{"id": "target", "proposition": "it acts on the target",
+                       "claim_kind": "mechanism_hypothesis", "prior": 0.475},
+                      {"id": "noise", "proposition": "assay noise", "prior": 0.475}],
+        analyses=[{"id": "a", **screen}, {"id": "a-seed", **screen, "replicates": "a"}],
+        predictions={"a": rows, "a-seed": rows},
+        rule={"require_replication": True})["inquiry_id"]
+    view = inq.record_reported(store, iid, "a", "hit", "PMID:12345678")
+    assert view["update"]["refuted"] == ["noise"] and view["belief"]["target"] >= 0.95
+    assert (view["next"]["action"], view["next"]["analysis_id"]) == ("run", "a-seed")
+    done = inq.conclude(store, iid)
+    c = done["conclusion"]
+    assert c["verdict"] == "provisional" and c["unreplicated"] == ["noise"]
+    assert c["severe_tests"] == {"noise": ["a"]} and c["replications"] == {}
+    assert [(g["analysis_id"], g.get("would_test_against")) for g in done["to_decide"]] == [
+        ("a-seed", ["noise"])]
+    inq.record_reported(store, iid, "a-seed", "hit", "PMID:87654321")
+    c = inq.conclude(store, iid)["conclusion"]
+    assert c["verdict"] == "accepted" and c["replications"] == {"noise": ["a-seed"]}
+
+
+# ================================================== what counts as a replication
+
+HDI = {"herb": "丹参", "drug": "warfarin", "marker": "INR", "threshold": 0.5}
+EFFICACY = {"intervention": "葛根芩连汤", "outcome": "HbA1c at 12 weeks",
+            "population": "adults with type 2 diabetes", "comparator": "placebo",
+            "scale": "raw", "better": "lower", "mcid": 0.3}
+
+
+@pytest.mark.parametrize("test,first,again", [
+    ("clinical_pk", {"ratio": 1.6, "ci_low": 1.4, "ci_high": 1.8},
+     {"ratio": 1.6, "ci_low": 1.4, "ci_high": 1.8, "study": "replicate"}),
+    ("clinical_pk", {"ratio": 2, "ci_low": 1.5, "ci_high": 2.5},
+     {"ratio": 2.0, "ci_low": 1.5, "ci_high": 2.5}),
+    ("clinical_pd", {"estimate": 1.0, "ci_low": 0.7, "ci_high": 1.3},
+     {"estimate": 1, "ci_low": 0.7, "ci_high": 1.3, "n": 24}),
+], ids=["an extra key", "1 written as 1.0", "both"])
+def test_the_same_numbers_written_another_way_are_not_a_replication(store, test, first,
+                                                                      again):
+    iid = inq.open_inquiry(store, scaffold="herb_drug_interaction", values=HDI)["inquiry_id"]
+    inq.record_classified(store, iid, test, first, None)
+    with pytest.raises(rivals.Unclassifiable, match=f"already recorded for {test}"):
+        inq.record_classified(store, iid, f"{test}-rep", again, None)
+    view = inq.record_classified(store, iid, f"{test}-rep",
+                                 {**first, "ci_high": first["ci_high"] + 0.1}, None)
+    assert view["update"]["by"] == "runtime"
+
+
+def test_trials_relabelled_are_the_same_trials(store):
+    iid = inq.open_inquiry(store, scaffold="efficacy", values=EFFICACY)["inquiry_id"]
+    pooled = {"k": 3, "random_effects": {"ci_low": -1.0, "ci_high": -0.5}}
+    trials = {"estimates": [-0.8, -0.6, -0.9], "standard_errors": [0.2, 0.25, 0.3],
+              "scale": "raw"}
+    inq.record_classified(store, iid, "all_trials", {**trials, "labels": ["t1", "t2", "t3"]},
+                          pooled, tool="native.meta_analysis")
+    relabelled = {"estimates": [-0.9, -0.8, -0.6], "standard_errors": [0.3, 0.2, 0.25],
+                  "labels": ["trial 3", "trial 1", "trial 2"], "scale": "raw"}
+    with pytest.raises(rivals.Unclassifiable, match="already recorded for all_trials"):
+        inq.record_classified(store, iid, "all_trials-rep", relabelled, pooled,
+                              tool="native.meta_analysis")
+
+
+@pytest.mark.parametrize("again", ["PMID: 31234567", "pmid 31234567",
+                                   "https://pubmed.ncbi.nlm.nih.gov/31234567/"])
+def test_a_replicate_may_not_cite_its_originals_source_in_another_spelling(store, again):
+    iid = inq.open_inquiry(store, scaffold="safety_signal",
+                           values={"herb": "何首乌", "event": "liver injury"})["inquiry_id"]
+    inq.record_reported(store, iid, "dechallenge", "positive", "PMID:31234567")
+    with pytest.raises(ValueError, match="evidence of its own"):
+        inq.record_reported(store, iid, "dechallenge-rep", "positive", again)
+    inq.record_reported(store, iid, "dechallenge-rep", "positive", "PMID:31234568")
+
+
+def test_runtime_data_for_a_replicate_need_a_source_of_their_own(store):
+    iid = inq.open_inquiry(store, scaffold="herb_drug_interaction", values=HDI)["inquiry_id"]
+    inq.record_classified(store, iid, "clinical_pk",
+                          {"ratio": 1.6, "ci_low": 1.4, "ci_high": 1.8}, None,
+                          evidence_ref="doi:10.1000/Study-1")
+    with pytest.raises(ValueError, match="evidence of its own"):
+        inq.record_classified(store, iid, "clinical_pk-rep",
+                              {"ratio": 1.7, "ci_low": 1.5, "ci_high": 1.9}, None,
+                              evidence_ref="https://doi.org/10.1000/study-1")
+    assert [o["analysis_id"] for o in inq.status(store, iid)["observed"]] == ["clinical_pk"]
+
+
+def test_a_replicate_the_agent_adds_to_a_runtime_classified_test_takes_its_rule(store):
+    iid = inq.open_inquiry(store, scaffold="herb_drug_interaction", values=HDI)["inquiry_id"]
+    inq.record_classified(store, iid, "clinical_pk",
+                          {"ratio": 1.6, "ci_low": 1.4, "ci_high": 1.8}, None)
+    pk = next(t for t in rivals.scaffold("herb_drug_interaction").tests
+              if t.id == "clinical_pk").predictions
+    inq.declare(store, iid, "pk-mine", {h: dict(r) for h, r in pk.items()},
+                analysis={"id": "pk-mine", "title": "another PK study",
+                          "design": "non_randomised_trial",
+                          "outcomes": ["changed", "unchanged", "inconclusive"],
+                          "replicates": "clinical_pk", "classify": "changed: I judge it so"})
+    _, record = store.load(iid)
+    assert record["tests"]["pk-mine"]["classifier"] == "ratio_interval"
+    assert record["tests"]["pk-mine"]["test"] == "clinical_pk"
+    with pytest.raises(ValueError, match="classified by the runtime"):
+        inq.record_reported(store, iid, "pk-mine", "changed", "a study I recall")
+    view = inq.record_classified(store, iid, "pk-mine",
+                                 {"ratio": 1.05, "ci_low": 0.9, "ci_high": 1.2}, None)
+    assert view["update"]["outcome"] == "unchanged"         # the sealed 0.80-1.25 limits
+    assert view["update"]["by"] == "runtime"

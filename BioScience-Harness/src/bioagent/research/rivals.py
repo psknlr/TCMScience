@@ -46,9 +46,10 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
-__all__ = ["CLASSIFIERS", "CLASSIFIER_DATA", "CLASSIFIER_TOOLS", "GAP_NOTE", "Param", "Rival",
-           "SCAFFOLDS", "Scaffold", "Test", "Unclassifiable", "classify", "describe",
-           "matches", "open_scaffold", "parameters", "rendered", "scaffold"]
+__all__ = ["CLASSIFIERS", "CLASSIFIER_DATA", "CLASSIFIER_INPUTS", "CLASSIFIER_TOOLS",
+           "GAP_NOTE", "Param", "Rival", "SCAFFOLDS", "Scaffold", "Test", "Unclassifiable",
+           "classify", "describe", "inputs", "matches", "open_scaffold", "parameters",
+           "rendered", "scaffold"]
 
 
 class Unclassifiable(ValueError):
@@ -939,6 +940,13 @@ CLASSIFIER_TOOLS: Mapping[str, str] = {
     "exposure": "study.exposure_screen", "meta": "native.meta_analysis",
     "ratio_interval": "", "difference_interval": ""}
 
+#: The arguments each classifier's data are in (:func:`inputs`).
+CLASSIFIER_INPUTS: Mapping[str, tuple[str, ...]] = {
+    "contrast": ("formula", "monomer"), "combination": ("cells",),
+    "exposure": ("exposures", "assays"), "meta": ("estimates", "standard_errors"),
+    "ratio_interval": ("ratio", "ci_low", "ci_high"),
+    "difference_interval": ("estimate", "ci_low", "ci_high")}
+
 #: What ``data`` holds for each classifier, for the model.
 CLASSIFIER_DATA: Mapping[str, str] = {
     "contrast": "the arguments of study.contrast_formula_monomer",
@@ -948,6 +956,23 @@ CLASSIFIER_DATA: Mapping[str, str] = {
             "scale)",
     "ratio_interval": "{ratio, ci_low, ci_high}: a geometric mean ratio and its 90% CI",
     "difference_interval": "{estimate, ci_low, ci_high}: a difference and its 95% CI"}
+
+
+def inputs(classifier: str, arguments: Mapping[str, Any]) -> dict[str, list[float]]:
+    """The data a classifier reads, in a form two recordings can be compared in: for each
+    argument its data are in, every number there, as a float, in sorted order. Labels and
+    study names, other keys, the order of the values and whether a number is written 1 or
+    1.0 do not make a second data set."""
+    def numbers(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            value = list(value.values())
+        if isinstance(value, (list, tuple)):
+            for v in value:
+                yield from numbers(v)
+        elif (isinstance(value, (int, float)) and not isinstance(value, bool)
+              and math.isfinite(value)):
+            yield float(value)
+    return {k: sorted(numbers(arguments.get(k))) for k in CLASSIFIER_INPUTS[classifier]}
 
 
 def classify(scaffold_id: str, test_id: str, values: Mapping[str, Any],

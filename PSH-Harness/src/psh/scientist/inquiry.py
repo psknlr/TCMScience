@@ -32,7 +32,9 @@ Five rules carry the weight.
 result is an accommodation, not a prediction, and is refused (``INQ115``); a sealed one
 cannot be changed (``INQ116``). Belief is therefore a function of what was committed in
 advance and what came back. The serialised inquiry *is* its trail, and loading it replays
-every step; a posterior that does not recompute is refused (``INQ150``).
+every step; a posterior that does not recompute, or an entry that cannot be replayed, is
+refused (``INQ150``). The chain's digests are not keyed: they show that a trail is
+consistent, not who wrote it.
 
 **2. A design that cannot license a claim kind cannot move belief in it.** A docking score
 says nothing about clinical efficacy, so a docking analysis may not carry a prediction for
@@ -56,7 +58,10 @@ passed a **severe test** against every live rival (an analysis that, had the riv
 true, would probably not have favoured the leader), and only once each test the acceptance
 rests on has been **replicated**. Severity is computed from the sealed predictions alone, so
 it does not inherit the priors a posterior does. A string of weakly informative,
-confirmatory analyses raises a posterior; it cannot satisfy this rule.
+confirmatory analyses raises a posterior; it cannot satisfy this rule. A rival refuted by an
+outcome it gave probability zero is tested by that analysis, and the refutation is
+replicated like any other test. A test counts as replicated when more of its replicates
+favour the leader than do not, and every replication that did not is in the conclusion.
 
 **5. The posterior is not a licence.** How strongly a conclusion may be stated is capped by
 the designs of the observations that bore on it (``MAX_CERTAINTY``) and by the claim kind
@@ -500,6 +505,7 @@ class Conclusion:
     designs: tuple[StudyDesign, ...]
     severe_tests: Mapping[str, tuple[str, ...]]
     replications: Mapping[str, tuple[str, ...]]
+    failed_replications: Mapping[str, tuple[str, ...]]   # replicates that did not uphold
     untested: tuple[str, ...]
     unreplicated: tuple[str, ...]
     needs: Mapping[str, tuple[str, ...]]     # rival -> designs that could license a test
@@ -526,6 +532,8 @@ class Conclusion:
                 "designs": [d.value for d in self.designs],
                 "severe_tests": {k: list(v) for k, v in self.severe_tests.items()},
                 "replications": {k: list(v) for k, v in self.replications.items()},
+                "failed_replications": {k: list(v)
+                                        for k, v in self.failed_replications.items()},
                 "untested": list(self.untested), "unreplicated": list(self.unreplicated),
                 "needs": {k: list(v) for k, v in self.needs.items()},
                 "final": self.final, "reason": self.reason,
@@ -968,31 +976,48 @@ class Inquiry:
                 replay._observed[analysis.id] = body       # type: ignore[assignment]
         return dict(replay._belief)
 
+    def _upholds(self, leader: str, rival: str, analysis_id: str) -> bool:
+        """The observed outcome favours ``leader`` over ``rival``, or is one the rival's
+        sealed prediction called impossible (which is what replicating a refutation
+        means when the leader has no prediction for the analysis)."""
+        outcome = self._observed[analysis_id].outcome
+        rows = self._declared.get(analysis_id, {})
+        return (self._favours(leader, rival, analysis_id, outcome)
+                or (rival in rows and rows[rival][outcome] == 0.0))
+
     def _standing(self) -> _Standing | None:
         leader = self.leader
         if not leader:
             return None
+        # A refuted explanation stays a rival: the outcome that refuted it is a test the
+        # acceptance rests on, and it is replicated like any other. Dropping it would let
+        # one outcome a rival called impossible end the inquiry unreplicated.
         rivals = sorted((h for h, e in self._explanations.items()
-                         if h != leader and e.role is not Role.CATCH_ALL
-                         and self._belief[h] > 0.0),
+                         if h != leader and e.role is not Role.CATCH_ALL),
                         key=lambda h: (-self._belief[h], h))
         standing = _Standing(leader=leader, posterior=self._belief[leader],
                              rivals=tuple(rivals))
         for rival in rivals:
             passed = [a for a, update in self._observed.items()
-                      if self.severe(leader, rival, a)
-                      and self._favours(leader, rival, a, update.outcome)]
+                      if rival in update.refuted or (
+                          self.severe(leader, rival, a)
+                          and self._favours(leader, rival, a, update.outcome))]
             standing.tested[rival] = passed
             if not passed:
                 standing.untested.append(rival)
                 continue
             repeats = [a for a in self._observed if self._analyses[a].replicates in passed]
+            held = [a for a in repeats if self._upholds(leader, rival, a)]
+            standing.failed[rival] = [a for a in repeats if a not in held
+                                      and self._pair(leader, rival, a) is not None]
+            # A test is replicated when more of its replicates uphold it than do not, so
+            # running replicates until one agrees does not replicate it.
+            margin = {t: 0 for t in passed}
+            for a in repeats:
+                margin[self._analyses[a].replicates] += (
+                    1 if a in held else -1 if a in standing.failed[rival] else 0)
             standing.replicated[rival] = [
-                a for a in repeats
-                if self._favours(leader, rival, a, self._observed[a].outcome)]
-            standing.failed[rival] = [
-                a for a in repeats if self._pair(leader, rival, a) is not None
-                and not self._favours(leader, rival, a, self._observed[a].outcome)]
+                a for a in held if margin[self._analyses[a].replicates] > 0]
             if not standing.replicated[rival]:
                 standing.unreplicated.append(rival)
         return standing
@@ -1315,9 +1340,20 @@ class Inquiry:
                 reasons.append("no observation bore on it; its standing is its prior")
             verdict = Verdict.PROVISIONAL if reasons else Verdict.ACCEPTED
             if verdict is Verdict.ACCEPTED:
-                reasons.append(f"above {rule.accept_at}, severely tested against every "
-                               "live rival"
-                               + (" and replicated" if rule.require_replication else ""))
+                # What was checked: a refuted rival was ruled out by an outcome, not by a
+                # severe test it could still have passed.
+                refuted = [r for r in standing.rivals if belief[r] <= 0.0]
+                checked = (["severely tested against every live rival"]
+                           if len(refuted) < len(standing.rivals) else [])
+                if refuted:
+                    checked.append(", ".join(refuted) + " ruled out by "
+                                   + ("an outcome it" if len(refuted) == 1
+                                      else "outcomes they") + " gave probability 0")
+                if rule.require_replication:
+                    checked.append("replicated")
+                reasons.append(f"above {rule.accept_at}, " + (
+                    ", ".join(checked[:-1]) + " and " + checked[-1] if len(checked) > 1
+                    else checked[0]))
         else:
             verdict = Verdict.UNDETERMINED
             reasons.append(f"the leader holds {standing.posterior:.3f}, below "
@@ -1327,6 +1363,10 @@ class Inquiry:
                            f"step was to run {step.analysis_id}")
         elif step.reason and verdict in (Verdict.PROVISIONAL, Verdict.UNDETERMINED):
             reasons.append(step.reason)
+        for rival, failed in standing.failed.items():
+            if failed:
+                limitations.append(f"replications that did not favour {leader.id} over "
+                                   f"{rival}: {', '.join(failed)}; the belief counts them")
         for rival, wanted in needs.items():
             limitations.append(
                 f"{rival} could not be tested here: no analysis's design licenses a "
@@ -1340,7 +1380,7 @@ class Inquiry:
         return self._conclusion(
             verdict, leader, belief, designs, standing.tested, standing.replicated,
             tuple(standing.untested), tuple(standing.unreplicated), needs, final,
-            "; ".join(reasons), limitations, licensing)
+            "; ".join(reasons), limitations, licensing, standing.failed)
 
     def _bearing_designs(self, explanation_id: str) -> tuple[StudyDesign, ...]:
         """Designs of the observations that actually moved this explanation's belief."""
@@ -1362,7 +1402,8 @@ class Inquiry:
                     replicated: Mapping[str, Sequence[str]], untested: tuple[str, ...],
                     unreplicated: tuple[str, ...], needs: Mapping[str, tuple[str, ...]],
                     final: bool, reason: str, limitations: Sequence[str],
-                    licensing: Licensing | None = None) -> Conclusion:
+                    licensing: Licensing | None = None,
+                    failed: Mapping[str, Sequence[str]] | None = None) -> Conclusion:
         p = belief[leader.id] if leader is not None else 0.0
         certainty = _from_posterior(p, self.rule.accept_at)
         if leader is not None and leader.role is Role.SUBSTANTIVE:
@@ -1386,6 +1427,7 @@ class Inquiry:
             licensing=licensing, certainty=certainty, designs=designs,
             severe_tests={k: tuple(v) for k, v in tested.items() if v},
             replications={k: tuple(v) for k, v in replicated.items() if v},
+            failed_replications={k: tuple(v) for k, v in (failed or {}).items() if v},
             untested=untested, unreplicated=unreplicated, needs=dict(needs), final=final,
             reason=reason, limitations=tuple(limitations), steps=len(self._observed),
             spent=self._spent, trail_head=self.head)
@@ -1401,7 +1443,9 @@ class Inquiry:
                   recorder: InquiryRecorder | None = None) -> "Inquiry":
         """Replay a trail, refusing it if any entry or the final belief does not recompute."""
         trail = list(data.get("trail") or ())
-        if data.get("schema") != 1 or not trail or trail[0].get("event") != "opened":
+        if (data.get("schema") != 1 or not trail
+                or not all(isinstance(entry, Mapping) for entry in trail)
+                or trail[0].get("event") != "opened"):
             raise InquiryRefused("INQ150", "not an inquiry trail")
         prev = ""
         for seq, entry in enumerate(trail):
@@ -1411,7 +1455,7 @@ class Inquiry:
                     or entry.get("digest") != _digest(body):
                 raise InquiryRefused("INQ150", f"trail entry {seq} does not verify")
             prev = entry["digest"]
-        opened = trail[0]["body"]
+        opened = trail[0].get("body")
         try:
             inquiry = cls(opened["question"],
                           [Explanation.from_dict(e) for e in opened["explanations"]],
@@ -1421,26 +1465,20 @@ class Inquiry:
         except (KeyError, TypeError, ValueError) as exc:
             raise InquiryRefused("INQ150", f"the opening entry is malformed: {exc}") from exc
         _same(inquiry._trail[0]["body"], opened, "opened")
-        for entry in trail[1:]:
-            event, body = entry["event"], entry["body"]
-            if event == "analysis_added":
-                inquiry.add_analysis(Analysis.from_dict(body["analysis"]))
-            elif event == "declared":
-                inquiry.declare(body["analysis_id"], body["predictions"])
-            elif event == "observed":
-                inquiry.observe(body["analysis_id"], body["outcome"],
-                                evidence_ref=body.get("evidence_ref", ""),
-                                result_digest=body.get("result_digest", ""))
-            elif event == "admitted":
-                inquiry.admit([Explanation.from_dict(e) for e in body["explanations"]],
-                              body["shares"])
-            elif event == "withdrawn":
-                inquiry.withdraw(body["analysis_id"], body["reason"])
-            elif event == "planned":
-                if not inquiry.plan(body.get("size")):
-                    raise InquiryRefused("INQ150", "a recorded plan does not recompute")
-            else:
-                raise InquiryRefused("INQ150", f"unknown trail event {event!r}")
+        for seq, entry in enumerate(trail[1:], start=1):
+            event, body = entry.get("event"), entry.get("body")
+            # A chain recomputed around a malformed entry is a trail that does not verify,
+            # whatever step of the replay notices it first.
+            try:
+                inquiry._replay(event, body)
+            except InquiryRefused as exc:
+                if exc.code == "INQ150":
+                    raise
+                raise InquiryRefused("INQ150", f"trail entry {seq} ({event}) does not "
+                                     f"replay: {exc.code} {exc.detail}") from exc
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                raise InquiryRefused("INQ150", f"trail entry {seq} ({event}) is "
+                                     f"malformed: {type(exc).__name__}: {exc}") from exc
             _same(inquiry._trail[-1]["body"], body, event)
         if "belief" in data:
             _same(inquiry.belief, data["belief"], "final belief")
@@ -1451,6 +1489,27 @@ class Inquiry:
             raise InquiryRefused("INQ150", "the recorded head is not the trail's head")
         inquiry._recorder = recorder
         return inquiry
+
+    def _replay(self, event: Any, body: Any) -> None:
+        """Apply one recorded trail entry again, through the same operation that wrote it."""
+        if event == "analysis_added":
+            self.add_analysis(Analysis.from_dict(body["analysis"]))
+        elif event == "declared":
+            self.declare(body["analysis_id"], body["predictions"])
+        elif event == "observed":
+            self.observe(body["analysis_id"], body["outcome"],
+                         evidence_ref=body.get("evidence_ref", ""),
+                         result_digest=body.get("result_digest", ""))
+        elif event == "admitted":
+            self.admit([Explanation.from_dict(e) for e in body["explanations"]],
+                       body["shares"])
+        elif event == "withdrawn":
+            self.withdraw(body["analysis_id"], body["reason"])
+        elif event == "planned":
+            if not self.plan(body.get("size")):
+                raise InquiryRefused("INQ150", "a recorded plan does not recompute")
+        else:
+            raise InquiryRefused("INQ150", f"unknown trail event {event!r}")
 
     def verify(self) -> None:
         """Recompute everything from the trail; raises ``InquiryRefused`` on a mismatch."""
