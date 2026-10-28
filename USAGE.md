@@ -151,7 +151,7 @@ python -m bioagent.cli tcmdb enrich 黄芪                  # 按需查询 SymMa
 python -m bioagent.cli tcmdb survey herb_ingredient       # 抽样估计各库之间的抄录关系，保存结果
 python -m bioagent.cli tcmdb consensus herb_ingredient --subject 黄芪   # 多库对账：统一 ID、按独立来源计数
 python -m bioagent.cli tcmdb compare formula_herb 补中益气汤          # 方剂按版本比较
-python -m bioagent.cli tcmdb check all                    # 验收：文件非 HTML、重建一致、标签合法、许可、待消歧数
+python -m bioagent.cli tcmdb check all                    # 验收：文件非 HTML、重建一致、标签合法、许可、待消歧数；没有已构建的数据集时说明原因并以 1 退出
 python -m bioagent.cli tcmdb relations regulation --subject symbol:EGFR --commercial   # 只返回允许商用的行
 python -m bioagent.cli tcmdb relations compound_assay --outcome negative  # 只看“测试阴性”
 ```
@@ -250,7 +250,7 @@ the runner or in the browser's own job workers with no runner
 
 即使所有假说都被驳回，这次运行仍会发布，发布的就是这个阴性结果，原因写在 `limitations.md` 里。真实数据上的结果见 [docs/audit-2026-09-response.md](docs/audit-2026-09-response.md)。
 
-同一次运行还会被读回为十六个有记录的工作流阶段（从方剂身份到可复现导出，每个阶段为 PASS、FAIL、BLOCKED、UNVERIFIED、SKIPPED 或 NOT_APPLICABLE；GO 注释因未登记 GO 快照而为 SKIPPED，KEGG 因通路成员需要许可而为 BLOCKED），并写出九个导出文件，从 `compounds.tsv` 到 `run_manifest.json` 与 `report.html`；`python -m bioagent.analysis.np_exports verify` 可复核它们（见 [docs/analysis-pipelines.md](docs/analysis-pipelines.md)）。这才是数据驱动的分析；种子技能 `analyze-tcm-network-pharmacology` 只是有限种子语料网络假说分析，也是 Studio 浏览器模式中唯一能运行的网络药理学。
+同一次运行还会被读回为十六个有记录的工作流阶段（从方剂身份到可复现导出，每个阶段为 PASS、FAIL、BLOCKED、UNVERIFIED、SKIPPED 或 NOT_APPLICABLE；GO 注释因未登记 GO 快照而为 SKIPPED，KEGG 因通路成员需要许可而为 BLOCKED），并写出九个导出文件，从 `compounds.tsv` 到 `run_manifest.json` 与 `report.html`；`python -m bioagent.analysis.np_exports verify` 可复核它们（见 [docs/analysis-pipelines.md](docs/analysis-pipelines.md)）。这才是数据驱动的分析；种子技能 `analyze-tcm-network-pharmacology` 只是有限种子语料网络假说分析。在 Studio 中，研究闭环作为任务运行：在 Runner 上，或在浏览器自己的任务工作线程中（无需 Runner）（见 [studio/docs/BROWSER_JOBS.md](studio/docs/BROWSER_JOBS.md)）。
 
 ---
 

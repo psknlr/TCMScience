@@ -167,9 +167,11 @@ fewer true acceptances), and a wrong rival stays as rare. `tests/test_rivals.py`
 both for every rival.
 
 **A two-step lookahead was tried and is not used.** It chose each analysis by what it and
-the best follow-up would yield together. In 960 noisy worlds (40 per rival) it accepted the
-true rival 365 times, against 528 for the one-step choice: less often on seven scaffolds and
-as often on the eighth. The engine stays one step ahead, or one batch.
+the best follow-up would yield together. When batches were added (2026-10-23, on the engine
+of that day), in 960 noisy worlds (40 per rival) it accepted the true rival 365 times,
+against 528 for the one-step choice: less often on seven scaffolds and as often on the
+eighth. The lookahead's code was not committed, so these figures cannot be regenerated from
+the repository. The engine stays one step ahead, or one batch.
 
 **Sensitivity.** The posterior is conditional on the sealed predictions, and how sure they
 are is the proposer's choice. `Inquiry.sensitivity(tempers)` replays the recorded outcomes
@@ -178,11 +180,11 @@ with every sealed prediction mixed with the uniform distribution over its outcom
 likelihood ratio towards 1. A leader that holds as t grows is carried by which outcome each
 explanation favoured. A leader that changes is carried by how sure the predictions were:
 typically a prediction of 0 that refuted an explanation the other outcomes favoured. The
-verdict is not recomputed, because tempered predictions are less severe by construction. Of
-1,303 conclusions accepted in the worlds above, a recomputed verdict kept 217 at t = 0.1 and
-none at t = 0.2, which measures the severity threshold rather than the evidence. The leader
-held in all 1,303 at t = 0.1, 0.2 and 0.3, and its posterior fell by 0.013, 0.032 and 0.060
-on average. Those worlds were drawn from the scaffolds' own predictions, which avoid zeros,
+verdict is not recomputed, because tempered predictions are less severe by construction: a
+recomputed verdict would measure the severity threshold rather than the evidence. Of the
+1,307 conclusions accepted in the calibration worlds (the table's first row: 1,300 true and
+7 wrong), the leader held in all 1,307 at t = 0.1, 0.2 and 0.3, and its posterior fell by
+0.012, 0.032 and 0.060 on average (`measure_inquiry_batches.py --sensitivity` prints these). Those worlds were drawn from the scaffolds' own predictions, which avoid zeros,
 so that is the expected result. The check matters most for an inquiry an agent opens with
 predictions of its own.
 
@@ -381,8 +383,8 @@ write-ahead refusal),
 **同时运行与敏感性：**
 - **批次：** `Inquiry.batch(k)`（k 最多为 4）以引擎的下一步开头，再逐个加入与已选分析合起来每单位成本信息量最多的分析。合起来的信息量（`joint_gain`）按引擎自身的更新计算；重复检验对原检验补充的信息少于它单独的增益，所以批次更倾向讲述不同故事的分析。`plan` 在运行前把批次封存进审计轨迹，重放时重新计算，事后写入的计划被拒绝（INQ150）；按早期规则开始的探究沿用其记录的计划。
 - **实测：** 在八套模板的 2,400 个噪声世界中（各批次大小都从模板校准的随机种子开始，所以第一行就是校准本身；结果在分析运行时抽取，批次越大运行顺序越不同，抽到的结果也不同，因此各行共享的是种子而非世界），两项一批使轮数减少 43%，成本增加 9%。批次在看到任何结果之前选定，无法随结果调整，因此真实解释被接受的次数少 5%，错误解释被接受同样罕见（6 对 7 次）。表格由 `BioScience-Harness/scripts/measure_inquiry_batches.py` 生成。
-- **两步前瞻不采用：** 在 960 个噪声世界中，两步前瞻接受真实解释 365 次，一步选择为 528 次（七套模板更少，一套持平）。
-- **对预测把握程度的敏感性：** `sensitivity` 把每个封存的预测与其结果上的均匀分布按权重 t 混合，再重放已记录的结果：各解释偏向的结果不变，似然比向 1 收缩。领先者随 t 增大保持不变，说明结论来自各解释偏向哪个结果；领先者改变，说明结论来自预测有多确定，常见情形是一个为 0 的预测否定了其他结果都支持的解释。裁决不重算：放宽的预测按构造就不再严格，重算只反映严格度门槛。在上述世界中被接受的 1,303 个结论，领先者在 t = 0.1、0.2、0.3 下全部不变。
+- **两步前瞻不采用：** 加入批次时（2026-10-23，当时的引擎）在 960 个噪声世界中测得，两步前瞻接受真实解释 365 次，一步选择为 528 次（七套模板更少，一套持平）。两步前瞻的代码没有提交，因此这些数字无法从仓库重新得出。
+- **对预测把握程度的敏感性：** `sensitivity` 把每个封存的预测与其结果上的均匀分布按权重 t 混合，再重放已记录的结果：各解释偏向的结果不变，似然比向 1 收缩。领先者随 t 增大保持不变，说明结论来自各解释偏向哪个结果；领先者改变，说明结论来自预测有多确定，常见情形是一个为 0 的预测否定了其他结果都支持的解释。裁决不重算：放宽的预测按构造就不再严格，重算只反映严格度门槛。在校准世界（表格第一行：真实解释 1,300 次、错误解释 7 次）中被接受的 1,307 个结论，领先者在 t = 0.1、0.2、0.3 下全部不变，其后验平均下降 0.012、0.032 与 0.060（由 `measure_inquiry_batches.py --sensitivity` 输出）。
 
 **记录与执行：**
 - **记录到世界模型：** 设置 `state_dir` 后，推理过程经持久化网关写入 PSH 世界模型，包括假说、预注册方案、观察、支持/反驳边、科学循环和审计事件。写入先于信念更新，写入被拒则信念不变。

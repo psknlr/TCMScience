@@ -66,16 +66,29 @@ Append-only notes where a part assumes something CONTRACTS.md does not say. One 
   from the harnesses (`PSH-Harness/src/**`, `PSH-Harness/pyproject.toml`, `BioScience-Harness/{src,skills,registry}/**`,
   `BioScience-Harness/{pyproject.toml,setup.py}`; not their docs, tests or data); or a manual run.
 - **test**: `node --test studio/edge/test/*.test.js`; then, when `studio/runner/pyproject.toml` exists,
-  `pip install -e PSH-Harness -e BioScience-Harness -e "studio/runner[test]" pytest` and
-  `python -m pytest -q studio/runner/tests` (runner-core: put any further test-only dependency in a `test` extra);
-  then, when `studio/package.json` exists, `cd studio && (npm ci || npm install) && npm test`. Python 3.12, Node 22.
-- **build**: `pip install -e PSH-Harness -e BioScience-Harness -e studio/runner`,
-  `python3 studio/scripts/build_web.py --out studio/_site`, `_headers` copied in, `wrangler deploy --dry-run`; then, if
-  `studio/package.json` defines a `test:e2e` script: `npx playwright install --with-deps chromium` and
-  `npm run test:e2e` with `STUDIO_SITE` = the absolute path of the built site (integration: define `test:e2e`; the
-  build's output is there to use). In CI the relay spec fails, never skips, when `wrangler dev` cannot start: the
-  dry run has already fetched the same wrangler, so a failure there is the Worker's (outside CI it skips only when
-  npm's registry cannot be reached).
+  `pip install -e PSH-Harness -e BioScience-Harness -e "studio/runner[test]" pytest` with the browser's pins of RDKit
+  (2026.9.1), scikit-learn (1.8.0), Vina (1.2.7), Meeko (0.8.0) and gemmi (0.7.5), `doc_facts.py --check`,
+  `compat_matrix.py --check`, `connector_coverage.py --check` and `python -m pytest -q studio/runner/tests` (runner-core:
+  put any further test-only dependency in a `test` extra); `make_chem_fixtures.py --check` and
+  `make_dock_fixtures.py --check` (the browser chemistry's and docking's committed fixtures, regenerated from the
+  native packages); then, when `studio/package.json` exists, `cd studio && (npm ci || npm install) && npm test` with
+  `PYTHON=python`. Python 3.12, Node 22.
+- **vina-wasm** (beside test): `build_vina_wasm.py --check` rebuilds the WebAssembly Vina from its pinned inputs and
+  compares every written file with the committed build; then Vina's search tier over every fixture ligand × seeds 1–8
+  (`VINA_TIER_S=full node --test --test-name-pattern="Tier S" web/test/scientific/vina.test.mjs`).
+- **build** (after test and vina-wasm): `pip install -e PSH-Harness -e BioScience-Harness -e studio/runner` with the
+  same RDKit, scikit-learn, Vina, Meeko and gemmi pins, `python3 studio/scripts/build_web.py --out studio/_site`,
+  `_headers` copied in, `wrangler deploy --dry-run`; then, if `studio/package.json` defines a `test:e2e` script:
+  `npx playwright install --with-deps chromium` and `npm run test:e2e` with `STUDIO_SITE` = the absolute path of the
+  built site (integration: define `test:e2e`; the build's output is there to use). In CI the relay spec fails, never
+  skips, when `wrangler dev` cannot start: the dry run has already fetched the same wrangler, so a failure there is the
+  Worker's (outside CI it skips only when npm's registry cannot be reached). Then the browser steps, in headless
+  Chromium against a site built with its test pages (`build_web.py --dev`), Pyodide from jsDelivr and no runner:
+  `web/test/runtime/science.mjs --mode service`, `--mode fixture` and `--mode omics`; the browser sweep
+  (`sweep.mjs`, every browser tool's envelope against native CPython's); `chem.browser.mjs`, `gpu-science.mjs
+  --software`, `webgpu.browser.mjs --software` and `science.mjs --mode admet`; `science.mjs --mode dock`. Their
+  reports are kept as the run's `science-reports` artifact, also when a step failed ([BROWSER_JOBS.md §4](BROWSER_JOBS.md#4-how-it-is-checked),
+  [BROWSER_COMPUTE.md §10](BROWSER_COMPUTE.md#10-validation)).
 - **deploy**: main only (push or manual run), after test and build. `wrangler deploy` in CI replaces an existing DNS
   record or another Worker's custom domain for science.impf.ai without asking (stdout is not a terminal): there is no
   safeguard against that, only the owner's check before the first deployment (SETUP.md step 7). The check after it
@@ -151,7 +164,7 @@ one test.
 - Router-made envelopes: `receipt.where "page"`, `runtime "studio-router"`, `decided_by: "router"`, `device: null`,
   `output_sha256: null`, `input_sha256` = sha256 of canonical JSON (sorted keys, `(",",":")`, non-ASCII kept — the
   same bytes as Python's `json.dumps(sort_keys=True, separators=(",",":"), ensure_ascii=False)` except for floats
-  such as `1.0`), plus `core/receipt.js baseReceipt`'s `schema`, `finished_at`, `execution.runtime "page"` and
+  such as `1.0`: CONTRACTS.md §3 on what `input_sha256` covers and how numbers are spelled), plus `core/receipt.js baseReceipt`'s `schema`, `finished_at`, `execution.runtime "page"` and
   `result {kind:null, outcome, assurance:"none"}`. The runtime clients' own envelopes use the same builder but keep
   `where` = the runtime they stand for: `runtime "studio-runner-client"` (where `runner`, decided_by
   `runner-client`), `"studio-unavailable-runtime"` (where its kind, decided_by `unavailable-runtime`), and the
@@ -589,7 +602,10 @@ Fatal → `failed/runtime_error` + restart; past `callTimeoutMs` → `failed/tim
 [--sci] [--json FILE]` builds the site (`--dev`) unless given one, serves it on ephemeral ports with the site's own
 `_headers` (and once without COOP/COEP), runs `test/runtime/index.html` in Chromium and compares the envelopes with
 `python3 -m tcmstudio call … --where browser`; exit 0 = all passed. **integration:** usable as `test:e2e` (needs
-jsDelivr, or `--pyodide-dir` with a local Pyodide 314.0.7 dist). Measured (headless Chromium 141, 4 vCPU, jsDelivr):
+jsDelivr, or `--pyodide-dir` with a local Pyodide 314.0.7 dist). `web/test/runtime/sweep.mjs` (the browser sweep, in
+Studio's CI build job) holds every tool the browser runs to the same comparison (`compareEnvelopes`, imported from
+`run.mjs`), each difference allowed only where its `KNOWN` list declares it by entry and field
+([BROWSER_COMPUTE.md §10](BROWSER_COMPUTE.md#10-validation)). Measured (headless Chromium 141, 4 vCPU, jsDelivr):
 ready in 4.9 s cold / 4.4 s on reload; first call 2.7 s cold (includes the warm-up) / 1.7 s with restored pycs;
 governed P0 runs 1.2–2.4 s, released, hashes = native; native tools 3–8 ms; cancel by interrupt 0.6 s with no restart;
 `clinic_assess` with numpy+scipy loaded on first use 9.9 s.

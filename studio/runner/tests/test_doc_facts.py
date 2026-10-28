@@ -121,9 +121,12 @@ def test_the_files_with_no_reviewed_size_are_the_registrys(facts):
 
 def test_the_usage_example_names_the_released_versions():
     known = doc_facts.versions()
-    line = "  versions:   runtime=psh-0.5.3+bioagent-0.2.6|skill=...\n"
-    problems = doc_facts.check_versions("USAGE.md", line, known)
-    assert len(problems) == 2, problems
-    assert any("psh 0.5.3" in p for p in problems) and any("bioagent 0.2.6" in p for p in problems)
-    ok = f"  versions:   runtime=psh-{known['psh']}+bioagent-{known['bioagent']}|skill=...\n"
-    assert doc_facts.check_versions("USAGE.md", ok, known) == []
+    # USAGE.md and INSTALL.md both print the example artifact's version line
+    for doc in ("USAGE.md", "INSTALL.md"):
+        line = "  versions:   runtime=psh-0.5.3+bioagent-0.2.6|skill=...\n"
+        problems = doc_facts.check_versions(doc, line, known)
+        assert len(problems) == 2, (doc, problems)
+        assert any("psh 0.5.3" in p for p in problems) and any("bioagent 0.2.6" in p for p in problems)
+        ok = f"  versions:   runtime=psh-{known['psh']}+bioagent-{known['bioagent']}|skill=...\n"
+        assert doc_facts.check_versions(doc, ok, known) == []
+    assert "INSTALL.md" in {p.relative_to(doc_facts.REPO).as_posix() for p in doc_facts.docs()}

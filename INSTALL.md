@@ -52,11 +52,13 @@ pip install -e "BioScience-Harness[dev]"   # the capability plane + the governan
 ```
 
 The extras are what the test suites need. Drop them if you only want to run the
-code — but note that PSH's property tests `importorskip("hypothesis")`, so without
-`[test]` eleven of its test modules are silently skipped rather than run.
+code — but without `[test]` PSH's suite does not run: three of its property modules
+`importorskip("hypothesis")` and skip, and twelve modules import hypothesis directly
+or through another test module that does, so pytest stops at collection with twelve
+errors. Install `[test]` to run it.
 
 <!-- zh -->
-这些 extras 是测试套件需要的东西。如果你只想跑代码，可以把它们去掉 —— 但注意，PSH 的性质测试会 `importorskip("hypothesis")`，所以不加 `[test]`，它的十一个测试模块会被静默跳过，而不是真的运行。
+这些 extras 是测试套件需要的东西。如果你只想跑代码，可以把它们去掉 —— 但不加 `[test]`，PSH 的测试套件就跑不起来：其中三个性质测试模块会 `importorskip("hypothesis")` 而被跳过，另有十二个模块直接或经另一个导入它的测试模块导入 hypothesis，pytest 会在收集阶段因十二个错误而中止。要运行它，请安装 `[test]`。
 
 Then:
 
@@ -106,7 +108,7 @@ from bioagent.contracts import validate_artifact
 artifact = assess_tcm_safety("甘草", co_administered=["甘遂"], run_id="demo")
 
 print(artifact.composite_version_string)
-# runtime=psh-0.5.3+bioagent-0.2.6|skill=assess-tcm-safety@1.0.0|source=1982...|benchmark=unversioned
+# runtime=psh-0.6.0+bioagent-0.2.7|skill=assess-tcm-safety@1.0.0|source=1982...|benchmark=unversioned
 
 verdict = validate_artifact(artifact)
 print(verdict.publishable, verdict.codes)   # True ()
@@ -143,15 +145,19 @@ how to read it.
 ## Running the tests · 运行测试
 
 ```bash
-cd PSH-Harness          && PYTHONPATH=src python -m pytest -q                    # 958
-cd BioScience-Harness   && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit   # 844
+(cd PSH-Harness        && PYTHONPATH=src python -m pytest -q)
+(cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit)
 ```
 
 `-m unit` selects the tier that needs no network and no data lake; there is an
-`integration` tier that does, and it is not run by default.
+`integration` tier that does, and it is not run by default. On 2026-10-28, in a
+Python 3.12 environment with both packages installed, the first printed `1554 passed`
+and the second `3277 passed, 30 skipped, 16 deselected` (a test whose optional engine is
+not installed skips, so the skipped count depends on the environment); the second takes
+tens of minutes.
 
 <!-- zh -->
-`-m unit` 选中的是既不需要网络、也不需要数据湖的那一层；另有一个 `integration` 层需要它们，默认不跑。
+`-m unit` 选中的是既不需要网络、也不需要数据湖的那一层；另有一个 `integration` 层需要它们，默认不跑。2026-10-28 在装好两个包的 Python 3.12 环境中，第一条命令输出 `1554 passed`，第二条输出 `3277 passed, 30 skipped, 16 deselected`（缺少可选引擎的测试会跳过，所以跳过的数量取决于环境）；第二条需要几十分钟。
 
 ## The CI checks, runnable locally · CI 检查，可在本地运行
 
@@ -162,7 +168,7 @@ python scripts/make_release.py --check      # packaging hygiene
 PYTHONPATH=../PSH-Harness/src python scripts/make_release.py --outdir /tmp/dist
                                             # build sdist + wheel, then run a governed
                                             # skill from the wheel alone
-cd .. && python scripts/build_arena_data.py # regenerate the Arena's JSON
+cd .. && python scripts/build_arena_data.py # regenerate the Arena's benchmarks.json
 ```
 
 ---
@@ -171,13 +177,17 @@ cd .. && python scripts/build_arena_data.py # regenerate the Arena's JSON
 
 - **No benchmark cases.** They are withheld (see `.gitignore`), so `benchmarks/cases/`
   holds a README in a clone. The harness, the scorers and the schema are all here.
-- **No results.** `arena/web/data/*.json` is generated and gitignored; the
-  `*.example.json` files beside it carry placeholder rows so the site renders.
+- **No benchmark scores.** `arena/web/data/*.json` is generated and committed:
+  `scripts/build_arena_data.py` writes `benchmarks.json` from the registries, and
+  `scripts/run_demo_season.py` the published demonstration run (`runs.json`,
+  `tracks.json`, `skills.json` and the leaderboard's rows), which is not a benchmark
+  score. The `*.example.json` files beside them carry placeholder rows, read where a
+  generated file is missing. The benchmark cases and their gold answers stay withheld.
 - **No live data connectors for the TCM skills.** They read the seed corpus in
   `bioagent.tcm`. A connector-backed variant would declare hosts in its
   `skill.yaml` and the compiler would derive network authority from them.
 
 <!-- zh -->
 - **不含基准用例。** 它们被刻意扣留（见 `.gitignore`），所以 clone 出来的仓库里 `benchmarks/cases/` 只有一份 README。评测框架、打分器和 schema 都在这里。
-- **不含结果。** `arena/web/data/*.json` 是生成的，且已被 gitignore；紧挨着它的 `*.example.json` 文件里是占位行，好让站点能渲染出来。
+- **不含基准分数。** `arena/web/data/*.json` 是生成的，并已提交：`scripts/build_arena_data.py` 从注册表写出 `benchmarks.json`，`scripts/run_demo_season.py` 写出已发布的示范运行（`runs.json`、`tracks.json`、`skills.json` 与排行榜中的行），它不是基准分数。旁边的 `*.example.json` 文件里是占位行，在生成文件缺失时读取。基准用例及其标准答案仍不公开。
 - **TCM 技能没有实时数据连接器。** 它们读的是 `bioagent.tcm` 里的种子语料库。若换成连接器驱动的版本，它会在自己的 `skill.yaml` 里声明 hosts，编译器再据此推导出网络权限。
