@@ -1,65 +1,110 @@
 """Reading an allergy history against the herbs of a prescription (过敏史核查).
 
-A history is not read through a list of wordings (过敏史：X, 对X过敏, X过敏史 …). Every
-wording such a list missed was a silent pass, and histories are written in more ways than
-any list holds: 患者对国老过敏, 3年前北芪过敏, 北芪/人参过敏, 变应原：北芪, allergic to huangqi.
-The whole record is normalised and *scanned* for every name the tables know, wherever it
-stands, and each name found is then read in its place.
+A history is not read through a list of wordings (过敏史：X, 对X过敏, X过敏史 …): every wording
+such a list missed was a silent pass. The record is normalised and *scanned* for every name
+the tables hold, wherever it stands, and each name found is then read in its place.
 
 Normalising (``fold``)
     NFKC; zero-width spaces and joiners, the byte-order mark, soft hyphens, variation
-    selectors, fillers, NUL and the other control characters are removed; look-alike radicals
-    (⻩ for 黄, ⻰ for 龙) are read as the characters they stand for; traditional characters
-    are folded with the materia table's own table (``materia.to_simplified``: 黃耆 → 黄耆, 人參
+    selectors, fillers, NUL and the other control characters removed; look-alike radicals
+    (⻩ for 黄, ⻰ for 龙) read as the characters they stand for; traditional characters
+    folded with the materia table's own table (``materia.to_simplified``: 黃耆 → 黄耆, 人參
     → 人参) and, for the characters of every name the tables know and the words a history
     writes around them, with the traditional, Hong Kong, Taiwan and Japanese forms that table
-    leaves (過敏 → 过敏, 黑順片 → 黑顺片, 人銜 → 人衔, 当帰 → 当归); tone marks are dropped from
-    Latin letters (Huáng Qí → huang qi); lower case. Whitespace is dropped for the scan, so
-    北 芪 is 北芪, but it stays a boundary: a name is read across it only where no name of two
-    characters or more stands on either side of it (姜 / 黄芪 is 姜 and 黄芪, never 姜黄).
+    leaves (過敏 → 过敏, 黑順片 → 黑顺片, 人銜 → 人衔, 当帰 → 当归); tone marks dropped from
+    Latin letters (Huáng Qí → huang qi); lower case. One character stays one character.
 
-Scanning (``mentions``)
-    for the seed knowledge base's herb names and aliases (黄耆, 北芪, 国老), the materia
-    table's names (``materia.names_in``, and every name of every entry, one character
-    included: 姜, 枣), the pack's herbs and its cited aliases (``herb_aliases``: 夜交藤, 川黄柏),
-    the formulas the pack and the knowledge base hold (四君子汤, and the same name in another
-    product form: 补中益气丸), and the parts of the names the tables give the prescribed herbs,
-    of two characters or more, with the abbreviations that drop one character (贝母 of 浙贝母,
-    淮山 of 淮山药, 法夏 of 法半夏), and a few everyday words that hold a name's characters but
-    name something else (桂花, 胡萝卜). Latin and pinyin are read as whole words, with or without spaces, hyphens,
-    tone marks or tone numbers: the knowledge base's pinyin and Latin names, the pack's
-    pinyin of every herb, the materia table's Latin names in the Pharmacopoeia 2020 order
-    and the older one (Astragali Radix, Radix Astragali), and the species and genera the
-    tables give (Panax ginseng, Astragalus), with the pack's cited English common names
-    (ginger, licorice). At each position the longest name is taken, and a name inside a
-    longer one found before it (杏仁 in 苦杏仁) is that one's.
+Scanning (``_Reader``)
+    The names are the tables' own, and nothing else: the seed knowledge base's herb names and
+    aliases (黄耆, 北芪, 国老), every name of every entry of the materia table, one character
+    included (姜, 枣), the pack's herbs and its cited aliases (``herb_aliases``: 夜交藤, 川黄柏),
+    and the formulas the pack and the knowledge base hold, under their names and in other
+    product forms (补中益气丸, 天麻钩藤颗粒; 散 only for the pack's formulas, since 四逆散 is
+    not 四逆汤). No part or abbreviation of a name is scanned for unless a table lists it.
+    Latin and pinyin are read as whole words, with or without spaces, hyphens, tone marks or
+    tone numbers: the knowledge base's pinyin and Latin names, the pack's pinyin of every
+    herb, the materia table's Latin names in either word order (Astragali Radix, Radix
+    Astragali), the species and genera the tables give (Panax ginseng, Astragalus) and the
+    pack's cited English common names (ginger, licorice).
+
+    The record is read twice: with whitespace as a hard boundary (an allergy list written one
+    per line, 姜 / 黄芪, is 姜 and 黄芪), and with whitespace removed (北 芪 is 北芪). The names
+    found are the union of the two readings. A name found only across whitespace is dropped
+    where it overlaps a name of two characters or more that the first reading found standing
+    (姜 / 黄芪 is not 姜黄), or where it stands in neither reading and overlaps a name the first
+    reading found (枣 / 皮疹 is not 枣皮). It is read only where it stands as one word in the
+    second reading, or as a processed form, and never across a line break or a tab (柑橘 皮疹
+    is not 橘皮, 花生 地塞米松 not 生地, 樱桃 / 花生 on two lines not 桃花). Every name at every
+    place is a candidate, so a shorter name is not lost behind a longer one that starts at the
+    same place (枣皮疹 holds 枣 standing before 皮疹, and 枣皮 inside a longer word).
 
 Reading each name in its place
-    * Names written next to each other with nothing between them (北芪人参过敏, 天麻钩藤颗粒)
-      are read together. They *stand as words* when what is before the first and after the
-      last is a boundary (the start or end of the record, punctuation, a space, a digit,
-      Latin letters) or one of the words a history writes around a name (对, 患者, 自诉,
-      因, 的, 吃, 年前, 过敏, 过敏史, 及, 等, 后, 就, 皮疹 …);
-    * otherwise each is *inside a longer word* the tables do not know: 郁金 in 郁金香, 地黄 in
-      知柏地黄丸, 黄连 in 双黄连, 桂枝 and 茯苓 in 桂枝茯苓丸; so is a name whose first character
-      ends an everyday word (于术 after 对于, 白及 after 蛋白), a name written before a formula's
-      name (柴胡 of 柴胡桂枝汤), and names that overlap (姜黄芪: 姜黄, 黄芪 and 姜). A longer word
-      that the materia table or the knowledge base resolves to the same drug, or that is the
-      name processed, is that drug (甘草片, 山药粉, 炙北芪, 制黑顺片). A name that starts with a
-      denial's character and runs into what a denial names is the denial (没药物过敏史);
-    * a name is *denied* when its clause opens with a denial (否认, 无, 没有, 未, 排除, NKDA,
-      no …) that no 过敏, 史, 但, 出现, "except" or "than" closes before the name, the clause
-      being a bracket inside such a denial (否认中药（黄芪、人参）过敏); when a denial follows the
-      name or the list it ends (黄芪：无, 黄芪（-）, 黄芪无过敏史, 黄芪、党参等未见过敏, 黄芪耐受);
-      when the next clause only takes it back (怀疑黄芪过敏，已排除); or when the clause says the
-      herb is used all along with no reaction in it (平素服黄芪泡水). A word that only starts
-      with a denial is none (非常, 未成年, 无意中, 未经, no doubt). A dash or an arrow after a
-      name is no denial (黄芪——皮疹, huangqi -> hives); "-" is one only in brackets or after a
-      colon (黄芪（-）, 黄芪：-). A denial that names nothing adds nothing and never hides a name
-      in another clause.
+    * A name *stands* when what is before it and after it is a boundary (the start or end of
+      the record, punctuation, a space in the first reading, a digit, Latin letters) or one
+      of the words a history writes around a name (对, 患者, 自诉, 因, 的, 吃, 年前, 过敏, 过敏史,
+      及, 等, 后, 就, 皮疹 …), or another name of two characters or more that stands that way
+      on its own far side (北芪人参过敏). A formula's name stands only with a boundary of its
+      own before it (柴胡桂枝汤 holds 桂枝汤 inside a longer word). A name of one character
+      stands only with a boundary of its own on both sides, from a shorter list of words (对,
+      服用, 吃, 及, 和, 因, 年, 中药, 过敏, 过敏史, 后, 就, 皮疹, 出现, 引起, 致, 会, 严重, 否认 …:
+      对姜过敏, 姜过敏, 、姜、, 对姜严重过敏, 吃姜出现皮疹), never through a neighbouring name and
+      never inside a word (面部, 姜某, 枣红色, 归档, 归类, 姜片).
+    * A name whose first character ends an everyday word (于术 after 对于, 白及 after 蛋白) is
+      inside that word, unless the everyday word's first character stands as a word of a
+      history, the name stands on its right and its last character starts no everyday word
+      there: 对于术过敏, 对于术及青霉素过敏 and 对于术有过敏史 are 对 + 于术, 对于术后 is 对于 + 术后.
+      After a word of use the everyday word is not there: 服用于术后 is 服用 + 于术 + 后.
+    * A name inside a longer standing name, or inside a formula's name, is that name's (杏仁
+      in 苦杏仁, 地黄 in 六味地黄丸, 天麻 in 天麻钩藤颗粒); the longer name is matched instead. A
+      few everyday words that hold a name are words of their own (胡萝卜, 桂花, 舌头), and a
+      name that does not stand and shares a character with one is that word's.
+    * A name of two characters or more that does not stand is *inside a longer word*: 郁金 in
+      郁金香, 地黄 in 知柏地黄丸, 桂枝 and 茯苓 in 桂枝茯苓丸. Where the longer word is the name
+      with a processing word before it, or a product suffix after it (炙北芪, 炒夜交藤, 甘草片,
+      山药粉), it is that processed name. A name that starts with a denial's character and
+      runs into what a denial names is the denial (没药物过敏史).
+    * A name written right after a label that introduces a person (记录人：姜, Dr. Huang Jing,
+      interpreter Hong Hua, patient name: Huang Qi), with no word of allergy after it in its
+      clause, or right before a title (Jing Jie, MD) with no word of allergy in its clause, is
+      a person's name and is not read. After a bare name label (Name: huang qi) it asks.
+    * A clause ends at punctuation other than 、, / and an apostrophe, at a space between two
+      Chinese characters, and at a line break or a tab whatever stands around it (NKDA, then a
+      line 黄芪过敏, is two statements).
+    * A name is *denied* when its clause opens with a denial (否认, 无, 没有, 未, 排除, NKDA,
+      no …) that no 过敏, 史, 但, 出现, "except", "than" or "allergies" (not followed by to, of
+      …) closes before the name (the clause being a bracket inside such a denial: 否认中药
+      （黄芪、人参）过敏); when a denial follows the name or the list it ends (黄芪：无, 黄芪（-）,
+      黄芪无过敏史, 黄芪耐受); or when the next clause only takes it back (怀疑黄芪过敏，已排除).
+      A denial that takes no object (NKDA, NKA, nil, none) does not deny a name with a word of
+      allergy after it (NKDA 黄芪过敏). A record that the herb is tolerated (黄芪耐受, 黄芪可用,
+      人参可以吃, 人参：可, 服黄芪无不适, 服用黄芪后无不适, 黄芪服用后未见过敏, 人参吃了没事, 当归用过，
+      无过敏, 曾服当归，无反应, 服用人参后，自觉无不适, 曾服人参，次日无不适, Took ren shen without
+      reaction, tolerates 黄芪) is a denial that says so, unless the story goes on to a reaction
+      (服用黄芪后无不适，次日出现皮疹). Poor tolerance (耐受差, 耐受不良) is an intolerance. A word
+      that only starts with a denial is none (非常, 未成年, 无意中, no doubt).
+    * A name is *taken* when the record says it is taken, eaten or used (目前在吃人参, 现用药：
+      人参, 喜食生姜, 每日泡黄芪水喝, 黄芪：服用中, currently on huangqi) and says no reaction to
+      it: neither its clause (with the label before it) nor the story that goes on from it
+      holds a word of allergy or reaction (过敏, 疹, 痒, 肿, 呼吸困难, 疙瘩, 心慌, 发麻 …, rash,
+      hives, can't take …). Such a word inside a name (泻 of 泽泻), a symptom that got better
+      (服用黄芪后咳嗽缓解), one the herb is taken for (因咳嗽服用川贝母) and the 过敏 of a
+      condition's name (过敏性鼻炎) are none. The story goes on, across a sentence mark but no
+      line break, to each next clause that, past words of time, sequence, the patient, feeling,
+      degree and the body (结果, 次日, 服药后, 患者, 有, 自觉, 皮肤; then, she, got, face), comes
+      to a reaction (服用黄芪，结果出现皮疹; 曾服黄芪，有过敏反应; 吃黄芪。起疹子; Took huang qi,
+      she got hives), or to a denial, after which it reads on (服用黄芪后，自觉无不适，次日出现
+      皮疹); a clause that comes to anything else names something of its own and ends it
+      (目前在吃人参，青霉素过敏; 服用黄芪后，有青霉素过敏史; 过敏史：无; 过敏原为青霉素; Rash after
+      penicillin). A herb named as a cause (与服用黄芪有关, 服用黄芪所致) or in a note in
+      brackets on a reaction (皮疹（服黄芪后）) is no herb merely taken.
+    * A Latin or pinyin name in an English sentence that says nothing of an allergy (no
+      allerg*, rash, hives, 过敏 …, and other words than names, labels and common allergens:
+      penicillin/huang qi is an allergy list) is *unconfirmed*: pinyin is also how Chinese
+      person names are written.
 
-Each name found is matched to each prescribed herb through the tiers of ``_tier``; see
-``allergy_issues`` for the issues they give.
+Each name found is matched to every prescribed herb through the tiers of ``_tier``; see
+``allergy_issues`` for the issues they give. The reading is linear in the length of the
+record, and each message quotes a bounded excerpt of it.
 """
 
 from __future__ import annotations
@@ -73,10 +118,11 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from .findings import normalise
 
-__all__ = ["fold", "Mention", "mentions", "allergy_issues", "allergy_records_in", "ALLERGY_CODES"]
+__all__ = ["fold", "Mention", "mentions", "allergy_issues", "allergy_records_in", "ALLERGY_CODES",
+           "names_of"]
 
 ALLERGY_CODES = ("allergy", "allergy_source", "allergy_near_name", "allergy_formula",
-                 "allergy_homonym", "allergy_denied")
+                 "allergy_homonym", "allergy_denied", "allergy_taken")
 
 
 # ============================================================== the name tables
@@ -109,17 +155,49 @@ def _identity(kb: Any, name: str) -> frozenset[str]:
     return frozenset({herb}) if herb.startswith("herb.") else frozenset()
 
 
+#: Suffixes that name a form of the drug they follow, not another part of the plant: 甘草片,
+#: 山药粉, 生姜汁, 荆芥炭. The materia table also strips 肉, 仁, 心, 头 …, which name another
+#: part (米仁 is not 米), and those are not stripped here.
+_PRODUCT_SUFFIXES = ("末", "粉", "片", "汁", "炭", "霜", "屑")
+
+
+@lru_cache(maxsize=8192)
+def _materia_id(name: str) -> str | None:
+    """The materia table's entry for a written name: the name as the table lists it, or with
+    one of its processing or state words before it (炙, 鲜, 干 …) and / or one product suffix
+    after it (片, 粉 …) stripped. Never by stripping a word that names another part."""
+    from ..sources.materia import _NAME_INDEX, _PREFIXES
+    if not name:
+        return None
+    if name in _NAME_INDEX:
+        return _NAME_INDEX[name]
+    cands = [name] + [name[len(p):] for p in _PREFIXES if name.startswith(p) and len(name) > len(p)]
+    for c in list(cands):
+        cands += [c[:-len(s)] for s in _PRODUCT_SUFFIXES if c.endswith(s) and len(c) > len(s)]
+    for c in cands[1:]:
+        if c in _NAME_INDEX:
+            return _NAME_INDEX[c]
+    return None
+
+
 @lru_cache(maxsize=8192)
 def _materia(name: str) -> Any:
-    """The materia table's entry for a whole written name, or None. The table files names
-    by source (species or product), for network pharmacology: an entry's names are of one
-    source, not always of one drug (鸡内金 with 鸡蛋, 海藻 with 海带)."""
-    from ..sources.materia import MATERIA, resolve_name
-    try:
-        drug = resolve_name(name)
-    except Exception:                                            # noqa: BLE001
-        return None
+    """The materia table's entry for a whole written name (``_materia_id``), or None. The
+    table files names by source (species or product), for network pharmacology: an entry's
+    names are of one source, not always of one drug (鸡内金 with 鸡蛋, 海藻 with 海带)."""
+    from ..sources.materia import MATERIA
+    drug = _materia_id(name)
     return MATERIA.get(drug) if drug else None
+
+
+@lru_cache(maxsize=8192)
+def _reviewed(name: str) -> str | None:
+    """The drug a name is a *reviewed* alias of in the materia table (川当归 is 当归, 大贝母 is
+    浙贝母): names the table checked one by one against what they denote, which makes them
+    names of the drug and not only of its source."""
+    from ..sources.materia import _REVIEWED_ALIASES, MATERIA
+    drug = _REVIEWED_ALIASES.get(name)
+    return MATERIA[drug].chinese if drug in MATERIA else None
 
 
 @lru_cache(maxsize=8192)
@@ -145,8 +223,9 @@ _STATE_WORDS = ("鲜", "干", "真", "好", "上", "嫩", "新", "陈", "细", "
 
 @lru_cache(maxsize=8192)
 def _base(kb: Any, name: str) -> str:
-    """``name`` without the processing word, or the word of state, in front of a known name
-    (熟地黄 → 地黄, 炙黄耆 → 黄耆, 鲜生地 → 生地, 熟川军 → 川军), or ``name`` itself."""
+    """``name`` without the processing word or the word of state in front of a known name, or
+    the product suffix after one (熟地黄 → 地黄, 炙黄耆 → 黄耆, 鲜生地 → 生地, 甘草片 → 甘草), or
+    ``name`` itself."""
     from ..sources.materia import PROCESSING_WORDS
     for word in sorted(PROCESSING_WORDS, key=len, reverse=True):
         rest = name[len(word):]
@@ -158,6 +237,12 @@ def _base(kb: Any, name: str) -> str:
         rest = name[len(word):]
         if (whole is not None and name.startswith(word) and rest
                 and (part := _materia(rest)) is not None and part.id == whole.id):
+            return rest
+    for suffix in _PRODUCT_SUFFIXES:
+        rest = name[:-len(suffix)]
+        if (name.endswith(suffix) and rest and name not in _materia_names()
+                and ((part := _materia(rest)) is not None or _resolve(kb, rest) is not None)
+                and (whole is None or part is None or part.id == whole.id)):
             return rest
     return name
 
@@ -173,8 +258,7 @@ def _materia_names() -> frozenset[str]:
 def _forms(kb: Any, name: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """(``name`` and what it is a processed form of, those plus the drug's other processed
     forms that the tables name). 熟地黄 gives ((熟地黄, 地黄), (熟地黄, 地黄, 生地黄, …)):
-    processing leaves the herb what it is, so 生地黄 and 熟地黄 are both 地黄, and 生地, the
-    short name of 生地黄, reaches 熟地黄 through it."""
+    processing leaves the herb what it is, so 生地黄 and 熟地黄 are both 地黄."""
     from ..sources.materia import PROCESSING_WORDS
     forms = [name]
     while (b := _base(kb, forms[-1])) != forms[-1] and b not in forms:
@@ -192,40 +276,9 @@ def _forms(kb: Any, name: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
 @lru_cache(maxsize=16384)
 def _known(kb: Any, name: str, extra: frozenset[str] = frozenset()) -> bool:
     """A name some table holds: the materia table (as written or with a processing word or
-    suffix it strips), the knowledge base, or the pack (its herbs and cited aliases)."""
-    from ..sources.materia import resolve_name
+    product suffix stripped), the knowledge base, or the pack (its herbs and cited aliases)."""
     return (name in extra or name in _materia_names() or bool(_identity(kb, name))
-            or resolve_name(name) is not None)
-
-
-@lru_cache(maxsize=16384)
-def _pair(kb: Any, x: str, y: str, extra: frozenset[str] = frozenset()) -> str:
-    x_kb, y_kb = _identity(kb, x), _identity(kb, y)
-    same_kb = bool(x_kb & y_kb)
-    inside = x == y or (len(x) >= 2 and len(y) >= 2 and (x in y or y in x))
-    if inside and x != y and not same_kb and not (_processed(x, y) or _processed(y, x)):
-        # one name inside the other is the same drug only where the tables hold both names
-        # and give them to one drug (丹皮 and 牡丹皮); a name no table holds is not vouched for
-        # by any (决明 is not 石决明, 金银 not 金银花)
-        if not (_known(kb, x, extra) and _known(kb, y, extra)):
-            return "unknown:" + (x if not _known(kb, x, extra) else y)
-        x_m, y_m = _materia(x), _materia(y)
-        if (x_m is not None and y_m is not None and x_m.id != y_m.id) or (x_kb and y_kb):
-            return "near"
-    if inside:
-        return "name"
-    return "kb" if same_kb else ""
-
-
-def _one_drug(kb: Any, x: str, y: str) -> str:
-    """How the names ``x`` and ``y`` are one drug: ``"name"`` (the same name, a processed
-    form of the other, or one inside the other where the name tables hold both and do not
-    give them to different drugs), ``"kb"`` (the seed knowledge base gives both to one
-    herb), ``"near"`` (one inside the other, but the tables give them to different drugs),
-    ``"unknown:<name>"`` (one inside the other, and no table holds that name) or ``""``.
-    Two names are compared here; a name of one character is not looked for inside another
-    (the 姜 of 生姜 in 沙姜): the scan reads such a character in its place instead."""
-    return _pair(kb, x, y)
+            or _materia_id(name) is not None)
 
 
 #: Names that an allergy record uses for something other than the drug the materia table
@@ -237,13 +290,12 @@ def _one_drug(kb: Any, x: str, y: str) -> str:
 _ALLERGY_HOMONYMS: Mapping[str, str] = {"花粉": "植物花粉"}
 
 #: Everyday words that hold a name of the tables but are something else, each with what it
-#: is. Read as words of their own, they name no herb: 桂花 is osmanthus, not 桂 (肉桂) and so
-#: not 桂枝; 胡萝卜 is the carrot (Daucus), not the 萝卜 (Raphanus) the materia table files
-#: under 莱菔子; 桂圆 is longan, which the table files as 龙眼 and 桂圆肉 under 龙眼肉 (a
-#: prescribed 龙眼肉 still reads it, as a part of 桂圆肉).
+#: is. They are words of their own and name no herb: 胡萝卜 is the carrot (Daucus), not the
+#: 萝卜 (Raphanus) the materia table files under 莱菔子; 桂花 is osmanthus.
 _OTHER_WORDS: Mapping[str, str] = {
     "桂花": "木犀（Osmanthus fragrans）的花", "桂鱼": "鳜鱼", "鳜鱼": "鳜鱼",
-    "胡萝卜": "胡萝卜（Daucus carota）", "桂圆": "龙眼（Dimocarpus longan）"}
+    "胡萝卜": "胡萝卜（Daucus carota）", "桂圆": "龙眼（Dimocarpus longan）",
+    "舌头": "舌", "眉头": "眉", "额头": "额", "鸡皮疙瘩": "鸡皮疙瘩", "归类": "分类"}
 
 
 # ============================================================== normalising
@@ -274,7 +326,7 @@ _RADICALS = str.maketrans(
 #: Characters that show nothing but can split a name, beyond the format characters
 #: (category Cf) and controls: the combining grapheme joiner, the Hangul fillers, the
 #: braille blank, variation selectors.
-_BLANKS = frozenset("\u034f\u115f\u1160\u17b4\u17b5\u3164\uffa0\u2800")
+_BLANKS = frozenset("͏ᅟᅠ឴឵ㅤﾠ⠀")
 _WS = re.compile(r"\s+")
 
 
@@ -283,13 +335,18 @@ def _invisible(c: str) -> bool:
     if c in _BLANKS or 0xFE00 <= o <= 0xFE0F or 0xE0100 <= o <= 0xE01EF or 0x180B <= o <= 0x180F:
         return True
     cat = unicodedata.category(c)
-    return cat in ("Cf", "Cs") or (cat == "Cc" and c not in "\t\n\r")
+    return cat in ("Cf", "Cs") or (cat == "Cc" and c not in _LINE_BREAKS)
+
+
+#: Whitespace that ends a line (or a field: a tab), which ends a clause whatever stands on
+#: either side of it: NKDA, then a line that says 黄芪过敏, is two statements.
+_LINE_BREAKS = frozenset("\t\n\r\v\f\x85  ")
 
 
 def _visible(text: str) -> str:
     """``text`` without the characters that show nothing but can split a name: format
     characters (zero-width space and joiners, the byte-order mark, soft hyphen, bidi
-    marks), surrogates, controls other than tab and line breaks (NUL), variation selectors,
+    marks), surrogates, controls other than tabs and line breaks (NUL), variation selectors,
     fillers and the braille blank."""
     if text.isascii() and text.isprintable():
         return text
@@ -344,8 +401,9 @@ def _all_cjk(name: str) -> bool:
 # ============================================================== record words
 #: Words a history writes before a name. A name with one of these just before it stands as
 #: a word: 对国老, 患者对国老, 自诉国老, 3年前北芪, 服用北芪, 因北芪, 一吃北芪, 过敏药品北芪 (colon
-#: dropped), 及人参. Missing a word here never hides a name: the name is then read as inside
-#: a longer word, which asks the practitioner (a block) instead of stopping.
+#: dropped), 及人参. Missing a word here never hides a name of two characters or more: the name
+#: is then read as inside a longer word, which asks the practitioner (a block) instead of
+#: stopping.
 _BEFORE = frozenset("""
 对 对于 有 有过 曾 曾经 曾有 既往 以往 以前 之前 从前 早年 幼时 儿时 年前 月前 周前 天前 日前 前 年 月 后
 患者 病人 本人 其 自诉 自述 诉 述 主诉 称 自称 代诉 家属诉 据诉 诉称 述称
@@ -364,7 +422,7 @@ _BEFORE = frozenset("""
 我 你 他 她 我们 他们 患儿 家属 母亲 父亲 家长 孩子 小孩 儿子 女儿 丈夫 妻子 爱人 医生 医师
 表示 告知 提到 提及 反映 补充 说 讲
 避免 避免使用 忌 忌用 忌服 禁 禁用 禁服 慎 慎用 勿 勿用 不能 不能用 不可 不可用 不宜 不宜用 停用 停服
-改用 换用 应用
+改用 换用 应用 常备 备有 备用
 严重 轻度 明显 多次 反复 不适 特殊
 阳性 阴性
 无 否认 没有 未 未见 未发现 从未 未曾 并无 不 非 排除 已排除 是否 有无
@@ -383,7 +441,8 @@ _AFTER = frozenset("""
 的 了 着 就 便 即 则 才 又 再 而 且 但 却 要 被 让 使 所 吃 喝 服 用 食 一 这 那 此 每 样 种 味 之
 吃了 用了 服了 喝了 服用 服用后 使用 使用后 食用 饮用 外用 口服 禁用 忌用 慎用 禁服 忌服 停用
 一类 这类 之类 等药 等中药 等药物 这味药 这味 水 茶 泡水 煮水 煎水 炖鸡 煲汤 熬汤 泡茶 接触 接触性
-汤剂 煎剂 煎液 饮片 药汁
+汤剂 煎剂 煎液 饮片 药汁 治疗 治 调理
+高度 极度 轻度 中度 重度 明显 非常 很 特别 比较 较 有些 一直 曾经 经常 偶尔 容易 易
 """.split())
 
 #: Product words, which make a longer word of the name before them even where a word of
@@ -394,13 +453,44 @@ _PRODUCT_WORDS = ("口服液", "注射液", "注射剂", "注射", "针剂", "�
 _BEFORE_MAX = max(map(len, _BEFORE))
 _AFTER_MAX = max(map(len, _AFTER))
 
+#: The words around a name of one character (姜, 枣, 归, 面): only the words of an allergy
+#: record itself, of a list, of taking it and of denying it. A name of one character is a word
+#: far more often than a name (面部, 方便面, 姜某, 归档), so it counts only between these or
+#: between boundaries: 对姜过敏, 姜过敏史, 、姜、, 服用姜后皮疹, 否认姜过敏, 对姜严重过敏, 吃姜会过敏,
+#: 吃姜出现皮疹, 姜致皮疹, 2019年姜过敏, 对中药姜过敏. Every pair of a word here and a name of one
+#: character the tables give a pack herb (姜, 归, 枣, 桂, 芎) was checked for an everyday word
+#: (``test_no_one_character_reading_is_an_everyday_word``); the one found, 归类, is a word of
+#: its own (``_OTHER_WORDS``).
+_BEFORE_ONE = frozenset("""
+对 曾对 有 有过 曾 曾经 既往 年前 月前 前 患者 自诉 自述 诉 述 怀疑 疑似 可疑 服用 服 吃 喝 食用 饮用 用
+使用 吃了 喝了 用了 服了 吃过 喝过 用过 服过 一吃 接触 过敏 过敏史 过敏原 过敏源 过敏物 过敏药物 过敏药品
+过敏食物 致敏原 变应原 药物 食物 及 和 与 或 或者 以及 并 等 也 均 否认 无 没有 未 对其 因 因为
+年 中药 中药材 草药 药材 含 含有
+""".split())
+_AFTER_ONE = frozenset("""
+过敏 过敏史 过敏反应 后 等 及 和 与 或 或者 以及 也 均 都 皮疹 瘙痒 红肿 不耐受 不适 类 制品 中毒
+皮炎 红疹 荨麻疹 风团 水肿 腹泻 呕吐 吃了 用了 服了 喝了 无 否 未 没有 阴性 阳性 皮试 就 有过敏
+出现 发生 引起 引发 导致 所致 诱发 致 会 严重 特别 非常 轻度 中度 重度 明显 药物 煎剂 煎液 汤剂
+""".split())
+_BEFORE_ONE_MAX = max(map(len, _BEFORE_ONE))
+_AFTER_ONE_MAX = max(map(len, _AFTER_ONE))
+
 #: Everyday words whose last character starts a name: in 对于术后 the 于 is 对于's, not the
 #: first character of 于术 (白术), and in 鸡蛋白及 the 白 is 蛋白's (protein), not 白及's. A
-#: name after one of them is read as inside a longer word, whatever stands before it.
+#: name after one of them is read as inside a longer word, unless the everyday word's first
+#: character stands as a word of a history on its own, the name stands on its right, and the
+#: name's last character does not start an everyday word of its own there (``_EVERYDAY_NEXT``):
+#: 对于术过敏, 对于术及青霉素过敏 and 对于术有过敏史 are 对 + 于术; 对于术后 and 由于术中 are 对于 +
+#: 术后. Where the everyday word's first character ends a word of use (服用于术, 使用于术), the
+#: everyday word is not there at all: 服用 + 于术.
 _EVERYDAY = frozenset("""
 对于 关于 由于 至于 属于 位于 等于 用于 大于 小于 基于 在于 便于 易于 过于 终于 处于
 蛋白 空白 苍白 明白 坦白 表白 洁白 雪白 黑白 灰白 清白
 """.split())
+_EVERYDAY_BROKEN = ("服用", "使用", "食用", "饮用", "外用")
+#: Words that start with the last character of a name after an everyday word: 术后 (after an
+#: operation), so 对于术后 is 对于 + 术后.
+_EVERYDAY_NEXT = frozenset("术后 术中 术前 术者 术式 术区 术野 术侧 术毕 术晨 术日".split())
 
 #: Words that may open a clause before its denial: 患者否认, 过敏史无, 既往无, 已排除.
 _CLAUSE_LEADS = tuple(sorted("""
@@ -428,21 +518,39 @@ _CLOSERS = re.compile(r"过敏|史|但|除|不过|然而|却|唯|只|仅|可是|
 _AFTER_LABEL = re.compile(r"(?:过敏(?:史|反应|试验)?|皮试(?:结果)?|试验|反应)?")
 _AFTER_SEP = re.compile(r"[:：∶?？=]*[\-－—–~]*[(\[【]?")
 #: A denial written after the name that may run on: 黄芪无过敏史, 对黄芪无过敏反应, 曾服用黄芪未见
-#: 过敏, 服黄芪无不适, 长期服用黄芪无不良反应, 黄芪耐受, 黄芪可用, 黄芪过敏已排除.
+#: 过敏, 服黄芪无不适, 长期服用黄芪无不良反应, 黄芪耐受, 黄芪可用, 黄芪过敏已排除, 人参可以吃, 人参没问题,
+#: 面部无红肿, without reaction. Tolerance that is poor (耐受差, 耐受性差, 耐受不良) is no denial: it
+#: records an intolerance (``_ALLERGY_CJK``).
 _DENIAL_PHRASE = re.compile(
     r"(?:(?:已|曾|均)?(?:服用过|使用过|用过|服过|吃过|喝过))?(?:"
-    r"(?:无|未见|没有|没|未发现|未出现|未发生|未有|并无|从无|从未|未)"
-    r"(?:明显|任何|特殊|相关|什么)?(?:过敏|不良反应|不适|异常|反应|副作用|皮疹)"
-    r"|不过敏|不会过敏|未过敏|没过敏|没有过敏|无过敏|耐受|可耐受|可以用|可用|可以服|可服|能用"
-    r"|无事|没事|无碍|已排除|已除外|排除|否认)"
-    r"|noreaction|noallerg|notallergic|nosideeffect|noproblem|tolerat")
-#: A clause about using a herb all along, with no reaction in it, says it is tolerated:
-#: 平素服黄芪泡水, 长期服用人参. It is read as a denial, which asks (a block), not as an
-#: allergy; 长期服用人参后出现皮疹 has a reaction and is not one.
-_USE_LEAD = re.compile(r"(?:平素|平时|平日|长期|正在|一直|经常|常年|日常|每天|每日|常)"
-                       r"(?:服用|服|喝|吃|用|使用|食用|饮用|泡水喝|泡水)")
-_REACTION = re.compile(r"过敏|疹|痒|肿|反应|不适|吐|泻|痛|休克|喘|晕|心慌|心悸|胸闷|中毒|不耐|副作用"
-                       r"|allerg|rash|hive|reaction|itch|swell")
+    r"(?:均|都|也|亦)?(?:无|未见|没有|没|未发现|未出现|未发生|未有|并无|从无|从未|未诉|未述|未)"
+    r"(?:明显|任何|特殊|相关|什么|啥)?"
+    r"(?:过敏|不良反应|不适|异常|反应|副作用|皮疹|问题|不舒服|红肿|肿胀|水肿|瘙痒|红疹|风团|疹子|疹|痒|肿"
+    r"|腹泻|恶心|呕吐|头晕|头痛|胸闷|心慌|气促|呼吸困难)"
+    r"|不过敏|不会过敏|未过敏|没过敏|没有过敏|无过敏|可?耐受(?!性?(?:较|很|极|非常|比较)?(?:差|不良|欠佳|不佳|不好|低))"
+    r"|可以用|可用|可以服|可服|能用"
+    r"|可以吃|能吃|可吃|可以喝|能喝|能服|一切正常|一切如常|无事|没事|无碍|无妨|已排除|已除外|排除|否认)"
+    r"|noreaction|noallerg|notallergic|nosideeffect|noproblem|noissue|tolerat"
+    r"|without(?:any)?(?:reaction|allerg|sideeffect|problem|issue|adverse)")
+#: What may stand between a name (or the list it ends) and a denial that says the herb was
+#: used with no reaction: 服用黄芪后无不适, 黄芪服用后未见过敏, 服用黄芪期间无不良反应, 人参吃了没事,
+#: 当归用过，无过敏, 服黄芪3天后无不适, 喝黄芪水后没有不适, ren shen taken previously - no reaction.
+#: Its use word or its 后 / 期间 says the herb was taken, so what follows says it was tolerated.
+_USE_SEGMENT = re.compile(
+    r"(?:was|were|has|have|had|been)*(?:taken|used|tried|eaten|consumed|took|taking|using)"
+    r"(?:it)?(?:previously|before|recently|regularly|daily|often|once|twice|formerly|inthepast)?"
+    r"|(?:泡水|水|茶|汤|粥)?"
+    r"(?:(?:已|曾|均|都|也|多次|长期|一直|经常|平时)?(?:服用|使用|食用|饮用|口服|服|用|吃|喝)(?:过|了|完)?)?"
+    r"(?:\d+(?:个)?多?(?:天|日|周|月|年))?(?:之后|以后|后|期间|时|中|过程中)?")
+#: What may stand between the use and the denial: 当归用过，无过敏; taken previously - no reaction.
+_USE_SEP = ",，-－—–:：∶"
+#: A word after a separator that says a herb can be used: 人参：可, 黄芪（可）, ginseng: ok.
+_TOLERATE_BARE = re.compile(r"可以|可|能|ok|okay|fine")
+#: Of those, the ones that deny an allergy; the rest say the herb is tolerated (耐受, 可用, 无不适,
+#: 无不良反应, tolerates).
+_DENIES_ALLERGY = re.compile(r"过敏|allerg|否认|排除|除外")
+#: Denials that open a clause and say the herb can be used: 可用黄芪, tolerates 黄芪.
+_TOLERATES = frozenset({"可用", "可以用", "能用", "可服", "tolerates", "tolerated", "tolerating"})
 #: A denial written after the name that must end there: 黄芪：无, 黄芪（否）, 黄芪皮试阴性.
 _DENIAL_BARE = re.compile(r"阴性|没有|无|否|negative|neg|none|nil|nkda|nka|no")
 #: "-" is a denial only in brackets or after a colon: 黄芪（-）, 黄芪：-. Not 黄芪 - or 黄芪——皮疹.
@@ -457,12 +565,172 @@ _RETRACTION = re.compile(
 _DENIED_OBJECTS = ("药物", "药品", "食物", "过敏", "其他", "其它", "特殊", "明显",
                    "已知", "任何", "发现")
 #: Marks that do not end a clause: a list goes on after 、 and /, and 否认青霉素、黄芪过敏
-#: denies 黄芪 too.
-_CLAUSE_MARK = re.compile(r"[^\w、/·\-]|_")
+#: denies 黄芪 too; an apostrophe is inside a word (can't, Huang'qi).
+_CLAUSE_MARK = re.compile(r"[^\w、/·\-'’]|_")
 _OPEN_BRACKETS = "(（[【〔"
 #: What a list may end in before a denial written after it: 黄芪、党参等未见过敏.
 _LIST_TAIL = re.compile(r"(?:等(?:中药|药物|药)?|之类|一类|类|均|都|皆|也|全部|等等)*")
 _CLOSE_BRACKETS = ")）]】〕"
+
+#: Words of allergy, of a reaction or symptom, and of a herb to be avoided. A clause that holds
+#: one, or a clause that goes on from it, records an allergy, not a herb taken: 服用北芪后出现
+#: 皮疹, 以前喝过黄芪，出现皮疹, 服用黄芪后，皮肤瘙痒, 黄芪禁用, 黄芪耐受差. Such a word inside a name
+#: the scan found is that name's (泻 of 泽泻, 肿 of 肿节风), not a reaction; so is a symptom
+#: said to improve (咳嗽缓解, 喷嚏减少: ``_IMPROVED``), a symptom a herb is taken for (因咳嗽服用,
+#: 治疗咳嗽: ``_INDICATION``) and the 过敏 of a condition's name (过敏性鼻炎: ``_CONDITIONS``).
+#: The words of a reaction that start with a part of the body (红疹, 身痒, 腹泻, 头晕, 眼睑水肿)
+#: are listed whole, so that a clause opening with one opens with a reaction.
+_ALLERGY_CJK = re.compile(
+    r"过敏|敏感|致敏|变态反应|变应|皮疹|药疹|红疹|斑疹|湿疹|丘疹|荨麻疹|瘙痒|红肿|身痒|水肿|哮喘|腹泻|腹胀"
+    r"|头晕|眩晕|发紧|肝损|肝功能异常|黄疸"
+    r"|耐受性?(?:较|很|极|非常|比较)?(?:差|不良|欠佳|不佳|不好|低)"
+    r"|疹|痒|肿|风团|红斑|斑块|水疱|水泡|疙瘩|起包|鼓包|红点|反应|副作用|不良"
+    r"|不耐|休克|晕|昏厥|喘|憋|胸闷|气促|气急|气短|气紧|呼吸困难|呼吸急促|窒息|喉头|心慌|心悸|心跳"
+    r"|心动过速|呕|吐|恶心|泻|拉肚子|腹痛|胃痛|胃疼|头痛|头疼|中毒|不适|难受|不舒服|发红|潮红|充血"
+    r"|发麻|麻木|刺痛|灼热|烧灼|皮炎|脱皮|咳|喷嚏|流涕|阳性|禁|忌|慎用|停用|勿用|避免|不能用|不能吃"
+    r"|不能服|不能喝|不可服|吃不了|用不了|不敢吃|不敢用|不宜|上火|发热|发烧|出血|鼻血")
+#: Words that say a symptom got better. A word of reaction followed in its clause by one,
+#: with no word of onset before it (服用黄芪后咳嗽缓解, 服用人参后皮疹好转, 喷嚏减少), is a symptom
+#: the herb was taken for, not a reaction; 服用黄芪后出现皮疹，停药后好转 is a reaction.
+_IMPROVED = re.compile(r"好转|缓解|减轻|减少|减弱|消退|消失|改善|痊愈|治愈|好了|已愈|渐愈|向愈|见好|控制|平稳"
+                       r"|有效|效佳|效果好|未再")
+_ONSET = re.compile(r"出现|发生|发作|引起|引发|诱发|导致|致使|所致|起|致")
+_IMPROVED_ASCII = frozenset("""
+improved improving improves better resolved resolving cleared subsided eased relieved reduced gone
+disappeared
+""".split())
+#: Words before a symptom that make it what a herb is taken for: 治疗咳嗽, 用于头痛, 缓解咳嗽;
+#: and 因 / 因为 / 由于 before a symptom with a word of use right after it (因咳嗽服用川贝母).
+_INDICATION = re.compile(r"(?:治疗|医治|主治|治|针对|用于|缓解|改善|减轻|调理|预防|防治)$")
+_BECAUSE = re.compile(r"(?:因为|因|由于)$")
+#: Names of conditions that hold 过敏 (allergic rhinitis): a condition the patient has, not a
+#: reaction to a herb (过敏性鼻炎，服用黄芪后好转). 过敏性皮炎 and 过敏性休克 can be one, and are not
+#: listed.
+_CONDITIONS = re.compile(r"过敏性(?:鼻炎|鼻窦炎|哮喘|结膜炎|紫癜|咳嗽|体质)|过敏体质")
+_ALLERGY_ASCII = ("allerg", "react", "rash", "hive", "itch", "swell", "anaphyla", "intoleran",
+                  "sensitiv", "adverse", "urticari", "wheez", "angioedem", "adr", "contraindicat",
+                  "avoid", "hypersensitiv", "breath", "nause", "vomit", "diarrh", "dizz",
+                  "palpitat", "flush", "blister", "wheal", "welt", "tingl", "numbn", "faint",
+                  "syncop", "headache", "upset", "sick", "unwell", "shock", "edema", "oedema")
+#: English words that say a herb cannot be taken (can't take huang qi, unable to take, does not
+#: tolerate): they record an intolerance, which is read like an allergy.
+_CANNOT_ASCII = frozenset("cannot cant unable".split())
+_CANNOT_NT = frozenset("can couldn shouldn mustn won".split())
+_NOT_TOLERATE = frozenset("not never poorly doesn didn don".split())
+#: Words that say a herb is taken, eaten or used: 目前在吃人参, 现用药：人参, 喜食生姜, 平素服黄芪
+#: 泡水, 每周炖汤加党参, 每日泡黄芪水喝. 食物, 食品, 饮食, 饮片 and 衣服 are not; 用 after 禁, 忌, 慎,
+#: 停, 作 or 药 is not, nor 服 after 停, nor 泡 of 水泡 or 起泡.
+_USE_CJK = re.compile(
+    r"吃|喝|(?<![衣舒说克制停])服(?![务装])|饮(?![食片])|食(?![物品])|泡水|泡茶|(?<![水起气血])泡(?![沫澡脚疹])"
+    r"|炖|煲|煮|熬|嚼|含服|涂|擦|敷|(?<![禁忌慎停勿作药不副])用(?![量法])|常备|进补|药膳|代茶")
+#: Words after a name that say it is taken all along, or used to treat: 人参每日一支, 黄芪泡水,
+#: 党参炖汤, 枸杞常吃, 黄芪治疗过敏性鼻炎有效.
+_USE_AFTER = re.compile(r"每日|每天|每周|每晚|长期|常年|泡水|泡茶|煲汤|炖汤|代茶|在服|在吃|在用|服用中|常吃|常喝|常服"
+                        r"|调理|保健|进补|治疗|主治")
+_USE_ASCII = frozenset("""
+take takes taking took taken on using uses use used drink drinks drinking drank eat eats eating
+ate enjoys enjoy consume consumes consuming supplement supplements supplementing currently
+""".split())
+#: Words a clause that goes on from a herb's may open with before what it tells (``_tells``):
+#: words of sequence and time (结果, 并, 随即, 旋即, 次日, 次晨, 晚上, 服药后, 喝了以后), of the patient
+#: and what they say or feel (患者, 自诉, 自觉, 有), of a part of the body (皮肤, 面部, 嘴唇) and of
+#: degree (明显, 大片). 服用黄芪，结果出现皮疹; 曾服黄芪，有过敏反应; 服黄芪，次晨皮疹; 服用人参后，自觉无
+#: 不适. A clause that opens with anything else names something of its own (目前在吃人参，青霉素过敏;
+#: 服用黄芪后，有青霉素过敏史) and tells nothing of the herb.
+_NARRATIVE_CJK = frozenset("""
+出现 发生 发作 引起 引发 导致 诱发 致 起 有 有过 又 还 也 均 都 并 并且 且 而 但 但是 可是 不过 然而 却
+随即 旋即 立即 立刻 马上 当即 即刻 即 就 便 遂 随之 继之 然后 之后 以后 后 后来 继而 接着 随后 稍后 不久
+没多久 没过多久 不多久 很快 片刻 一会 一会儿 结果 最终 最后 终于 开始 逐渐 渐渐 渐 突然 突发 约 大约 左右
+多次 反复 再次 又一次 当天 当晚 当日 当夜 当时 次日 翌日 次晨 翌晨 隔天 隔日 隔夜 第二天 第二日 晚上 夜里
+夜间 半夜 凌晨 早上 早晨 清晨 上午 中午 下午 傍晚 白天 同时 期间 一直 至今 随访 目前 服药后 用药后 药后
+服后 用后 吃后 喝后 食后 饮后 吃了以后 喝了以后 吃完 喝完 服完 吃了 喝了 服了 用了 患者 病人 本人 患儿 其
+自诉 自述 诉 述 主诉 家属诉 自觉 自感 感觉 感到 觉得 发现 伴 伴有 全身 周身 浑身 身体 身上 皮肤 面部 颜面
+面颊 面色 脸 脸上 脸部 嘴唇 口唇 口周 口腔 口角 嘴 舌头 舌体 眼睛 眼睑 眼周 双眼 眼部 躯干 四肢 上肢 下肢
+双手 手部 手臂 手背 手掌 双腿 腿部 胸部 胸口 胸前 背部 腹部 胃部 喉咙 喉头 咽喉 咽部 头部 头面 头皮 颈部
+脖子 耳朵 鼻子 局部 多处 大片 散在 少量 轻度 中度 重度 明显 严重 红色
+""".split())
+_NARRATIVE_MAX = max(map(len, _NARRATIVE_CJK))
+#: A time after the herb: 3小时后, 十余分钟后, 1h后, 30min后, 第三天, 第2天, 一周内.
+_NARRATIVE_TIME = re.compile(
+    r"第?(?:\d+|[一二两三四五六七八九十百半几数]+)(?:余|多)?个?多?"
+    r"(?:分钟|分|小时|钟头|天|日|周|星期|月|晚|次|(?:min|mins|h|hr|hrs)(?![a-z]))"
+    r"(?:之后|以后|后|内|以内|左右|许)?")
+_NARRATIVE_ASCII = frozenset("""
+then and also but so later after afterwards soon immediately shortly subsequently next within
+same following that this the a an some few several day days hour hours hr hrs h minute minutes
+min mins week weeks night nights morning evening overnight she he they patient pt who which it
+got get gets getting had has have developed develops develop broke breaks break out experienced
+experiences noticed felt feels feel suffered presented resulted leading led became becomes become
+started starts began begins with causing caused resulting followed skin face facial lips lip eyes
+eye eyelids tongue throat mouth body whole entire generalized generalised all over arms arm legs
+leg hands hand chest neck severe mild last year years month months ago previously before
+recently earlier once twice today yesterday
+""".split())
+#: Words of allergy right before what a statement of its own names: 过敏原为青霉素, allergic to
+#: penicillin. A clause that opens with one names another allergen, not a reaction to the herb.
+_NAMES_AN_ALLERGEN = ("过敏原", "过敏源", "过敏药", "过敏物", "过敏食物", "致敏原", "变应原")
+_PRONOUNS = frozenset("it this that them these those".split())
+#: Words after a name in its clause that name it as a cause: 与服用黄芪有关, 服用黄芪所致, 服黄芪引起.
+#: A herb named as the cause of something is no herb merely taken.
+_CAUSE_CJK = re.compile(r"所致|有关|相关|引起|引发|导致|诱发|造成|致使|而致|所引")
+#: A cause written right before the herb: 全身皮疹，因服用黄芪; 由于吃人参.
+_CAUSE_BEFORE = re.compile(r"(?:因为|因|由于)(?:服用|服|吃了|吃|喝了|喝|使用|用了|用|食用)?$")
+_CAUSE_ASCII = frozenset("caused due induced related attributed secondary triggered".split())
+#: Denials that are a statement of their own and take no object: NKDA, NKA, nil, none. A name
+#: after one with a word of allergy after it is another statement: NKDA 黄芪过敏.
+_COMPLETE_DENIALS = frozenset("nkda nka nkfa nil none".split())
+#: Words after allergies that make it the object of a denial still open (no allergy to …).
+_ALLERGY_OF = frozenset("""
+to against of for with from toward towards reaction reactions history hx status or nor
+""".split())
+#: Labels after which a name is a person's (记录人：姜, 姓名：黄精): in a history a label that
+#: introduces a person names nobody's allergy.
+_PERSON_CJK = re.compile(
+    r"(?:记录人|记录者|记录员|签名|签字|医生|医师|护士|询问人|询问者|填写人|填表人|录入人|录入者"
+    r"|审核人|姓名|联系人|翻译|陪诊|陪同|采集人|采集者|操作者)[:：∶]?$")
+#: Titles before a Latin-lettered name, or after it, that make it a person's: Dr. Huang Jing,
+#: interpreter Hong Hua, son Yuan Zhi, patient name: Huang Qi, Du Zhong, RN. A name label
+#: that says whose name it is makes it a person's; one that names a drug (Allergen name:,
+#: Drug name:, Substance name:) does not, and a bare one (Name:) leaves it unconfirmed.
+_PERSON_BEFORE = re.compile(
+    r"(?:\b(?:dr|doctor|mr|mrs|ms|miss|prof|professor|nurse|pharmacist|interpreter|translator"
+    r"|son|daughter|wife|husband|mother|father|brother|sister|per"
+    r"|(?:patient|patient's|pt|full|first|last|family|given|maiden|person's|staff|user|caller"
+    r"|signer|doctor's|nurse's|recorder|clinician|provider|physician|informant|contact)\s+name"
+    r"|(?:reviewed|recorded|confirmed|signed|seen|completed|entered|written|taken|checked|obtained)"
+    r"\s+by|history\s+from)\b\.?\s*[:：,，\-–]?\s*)$")
+_PERSON_AFTER = re.compile(r"^\s*[,，]?\s*\b(?:rn|md|rph|np|pa|lpn|mbbs|phd|pharmd)\b")
+#: A bare name label right before a Latin-lettered name: Name: huang qi.
+_NAME_LABEL = re.compile(r"(?:^|[^a-z'’])name\s*[:：\-–]?\s*$")
+_DRUG_NAME_LABEL = re.compile(
+    r"\b(?:allergen|allergy|allergic|drug|substance|medication|medicine|med|herb|herbal|product"
+    r"|agent|item|ingredient|food|trade|brand|generic|chemical|causative|offending)\s+name"
+    r"\s*[:：\-–]?\s*$")
+#: Words of an English allergy line that are not names: Allergy: huang qi and ren shen;
+#: Substance name: ren shen.
+_ASCII_LABELS = frozenset("""
+to and or hx history list known drug drugs med meds medication medications herb herbs herbal
+x the a an of name names substance substances agent agents product products item items
+ingredient ingredients food foods
+""".split())
+#: The common drug, food and other allergens an English allergy list writes next to a herb
+#: (penicillin/huang qi, sulfa and ren shen, codeine ren shen): a list of them is an allergy
+#: list, so a pinyin or Latin name in it is no person's name. They are read as words of such a
+#: list only; none of them is a name the scan looks for.
+_ASCII_ALLERGENS = frozenset("""
+penicillin penicillins pcn amoxicillin amoxil augmentin ampicillin cephalosporin cephalosporins
+cephalexin keflex ceftriaxone cefazolin cefuroxime sulfa sulpha sulfas sulfonamide sulfonamides
+sulfamethoxazole bactrim septra codeine morphine oxycodone hydrocodone tramadol opioid opioids
+opiates aspirin asa nsaid nsaids ibuprofen advil motrin naproxen diclofenac acetaminophen
+paracetamol tylenol tetracycline doxycycline minocycline erythromycin azithromycin
+clarithromycin macrolide macrolides quinolone quinolones fluoroquinolones ciprofloxacin cipro
+levofloxacin moxifloxacin vancomycin metronidazole clindamycin nitrofurantoin gentamicin
+streptomycin neomycin lidocaine novocaine procaine heparin insulin allopurinol carbamazepine
+phenytoin lamotrigine statin statins iodine contrast latex shellfish seafood shrimp prawn crab
+lobster fish peanut peanuts nut nuts walnut walnuts almond almonds cashew egg eggs milk dairy
+lactose wheat gluten soy soya sesame mango mangoes strawberry strawberries kiwi pollen dust
+mite mites dander cat cats dog dogs bee bees wasp wasps nickel adhesive tape alcohol
+""".split())
 
 
 # ============================================================== the scan vocabulary
@@ -484,22 +752,27 @@ class _Formula:
 
 @dataclass(frozen=True)
 class _Vocab:
-    trie: dict
+    trie: dict                    # every Chinese name, formula and everyday word, with its kind
+    longest: int
     names: frozenset[str]
     ascii: Mapping[str, tuple[_Ascii, ...]]
     ascii_max: int
     formulas: Mapping[str, _Formula]
-    formula_trie: dict
     known: frozenset[str]         # the pack's herbs and cited aliases
 
 
-def _trie(names: Iterable[str]) -> dict:
+_KIND_RANK = {"formula": 3, "name": 2, "other": 1}
+
+
+def _trie(items: Iterable[tuple[str, str]]) -> dict:
     root: dict = {}
-    for n in names:
+    for n, kind in items:
         node = root
         for c in n:
             node = node.setdefault(c, {})
-        node[""] = n                    # no character is "", so this marks a whole name
+        old = node.get("")             # no character is "", so this marks a whole name
+        if old is None or _KIND_RANK[kind] > _KIND_RANK[old]:
+            node[""] = kind
     return root
 
 
@@ -553,19 +826,27 @@ _NOT_GENERA = frozenset({"glycine", "iris", "passer", "apis", "aster", "piper", 
 _VOCABS: dict[tuple[int, str], _Vocab] = {}
 
 #: The product forms one formula is sold or written in: 补中益气汤 is also 补中益气丸, 天麻钩藤饮
-#: also 天麻钩藤颗粒. 散 and 饮 are not among them: 四逆散 is another formula than 四逆汤.
+#: also 天麻钩藤颗粒. For a formula of the pack, 散 and 饮 too (四物散, 天麻钩藤汤); not for the
+#: knowledge base's, where 四逆散 is another formula than 四逆汤.
 _FORMULA_ENDINGS = ("注射液", "口服液", "软胶囊", "胶囊", "颗粒", "合剂", "冲剂", "糖浆", "滴丸",
                     "汤", "散", "丸", "饮", "方", "膏", "丹", "片")
 _PRODUCT_FORMS = ("丸", "汤", "颗粒", "胶囊", "软胶囊", "片", "口服液", "合剂", "冲剂", "糖浆",
-                  "滴丸", "浓缩丸", "水丸", "蜜丸", "大蜜丸", "小蜜丸")
+                  "滴丸", "浓缩丸", "水丸", "蜜丸", "大蜜丸", "小蜜丸", "膏", "方")
+_PACK_PRODUCT_FORMS = ("散", "饮")
+#: A form that, after a single herb's name, is that herb (麻黄片 is sliced 麻黄), so a formula
+#: named after one herb is not read in it. 桂枝颗粒 is read as 桂枝汤 in granules (a product of
+#: that name exists), which asks about 桂枝 and the rest of 桂枝汤 alike.
+_HERB_PRODUCT_FORMS = ("片",)
 
 
 def _formulas(kb: Any, pack: Any, cjk: set[str]) -> dict[str, _Formula]:
     """Every formula the pack and the knowledge base hold, under its own name, its aliases
     and its name in the other product forms, with its herbs."""
     exact: dict[str, _Formula] = {}
+    of_pack: set[str] = set()
     for name, f in (getattr(pack, "formulas", None) or {}).items():
         exact[fold(name)] = _Formula(name, tuple(h for h, _ in f.herbs), "知识包")
+        of_pack.add(fold(name))
     for f in (getattr(kb, "formulas", None) or {}).values():
         herbs = []
         for ing in getattr(f, "ingredients", ()):
@@ -588,9 +869,12 @@ def _formulas(kb: Any, pack: Any, cjk: set[str]) -> dict[str, _Formula]:
     for written, f in exact.items():
         ending = next((e for e in _FORMULA_ENDINGS if written.endswith(e)), "")
         stem = written[:-len(ending)] if ending else ""
-        if len(stem) < 2 or stem in cjk:          # 麻黄汤's 麻黄片 is sliced 麻黄
+        if len(stem) < 2:
             continue
-        for form in _PRODUCT_FORMS:
+        forms = _PRODUCT_FORMS + (_PACK_PRODUCT_FORMS if written in of_pack else ())
+        for form in forms:
+            if stem in cjk and form in _HERB_PRODUCT_FORMS:
+                continue
             v = stem + form
             if v not in out and v not in cjk:
                 out[v] = _Formula(f.name, f.herbs, f.source,
@@ -648,7 +932,9 @@ def _vocab(kb: Any, pack: Any = None) -> _Vocab:
             add_ascii(form, _Ascii("name", (fold(entry.chinese),),
                                    _order("药材名表所载的拉丁名", entry.latin, form)))
         add_species(entry.species_names, "药材名表所载的物种名", "药材名表（materia）")
-    cjk.update(f for n in _materia_names() if _all_cjk(f := normalise(fold(n))))
+    # every name the materia table lists, also one written with a character outside the
+    # CJK blocks (芎 followed by a private-use character for a rare one)
+    cjk.update(f for n in _materia_names() if (f := normalise(fold(n))) and not f.isascii())
     known: set[str] = set()
     if pack is not None:
         cjk.update(f for h in pack.herbs if _all_cjk(f := normalise(fold(h))))
@@ -672,6 +958,7 @@ def _vocab(kb: Any, pack: Any = None) -> _Vocab:
             for n in names:
                 add_ascii(n, _Ascii("species", tuple(species),
                                     f"英文俗名，通常指{'、'.join(species)}（{src}）", src))
+
     def one_each(entries: set[_Ascii]) -> tuple[_Ascii, ...]:
         # a Latin name two tables give one herb, or a species two tables hold, is one name
         first: dict[tuple[str, tuple[str, ...]], _Ascii] = {}
@@ -680,18 +967,15 @@ def _vocab(kb: Any, pack: Any = None) -> _Vocab:
         return tuple(first.values())
 
     formulas = _formulas(kb, pack, cjk)
-    vocab = _Vocab(_trie(cjk), frozenset(cjk),
+    items = [*((n, "name") for n in cjk), *((f, "formula") for f in formulas),
+             *((w, "other") for w in _OTHER_WORDS)]
+    vocab = _Vocab(_trie(items), max(len(n) for n, _ in items), frozenset(cjk),
                    {k: one_each(v) for k, v in ascii_names.items()}, longest,
-                   formulas, _trie(formulas), frozenset(known))
+                   formulas, frozenset(known))
     if len(_VOCABS) > 8:
         _VOCABS.clear()
     _VOCABS[key] = vocab
     return vocab
-
-
-@lru_cache(maxsize=1)
-def _other_trie() -> dict:
-    return _trie(_OTHER_WORDS)
 
 
 # ============================================================== the scan
@@ -702,10 +986,12 @@ class Mention:
     ``name`` is the name as the tables write it (the Chinese name a Latin or pinyin name is
     of, the formula a product name is of, the species a species name or common name is of);
     ``written`` the record's own text when it differs (huangqi, astragali radix, 补中益气丸).
-    ``word`` is the longer word the name stands inside ("" when it stands as a word):
-    郁金香 for 郁金. ``denied`` says the record denies an allergy to it. ``kind`` is "name",
-    "part" (a part or an abbreviation of ``of``, a name of a prescribed herb: 淮山 of 淮山药),
-    "formula" (``of`` is the formula), "species" or "genus" (``species`` holds them).
+    ``word`` is the longer word the name stands inside ("" when it stands): 郁金香 for 郁金.
+    ``denied`` says the record denies an allergy to it, ``taken`` that the record says it is
+    taken or eaten with no reaction. ``kind`` is "name", "formula" (``of`` is the formula),
+    "species" or "genus" (``species`` holds them). ``context`` is "unconfirmed" for a Latin
+    or pinyin name in an English sentence that says nothing of an allergy, and "name_label"
+    for one right after a bare name label (Name: huang qi), which may introduce a person.
     """
 
     name: str
@@ -718,86 +1004,22 @@ class Mention:
     kind: str = "name"
     of: str = ""
     species: tuple[str, ...] = ()
-    #: ``denied`` only because the record says the herb is used all along with no reaction
-    tolerated: bool = False
+    taken: bool = False
+    context: str = ""
 
 
-def _compact(text: str) -> tuple[str, frozenset[int], tuple[int, ...]]:
-    """``text`` without whitespace, the positions in the result that had some before, and
-    for each character of the result its position in ``text``."""
+def _compact(text: str) -> tuple[str, frozenset[int], tuple[int, ...], frozenset[int],
+                                 frozenset[int]]:
+    """``text`` without whitespace, the positions in the result that had some before, for
+    each character of the result its position in ``text``, the positions whose whitespace
+    before held a line break or a tab, and of those the ones that held a line break."""
     keep = [i for i, c in enumerate(text) if not c.isspace()]
     gaps = frozenset(k for k in range(1, len(keep)) if keep[k] != keep[k - 1] + 1)
-    return "".join(text[i] for i in keep), gaps, tuple(keep)
-
-
-def _longest(trie: dict, t: str, i: int, limit: int = 16) -> int:
-    node, best, j, n = trie, -1, i, len(t)
-    while j < n and j - i < limit:
-        node = node.get(t[j])
-        if node is None:
-            break
-        j += 1
-        if "" in node:
-            best = j
-    return best
-
-
-#: Which reading wins where two of one length start at one place.
-_KIND_RANK = {"formula": 4, "name": 3, "part": 2, "other": 1}
-
-
-def _spans(t: str, gaps: frozenset[int], tries: Sequence[tuple[str, dict]]
-           ) -> list[tuple[int, int, str]]:
-    """(start, end, kind) of the longest known name at each position, a name inside a longer
-    one that starts before it dropped. A name is read across whitespace (北 芪) only where no
-    name of two characters or more stands, within the whitespace, on any of its characters:
-    姜 / 半夏 is 姜 and 半夏, not 姜半夏."""
-    from ..sources.materia import names_in
-    n = len(t)
-    cuts = sorted(gaps)
-    inner: dict[int, tuple[int, str]] = {}           # within one whitespace-free stretch
-    across: dict[int, tuple[int, str]] = {}
-
-    def better(table: dict, s: int, e: int, kind: str) -> None:
-        old = table.get(s)
-        if old is None or (e - s, _KIND_RANK[kind]) > (old[0] - s, _KIND_RANK[old[1]]):
-            table[s] = (e, kind)
-
-    for kind, trie in tries:
-        if not trie:
-            continue
-        for i, c in enumerate(t):
-            if c not in trie:
-                continue
-            k = bisect_right(cuts, i)
-            stop = cuts[k] if k < len(cuts) else n
-            e = _longest(trie, t, i, min(16, stop - i))
-            if e > 0:
-                better(inner, i, e, kind)
-            if stop < n:
-                e2 = _longest(trie, t, i)
-                if e2 > stop:
-                    better(across, i, e2, kind)
-    bounds = [0, *cuts, n]
-    for a, b in zip(bounds, bounds[1:]):
-        for m in names_in(t[a:b]):
-            # an identity word before a known name that makes no known name (白首乌): the
-            # known name is read inside the longer word, like any other
-            s = a + m.start + (1 if m.drug_id is None and m.contains else 0)
-            better(inner, s, a + m.start + len(m.name), "name")
-    covered = {p for s, (e, _) in inner.items() if e - s >= 2 for p in range(s, e)}
-    for s, (e, kind) in across.items():
-        if not any(p in covered for p in range(s, e)):
-            better(inner, s, e, kind)
-    out: list[tuple[int, int, str]] = []
-    reach = -1
-    for s in sorted(inner):
-        e, kind = inner[s]
-        if e <= reach:
-            continue
-        out.append((s, e, kind))
-        reach = max(reach, e)
-    return out
+    breaks = frozenset(k for k in gaps
+                       if any(c in _LINE_BREAKS for c in text[keep[k - 1] + 1:keep[k]]))
+    lines = frozenset(k for k in breaks
+                      if any(c in _LINE_BREAKS and c != "\t" for c in text[keep[k - 1] + 1:keep[k]]))
+    return "".join(text[i] for i in keep), gaps, tuple(keep), breaks, lines
 
 
 def _tokens(t: str, gaps: frozenset[int]) -> list[tuple[int, int]]:
@@ -821,14 +1043,13 @@ _ASCII_JOINERS = frozenset(("", "-", ".", "'", "’", "‘", "–", "—", "‐"
 _TONE = re.compile(r"(?<=[a-z])[1-5]$")
 
 
-def _ascii_spans(t: str, gaps: frozenset[int], vocab: _Vocab
+def _ascii_spans(t: str, toks: Sequence[tuple[int, int]], vocab: _Vocab
                  ) -> list[tuple[int, int, _Ascii]]:
     """(start, end, what) of each Latin, pinyin, species or English name, as whole words:
     astragali radix, radix astragali, astragaliradix, huangqi, huang qi, huang2 qi2, Huáng
     Qí, panax ginseng, ginger."""
     if not vocab.ascii:
         return []
-    toks = _tokens(t, gaps)
     words = [_TONE.sub("", t[s:e]) for s, e in toks]
     out: list[tuple[int, int, _Ascii]] = []
     a = 0
@@ -882,365 +1103,891 @@ def _negation(t: str, i: int, limit: int, gaps: frozenset[int]) -> str:
     return w
 
 
-def _same_drug(kb: Any, word: str, name: str) -> bool:
-    """``word``, a longer word holding ``name``, is the same drug by the tables: the
-    materia table resolves it to the same entry (甘草片, 山药粉, 生鸡蛋), the knowledge base
-    to the same herb (炙北芪), or it is ``name`` processed (炒夜交藤, 制黑顺片)."""
-    from ..sources.materia import resolve_name
-    m_word = resolve_name(word)
-    if m_word is not None and m_word == resolve_name(name):
-        return True
-    i_word = _identity(kb, word)
-    return bool(i_word) and i_word == _identity(kb, name) or _processed(word, name)
+#: The longest excerpt of a word a name stands inside that a message quotes, on each side.
+_WORD_REACH = 6
 
 
-@dataclass(frozen=True)
-class _Parts:
-    """Parts of the prescribed herbs' names: part -> the name it is of."""
-    trie: dict
-    of: Mapping[str, str]
+class _Reader:
+    """One record, read: the names it holds, each in its place (see the module doc)."""
 
+    def __init__(self, record: Any, kb: Any, vocab: _Vocab):
+        self.kb, self.vocab = kb, vocab
+        self.record = record
+        self.shown = _shown_text(record)
+        self._raw: tuple[str, list[int]] | None = None
+        self.f = _fold_shown(self.shown)              # folded, whitespace kept
+        self.t, self.gaps, self.keep, self.breaks, lines = _compact(self.f)
+        self.n = len(self.t)
+        self.cuts = sorted(self.gaps)
+        self.break_list = sorted(self.breaks)
+        self.line_list = sorted(lines)
+        self._dl: dict[tuple[int, bool, bool], bool] = {}
+        self._dr: dict[tuple[int, bool, bool], bool] = {}
+        self._da: dict[int, str] = {}
+        self._nw: list[int] | None = None
 
-_NO_PARTS = _Parts({}, {})
+    # ---------------------------------------------------------------- text helpers
+    def raw(self) -> tuple[str, list[int]]:
+        """The record as written (visible characters only) and, for each character of the
+        normalised text, where it comes from in it. Where NFKC joins characters (a
+        combining mark), the normalised text itself."""
+        if self._raw is None:
+            raw = _visible(str(self.record or ""))
+            pieces = [unicodedata.normalize("NFKC", c) for c in raw]
+            if "".join(pieces) == self.shown:
+                self._raw = (raw, [i for i, piece in enumerate(pieces) for _ in piece])
+            else:
+                self._raw = (self.shown, list(range(len(self.shown))))
+        return self._raw
 
+    def text(self, a: int, b: int) -> str:
+        """The record as written between compact positions ``a`` and ``b``, whitespace
+        between them shown as one space."""
+        raw, at = self.raw()
+        out, last = [], -1
+        for p in range(a, b):
+            r = at[self.keep[p]]
+            if r != last:
+                out.append((" " if p in self.gaps and p > a else "") + raw[r])
+                last = r
+        return "".join(out)
 
-def _read(t: str, gaps: frozenset[int], kb: Any, vocab: _Vocab, parts: _Parts = _NO_PARTS,
-          shown: tuple[str, Sequence[int]] | None = None) -> list[Mention]:
-    """Every name in the compact, folded record ``t``, read in its place. ``shown`` is the
-    record as written and where each character of ``t`` is in it, to quote a Latin or pinyin
-    name as the record writes it (Radix Astragali, not radix astragali)."""
-    spans = _spans(t, gaps, (("formula", vocab.formula_trie), ("name", vocab.trie),
-                             ("part", parts.trie), ("other", _other_trie())))
-    latin = _ascii_spans(t, gaps, vocab)
-    n = len(t)
-    end_at = {s: e for s, e, _ in spans}
-    end_at.update({s: e for s, e, _ in latin})
-    bounds = sorted({0, *(m.end() for m in _CLAUSE_MARK.finditer(t)),
-                     *(g for g in gaps if 0 < g < n and _cjk(t[g - 1]) and _cjk(t[g]))})
-    closers = [m.start() for m in _CLOSERS.finditer(t)]
-    reactions = [m.start() for m in _REACTION.finditer(t)]
-    named: dict[int, int] = {}          # start -> end of each name read (filled below)
+    def snippet(self, a: int, b: int, reach: int = 12) -> str:
+        lo, hi = max(0, a - reach), min(self.n, b + reach)
+        return ("…" if lo > 0 else "") + self.text(lo, hi) + ("…" if hi < self.n else "")
 
-    def opens_denial(cs: int, s: int) -> str:
-        """How the clause that starts at ``cs`` denies what is at ``s``: "deny" (it opens
-        with a denial no closer ends before ``s``), "use" (it says the herb is used all
-        along, and no reaction follows), or ""."""
-        i, at = cs, [cs]
+    def crosses(self, s: int, e: int) -> bool:
+        k = bisect_right(self.cuts, s)
+        return k < len(self.cuts) and self.cuts[k] < e
+
+    def broken(self, s: int, e: int, tabs: bool = True) -> bool:
+        """A line break or a tab stands before some position from ``s`` to ``e``: whitespace
+        that ends a line or a field, which no name crosses. With ``tabs`` false, a line break
+        only: the cells of one row of a table (黄芪\\t服用中\\t无不适) tell one story, which no line
+        break crosses."""
+        marks = self.break_list if tabs else self.line_list
+        k = bisect_left(marks, s)
+        return k < len(marks) and marks[k] <= e
+
+    def everyday(self, p: int) -> bool:
+        """An everyday word (``_EVERYDAY``) holds the characters on both sides of ``p``: 对于,
+        蛋白. Not where its first character ends a word of use (服用于术, 使用于术)."""
+        t = self.t
+        return (0 < p < self.n and t[p - 1:p + 1] in _EVERYDAY
+                and not (p >= 2 and t[p - 2:p] in _EVERYDAY_BROKEN))
+
+    # ---------------------------------------------------------------- boundaries
+    def dl(self, p: int, spaced: bool, one: bool = False) -> bool:
+        """A boundary of its own before position ``p``. ``spaced`` is the first reading, in
+        which whitespace is one; ``one`` asks it for a name of one character."""
+        key = (p, spaced, one)
+        if key not in self._dl:
+            t = self.t
+            if p <= 0:
+                v = True
+            elif self.everyday(p):
+                v = False
+            elif spaced and p in self.gaps:
+                v = True
+            elif not _cjk(t[p - 1]):
+                v = True
+            elif one:
+                v = _ends_with(t, p, _BEFORE_ONE, _BEFORE_ONE_MAX)
+            else:
+                v = _ends_with(t, p, _BEFORE, _BEFORE_MAX)
+            self._dl[key] = v
+        return self._dl[key]
+
+    def dr(self, p: int, spaced: bool, one: bool = False) -> bool:
+        """A boundary of its own after position ``p``."""
+        key = (p, spaced, one)
+        if key not in self._dr:
+            t = self.t
+            if p >= self.n:
+                v = True
+            elif spaced and p in self.gaps:
+                v = True
+            elif t.startswith(_PRODUCT_WORDS, p):
+                v = False
+            elif not _cjk(t[p]):
+                v = True
+            elif one:
+                v = _starts_with(t, p, _AFTER_ONE, _AFTER_ONE_MAX)
+            else:
+                v = _starts_with(t, p, _AFTER, _AFTER_MAX)
+            self._dr[key] = v
+        return self._dr[key]
+
+    def next_word(self, p: int) -> int:
+        """The first position at or after ``p`` that holds a letter, a digit or a Chinese
+        character (``n`` if none): worked out once for the whole record."""
+        if self._nw is None:
+            t, n = self.t, self.n
+            nw = [n] * (n + 1)
+            for i in range(n - 1, -1, -1):
+                nw[i] = i if (t[i].isalnum() or _cjk(t[i])) else nw[i + 1]
+            self._nw = nw
+        return self._nw[min(p, self.n)]
+
+    # ---------------------------------------------------------------- reading
+    def read(self) -> list[Mention]:
+        t, n = self.t, self.n
+        if not n:
+            return []
+        vocab = self.vocab
+        # 1. every name at every place
+        cands: list[tuple[int, int, str]] = []
+        root, longest = vocab.trie, vocab.longest
+        for i in range(n):
+            node = root.get(t[i])
+            j = i
+            while node is not None:
+                j += 1
+                kind = node.get("")
+                if kind is not None:
+                    cands.append((i, j, kind))
+                if j >= n or j - i >= longest:
+                    break
+                node = node.get(t[j])
+        crossing = [self.crosses(s, e) for s, e, _ in cands]
+        # 2. which stand: a boundary of its own on each side, or a chain of names of two
+        # characters or more that leads to one (北芪人参过敏). The first reading (A) has
+        # whitespace as a boundary and no name across it; the second (B) has neither.
+        ends_at: dict[int, list[int]] = {}
+        starts_at: dict[int, list[int]] = {}
+        for x, (s, e, kind) in enumerate(cands):
+            if e - s >= 2 and kind != "other":
+                ends_at.setdefault(e, []).append(x)
+                if kind == "name":
+                    starts_at.setdefault(s, []).append(x)
+        positions = sorted({p for s, e, _ in cands for p in (s, e)})
+        la: dict[int, bool] = {}
+        lb: dict[int, bool] = {}
+        for p in positions:
+            a, b = self.dl(p, True), self.dl(p, False)
+            if not self.everyday(p):
+                for x in ends_at.get(p, ()):
+                    s = cands[x][0]
+                    a = a or (not crossing[x] and la.get(s, False))
+                    b = b or lb.get(s, False)
+            la[p], lb[p] = a, b
+        ra: dict[int, bool] = {}
+        rb: dict[int, bool] = {}
+        for p in reversed(positions):
+            a, b = self.dr(p, True), self.dr(p, False)
+            for x in starts_at.get(p, ()):
+                e = cands[x][1]
+                a = a or (not crossing[x] and ra.get(e, False))
+                b = b or rb.get(e, False)
+            ra[p], rb[p] = a, b
+        self.la, self.lb, self.ra, self.rb = la, lb, ra, rb
+
+        def stands(x: int) -> bool:
+            s, e, kind = cands[x]
+            spaced = not crossing[x]
+            lx, rx = (la, ra) if spaced else (lb, rb)
+            if kind == "formula":
+                return self.dl(s, spaced) and rx[e]
+            if e - s == 1:
+                return self.dl(s, spaced, True) and self.dr(e, spaced, True)
+            if kind == "name" and self.everyday(s):
+                # 对于术过敏, 对于术及青霉素过敏: the 于 of 对于 may start 于术 after all, where 对
+                # stands as a word, the name stands on its right, and its last character does not
+                # start an everyday word there (对于术后 is 对于 + 术后)
+                return (t[s - 1] in _BEFORE and self.dl(s - 1, spaced) and rx[e]
+                        and t[e - 1:e + 1] not in _EVERYDAY_NEXT)
+            return lx[s] and rx[e]
+
+        standing = [kind != "other" and stands(x) for x, (_, _, kind) in enumerate(cands)]
+        # 3. a name inside a longer standing name (or an everyday word) is that one's
+        cover_a = _Cover([(s, e) for x, (s, e, k) in enumerate(cands)
+                          if (standing[x] and not crossing[x]) or k == "other"
+                          or (k == "formula" and not crossing[x])])
+        cover_b = _Cover([(s, e) for x, (s, e, _) in enumerate(cands)
+                          if standing[x] and crossing[x]])
+        stand2 = _Marks(n, [(s, e) for x, (s, e, _) in enumerate(cands)
+                            if standing[x] and not crossing[x] and e - s >= 2])
+        stand1 = _Marks(n, [(s, e) for x, (s, e, _) in enumerate(cands)
+                            if standing[x] and not crossing[x]])
+        # a name that does not stand and shares a character with an everyday word is that
+        # word's (头发 across 舌头|发麻)
+        others = _Marks(n, [(s, e) for s, e, k in cands if k == "other"])
+        keep_x: list[int] = []
+        for x, (s, e, kind) in enumerate(cands):
+            if kind == "other" or cover_a.covers(s, e):
+                continue
+            if not standing[x] and others.any(s, e):
+                continue
+            if crossing[x]:
+                # a name across whitespace is read only where it stands as one word (北 芪过敏),
+                # or as a processed form (炙 黄芪), never across a line break or a tab: 柑橘 皮疹
+                # is not 橘皮, 花生 地塞米松 is not 生地, 樱桃\n花生 is not 桃花
+                if (self.broken(s + 1, e - 1) or cover_b.covers(s, e) or stand2.any(s, e)
+                        or (not standing[x] and (stand1.any(s, e) or kind != "name"
+                                                 or self._processed_word(s, e, False) is None))):
+                    continue
+            elif not standing[x] and cover_b.covers(s, e):
+                continue
+            keep_x.append(x)
+        # 4. a name that starts with a denial's character and runs into what a denial
+        # names is the denial (没药物过敏史)
+        dropped: set[int] = set()
+        for x in keep_x:
+            s, e, kind = cands[x]
+            if kind == "name" and not crossing[x]:
+                neg = _negation(t, s, e, self.gaps)
+                if (neg and _cjk(neg[0]) and not ra.get(e, False)
+                        and t.startswith(_DENIED_OBJECTS, s + len(neg))):
+                    dropped.add(x)
+        keep_x = [x for x in keep_x if x not in dropped]
+        self.named = {cands[x][0]: cands[x][1] for x in keep_x if cands[x][2] != "other"}
+        self.toks = _tokens(t, self.gaps)
+        latin = _ascii_spans(t, self.toks, vocab)
+        self.end_at: dict[int, int] = {}
+        for x in keep_x:
+            if standing[x]:
+                s, e, _ = cands[x]
+                self.end_at[s] = max(self.end_at.get(s, 0), e)
+        for s, e, _ in latin:
+            self.end_at[s] = max(self.end_at.get(s, 0), e)
+        self.latin_cover = _Cover([(s, e) for s, e, _ in latin])
+        self._clause_marks(_Marks(n, [(cands[x][0], cands[x][1]) for x in keep_x
+                                      if cands[x][2] != "other"]))
+        # 5. each name in its place
+        out: list[Mention] = []
+        for x in keep_x:
+            s, e, kind = cands[x]
+            name = t[s:e]
+            spaced = not crossing[x]
+            if self._person(s, e):
+                continue
+            if standing[x]:
+                out.append(self._mention(kind, name, s, e))
+                continue
+            if e - s == 1 and kind == "name":
+                continue                  # a name of one character inside a word is no name
+            if kind == "name":
+                whole = self._processed_word(s, e, spaced)
+                if whole is not None:
+                    a, b = whole
+                    out.append(self._mention("name", t[a:b], a, b))
+                    continue
+            a, b = self._word(s, e, spaced)
+            word = (("…" if not self._left(a, spaced) else "") + self.text(a, b)
+                    + ("…" if not self._right(b, spaced) else ""))
+            out.append(self._mention(kind, name, s, e, word=word, span=(a, b)))
+        for s, e, entry in latin:
+            if self._person_ascii(s, e):
+                continue
+            written = self.text(s, e)
+            denied, taken = self._status(s, e)
+            if entry.kind == "name":
+                ctx = "" if denied or taken else (self._bare_name_label(s, e)
+                                                  or self._ascii_context(s, e))
+                out.append(Mention(entry.target[0], s, e, written=written, how=entry.how,
+                                   denied=denied, taken=taken, context=ctx))
+            else:
+                out.append(Mention(written, s, e, written=written, how=entry.how,
+                                   kind=entry.kind, species=entry.target, denied=denied,
+                                   taken=taken, of=entry.source))
+        return sorted(out, key=lambda m: (m.start, m.end))
+
+    def _mention(self, kind: str, name: str, s: int, e: int, *, word: str = "",
+                 span: tuple[int, int] | None = None) -> Mention:
+        a, b = span or (s, e)
+        denied, taken = self._status(a, b)
+        if kind == "formula":
+            f = self.vocab.formulas[name]
+            return Mention(f.name, s, e, written=name, how=f.how, kind="formula", of=f.name,
+                           word=word, denied=denied, taken=taken)
+        return Mention(name, s, e, word=word, denied=denied, taken=taken)
+
+    def _left(self, p: int, spaced: bool) -> bool:
+        table = self.la if spaced else self.lb
+        return table[p] if p in table else self.dl(p, spaced)
+
+    def _right(self, p: int, spaced: bool) -> bool:
+        table = self.ra if spaced else self.rb
+        return table[p] if p in table else self.dr(p, spaced)
+
+    def _word(self, s: int, e: int, spaced: bool) -> tuple[int, int]:
+        """The longer word a name that does not stand is inside, up to ``_WORD_REACH``
+        characters on each side."""
+        a, b = s, e
+        while not self._left(a, spaced) and s - a < _WORD_REACH and a > 0:
+            a -= 1
+        while not self._right(b, spaced) and b - e < _WORD_REACH and b < self.n:
+            b += 1
+        return a, b
+
+    def _processed_word(self, s: int, e: int, spaced: bool) -> tuple[int, int] | None:
+        """The name with a processing word before it, or a product suffix after it, standing
+        as one word (炙北芪, 炒夜交藤, 甘草片), or None."""
+        from ..sources.materia import _ENDS_IN_PROCESSING, PROCESSING_WORDS
+        t = self.t
+        if self._right(e, spaced):
+            for w in sorted(PROCESSING_WORDS, key=len, reverse=True):
+                a = s - len(w)
+                if (a >= 0 and t.startswith(w, a) and self.dl(a, spaced)
+                        and (a == 0 or t[a - 1:s] not in _ENDS_IN_PROCESSING)):
+                    return a, e
+        if (e < self.n and t[e] in _PRODUCT_SUFFIXES and self._left(s, spaced)
+                and self.dr(e + 1, spaced)):
+            return s, e + 1
+        return None
+
+    def _person(self, s: int, e: int) -> bool:
+        """The name right after a label that introduces a person (记录人：姜), with no word of
+        allergy after it in its clause (医生：黄芪过敏 is an allergy)."""
+        return (_PERSON_CJK.search(self.t[max(0, s - 6):s]) is not None
+                and not self._has(self.allergy, e, self._clause(s)[1]))
+
+    def _person_ascii(self, s: int, e: int) -> bool:
+        """The Latin-lettered name right after a title or label that introduces a person
+        (Dr. Huang Jing, patient name: Huang Qi), with no word of allergy after it in its
+        clause; or right before a title (Jing Jie, MD), with no word of allergy anywhere in
+        its clause (Reaction to huang qi, MD notified is an allergy)."""
+        a, b = self.keep[s], self.keep[e - 1] + 1
+        cs, ce = self._clause(s)
+        if self._has(self.allergy, e, ce):
+            return False
+        if _PERSON_BEFORE.search(self.f[max(0, a - 40):a]) is not None:
+            return True
+        return (_PERSON_AFTER.match(self.f[b:b + 12]) is not None
+                and not self._has(self.allergy, self._lead_clause(cs), s))
+
+    def _bare_name_label(self, s: int, e: int) -> str:
+        """"name_label" for a Latin-lettered name right after a bare name label (Name: huang
+        qi) with no word of allergy in its clause or its label: such a label also introduces
+        a person. A label that names a drug (Allergen name:, Drug name:) is an allergy line's."""
+        a = self.keep[s]
+        before = self.f[max(0, a - 40):a]
+        if _NAME_LABEL.search(before) is None or _DRUG_NAME_LABEL.search(before) is not None:
+            return ""
+        cs, ce = self._clause(s)
+        return "" if self._has(self.allergy, self._lead_clause(cs), ce) else "name_label"
+
+    # ---------------------------------------------------------------- clauses
+    def _clause_marks(self, names: "_Marks") -> None:
+        t, n, gaps = self.t, self.n, self.gaps
+        self.bounds = sorted({0, *(m.end() for m in _CLAUSE_MARK.finditer(t)),
+                              *(g for g in gaps if 0 < g < n and _cjk(t[g - 1]) and _cjk(t[g])),
+                              *(g for g in self.breaks if 0 < g < n)})
+        closers = [m.start() for m in _CLOSERS.finditer(t)]
+        # a word of allergy, reaction or use inside a name found is the name's: 泻 of 泽泻,
+        # 食 of 食盐; so is the 过敏 of a condition's name (过敏性鼻炎), and a symptom that got
+        # better or that a herb is taken for is no reaction (咳嗽缓解, 因咳嗽服用, 治疗咳嗽)
+        use = [m.start() for m in _USE_CJK.finditer(t) if not names.all(m.start(), m.end())]
+        self.improved = [m.start() for m in _IMPROVED.finditer(t)]
+        conditions = _Marks(n, [m.span() for m in _CONDITIONS.finditer(t)])
+        allergy = [m.start() for m in _ALLERGY_CJK.finditer(t)
+                   if not (names.all(m.start(), m.end()) or conditions.any(m.start(), m.end())
+                           or self._symptom(m.start(), m.end(), use))]
+        self.use_after = [m.start() for m in _USE_AFTER.finditer(t)]
+        cause = [m.start() for m in _CAUSE_CJK.finditer(t)]
+        toks = self.toks
+        for k, (s, e) in enumerate(toks):
+            w = t[s:e]
+            nxt = t[toks[k + 1][0]:toks[k + 1][1]] if k + 1 < len(toks) else ""
+            if w.startswith(_ALLERGY_ASCII):
+                after = {t[a:b] for a, b in toks[k + 1:k + 3]}
+                if not after & _IMPROVED_ASCII:            # rash improved, hives resolved
+                    allergy.append(s)
+                # allergies that a denial does not go on to name closes it: No known drug
+                # allergies 黄芪过敏; not No allergy to huang qi, No allergic reaction to …
+                if w.startswith("allerg") and nxt not in _ALLERGY_OF:
+                    closers.append(s)
+            elif w in _USE_ASCII:
+                use.append(s)
+            elif w in _CAUSE_ASCII:
+                cause.append(s)
+            # can't take, cannot take, unable to take, does not tolerate: an intolerance
+            if (w in _CANNOT_ASCII or (w in _CANNOT_NT and nxt == "t"
+                                       and t[e:toks[k + 1][0]] in ("'", "’"))):
+                allergy.append(s)
+            elif w.startswith("tolerat") and k > 0 and t[toks[k - 1][0]:toks[k - 1][1]] in (
+                    *_NOT_TOLERATE, "t"):
+                allergy.append(s)
+        self.allergy = sorted(allergy)
+        self.allergy_at = frozenset(allergy)
+        self.use = sorted(use)
+        self.cause = sorted(cause)
+        self.closers = sorted(closers)
+        self.tok_starts = [s for s, _ in toks]
+        self._opens: dict[int, tuple[int, str]] = {}
+        self._after: dict[int, int] = {}
+        self._tell: dict[int, str] = {}
+        self._gone: dict[int, bool] = {}
+
+    def _symptom(self, a: int, b: int, use: Sequence[int]) -> bool:
+        """The word of reaction at ``a``–``b`` names a symptom, not a reaction: one said to
+        get better in its clause with no word of onset before it (服用黄芪后咳嗽缓解, 喷嚏减少;
+        not 服用黄芪后出现皮疹后缓解), one after a word of treatment (治疗咳嗽, 用于头痛), or one
+        given as the reason a herb is taken (因咳嗽服用川贝母; not 因过敏停服黄芪)."""
+        t = self.t
+        cs, ce = self._clause(a)
+        if (self._has(self.improved, b, min(ce, b + 8))
+                and not _ONSET.search(t, max(cs, a - 8), a)):
+            return True
+        if _INDICATION.search(t, max(cs, a - 2), a):
+            return True
+        return (_BECAUSE.search(t, max(cs, a - 2), a) is not None
+                and self._has(use, b, min(ce, b + 3)))
+
+    def _clause(self, p: int) -> tuple[int, int]:
+        k = bisect_right(self.bounds, p)
+        return self.bounds[k - 1], (self.bounds[k] if k < len(self.bounds) else self.n)
+
+    @staticmethod
+    def _has(points: Sequence[int], a: int, b: int) -> bool:
+        k = bisect_left(points, a)
+        return k < len(points) and points[k] < b
+
+    def _lead_clause(self, cs: int) -> int:
+        """Where a clause begins together with the label clause before it (现用药：人参,
+        Allergy: huangqi): the label clause's start, or ``cs``."""
+        if cs > 0 and self.t[cs - 1] in ":：∶":
+            return self._clause(cs - 1)[0]
+        return cs
+
+    def _status(self, s: int, e: int) -> tuple[bool, bool]:
+        """(denied, taken) for the name at ``s``–``e``. A record that the herb is tolerated
+        (黄芪耐受, 服黄芪无不适, tolerates 黄芪) is both: it denies, and says the herb is used;
+        unless the story goes on to a reaction after all (服用黄芪后无不适，次日出现皮疹), which
+        is an allergy."""
+        how = self._denial(s, e)
+        if how == "tolerate" and self._goes_on(self._clause(s)[1]):
+            return False, False
+        if how:
+            return True, how == "tolerate"
+        return False, self._taken(s, e)
+
+    def _used(self, s: int, e: int, lead: int, ce: int) -> tuple[bool, int]:
+        """Whether the record says the herb at ``s``–``e`` is taken, eaten or used: a word
+        of use before it in its clause or label (目前在吃人参, 现用药：人参, 每日泡黄芪水喝), or
+        right after it or its list, also across a colon or a bracket (人参每日一支, 黄芪水喝,
+        人参吃了, 黄芪：服用中, 黄芪（服用中）); and where the clause it is said in ends."""
+        # (``s``–``e`` may be the longer word a name is inside: 党参炖汤)
+        if (self._has(self.use, max(lead, s - 40), s)
+                or self._has(self.use_after, s + 1, min(ce, e + 8))
+                or self._has(self.use, s + 1, min(ce, e + 8))):
+            return True, ce
+        for p in dict.fromkeys((e, self._after_list(e))):
+            r = _AFTER_SEP.match(self.t, p, min(self.n, p + 4)).end()
+            # past a colon, a bracket, or a tab to the next cell of the row (人参\t服用中)
+            tab = p in self.breaks and not self.broken(p, p, tabs=False)
+            if (r > p or tab) and (self._has(self.use, r, min(self.n, r + 4))
+                          or self._has(self.use_after, r, min(self.n, r + 4))):
+                return True, self._clause(r)[1]
+        return False, ce
+
+    def _taken(self, s: int, e: int) -> bool:
+        """The record says the herb is taken, eaten or used, and says no reaction to it:
+        neither its clause (with the label before it) nor the story that goes on from it
+        (``_goes_on``) holds a word of allergy or reaction; it is not named as the cause of
+        something (与服用黄芪有关, 服用黄芪所致, 全身皮疹，因服用黄芪); and it is not a note in
+        brackets on a reaction written before it (皮疹（服黄芪后）), unless the note says the
+        reaction got better (过敏性鼻炎（服用黄芪后好转）)."""
+        t = self.t
+        cs, ce = self._clause(s)
+        lead = self._lead_clause(cs)
+        if (self._has(self.allergy, lead, ce) or self._has(self.cause, e, ce)
+                or _CAUSE_BEFORE.search(t, max(cs, s - 5), s)):
+            return False
+        used, ce = self._used(s, e, lead, ce)
+        if not used or self._has(self.allergy, lead, ce):
+            return False
+        if cs > 0 and t[cs - 1] in _OPEN_BRACKETS:
+            # a note on a reaction before it, not on a denial (无过敏史（曾服四君子汤，效佳）)
+            before, _ = self._clause(cs - 1)
+            if (self._has(self.allergy, before, cs - 1) and not self._opening(before)[1]
+                    and not self._has(self.improved, cs, ce)):
+                return False
+        return not self._goes_on(ce)
+
+    def _goes_on(self, ce: int) -> bool:
+        """The story goes on from the clause that ends at ``ce`` to a reaction: a clause after
+        it tells one (``_tells``: 服用黄芪，结果出现皮疹; 曾服黄芪，有过敏反应; 服用黄芪后。出现皮疹;
+        Took huang qi; rash next day), possibly after clauses that only deny one (服用黄芪后，
+        自觉无不适，次日出现皮疹). A clause that tells anything else ends it (目前在吃人参，青霉素过敏;
+        服用黄芪后，有青霉素过敏史; 过敏史：无), and so does a line break. A sentence mark does not:
+        what a clause tells is read from its first words. Looks no further than 60 characters
+        and four clauses; worked out once for each place."""
+        if ce in self._gone:
+            return self._gone[ce]
+        n = self.n
+        end = min(n, ce + 60)
+        out, prev, a = False, ce, self.next_word(ce)
         for _ in range(4):
-            lead = _starting(t, i, _CLAUSE_LEADS, s, gaps)
-            if not lead:
+            if a >= end or self.broken(prev, a, tabs=False):
                 break
-            i += len(lead)
-            at.append(i)
-        neg = _negation(t, i, s, gaps)
-        if neg and named.get(i, 0) > i + len(neg):
-            neg = ""                    # 没药人参过敏: the 没 is 没药's, no denial
-        if not neg:
-            use = next((m for p in at if (m := _USE_LEAD.match(t, p)) and m.end() <= s), None)
-            # a reaction anywhere after it (正在服用黄芪，出现皮疹) makes it no tolerance
-            return "use" if use and bisect_left(reactions, cs) == len(reactions) else ""
-        j = i + len(neg)
-        k = bisect_left(closers, j)
-        return "deny" if k == len(closers) or closers[k] >= s else ""
+            told = self._tells(a)
+            if told == "reaction":
+                out = True
+                break
+            if told != "denial":
+                break
+            prev = self._clause(a)[1]
+            a = self.next_word(prev)
+        self._gone[ce] = out
+        return out
 
-    def after_list(p: int) -> int:
+    def _tells(self, a: int) -> str:
+        """What the clause that starts at ``a`` tells, read past the words of time, sequence,
+        the patient, feeling, degree and the body it may open with (``_NARRATIVE_CJK``,
+        ``_NARRATIVE_TIME``, ``_NARRATIVE_ASCII``): "reaction" when a word of allergy or
+        reaction comes next (出现皮疹, 有过敏反应, 次晨皮疹, 红疹, she got hives), unless it names
+        an allergen of its own (过敏原为青霉素, allergic to penicillin) or is denied after (过敏史无);
+        "denial" when a denial comes next (自觉无不适, 3天后无任何不适, then no reaction); "" for
+        anything else (青霉素过敏, a label such as 过敏史：). Worked out once for each place."""
+        if a in self._tell:
+            return self._tell[a]
+        t = self.t
+        _, b = self._clause(a)
+        told = ""
+        if not (b > a and t[b - 1] in ":：∶"):
+            q, end = a, min(b, a + 40)
+            for _ in range(16):
+                if q >= end:
+                    break
+                if self._denies_at(q, b):
+                    told = "denial"
+                    break
+                if q in self.allergy_at:
+                    told = self._reaction_at(q)
+                    break
+                r = self._narrative_end(q, end)
+                if r <= q:
+                    break
+                q = r
+        self._tell[a] = told
+        return told
+
+    def _denies_at(self, q: int, b: int) -> bool:
+        """A denial starts at ``q`` (无不适, 未见皮疹, no reaction), not a word that only starts
+        like one (没多久, 非常) or a name (没药)."""
+        neg = _negation(self.t, q, b, self.gaps)
+        if neg and self.named.get(q, 0) > q + len(neg):
+            neg = ""
+        return bool(neg) or _DENIAL_PHRASE.match(self.t, q, b) is not None
+
+    def _reaction_at(self, q: int) -> str:
+        """"reaction" for the word of allergy or reaction at ``q``; "" where it names an allergen
+        of its own (过敏原为青霉素, 过敏药物：…, allergic to penicillin); "denial" where a denial
+        follows it (过敏史无, 过敏反应：无)."""
+        t = self.t
+        if t.startswith(_NAMES_AN_ALLERGEN, q):
+            return ""
+        k = bisect_left(self.tok_starts, q)
+        if k < len(self.toks) and self.toks[k][0] == q:
+            # past the words of allergy themselves (allergic reaction), the word that names what
+            # it is to or from, and what it names: allergic to penicillin, allergic reaction to
+            # sulfa, Rash after penicillin, hives from shellfish, rash due to sulfa name an
+            # allergen of their own; rash after it, rash after huang qi, rash next day do not
+            b = self._clause(q)[1]
+            spans = [(x, y) for x, y in self.toks[k:k + 6] if x < b]
+            words = [t[x:y] for x, y in spans]
+            i = 1
+            while i < len(words) - 1 and words[i].startswith(_ALLERGY_ASCII):
+                i += 1
+            if i < len(words) and words[i] == "due" and words[i + 1:i + 2] == ["to"]:
+                i += 1
+            if (i + 1 < len(words)
+                    and words[i] in ("to", "against", "of", "for", "toward", "towards", "after",
+                                     "from", "following", "with", "due")
+                    and not (words[i] == "with" and words[0].startswith("allerg"))
+                    and words[i + 1] not in _NARRATIVE_ASCII | _PRONOUNS | _USE_ASCII
+                    and not words[i + 1].isdigit() and not words[i + 1].startswith(_ALLERGY_ASCII)
+                    and not self.latin_cover.holds(*spans[i + 1])):
+                return ""
+        if self._denied_after(q):
+            return "denial"
+        return "reaction"
+
+    def _narrative_end(self, q: int, end: int) -> int:
+        """Past the word of time, sequence, the patient, feeling, degree or the body at ``q``
+        (or a mark inside the clause, a number), or ``q`` when none is there."""
+        t = self.t
+        if q >= end:
+            return q
+        for k in range(min(_NARRATIVE_MAX, end - q), 0, -1):
+            # not past the start of a reaction (有过 of 有过敏反应)
+            if t[q:q + k] in _NARRATIVE_CJK and not any(x in self.allergy_at
+                                                         for x in range(q + 1, q + k)):
+                return q + k
+        m = _NARRATIVE_TIME.match(t, q, end)
+        if m and m.end() > q:
+            return m.end()
+        j = bisect_left(self.tok_starts, q)
+        if j < len(self.toks) and self.toks[j][0] == q:
+            s, e = self.toks[j]
+            w = t[s:e]
+            if w in _NARRATIVE_ASCII or w.isdigit():
+                return e
+            return q
+        if not (t[q].isalnum() or _cjk(t[q]) or _CLAUSE_MARK.match(t, q)):
+            return q + 1                    # 、 / - inside the clause, not the mark ending it
+        return q
+
+    def _skip_narrative(self, q: int) -> int:
+        """Past the words of time, sequence, the patient, feeling, degree and the body that
+        stand at ``q`` in its clause (自觉, 次日, 3天后, 面部, then): where a denial after them
+        would start (服用人参后，自觉无不适)."""
+        if q >= self.n:
+            return q
+        end = min(self._clause(q)[1], q + 40)
+        for _ in range(16):
+            r = self._narrative_end(q, end)
+            if r <= q:
+                break
+            q = r
+        return q
+
+    def _ascii_context(self, s: int, e: int) -> str:
+        """"" when the Latin or pinyin name at ``s``–``e`` stands in an allergy line (a word
+        of allergy in its clause or the label before it, or nothing but names around it);
+        "unconfirmed" otherwise."""
+        cs, ce = self._clause(s)
+        lead = self._lead_clause(cs)
+        if self._has(self.allergy, lead, ce) or self._goes_on(ce):
+            return ""                 # Took huang qi, patient developed hives
+        nxt = self.next_word(ce)
+        if nxt < self.n and nxt - ce <= 3:
+            _, ce2 = self._clause(nxt)
+            if self._has(self.allergy, nxt, min(ce2, nxt + 12)):
+                return ""
+        k0 = bisect_left(self.tok_starts, lead)
+        k1 = bisect_left(self.tok_starts, ce)
+        lo = max(k0, bisect_left(self.tok_starts, s) - 12)
+        hi = min(k1, bisect_left(self.tok_starts, e) + 12)
+        for k in range(lo, hi):
+            a, b = self.toks[k]
+            if self.latin_cover.holds(a, b):
+                continue              # a word of a name (radix of astragali radix)
+            w = self.t[a:b]
+            if w not in _ASCII_LABELS and w not in _ASCII_ALLERGENS and not w.isdigit():
+                return "unconfirmed"
+        return ""
+
+    # ---------------------------------------------------------------- denials
+    def _opening(self, cs: int) -> tuple[int, str]:
+        """Where the denial a clause starting at ``cs`` opens with stands, and which (""
+        for none): 患者否认 → 否认, 过敏史无 → 无."""
+        t, gaps = self.t, self.gaps
+        if cs not in self._opens:
+            i = cs
+            for _ in range(4):
+                lead = _starting(t, i, _CLAUSE_LEADS, self.n, gaps)
+                if not lead:
+                    break
+                i += len(lead)
+            neg = _negation(t, i, self.n, gaps)
+            if neg and self.named.get(i, 0) > i + len(neg):
+                neg = ""                    # 没药人参过敏: the 没 is 没药's, no denial
+            self._opens[cs] = (i, neg)
+        return self._opens[cs]
+
+    def _opens_denial(self, cs: int, s: int) -> bool:
+        """The clause that starts at ``cs`` opens with a denial that no closer ends before
+        ``s`` (``_opens[cs]`` holds which)."""
+        i, neg = self._opening(cs)
+        if not neg or i + len(neg) > s:
+            return False
+        j = i + len(neg)
+        k = bisect_left(self.closers, j)
+        return k == len(self.closers) or self.closers[k] >= s
+
+    def _after_list(self, p: int) -> int:
         """Past the rest of the list a name ends and its tail: 黄芪、党参等 → after 等."""
-        for _ in range(64):
-            if p in end_at:
-                p = end_at[p]
+        t, n, end_at = self.t, self.n, self.end_at
+        if p in self._after:
+            return self._after[p]
+        path = []
+        q = p
+        while True:
+            if q in self._after:
+                q = self._after[q]
+                break
+            path.append(q)
+            if q in end_at and end_at[q] > q:
+                q = end_at[q]
                 continue
             sep = next((w for w in ("以及", "或者", "、", "/", "和", "及", "与", "跟", "或")
-                        if t.startswith(w, p)), "")
-            if sep and p + len(sep) in end_at:
-                p = end_at[p + len(sep)]
+                        if t.startswith(w, q)), "")
+            if sep and q + len(sep) in end_at:
+                q = end_at[q + len(sep)]
                 continue
+            q = _LIST_TAIL.match(t, q).end()
+            while q < n and t[q] in _CLOSE_BRACKETS:
+                q += 1
+            if q < n and t[q] in _OPEN_BRACKETS:
+                # past a note in brackets: 补中益气汤（含黄芪、人参）无不适
+                r = next((j for j in range(q + 1, min(n, q + 40)) if t[j] in _CLOSE_BRACKETS), -1)
+                if r > 0:
+                    q = r + 1
             break
-        p = _LIST_TAIL.match(t, p).end()
-        while p < n and t[p] in _CLOSE_BRACKETS:
-            p += 1
-        if p < n and t[p] in _OPEN_BRACKETS:
-            # past a note in brackets: 补中益气汤（含黄芪、人参）无不适
-            q = next((j for j in range(p + 1, min(n, p + 40)) if t[j] in _CLOSE_BRACKETS), -1)
-            if q > 0:
-                p = q + 1
-        return p
+        for x in path:
+            self._after[x] = q
+        return q
 
-    def denied_after(p: int) -> bool:
-        if _DENIAL_DASH.match(t, p):
-            return True
-        q = _AFTER_LABEL.match(t, p).end()
-        r = _AFTER_SEP.match(t, q).end()
-        if _DENIAL_PHRASE.match(t, r):
-            return True
-        m = _DENIAL_BARE.match(t, r)
-        if not m:
-            return False
-        j = m.end()
+    def _denied_after(self, p: int) -> str:
+        """"deny" or "tolerate" when a denial is written at ``p``, after a name or its list
+        (黄芪：无, 黄芪无过敏史; 黄芪耐受, 服黄芪无不适, 服用黄芪后无不适, 人参吃了没事, 当归用过，
+        无过敏, 人参：可), or "". Worked out once for each place: many names of one list share
+        the place after it."""
+        if p not in self._da:
+            self._da[p] = self._denied_at(p)
+        return self._da[p]
+
+    def _ends_word(self, j: int) -> bool:
+        t, n = self.t, self.n
         while j < n and t[j] in _CLOSE_BRACKETS:
             j += 1
-        return (j >= n or j in gaps or not (_cjk(t[j]) or (t[j].isascii() and t[j].isalnum())))
+        return (j >= n or j in self.gaps
+                or not (_cjk(t[j]) or (t[j].isascii() and t[j].isalnum())))
 
-    def retracted(p: int) -> bool:
-        k = bisect_right(bounds, p)
-        if k >= len(bounds):
+    def _denied_at(self, p: int) -> str:
+        t, n = self.t, self.n
+        if _DENIAL_DASH.match(t, p):
+            return "deny"
+        q = _AFTER_LABEL.match(t, p).end()
+        r = _AFTER_SEP.match(t, q).end()
+        m = _DENIAL_PHRASE.match(t, r)
+        if m:
+            return "deny" if _DENIES_ALLERGY.search(m.group(0)) else "tolerate"
+        # a word of use or a time between: 服用黄芪后无不适, 黄芪服用后未见过敏, 人参吃了没事,
+        # 当归用过，无过敏; and the words of a story before the denial: 服用人参后，自觉无不适,
+        # 服用人参后，面部无红肿, ren shen taken previously - no reaction, Took ren shen last year
+        # without reaction, 人参\t服用中\t无不适 (the cells of one row). The herb was taken, so
+        # what follows says it was tolerated. No line break is crossed.
+        u = _USE_SEGMENT.match(t, r).end()
+        v = u
+        while u > r and v < n and v - u < 3 and t[v] in _USE_SEP:
+            v += 1
+        w = self._skip_narrative(v)
+        if ((u > r or w > v) and not self.broken(r, w, tabs=False)
+                and _DENIAL_PHRASE.match(t, w)):
+            return "tolerate"
+        m = _DENIAL_BARE.match(t, r)
+        if m:
+            return "deny" if self._ends_word(m.end()) else ""
+        m = _TOLERATE_BARE.match(t, r)
+        if m and r > q and t[r - 1] in ":：∶(" and self._ends_word(m.end()):
+            return "tolerate"                       # 人参：可, 黄芪（可）
+        return ""
+
+    def _next_clause_tolerates(self, s: int, e: int) -> bool:
+        """A clause that says the herb is used, and the next clause says there was no
+        reaction, possibly after words of time, the patient or the body: 曾服当归，无反应; 吃过
+        人参，没事; 曾服人参，次日无不适; 长期服用人参，自觉无不适; Took ginseng, no reaction; Took
+        huang qi, then no reaction."""
+        cs, ce = self._clause(s)
+        lead = self._lead_clause(cs)
+        if self._has(self.allergy, lead, ce):
             return False
-        b = bounds[k]
-        b2 = bounds[k + 1] if k + 1 < len(bounds) else n
-        clause = t[b:b2].rstrip("。.，,；;！!、 ")
+        used, ce = self._used(s, e, lead, ce)
+        if not used:
+            return False
+        nxt = self.next_word(ce)
+        if nxt >= self.n or nxt - ce > 3 or self.broken(ce, nxt, tabs=False):
+            return False
+        return _DENIAL_PHRASE.match(self.t, self._skip_narrative(nxt)) is not None
+
+    def _retracted(self, p: int) -> bool:
+        k = bisect_right(self.bounds, p)
+        if k >= len(self.bounds):
+            return False
+        b = self.bounds[k]
+        b2 = self.bounds[k + 1] if k + 1 < len(self.bounds) else self.n
+        if b2 - b > 40:
+            return False
+        clause = self.t[b:b2].rstrip("。.，,；;！!、 ")
         return bool(clause) and _RETRACTION.fullmatch(clause) is not None
 
-    def denial(s: int, e: int) -> str:
-        cs = bounds[bisect_right(bounds, s) - 1]
-        how = opens_denial(cs, s)
-        if how:
-            return how
+    def _denial(self, s: int, e: int) -> str:
+        """"deny", "tolerate" (the record says the herb is used with no reaction, or can be
+        used: 黄芪耐受, 服黄芪无不适, 黄芪可用, tolerates 黄芪) or ""."""
+        cs, ce = self._clause(s)
+        if self._opens_denial(cs, s):
+            neg = self._opens[cs][1]
+            # NKDA, nil, none take no object: NKDA 黄芪过敏 is a second statement, not a denial
+            # of 黄芪 (NKDA 北芪 still is one)
+            if not (neg in _COMPLETE_DENIALS and self._has(self.allergy, e, ce)):
+                return "tolerate" if neg in _TOLERATES else "deny"
+        t = self.t
         if cs > 0 and t[cs - 1] in _OPEN_BRACKETS:
             # a bracket inside a denial that names what it denies: 否认中药（黄芪、人参）过敏
-            outer = bounds[bisect_right(bounds, cs - 1) - 1]
-            if outer < cs - 1 and opens_denial(outer, cs - 1) == "deny":
-                i = outer
-                for _ in range(4):
-                    lead = _starting(t, i, _CLAUSE_LEADS, cs - 1, gaps)
-                    if not lead:
-                        break
-                    i += len(lead)
-                if i + len(_negation(t, i, cs - 1, gaps)) < cs - 1:
+            outer, _ = self._clause(cs - 1)
+            if outer < cs - 1 and self._opens_denial(outer, cs - 1):
+                i, neg = self._opens[outer]
+                # the bracket is what the denial names (否认中药（…）过敏), not a note after a
+                # whole denial (No allergies (uses licorice root tea))
+                if (i + len(neg) < cs - 1
+                        and not self._has(self.allergy, i + len(neg), cs - 1)):
                     return "deny"
-        p = after_list(e)
-        return "deny" if denied_after(e) or denied_after(p) or retracted(p) else ""
-
-    def denied(s: int, e: int) -> dict[str, bool]:
-        how = denial(s, e)
-        return {"denied": bool(how), "tolerated": how == "use"}
-
-    def left_ok(a: int, spaced: bool) -> bool:
-        if 0 < a < n and t[a - 1:a + 1] in _EVERYDAY:
-            return False
-        return (a == 0 or (not spaced and a in gaps) or not _cjk(t[a - 1])
-                or _ends_with(t, a, _BEFORE, _BEFORE_MAX))
-
-    def right_ok(b: int, spaced: bool) -> bool:
-        if b < n and not (not spaced and b in gaps) and t.startswith(_PRODUCT_WORDS, b):
-            return False
-        return (b >= n or (not spaced and b in gaps) or not _cjk(t[b])
-                or _starts_with(t, b, _AFTER, _AFTER_MAX))
-
-    def is_spaced(s: int, e: int) -> bool:
-        return any(p in gaps for p in range(s + 1, e))
-
-    # the names written next to each other, with no mark between them, are read together
-    overlap = [False] * len(spans)
-    reach, reach_i = -1, -1
-    for i, (s, e, _) in enumerate(spans):
-        if s < reach:
-            overlap[i] = overlap[reach_i] = True
-        if e > reach:
-            reach, reach_i = e, i
-    runs: list[list[int]] = []
-    for i, (s, e, _) in enumerate(spans):
-        last = runs[-1] if runs else []
-        if last and overlap[i] and overlap[last[-1]] and s < max(spans[j][1] for j in last):
-            last.append(i)              # names that overlap (姜黄 and 黄芪 of 姜黄芪): one word
-        elif (last and not overlap[i] and not overlap[last[-1]]
-                and spans[last[-1]][1] == s and s not in gaps
-                and t[s - 1:s + 1] not in _EVERYDAY):
-            last.append(i)
-        else:
-            runs.append([i])
-
-    starts = [s for s, _, _ in spans]
-    sides: list[tuple[list[bool], list[bool]]] = []
-    for run in runs:
-        # a name's left side is a boundary when the run is one up to it (北芪人参过敏: 人参's
-        # left is 北芪's), and its right side when the run is one after it; 天麻钩藤颗粒 has
-        # none on the right, and 牛奶蛋白及鸡蛋 none on the left of 白及 but one of 鸡蛋 (及).
-        # A formula's name written after another name is a longer formula's (柴胡桂枝汤)
-        cluster = any(overlap[i] for i in run)
-        k = len(run)
-        lok, rok = [False] * k, [False] * k
-        for x in range(k):
-            s, e, kind = spans[run[x]]
-            lok[x] = not cluster and (left_ok(s, is_spaced(s, e))
-                                      or (x > 0 and lok[x - 1] and kind != "formula"))
-        for x in reversed(range(k)):
-            s, e, _ = spans[run[x]]
-            rok[x] = not cluster and (right_ok(e, is_spaced(s, e))
-                                      or (x < k - 1 and rok[x + 1]
-                                          and spans[run[x + 1]][2] != "formula"))
-        sides.append((lok, rok))
-    # a name that starts with a denial's character and runs into what a denial names is
-    # the denial (没药物过敏史 is 没 + 药物过敏史, not 没药); any other name at a denial's
-    # place is the name (没药人参过敏 denies nothing)
-    dropped: set[int] = set()
-    for run, (lok, rok) in zip(runs, sides):
-        for x, i in enumerate(run):
-            s, e, kind = spans[i]
-            if kind in ("name", "part"):
-                neg = _negation(t, s, e, gaps)
-                if (neg and _cjk(neg[0]) and not rok[x]
-                        and t.startswith(_DENIED_OBJECTS, s + len(neg))):
-                    dropped.add(i)
-    named.update({s: e for i, (s, e, kind) in enumerate(spans)
-                  if i not in dropped and kind != "other"})
-
-    out: list[Mention] = []
-    for run, (lok, rok) in zip(runs, sides):
-        cluster = any(overlap[i] for i in run)
-        k = len(run)
-        c0, c1 = min(spans[i][0] for i in run), max(spans[i][1] for i in run)
-        standing = [lok[x] and rok[x] for x in range(k)]
-        if cluster:
-            # names that overlap can be read either way: 姜黄芪 is 姜黄 + 芪 or 姜 + 黄芪, so
-            # what is left before or after each of them, if a name, is read too (姜)
-            word = t[c0:c1]
-            for i in run:
-                s, e, _ = spans[i]
-                for a, b in ((c0, s), (e, c1)):
-                    if a < b and t[a:b] in vocab.names:
-                        out.append(Mention(t[a:b], a, b, word=word, **denied(c0, c1)))
-        for x, i in enumerate(run):
-            s, e, kind = spans[i]
-            if kind == "other" or i in dropped:
-                continue
-            name = t[s:e]
-            if lok[x] and rok[x]:
-                out.append(_mention(kind, name, s, e, vocab, parts, **denied(s, e)))
-                continue
-            sp = is_spaced(s, e)
-            a, b = (c0, c1) if cluster else (s, e)
-            # the names next to it that are inside the same word are part of it: 桂枝茯苓丸
-            y = x - 1
-            while not cluster and y >= 0 and not standing[y]:
-                a, y = spans[run[y]][0], y - 1
-            y = x + 1
-            while not cluster and y < k and not standing[y]:
-                b, y = spans[run[y]][1], y + 1
-            if not lok[x]:
-                while not left_ok(a, sp) and s - a < 12:
-                    a -= 1
-            if not rok[x]:
-                while not right_ok(b, sp) and b - e < 12:
-                    b += 1
-            word = t[a:b]
-            shown = (("…" if not lok[x] and not left_ok(a, sp) else "") + word
-                     + ("…" if not rok[x] and not right_ok(b, sp) else ""))
-            alone = not any(j != i and spans[j][0] < b and spans[j][1] > a
-                            and spans[j][2] != "other"
-                            for j in range(bisect_left(starts, a - 16),
-                                           bisect_right(starts, b)))
-            if alone and kind == "name" and _same_drug(kb, word, name):
-                out.append(Mention(word, a, b, **denied(a, b)))
-                continue
-            out.append(_mention(kind, name, s, e, vocab, parts, word=shown,
-                                **denied(a, b)))
-    for s, e, entry in latin:
-        if shown is not None:
-            written = _WS.sub(" ", shown[0][shown[1][s]:shown[1][e - 1] + 1]).strip()
-        else:
-            written = "".join((" " if p in gaps and p > s else "") + t[p] for p in range(s, e))
-        if entry.kind == "name":
-            out.append(Mention(entry.target[0], s, e, written=written, how=entry.how,
-                               **denied(s, e)))
-        else:
-            out.append(Mention(written, s, e, written=written, how=entry.how,
-                               kind=entry.kind, species=entry.target, **denied(s, e),
-                               of=entry.source))
-    return sorted(out, key=lambda m: (m.start, m.end))
+        p = self._after_list(e)
+        return (self._denied_after(e) or self._denied_after(p)
+                or ("deny" if self._retracted(p) else "")
+                or ("tolerate" if self._next_clause_tolerates(s, e) else ""))
 
 
-def _mention(kind: str, name: str, s: int, e: int, vocab: _Vocab, parts: _Parts, *,
-             word: str = "", denied: bool = False, tolerated: bool = False) -> Mention:
-    how = {"word": word, "denied": denied, "tolerated": tolerated}
-    if kind == "formula":
-        f = vocab.formulas[name]
-        return Mention(f.name, s, e, written=name, how=f.how, kind="formula", of=f.name, **how)
-    if kind == "part" and parts.of[name] != name:
-        return Mention(name, s, e, kind="part", of=parts.of[name], **how)
-    return Mention(name, s, e, **how)
+class _Cover:
+    """Intervals, to ask whether one holds a shorter interval."""
+
+    def __init__(self, spans: Iterable[tuple[int, int]]):
+        at: dict[int, int] = {}
+        for s, e in spans:
+            if e > at.get(s, -1):
+                at[s] = e
+        self.at = at
+        self.starts = sorted(at)
+        self.best: list[int] = []
+        m = -1
+        for s in self.starts:
+            m = max(m, at[s])
+            self.best.append(m)
+
+    def covers(self, s: int, e: int) -> bool:
+        """An interval holds ``s``–``e`` and is longer."""
+        if self.at.get(s, -1) > e:
+            return True
+        k = bisect_left(self.starts, s) - 1
+        return k >= 0 and self.best[k] >= e
+
+    def holds(self, s: int, e: int) -> bool:
+        """An interval holds ``s``–``e``, or is it."""
+        return self.at.get(s, -1) >= e or self.covers(s, e)
 
 
-def _table_names(kb: Any, pack: Any, herb: str) -> list[str]:
-    """The names the tables give a herb: its own, the pack's cited aliases of it, the
-    knowledge base's names of it, and the names the materia table files with it."""
-    from ..sources.materia import MATERIA, _NAME_INDEX, resolve_name
-    names = [herb]
-    aliases = (getattr(pack, "herb_aliases", {}) or {}) if pack is not None else {}
-    names += [normalise(fold(a)) for a, (h, _) in aliases.items() if h == herb]
-    ids = _identity(kb, herb)
-    for e in (*getattr(kb, "herbs", {}).values(), *getattr(kb, "processed", {}).values()):
-        if ids and (getattr(e, "herb_id", "") or e.id) in ids:
-            names += [normalise(fold(n)) for n in getattr(e, "names", ())]
-    drug = resolve_name(herb)
-    if drug:
-        entry = MATERIA[drug]
-        names += [entry.chinese, *entry.aliases]
-        names += [n for n, d in _NAME_INDEX.items() if d == drug]
-    return list(dict.fromkeys(n for n in names if _all_cjk(n)))
+class _Marks:
+    """Positions covered by some interval, to ask whether a span overlaps one."""
 
+    def __init__(self, n: int, spans: Iterable[tuple[int, int]]):
+        diff = [0] * (n + 2)
+        for s, e in spans:
+            diff[s] += 1
+            diff[e] -= 1
+        run, acc = 0, [0]
+        for p in range(n + 1):
+            run += diff[p]
+            acc.append(acc[-1] + (1 if run > 0 else 0))
+        self.acc = acc
 
-def _parts(kb: Any, pack: Any, vocab: _Vocab, herbs: Iterable[str]) -> _Parts:
-    """The parts of two characters or more of the names the tables give the prescribed
-    herbs, and the abbreviations that drop one character of a name of three (贝母 of 浙贝母,
-    淮山 of 淮山药, 交藤 of 夜交藤, 法夏 of 法半夏, 川柏 of 川黄柏, 鸡金 of 鸡内金), that no
-    table holds as a name of its own. A record naming only a part may mean the herb, but no
-    table says it does: such a part asks (a block), it never stops. A prescribed name no table
-    knows is scanned for as it is (黄芪颗粒)."""
-    of: dict[str, str] = {}
-    whole: set[str] = set()
-    for h in herbs:
-        if not (2 <= len(h) <= 12 and _all_cjk(h)):
-            continue
-        if h not in vocab.names and h not in _BEFORE and h not in _AFTER:
-            whole.add(h)            # not a word of the history itself (a herb named 过敏)
-        for p, name in _herb_parts(kb, pack, vocab, h):
-            of.setdefault(p, name)
-    for h in whole:
-        of.pop(h, None)
-    trie = _trie([*of, *whole])
-    of.update({h: h for h in whole})
-    return _Parts(trie, of)
+    def any(self, s: int, e: int) -> bool:
+        return self.acc[e] - self.acc[s] > 0
 
-
-_HERB_PARTS: dict[tuple[int, str, str], tuple[tuple[str, str], ...]] = {}
-
-
-def _herb_parts(kb: Any, pack: Any, vocab: _Vocab, h: str) -> tuple[tuple[str, str], ...]:
-    from ..sources.materia import IDENTITY_PREFIXES, PROCESSING_WORDS
-    key = (id(kb), getattr(pack, "digest", "") if pack is not None else "", h)
-    if key in _HERB_PARTS:
-        return _HERB_PARTS[key]
-    of: dict[str, str] = {}
-    for name in _table_names(kb, pack, h):
-        if len(name) < 3 or len(name) > 8:
-            continue
-        # not the word a name starts with that only says where, how big, what colour or how
-        # processed (大麦 of 大麦冬 is barley, 大红 of 大红枣 a colour, 炒白 of 土炒白术), and
-        # only a part that holds a character of the herb's own name (高丽 of 高丽参 is Korea)
-        lead = next((w for w in sorted((*PROCESSING_WORDS, *_STATE_WORDS, *IDENTITY_PREFIXES),
-                                       key=len, reverse=True) if name.startswith(w)), "")
-        pieces = {name[i:j] for i in range(len(name)) for j in range(i + 2, len(name) + 1)
-                  if not (i < len(lead) and j < len(name))}
-        if len(name) == 3:
-            pieces.add(name[0] + name[2])
-        # the name without the part word it ends in is a part too: 桂圆 of 桂圆肉 (龙眼肉)
-        bare = name[:-1] if name[-1] in "肉仁子心皮根叶花" else ""
-        for p in sorted(pieces - {name}):
-            if (p not in vocab.names and p not in _BEFORE and p not in _AFTER and p not in of
-                    and (set(p) & set(h) or p == bare)):
-                of[p] = name
-    if len(_HERB_PARTS) > 4096:
-        _HERB_PARTS.clear()
-    _HERB_PARTS[key] = tuple(of.items())
-    return _HERB_PARTS[key]
+    def all(self, s: int, e: int) -> bool:
+        """Every position of ``s``–``e`` is covered."""
+        return self.acc[e] - self.acc[s] == e - s
 
 
 def mentions(record: Any, *, kb: Any = None, pack: Any = None,
              herbs: Sequence[str] = ()) -> list[Mention]:
-    """The names an allergy record holds, each read in its place (see the module doc)."""
+    """The names an allergy record holds, each read in its place (see the module doc).
+    ``herbs`` is accepted for compatibility and not used: no part of a prescribed herb's
+    name is scanned for."""
     kb = kb if kb is not None else _default_kb()
-    vocab = _vocab(kb, pack)
-    t, gaps, _ = _compact(fold(record))
-    return _read(t, gaps, kb, vocab, _parts(kb, pack, vocab, [_herb_key(h) for h in herbs]))
+    return _Reader(record, kb, _vocab(kb, pack)).read()
 
 
 def _default_kb() -> Any:
@@ -1276,18 +2023,6 @@ def _species(kb: Any, pack: Any, name: str) -> tuple[tuple[str, ...], str]:
     return (), ""
 
 
-def _pack_distinct(pack: Any, x: str, y: str) -> bool:
-    """A herb the pack sources itself because the materia table lacks it (首乌藤, the stem
-    of the plant whose root is 何首乌) is a drug of its own: a name of another drug inside
-    its name (首乌) does not make the two one herb."""
-    sources = getattr(pack, "herb_sources", {}) if pack is not None else {}
-    for a, b in ((x, y), (y, x)):
-        if a in sources and _materia(a) is None and (m := _materia(b)) is not None \
-                and m.chinese != a:
-            return True
-    return False
-
-
 _PACK_NAMES: dict[tuple[int, str], frozenset[str]] = {}
 
 
@@ -1303,11 +2038,6 @@ def _pack_names(pack: Any) -> frozenset[str]:
     return _PACK_NAMES[key]
 
 
-def _same(kb: Any, pack: Any, x: str, y: str) -> str:
-    r = _pair(kb, x, y, _pack_names(pack))
-    return "near" if r == "name" and x != y and _pack_distinct(pack, x, y) else r
-
-
 def _first_materia(kb: Any, forms: Sequence[str]) -> Any:
     for b in forms:
         if (m := _materia(b)) is not None:
@@ -1315,47 +2045,65 @@ def _first_materia(kb: Any, forms: Sequence[str]) -> Any:
     return None
 
 
+@lru_cache(maxsize=16384)
+def _one_herb(kb: Any, x: str, y: str) -> str:
+    """How the names ``x`` and ``y`` are one herb by a drug-level table: "same" (one name),
+    "kb" (the seed knowledge base gives both to one herb), "reviewed" (the materia table's
+    reviewed alias), or ""."""
+    if x == y:
+        return "same"
+    if _identity(kb, x) & _identity(kb, y):
+        return "kb"
+    if _reviewed(x) == y or _reviewed(y) == x:
+        return "reviewed"
+    return ""
+
+
+def _one_drug(kb: Any, x: str, y: str) -> str:
+    """Kept for the tools that called it: how ``x`` and ``y`` are one drug by a drug-level
+    table (``_one_herb``), or ""; one name inside another is not."""
+    return _one_herb(kb, x, y)
+
+
 def _tier(kb: Any, pack: Any, x: str, h: str) -> _Tier | None:
     """How the name ``x`` found in a record is the herb ``h``, if it is.
 
-    * 3, ``allergy``: the same name, or one inside the other where the tables hold both and
-      do not give them to different drugs (人参过敏史 and 人参, 丹皮 and 牡丹皮); one herb by
-      the seed knowledge base (黄耆 and 黄芪); or the processed forms of one drug (生地黄,
-      熟地黄).
+    * 3, ``allergy``: what a drug-level table says is the herb: the same name; one herb by
+      the seed knowledge base (黄耆 and 黄芪); a reviewed alias of the materia table (川当归
+      and 当归); or the processed forms of one drug, a processing word before a name the
+      tables give the herb (炙黄芪, 生地黄 and 熟地黄 as forms of 地黄, 甘草片).
     * 2, ``allergy_source``: the materia table lists both names, or what they are processed
       forms of, under one entry, which groups a source's names, not one drug's (海带 and 海藻,
-      鸡蛋 and 鸡内金, 熟川军 and 大黄); or the two drugs share a species, by the materia
+      鸡蛋 and 鸡内金, 丹皮 and 牡丹皮); or the two drugs share a species, by the materia
       table's, the pack's or the knowledge base's species (芍药 and 赤芍, 何首乌 and 首乌藤).
-    * 1, ``allergy_near_name``: one name inside the other, but the tables give them to
-      different drugs (白附子 and 附子, 土茯苓 and 茯苓), or no table holds the shorter one.
+    * 1, ``allergy_near_name``: one name inside the other, which no table says is one drug
+      (白附子 and 附子, 土茯苓 and 茯苓).
+    One name inside another is never more than a near name: 莱菔 is the plant and 莱菔子 its
+    seed, 车前 the plant and 车前子 its seed, though the materia table files each pair under
+    one entry.
     """
     if x == h:
         return _Tier(3, "allergy", "")
-    direct = _same(kb, pack, x, h)
-    unknown = direct.split(":", 1)[1] if direct.startswith("unknown:") else ""
-    if unknown:
-        # one name inside the other, and no table holds one of them: not the same drug by
-        # any table. A prescribed name no table holds is read through what it is a
-        # processed form of and through the names inside it (``_Matcher``)
-        direct = ""
-    if direct == "name":
-        why = (f"{x}与{h}同为{x}或其炮制品" if _processed(h, x) else
-               f"{x}与{h}同为{h}或其炮制品" if _processed(x, h) else
-               f"“{x}”与{h}一名含另一名，名表未将二者列为不同药材")
-        return _Tier(3, "allergy", why)
-    if direct == "kb":
+    how = _one_herb(kb, x, h)
+    if how == "kb":
         return _Tier(3, "allergy", f"{x}与{h}为同一药材", "种子知识库")
+    if how == "reviewed":
+        return _Tier(3, "allergy", f"{x}为{h}的别名", "药材名表（materia）复核的别名")
     x_forms, x_wider = _forms(kb, x)
     h_forms, h_wider = _forms(kb, h)
-    if any(_same(kb, pack, a, b) in ("name", "kb")
-           for xs, ys in ((x_forms, h_wider), (x_wider, h_forms)) for a in xs for b in ys):
-        base = h_forms[-1] if len(h_forms) > 1 or len(x_forms) == 1 else x_forms[-1]
-        return _Tier(3, "allergy", f"{x}与{h}同为{base}或其炮制品")
+    for xs, ys in ((x_forms, h_wider), (x_wider, h_forms)):
+        for a in xs:
+            for b in ys:
+                if (rel := _one_herb(kb, a, b)) and (a != x or b != h):
+                    base = h_forms[-1] if len(h_forms) > 1 or len(x_forms) == 1 else x_forms[-1]
+                    return _Tier(3, "allergy", f"{x}与{h}同为{base}或其炮制品",
+                                 "种子知识库" if rel == "kb" else "")
     x_m, h_m = _first_materia(kb, x_forms), _first_materia(kb, h_forms)
     if x_m is not None and h_m is not None and x_m.id == h_m.id:
-        via = "" if _materia(x) is not None else f"（{x}为{x_forms[-1]}的炮制品）"
+        named = x_forms[-1] if _materia(x) is None else x
+        via = "" if named == x else f"（{x}为{named}的炮制品或制品）"
         return _Tier(2, "allergy_source",
-                     f"药材名表将{x_forms[-1]}与{h}同列于“{h_m.chinese}”条下（未必同一物种）{via}",
+                     f"药材名表将{named}与{h}同列于“{h_m.chinese}”条下（未必同一物种）{via}",
                      "药材名表（materia）")
     (x_sp, x_src), (h_sp, h_src) = _species(kb, pack, x), _species(kb, pack, h)
     shared = [s for s in x_sp if s in h_sp]
@@ -1363,18 +2111,21 @@ def _tier(kb: Any, pack: Any, x: str, h: str) -> _Tier | None:
         return _Tier(2, "allergy_source",
                      f"{x}与{h}同源（同一物种：{'、'.join(shared)}），未必是同一种药",
                      "；".join(dict.fromkeys(s for s in (x_src, h_src) if s)))
-    if direct == "near":
-        if x_m is not None and h_m is not None:
+    if len(x) >= 2 and len(h) >= 2 and (x in h or h in x):
+        extra = _pack_names(pack)
+        if not _known(kb, x, extra) or not _known(kb, h, extra):
+            unknown = x if not _known(kb, x, extra) else h
+            if unknown == h:
+                return None           # read through the names inside it (``_Matcher``)
+            which = f"“{unknown}”不是名表所载的药名"
+        elif x_m is not None and h_m is not None:
             which = (f"药材名表将{x}" + ("" if x_m.chinese == x else f"（{x_m.chinese}）")
                      + f"与{h}列为不同药材")
         elif _identity(kb, x) and _identity(kb, h):
             which = f"种子知识库将{x}与{h}列为不同药材"
         else:
-            which = f"知识包将{h}与{x}列为不同药材"
-        return _Tier(1, "allergy_near_name", f"二者名称相近，但{which}")
-    if unknown and unknown != h:
-        return _Tier(1, "allergy_near_name",
-                     f"“{x}”与{h}一名含另一名，但“{unknown}”不是名表所载的药名，未必是指{h}")
+            which = f"名表未说{x}与{h}是同一药材"
+        return _Tier(1, "allergy_near_name", f"二者名称相近（一名含另一名），但{which}")
     return None
 
 
@@ -1420,12 +2171,7 @@ class _Matcher:
         self.cache: dict[tuple[str, str], tuple[_Tier, _Path, _Path] | None] = {}
         self.herb_paths: dict[str, list[_Path]] = {}
         self.species_cache: dict[str, tuple[tuple[str, ...], str]] = {}
-        self.names_cache: dict[str, frozenset[str]] = {}
-
-    def table_names(self, h: str) -> frozenset[str]:
-        if h not in self.names_cache:
-            self.names_cache[h] = frozenset(_table_names(self.kb, self.pack, h))
-        return self.names_cache[h]
+        self.alias_cache: dict[str, list[_Path]] = {}
 
     def _herb(self, h: str) -> list[_Path]:
         if h in self.herb_paths:
@@ -1433,25 +2179,29 @@ class _Matcher:
         paths = _aliases(self.kb, self.pack, h)
         if not _known(self.kb, h, self.vocab.known | _pack_names(self.pack)):
             # a prescribed name no table knows (黄芪颗粒): the names inside it, as near names
-            t, gaps, _ = _compact(h)
-            for m in _read(t, gaps, self.kb, self.vocab):
-                if m.name != h and not m.written and m.kind == "name":
+            for m in _Reader(h, self.kb, self.vocab).read():
+                if m.name != h and not m.written and m.kind == "name" and len(m.name) >= 2:
                     paths.append(_Path(m.name, inner=True))
         self.herb_paths[h] = paths
         return paths
+
+    def _name(self, x: str) -> list[_Path]:
+        if x not in self.alias_cache:
+            self.alias_cache[x] = _aliases(self.kb, self.pack, x)
+        return self.alias_cache[x]
 
     def match(self, x: str, h: str) -> tuple[_Tier, _Path, _Path] | None:
         key = (x, h)
         if key not in self.cache:
             best = None
-            for xp in _aliases(self.kb, self.pack, x):
+            for xp in self._name(x):
                 for hp in self._herb(h):
                     tier = _tier(self.kb, self.pack, xp.name, hp.name)
                     if tier is None:
                         continue
                     # the strongest tier; of equal ones the plainest reading (the same
                     # name), then one a source vouches for (the knowledge base, a cited
-                    # alias) over one the names alone suggest (one inside the other)
+                    # alias) over one the names alone suggest
                     plain = not (xp.why or hp.why or tier.why)
                     vouched = bool(xp.source or hp.source or tier.source)
                     rank = (tier.rank - (3 if hp.inner else 0), plain, vouched)
@@ -1474,12 +2224,10 @@ def _join(*parts: str) -> str:
     return "；".join(p for p in parts if p)
 
 
-def _snippet(shown: str, keep: Sequence[int], start: int, end: int) -> str:
-    """The record around a name, as written (not as folded), for a record too long to
-    quote whole."""
-    a, b = max(0, start - 12), min(len(keep), end + 12)
-    text = _WS.sub(" ", shown[keep[a]:keep[b - 1] + 1]).strip() if b > a else ""
-    return ("…" if a > 0 else "") + text + ("…" if b < len(keep) else "")
+#: A record up to this many characters is quoted whole; a longer one around the name.
+_QUOTE_WHOLE = 40
+#: Of the places that give one issue, the messages quote this many; the rest are counted.
+_SHOWN = 4
 
 
 def allergy_issues(herbs: Sequence[str], records: Sequence[Any], kb: Any, pack: Any = None
@@ -1487,68 +2235,87 @@ def allergy_issues(herbs: Sequence[str], records: Sequence[Any], kb: Any, pack: 
     """Each prescribed herb against every name the allergy records hold, as
     (id, severity, code, message, herbs, source).
 
-    For a name that stands as a word and is not denied, the tier (``_tier``) decides:
-    ``stop`` / ``allergy`` when the record names the herb (by name, by the knowledge base,
-    by a cited pack alias, or as a processed form of one drug), ``block`` /
-    ``allergy_source`` when the two only share a source (the materia table's entry, or a
-    species), ``block`` / ``allergy_near_name`` when one name is inside the other but the
-    tables give them to different drugs. The rest are blocks whatever the tier, because the
-    record holds the name but may not mean the herb:
+    For a name that stands as a word, is not denied and is not said to be taken, the tier
+    (``_tier``) decides: ``stop`` / ``allergy`` when a drug-level table says the record
+    names the herb (the same name, the knowledge base, a cited pack alias, the pinyin or
+    Latin name, a processed form of one drug), ``block`` / ``allergy_source`` when the two
+    only share a source (the materia table's entry, or a species), ``block`` /
+    ``allergy_near_name`` when one name is inside the other. The rest are blocks whatever
+    the tier, because the record holds the name but may not mean the herb:
 
     * ``allergy_near_name``: a name inside a longer word the tables do not know (郁金 of
-      郁金香, 地黄 of 六味地黄丸, 天麻 of 天麻钩藤颗粒), and a part or abbreviation of a
-      herb's name that no table holds (淮山, 决明, 法夏);
+      郁金香, 地黄 of 知柏地黄丸, 桂枝 of 桂枝茯苓丸), and a pinyin or Latin name in an
+      English sentence that says nothing of an allergy (it may be a person's name);
     * ``allergy_source``: a species, genus or English common name of the herb's source
       (Panax ginseng, Astragalus, ginger);
     * ``allergy_formula``: a formula the pack or the knowledge base holds, by its name or in
       another product form (四君子汤, 补中益气丸): each herb of its composition, and each
       herb a tier ties to one, asks, because the allergy may be to any of them;
-    * ``allergy_denied``: a name the record denies (否认黄芪过敏, 黄芪：无);
+    * ``allergy_denied``: a name the record denies (否认黄芪过敏, 黄芪：无, 黄芪耐受);
+    * ``allergy_taken``: a name the record says is taken or eaten, with no reaction
+      written (目前在吃人参, 现用药：黄芪): not an allergy, but no proof of none either;
     * ``allergy_homonym``: 花粉, which is pollen in a history and 天花粉's short name in a
       prescription, for 天花粉 only, unless the record denies it.
 
-    A record that names nothing (无, 否认过敏史, NKDA) adds nothing. Per herb, a stop stands
-    alone; otherwise one block per code, each with every record that gave it.
+    A name found is matched to every prescribed herb, not only the first it fits. A record
+    that names nothing (无, 否认过敏史, NKDA) adds nothing. Per herb, a stop stands alone;
+    otherwise one block per code, each quoting the first places that gave it and counting
+    the rest. Each distinct reading is matched once, so the time is linear in the records'
+    length.
     """
     vocab = _vocab(kb, pack)
     keys = [(h, _herb_key(h)) for h in herbs]
     keys = [(h, k) for h, k in keys if k]
-    parts = _parts(kb, pack, vocab, [k for _, k in keys])
     matcher = _Matcher(kb, pack, vocab)
-    found: dict[str, list[tuple[str, str, str, str]]] = {h: [] for h, _ in keys}
+    # (herb, code) -> [severity, messages (ordered, unique), places, sources]
+    found: dict[str, dict[str, list[Any]]] = {h: {} for h, _ in keys}
     for record in records:
-        shown_text = _shown_text(record)
-        t, gaps, keep = _compact(_fold_shown(shown_text))
-        if not t:
+        reader = _Reader(record, kb, vocab)
+        if not reader.n:
             continue
-        shown_all = _WS.sub(" ", shown_text).strip()
-        seen: set[tuple] = set()
-        for m in _read(t, gaps, kb, vocab, parts, (shown_text, keep)):
-            sig = (m.name, m.word, m.denied, m.tolerated, m.written, m.kind, m.of)
-            if sig in seen:
-                continue
-            seen.add(sig)
-            shown = shown_all if len(shown_all) <= 40 else _snippet(shown_text, keep,
-                                                                     m.start, m.end)
+        ms = reader.read()
+        if not ms:
+            continue
+        whole = _WS.sub(" ", _visible(str(record or ""))).strip()
+        short = len(whole) <= _QUOTE_WHOLE
+        # each distinct reading once: its first places are quoted, the rest counted
+        groups: dict[tuple, list[Any]] = {}
+        for m in ms:
+            key = (m.name, m.kind, m.how, m.of, m.species, bool(m.word), m.denied, m.taken,
+                   m.context, _ascii_key(m.written)[0] if m.written else "")
+            g = groups.setdefault(key, [[], 0])
+            if len(g[0]) < _SHOWN:
+                g[0].append(m)
+            g[1] += 1
+        for reps, places in groups.values():
             for h, hk in keys:
-                issue = _issue(m, h, hk, shown, matcher)
-                if issue:
-                    found[h].append(issue)
+                slot = None
+                new_msgs = 0
+                for m in reps:
+                    quote = whole if short else reader.snippet(m.start, m.end)
+                    issue = _issue(m, h, hk, quote, matcher)
+                    if issue is None:
+                        break
+                    sev, code, msg, source = issue
+                    slot = found[h].setdefault(code, [sev, {}, 0, {}])
+                    if msg not in slot[1]:
+                        slot[1][msg] = None
+                        new_msgs += 1
+                    if source:
+                        slot[3].setdefault(source, None)
+                if slot is not None:
+                    # a record short enough to quote whole gives one message per reading,
+                    # however often it repeats it; a longer one, one place per occurrence
+                    slot[2] += new_msgs if short else places
     out: list[tuple[str, str, str, str, tuple[str, ...], str]] = []
     for h, _ in keys:
-        items = found[h]
-        if any(sev == "stop" for sev, *_ in items):
-            items = [i for i in items if i[0] == "stop"]
-        by_code: dict[str, tuple[str, dict[str, None], dict[str, None]]] = {}
-        for sev, code, msg, source in items:
-            _, msgs, sources = by_code.setdefault(code, (sev, {}, {}))
-            msgs.setdefault(msg, None)
-            if source:
-                sources.setdefault(source, None)
-        for code, (sev, msgs, sources) in by_code.items():
-            shown_msgs = list(msgs)
-            message = "；".join(shown_msgs[:4]) + (f"；另有{len(shown_msgs) - 4}处"
-                                                   if len(shown_msgs) > 4 else "")
+        by_code = found[h]
+        if any(slot[0] == "stop" for slot in by_code.values()):
+            by_code = {c: slot for c, slot in by_code.items() if slot[0] == "stop"}
+        for code, (sev, msgs, places, sources) in by_code.items():
+            shown = list(msgs)[:_SHOWN]
+            rest = max(0, places - len(shown))
+            message = "；".join(shown) + (f"；另有{rest}处" if rest else "")
             out.append((f"{code}:{h}", sev, code, message, (h,), "；".join(sources)))
     return out
 
@@ -1558,12 +2325,13 @@ def _issue(m: Mention, h: str, hk: str, shown: str, matcher: _Matcher
     """The issue the name ``m`` gives the prescribed herb ``h`` (its key ``hk``), if any."""
     prefix = f"过敏史记录“{shown}”：处方含{h}"
     if m.kind == "name" and m.name in _ALLERGY_HOMONYMS:
-        if m.denied:
+        if m.denied or m.taken:
             return None                  # a denied pollen allergy names no herb
         hm, nm = _materia(hk), _materia(m.name)
         if (hm is not None and nm is not None and hm.id == nm.id) or m.name in hk:
+            where = f"记录中的“{m.word}”含有“{m.name}”的字样；" if m.word else ""
             return ("block", "allergy_homonym",
-                    f"{prefix}。过敏史中的“{m.name}”通常指{_ALLERGY_HOMONYMS[m.name]}，"
+                    f"{prefix}。{where}过敏史中的“{m.name}”通常指{_ALLERGY_HOMONYMS[m.name]}，"
                     f"但处方中{h}也简称“{m.name}”，请核实所记过敏是否为{h}", "药材名表（materia）")
         return None
     if m.kind in ("species", "genus"):
@@ -1576,13 +2344,21 @@ def _issue(m: Mention, h: str, hk: str, shown: str, matcher: _Matcher
             return None
         what = f"记录中的“{m.written}”是{m.how}" + (f"（{m.species[0]}属）" if m.kind == "genus" else "")
         source = _join(*dict.fromkeys(s for s in (m.of, src) if s))
+        tail = f"{h}的来源物种含{'、'.join(shared)}（{src}）"
+        if m.denied and m.taken:
+            return ("block", "allergy_denied",
+                    f"{prefix}。{what}，记录写到它可用、耐受或用后无不适，可能是说对其不过敏；{tail}，"
+                    f"这不是过敏记录，也不能据此排除对{h}过敏，请核实并确认无误后再签署", source)
         if m.denied:
             return ("block", "allergy_denied",
-                    f"{prefix}。{what}，其所在的分句写有否认的字样，可能是否认对其过敏；{h}的来源物种含"
-                    f"{'、'.join(shared)}（{src}），请核实并确认该否认无误后再签署", source)
-        return ("block", "allergy_source",
-                f"{prefix}。{what}，{h}的来源物种含{'、'.join(shared)}（{src}），"
-                f"所记过敏未必是对{h}，请核实", source)
+                    f"{prefix}。{what}，其所在的分句写有否认的字样，可能是否认对其过敏；{tail}，"
+                    "请核实并确认该否认无误后再签署", source)
+        if m.taken:
+            return ("block", "allergy_taken",
+                    f"{prefix}。{what}，记录写到在服用或食用它，所在分句未写过敏或不良反应；{tail}，"
+                    f"这不是过敏记录，也不能据此排除对{h}过敏，请核实后再签署", source)
+        return ("block", "allergy_source", f"{prefix}。{what}，{tail}，所记过敏未必是对{h}，请核实",
+                source)
     if m.kind == "formula":
         f = matcher.vocab.formulas.get(m.written) or next(
             (v for v in matcher.vocab.formulas.values() if v.name == m.of), None)
@@ -1604,27 +2380,20 @@ def _issue(m: Mention, h: str, hk: str, shown: str, matcher: _Matcher
                 + f"{f.source}所载方剂{f.name}的名称" + (f"（{f.how}）" if f.how else "")
                 + f"，{f.name}的组成为{'、'.join(f.herbs)}")
         source = _join(f"{f.source}方剂{f.name}", xp.source, hp.source, tier.source)
+        if m.denied and m.taken:
+            return ("block", "allergy_denied",
+                    f"{prefix}。{what}，{via}；记录写到该方可用、耐受或用后无不适，可能是说对该方不过敏，"
+                    f"这不是过敏记录，也不能据此排除对{h}过敏，请核实并确认无误后再签署", source)
         if m.denied:
             return ("block", "allergy_denied",
                     f"{prefix}。{what}，{via}；记录中该方所在的分句写有否认的字样，可能是否认对该方过敏，"
                     "请核实并确认该否认无误后再签署", source)
+        if m.taken:
+            return ("block", "allergy_taken",
+                    f"{prefix}。{what}，{via}；记录写到在服用该方，所在分句未写过敏或不良反应，这不是过敏记录，"
+                    f"也不能据此排除对{h}过敏，请核实后再签署", source)
         return ("block", "allergy_formula",
                 f"{prefix}。{what}，{via}；所记过敏可能由方中任一味药引起，未必是{h}，请核实", source)
-    if m.kind == "part":
-        # a part asks only about the herb whose own names it is a part of: 天花 of 天花粉 does
-        # not reach 瓜蒌 through the species the two share
-        if m.of not in matcher.table_names(hk):
-            return None
-        hit = matcher.match(m.of, hk)
-        if hit is None:
-            return None
-        tier, xp, hp = hit
-        why = _join(xp.why, hp.why, tier.why)
-        where = f"记录中的“{m.word}”含有“{m.name}”的字样，" if m.word else ""
-        return ("block", "allergy_near_name",
-                f"{prefix}。{where}“{m.name}”是名表所载“{m.of}”的一部分或简写，但不是名表所载的药名，"
-                f"未必是指{m.of}" + (f"（{why}）" if why else "") + f"，请核实所记过敏是否与{h}有关",
-                _join(xp.source, hp.source, tier.source))
     hit = matcher.match(m.name, hk)
     if hit is None:
         return None
@@ -1637,19 +2406,44 @@ def _issue(m: Mention, h: str, hk: str, shown: str, matcher: _Matcher
                 f"{prefix}。处方中的“{h}”不是名表所载的药名，其中含有“{hp.name}”的字样"
                 f"（{why or f'记录中写有{m.name}'}），请核实所记过敏是否与之有关", source)
     if m.word:
-        return ("block", "allergy_near_name",
-                f"{prefix}。记录中的“{m.word}”含有“{m.name}”的字样，但“{m.word.strip('…')}”"
-                f"不是名表所载的药名，未必是指{m.name}" + (f"（{why}）" if why else "")
-                + f"，请核实所记过敏是否与{h}有关", source)
-    if m.denied and m.tolerated:
+        inside = (f"记录中的“{m.word}”含有“{m.name}”的字样，但“{m.word.strip('…')}”不是名表所载的药名，"
+                  f"未必是指{m.name}" + (f"（{why}）" if why else ""))
+        if m.denied and m.taken:
+            return ("block", "allergy_denied",
+                    f"{prefix}。{inside}；记录写到它可用、耐受或用后无不适，可能是说对其不过敏，这不是过敏记录，"
+                    f"也不能据此排除对{h}过敏，请核实并确认无误后再签署", source)
+        if m.denied:
+            return ("block", "allergy_denied",
+                    f"{prefix}。{inside}；其所在的分句写有否认的字样，可能是否认对其过敏，"
+                    "请核实并确认该否认无误后再签署", source)
+        if m.taken:
+            return ("block", "allergy_taken",
+                    f"{prefix}。{inside}；记录写到在服用或使用它，所在分句未写过敏或不良反应，这不是过敏记录，"
+                    f"也不能据此排除对{h}过敏，请核实后再签署", source)
+        return ("block", "allergy_near_name", f"{prefix}。{inside}，请核实所记过敏是否与{h}有关",
+                source)
+    if m.denied and m.taken:
         return ("block", "allergy_denied",
-                f"{prefix}。记录中{m.name}所在的分句说一直在用{m.name}，其后未写任何反应，"
-                f"可能是说对{m.name}不过敏" + (f"（{why}）" if why else "")
-                + "，请核实并确认无误后再签署", source)
+                f"{prefix}。记录写到{m.name}可用、耐受或用后无不适，可能是说对{m.name}不过敏"
+                + (f"（{why}）" if why else "") + f"；这不是过敏记录，也不能据此排除对{h}过敏，"
+                "请核实并确认无误后再签署", source)
     if m.denied:
         return ("block", "allergy_denied",
                 f"{prefix}。记录中{m.name}所在的分句写有否认的字样，可能是否认对{m.name}过敏"
                 + (f"（{why}）" if why else "") + "，请核实并确认该否认无误后再签署", source)
+    if m.taken:
+        return ("block", "allergy_taken",
+                f"{prefix}。记录写到在服用或食用{m.name}" + (f"（{why}）" if why else "")
+                + f"，所在分句未写过敏或不良反应：这不是过敏记录，也不能据此排除对{h}过敏，请核实后再签署",
+                source)
+    if m.context == "unconfirmed":
+        return ("block", "allergy_near_name",
+                f"{prefix}。记录中写有“{m.written}”（{why}），但所在分句未写过敏或不良反应，"
+                f"可能另有所指（拼音也是人名的写法），请核实所记是否为对{h}过敏", source)
+    if m.context == "name_label":
+        return ("block", "allergy_near_name",
+                f"{prefix}。记录中写有“{m.written}”（{why}），写在“name”一类的标签之后，可能是人名"
+                f"（拼音也是人名的写法），请核实所记是否为对{h}过敏", source)
     if tier.rank == 3:
         return ("stop", "allergy", prefix + (f"（{why}）" if why else ""), source)
     if tier.rank == 2:
@@ -1670,4 +2464,53 @@ def _allergen(entry: str) -> str:
     """The names one record holds, joined with 、, or "" when it names none (无, 否认过敏史,
     NKDA). Kept for the tools that printed it; the check reads every name in its place
     (``mentions``)."""
-    return "、".join(dict.fromkeys(m.name for m in mentions(entry) if m.kind != "part"))
+    return "、".join(dict.fromkeys(m.name for m in mentions(entry)))
+
+
+def _table_names(kb: Any, pack: Any, herb: str) -> list[str]:
+    """The Chinese names the tables give a herb: its own, the pack's cited aliases of it,
+    the knowledge base's names of it, and the names the materia table files with it."""
+    from ..sources.materia import MATERIA, _NAME_INDEX
+    names = [herb]
+    aliases = (getattr(pack, "herb_aliases", {}) or {}) if pack is not None else {}
+    names += [normalise(fold(a)) for a, (h, _) in aliases.items() if h == herb]
+    ids = _identity(kb, herb)
+    for e in (*getattr(kb, "herbs", {}).values(), *getattr(kb, "processed", {}).values()):
+        if ids and (getattr(e, "herb_id", "") or e.id) in ids:
+            names += [normalise(fold(n)) for n in getattr(e, "names", ())]
+    drug = _materia_id(herb)
+    if drug:
+        entry = MATERIA[drug]
+        names += [entry.chinese, *entry.aliases]
+        names += [n for n, d in _NAME_INDEX.items() if d == drug]
+    return list(dict.fromkeys(n for n in names if n and not n.isascii()))
+
+
+def names_of(herb: str, *, kb: Any = None, pack: Any = None) -> dict[str, list[str]]:
+    """Every name the tables give a herb, by kind: "chinese" (its own, the knowledge base's
+    names and aliases, the materia table's names, the pack's cited aliases), "latin" (the
+    materia table's and the pack's Latin names in both word orders, the knowledge base's
+    Latin and pinyin names), "pinyin" (the pack's), "species" (the tables' source species)
+    and "common" (the pack's cited English names for one of those species)."""
+    from ..sources.materia import MATERIA
+    kb = kb if kb is not None else _default_kb()
+    out: dict[str, list[str]] = {"chinese": _table_names(kb, pack, herb), "latin": [],
+                                 "pinyin": [], "species": [], "common": []}
+    drug = _materia_id(herb)
+    if drug:
+        out["latin"] += _latin_forms(MATERIA[drug].latin)
+    if pack is not None and herb in (getattr(pack, "herb_latin", {}) or {}):
+        out["latin"] += _latin_forms(pack.herb_latin[herb])
+    ids = _identity(kb, herb)
+    for e in (*getattr(kb, "herbs", {}).values(), *getattr(kb, "processed", {}).values()):
+        if ids and (getattr(e, "herb_id", "") or e.id) in ids:
+            out["latin"] += [n for n in getattr(e, "names", ()) if fold(n).isascii()]
+    if pack is not None:
+        out["pinyin"] += list((getattr(pack, "herb_pinyin", {}) or {}).get(herb, ()))
+    species, _ = _species(kb, pack, herb)
+    out["species"] += list(species)
+    if pack is not None:
+        for names, sp, _ in getattr(pack, "herb_common_names", ()) or ():
+            if set(sp) & set(species):
+                out["common"] += list(names)
+    return {k: list(dict.fromkeys(v)) for k, v in out.items()}

@@ -11,10 +11,14 @@ grouped by the 十问 order, with the tongue and pulse terms as references, so t
 collector can see what the differentiation will look for. ``None`` and ``[]`` differ:
 ``"medications": null`` is *not asked* and ``[]`` is *none*; interactions are checked only
 when the medications were asked. A blank field ("", ["  "], ["。。。"]) records neither and
-is read as not asked; so is an allergy field that holds only its label or says it was not
-asked or is not known (过敏史：, Allergies:, 过敏史：____, 待询问, 不详, unknown), though what it
-holds is still scanned. Medications, allergies and conditions are text: a number or an object
-there is refused, not turned into text.
+is read as not asked; so is an allergy field that holds only its label or a form's labels,
+or says it was not asked or is not known (过敏史：, Allergies:, Allergy hx:, Drug allergies:,
+过敏史：____, 药物：____ 食物：____, 过敏史：□无 □有, 待询问, 患者不能配合, 不详, 暂不详, 未详, 不太清楚,
+记不清楚, 不记得, 患者过敏史不详, 拒答, unknown, unknown to patient, not obtained), though what
+it holds is still scanned. A not-asked remark after an answer leaves the answer (无药物过敏史，
+未查过敏原; NKDA (see chart)). A negative in brackets is an answer, with or without a label
+(过敏史：（-）, 过敏史（-）, （-）). Medications, allergies and conditions are text: a number or an
+object there is refused, not turned into text.
 """
 
 from __future__ import annotations
@@ -134,35 +138,96 @@ def _items(v: Any, name: str) -> list[str] | None:
         raise IntakeError(f"{name} must be a list of strings or null")
     if not items:
         return []
-    written = [x for x in items if any(unicodedata.category(c)[0] in "LN" for c in x)]
+    written = [x for x in items if any(unicodedata.category(c)[0] in "LN" for c in x)
+               or _BRACKETED_NEGATIVE.search(unicodedata.normalize("NFKC", x))]
     return written or None
 
 
-#: The labels of an allergy field, which answer nothing on their own: 过敏史：, 药物过敏史：,
-#: 过敏原：, Allergies:.
+#: The negative mark in brackets, (-) or （-）: written, it is an answer, though it holds no
+#: letter (a bare "-" may only start a form's line).
+_BRACKETED_NEGATIVE = re.compile(r"[(（][^\S\n]*[-－−][^\S\n]*[)）]")
+
+
+#: The labels of an allergy field, and the words of a form around them, which answer nothing
+#: on their own: 过敏史：, 药物过敏史：, 过敏原：, 过敏史（药物/食物）：, 过敏史及不良反应史：, 药物：
+#: 食物：, Allergies:, Drug allergies:, Known allergies:, Allergies (drug/food):, Allergies &
+#: ADRs:.
 _ALLERGY_LABELS = re.compile(
-    r"(?:既往|药物|食物|中药|西药|其他|其它)?(?:过敏史|过敏原|过敏源|过敏物|过敏药物|过敏药品|过敏情况"
-    r"|过敏|药敏史|药敏)|allerg(?:ies|y|ens?|ic)?", re.IGNORECASE)
-#: Words that say the allergies are not known: 不详, 待查, unknown, TBD, null.
-_UNKNOWN = re.compile(r"不详|不明|未知|不清楚|不知道|待查|待补充|待补"
-                      r"|\b(?:unknown|unk|tbd|tba|null|n/k)\b", re.IGNORECASE)
-#: Words that say they were not asked: 未询问, 待询问, 患者昏迷，未能询问.
-_NOT_ASKED = re.compile(r"未询问|未能询问|无法询问|待询问|未及询问|未问|待问|未采集|not asked",
+    r"(?:既往|已知|药物|食物|中药|西药|接触物|其他|其它)?(?:过敏史|过敏原|过敏源|过敏物质|过敏物|过敏药物"
+    r"|过敏药品|过敏食物|过敏情况|过敏反应|过敏及不良反应|过敏|药敏史|药敏|致敏原|变应原)"
+    r"|(?:药物)?不良反应史?|既往史|药物|食物|中药|西药|接触物|其他|其它|有无|及|和|与"
+    r"|\b(?:allerg(?:ies|y|ens?|ic)?|known|drugs?|foods?|medications?|medicines?|meds?"
+    r"|environmental|other|history|hx|status|intolerances?|reactions?|adrs?|and|or|list)\b",
+    re.IGNORECASE)
+#: Words that say the allergies are not known, or that the answer was not given: 不详, 未详,
+#: 待查, 记不清楚, 不太清楚, 不记得, 拒答, unknown, unsure, TBD, null, not known, not recorded.
+#: The longer of two that start alike comes first (记不清楚 before 记不清), so nothing of one
+#: is left over to read as an answer.
+_UNKNOWN = re.compile(
+    r"记不清楚|说不清楚|搞不清楚|不太清楚|不大清楚|不清楚|记不清|说不清|不清|不太明确|不明确|不明|不详|未详|未知"
+    r"|不知道|不知|不记得|记不得|记不起来?|想不起来?|忘记了?|忘了|不确定|无法确定|不能确定"
+    r"|待查|待补充|待补|待完善|待追问|需追问|追问|待定"
+    r"|拒答|拒绝回答|拒绝提供|不能提供|无法提供|未提供|未记录|无记录|无法获取|未能获取|未获取|无法获得"
+    r"|\b(?:unknown|unk|unsure|uncertain|tbd|tba|null|n/k|nk|nr|blank|not\s+known|not\s+sure"
+    r"|not\s+recorded|not\s+documented|not\s+obtained|not\s+elicited|not\s+assessed"
+    r"|unable\s+to\s+(?:obtain|assess|state|confirm|elicit)|cannot\s+(?:recall|remember)"
+    r"|can't\s+(?:recall|remember)|does\s+not\s+(?:recall|remember|know)|doesn't\s+(?:recall|remember|know))\b",
+    re.IGNORECASE)
+#: Who speaks, what an unknown is said of, and the small words around it, which answer
+#: nothing either: 患者过敏史不详, 家属诉过敏史不详, 过敏史：患者不清楚, 尚不清楚, 具体不详, 暂不详,
+#: 目前不详, 家属亦不清楚, Unknown to patient.
+_SPEAKERS = re.compile(
+    r"患者|病人|本人|家属|自诉|代诉|诉|述|尚|具体|暂时|暂|目前|现|亦|也|均|都|仍"
+    r"|\b(?:patient|family|pt|to|the|by|per|is|are)\b", re.IGNORECASE)
+#: Words that say they were not asked or could not be: 未询问, 待询问, 患者昏迷，未能询问, 患者不能
+#: 配合. Written after an answer, they are a remark on it, and the answer stands (无药物过敏史，未查
+#: 过敏原; NKDA (see chart); 否认药物过敏，食物过敏未提及).
+_NOT_ASKED = re.compile(r"未询问|未能询问|无法询问|待询问|未及询问|未问|待问|未采集|不能配合|无法配合|不能沟通"
+                        r"|无法沟通|未查(?![到出见])|未提及|未涉及|详见病历|见病历"
+                        r"|\b(?:not\s+asked|deferred|see\s+(?:chart|notes|ehr|record))\b",
                         re.IGNORECASE)
+#: What makes an entry an answer beside a not-asked remark: a none (无, 否认, 没有, 阴性, NKDA,
+#: none, no, nil, denies) or an allergy recorded (青霉素过敏，其他未询问).
+_ANSWER_WORDS = re.compile(r"无|否认|没有|阴性|未发现|未见|过敏|反应|皮疹"
+                           r"|\b(?:nkda|nka|nkfa|none|no|nil|negative|denies|denied|allerg[a-z]*"
+                           r"|reactions?|rash)\b", re.IGNORECASE)
+#: A form's options left unticked (□无 □有, ○无 ○有) or printed with no choice made (无/有),
+#: and placeholders (XX, ___). No branch starts with an optional part before a run of
+#: whitespace, so a long run is read once (linear time).
+_UNFILLED = re.compile(
+    r"[□☐○◯]\s*(?:无|有|是|否|yes|no)|(?:无|有|是|否|yes|no)\s*[□☐○◯]"
+    r"|[(（]\s*(?:无\s*[/／]\s*有|有\s*[/／]\s*无)\s*[)）]?"
+    r"|(?:无\s*[/／]\s*有|有\s*[/／]\s*无)\s*[)）]?|\b[xX]{2,}\b", re.IGNORECASE)
+#: A negative written after a label, or alone: 过敏史：（-）, 过敏史：-, 过敏史（-）, （-）, -.
+#: Written so that a long run of whitespace is read once.
+_LABELLED_NEGATIVE = re.compile(
+    r"(?:^|[:：∶])\s*(?:[(（]\s*)?[-－−]\s*(?:[)）]\s*)?(?:$|[,，;；。\n])"
+    r"|(?:^|过敏史|过敏|\ballerg[a-z]*)\s*[(（]\s*[-－−]\s*[)）]\s*(?:$|[,，;；。\n])",
+    re.IGNORECASE)
 
 
 def _answers(entry: str) -> bool:
     """An allergy entry that answers the question, with a name or a none: not one that holds
-    only its label (过敏史：, 过敏史：____, Allergies:), says it was not asked (待询问, 未能询问)
-    or that the allergies are not known (不详, unknown). A negative mark after a label
-    (过敏史：（-）) is an answer."""
+    only its label or a form's labels (过敏史：, 过敏史：____, Allergies:, Drug allergies:,
+    过敏史（药物/食物）：, 药物：____ 食物：____, 过敏史：□无 □有), says it was not asked (待询问,
+    未能询问, 患者不能配合) or that the allergies are not known (不详, 暂不详, 未详, 不明确,
+    患者过敏史不详, 记不清楚, 不太清楚, 不记得, 拒答, unknown, unsure, unknown to patient, not
+    recorded, not obtained). A negative mark after a label (过敏史：（-）, 过敏史：-, 过敏史（-）) or
+    in brackets alone (（-）) is an answer; a dash that starts a line of a form (- Drug:) is not.
+    A not-asked remark after an answer leaves the answer (无药物过敏史，未查过敏原; 过敏史：无，详见
+    病历; NKDA (see chart)): such an entry answers when, without the remark, it still holds a none
+    or an allergy (``_ANSWER_WORDS``) and reads as an answer; 患者昏迷，未能询问 does not.
+    Every pattern here reads a run of whitespace once, so a long field takes linear time."""
     text = unicodedata.normalize("NFKC", entry)
     if _NOT_ASKED.search(text):
-        return False
-    rest = _UNKNOWN.sub("", _ALLERGY_LABELS.sub("", text))
-    if any(unicodedata.category(c)[0] in "LN" for c in rest):
+        text = _NOT_ASKED.sub(" ", text)
+        if not _ANSWER_WORDS.search(_UNKNOWN.sub(" ", text)):
+            return False
+    if _LABELLED_NEGATIVE.search(text.strip()):
         return True
-    return any(c in "-－−" for c in rest)
+    rest = _UNFILLED.sub("", text)
+    rest = _SPEAKERS.sub("", _UNKNOWN.sub("", _ALLERGY_LABELS.sub("", _UNKNOWN.sub("", rest))))
+    return any(unicodedata.category(c)[0] in "LN" for c in rest)
 
 
 def _list(v: Any, name: str) -> tuple[str, ...] | None:
