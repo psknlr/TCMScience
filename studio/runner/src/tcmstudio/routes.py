@@ -170,18 +170,36 @@ _PINYIN = "<pinyin, upper case, e.g. HUANG QI>"
 _GENES = "<gene symbols, space-separated>"
 _CENTER = ["<x>", "<y>", "<z>"]
 _SIZE = ["<x, Å>", "<y, Å>", "<z, Å>"]
-#: Docking, from a structure (prepared on the runner) and from prepared inputs (either runtime).
+_LIGANDS = "<SMILES, or a CSV, SDF or .smi file>"
+#: Docking from a structure the runner fetches (allow_remote: a PDB:<id> or UniProt:<acc>
+#: receptor is refused without it) or one in the project's files, each prepared on the
+#: runner; and from prepared inputs (either runtime).
 _DOCK = (
-    _job("job.pipeline.dock", "from a structure", "predicted", "receptor and ligands prepared "
-         "on the runner (meeko, RDKit); a PDB:<id> or UniProt:<acc> receptor is fetched with "
-         "allow_remote: true; the site as center and size, or as site_ligand",
-         receptor="<PDB:id, UniProt:accession or a PDB file>",
-         ligands="<SMILES, or a CSV, SDF or .smi file>", center=_CENTER, size=_SIZE),
+    _job("job.pipeline.dock", "from a PDB or UniProt id", "predicted", "the structure fetched "
+         "from RCSB or AlphaFold DB (allow_remote) and prepared on the runner with the ligands "
+         "(meeko, RDKit); the site as center and size, or as site_ligand (a co-crystal ligand's "
+         "residue name)",
+         receptor="<PDB:id or UniProt:accession>", ligands=_LIGANDS, allow_remote=True,
+         center=_CENTER, size=_SIZE),
+    _job("job.pipeline.dock", "from a PDB file", "predicted", "a PDB file from the project's "
+         "files, prepared on the runner with the ligands (meeko, RDKit); nothing is fetched, so "
+         "the site is center and size (site_ligand reads the RCSB Chemical Component "
+         "Dictionary, which needs allow_remote)",
+         receptor="<receptor>.pdb", ligands=_LIGANDS, center=_CENTER, size=_SIZE),
     _job("job.pipeline.dock", "prepared inputs", "predicted", "a prepared rigid receptor and "
          "prepared ligands: docks in the browser too; the site as center and size, or as "
          "reference_ligand (the co-crystal ligand prepared in its crystal pose, .pdbqt)",
          receptor="<prepared receptor>.pdbqt", ligands="<prepared ligands>.pdbqt",
          center=_CENTER, size=_SIZE))
+#: ADMET on SMILES or a table of them (either runtime) and on an SDF or .mol file (the
+#: runner: the browser's RDKit.js has no SDMolSupplier).
+_ADMET = (
+    _job("job.pipeline.admet", "SMILES or CSV/TSV/.smi", "predicted", "ADMET models (a job): "
+         "runs in the browser too, with the models built there (job.admet.models)",
+         molecules="<SMILES, or a CSV, TSV or .smi file>"),
+    _job("job.pipeline.admet", "SDF or .mol", "predicted", "ADMET models (a job) on an SDF "
+         "(.sdf, .sdf.gz) or .mol file, read with RDKit's SDMolSupplier: on the runner",
+         molecules="<molecules>.sdf"))
 
 ROUTES: tuple[Route, ...] = (
     Route(
@@ -318,7 +336,9 @@ ROUTES: tuple[Route, ...] = (
         "What a herb or formula is recorded to treat in TCM terms (actions, syndromes, "
         "symptoms), how those map to modern names, and what the record licenses.",
         ("功效", "主治", "证候", "证型", "辨证", "症状", "归经", "性味", "古籍", "传统", "治什么",
-         "traditional use", "indication", "syndrome", "symptom", "classical", "used for"),
+         "用什么方", "方证", "伤寒论", "金匮要略", "太阳中风", "太阳伤寒", "太阳病", "阳明病",
+         "少阳病", "太阴病", "少阴病", "厥阴病", "traditional use", "indication", "syndrome",
+         "symptom", "classical", "used for"),
         (Step("recorded", "actions, indications and passages as recorded", (
             _e("native.tcm_herb", "recorded", name="<herb>"),
             _e("native.tcm_syndrome", "recorded", name="<syndrome>"),
@@ -742,8 +762,7 @@ ROUTES: tuple[Route, ...] = (
              _c("aopwiki", "aop_xml", "curated", aop_id="<AOP id>"),
              _c("aopwiki", "event", "curated", event_id="<key event id>"),
              _c("aopwiki", "relationship", "curated", relationship_id="<relationship id>"),
-             _e("job.pipeline.admet", "predicted", "ADMET models (a job)",
-                molecules="<SMILES or file>"),
+             *_ADMET,
              _e("skill.predict-admet", "predicted", "the governed ADMET skill (a job)",
                 molecules="<SMILES or file>"))),
          Step("reports", "adverse-event reports and signals", (
@@ -857,8 +876,7 @@ ROUTES: tuple[Route, ...] = (
                 half_life_h="<t½>"),
              _e("native.half_life_from_levels", "analysis", c1="<C1>", t1_h="<t1>", c2="<C2>",
                 t2_h="<t2>"),
-             _e("job.pipeline.admet", "predicted", "ADMET models (a job)",
-                molecules="<SMILES or file>")))),
+             *_ADMET))),
         "Compare the concentration reached (with its unit, species and the dose that gave it) "
         "with the concentration at which each activity was measured; say when either is "
         "missing.",
@@ -872,7 +890,8 @@ ROUTES: tuple[Route, ...] = (
         "Which structures exist for a target (experimental or predicted), where ligands bind, "
         "and whether a compound could fit, as a hypothesis.",
         ("结构", "晶体结构", "对接", "分子对接", "结合位点", "口袋", "alphafold", "pdb",
-         "structure", "docking", "binding site", "pocket", "crystal", "cryo-em"),
+         "structure", "dock", "docked", "docking", "binding site", "pocket", "crystal",
+         "cryo-em"),
         (Step("experimental", "experimental structures and their ligands", (
             _c("pdbe", "best_structures", "measured", accession="<UniProt accession>"),
             _c("pdbe", "entry_summary", "measured", pdb_id="<PDB id>"),
@@ -894,8 +913,10 @@ ROUTES: tuple[Route, ...] = (
          Step("predicted", "predicted structures", (
              _c("alphafold", "prediction", "predicted", accession="<UniProt accession>"),
              _c("alphafold", "uniprot_summary", "predicted", accession="<UniProt accession>"),
-             _e("job.pipeline.fold", "predicted", "a fold on the runner (a job)",
-                source="<sequence or FASTA>"),
+             _e("job.pipeline.fold", "predicted", "a fold on the runner (a job): its default "
+                "method, esmatlas, sends the sequence to the ESM Atlas API, which allow_remote "
+                "allows; method esmfold folds on the runner without it",
+                source="<sequence or FASTA>", allow_remote=True),
              _e("skill.predict-protein-structure", "predicted", "the governed structure "
                 "prediction skill (a job)", sequences="<sequences>"))),
          Step("docking", "whether a compound could fit (a job)", (
@@ -1031,8 +1052,10 @@ ROUTES: tuple[Route, ...] = (
                   "from a count table: runs in the browser too",
                   counts="<gene × sample count table>", samples="<sample table>"),
              _job("job.pipeline.rnaseq", "FASTQ", "analysis", "QC, trimming and quantification, "
-                  "then differential expression: on the runner",
-                  samples="<sample sheet of FASTQ files>"),
+                  "then differential expression: on the runner; quantified against a "
+                  "transcriptome, or, in its place, a genome FASTA (genome) and a GTF "
+                  "(annotation) with engine hisat2",
+                  samples="<sample sheet of FASTQ files>", transcripts="<transcriptome FASTA>"),
              _e("skill.rnaseq-differential-expression", "analysis", "the governed FASTQ-to-DESeq2 "
                 "skill (a job)", sample_sheet="<sample sheet>"),
              _e("native.cpm", "analysis", counts=["<count>"]),

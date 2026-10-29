@@ -161,9 +161,10 @@ Acceptance: every stage either completes on verified data or ends with a precise
 reproducible explanation: its status, its reason and the command that reproduces it. The
 report's `acceptance` says which (`completed`, `explained`, or `not met` when any stage
 fails). Snapshots the benchmark did not build from verified files keep its data stages
-`UNVERIFIED`; and a stage whose files include one without a reviewed checksum (STRING's
-alias file, Reactome's UniProt mapping, which changes with every release) is `UNVERIFIED`
-with that file's SHA-256 recorded for review.
+`UNVERIFIED`; and a stage that reads either of the two files without a reviewed checksum
+(Reactome's UniProt mapping and the UniProt accession list, which change with every
+release) is `UNVERIFIED` with that file's SHA-256 recorded for review. STRING's alias file
+is held to its pinned size and SHA-256 like the reviewed files (below).
 
 ```bash
 bioagent validate benchmark --out OUT                         # offline: stages 1, 2 and 11

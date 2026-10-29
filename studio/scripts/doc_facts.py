@@ -21,8 +21,9 @@ Versions a doc states (the README's kernel badge, the example version line of US
 way against each package's pyproject.toml (``VERSION_ANCHORS``). A table that must list every member of a set
 (docs/validation.md's verification levels) is checked for a row per member (``TABLE_ROWS``), so a deleted row is noticed
 as well as a wrong count. The kernel parity case count is read from ``studio/web/test/fixtures/kernel_cases.json``, and the research
-files the browser's storage check cannot count (no reviewed size) from ``tcmstudio.datasets.registry_document()``
-(``runtime/datasets.json``); the docs write that one as a word ("the two files", "两个"), which is read as its number.
+files the browser's storage check cannot count (no reviewed size), and those a benchmark stage that reads one stays
+UNVERIFIED for (no reviewed checksum), from ``tcmstudio.datasets.registry_document()`` (``runtime/datasets.json``); the
+docs write those as a word ("the two files", "两个"), which is read as its number.
 
 A dated report or a release note states the counts of its own day and is left as written; each such file or
 section is listed below with the reason. Nothing else is exempt.
@@ -95,6 +96,7 @@ PHRASES: tuple[tuple[str, str], ...] = (
     (rf"{_N} 个一致性用例", "kernel_cases"),
     (rf"(?<![\d.,~]){_W}\s+files?\s+(?:with\s+no|without\s+a)\s+reviewed\s+size\b", "unsized_files"),
     (rf"{_WZ}\s*个没有审核大小的文件", "unsized_files"),
+    (rf"(?<![\d.,~]){_W}\s+files?\s+(?:with\s+no|without\s+a)\s+reviewed\s+checksum\b", "unchecked_files"),
 )
 #: (doc, pattern, facts): a phrase this doc is known to use; it must still be there. A fact None is a label group;
 #: "class.{}" takes the label before it.
@@ -131,6 +133,8 @@ ANCHORS: tuple[tuple[str, str, tuple[str | None, ...]], ...] = (
     ("studio/docs/BROWSER_COMPUTE.md", rf"the {_W}\s+files\s+with\s+no\s+reviewed\s+size", ("unsized_files",)),
     ("studio/docs/BROWSER_JOBS.md", rf"the {_W}\s+files\s+without\s+a\s+reviewed\s+size", ("unsized_files",)),
     ("studio/docs/BROWSER_JOBS.md", rf"{_WZ}个没有审核大小的文件", ("unsized_files",)),
+    ("docs/validation.md", rf"either of the {_W}\s+files\s+without\s+a\s+reviewed\s+checksum\s+\(Reactome's\s+"
+                           r"UniProt\s+mapping\s+and\s+the\s+UniProt\s+accession\s+list,", ("unchecked_files",)),
     ("BioScience-Harness/README.md", rf"and {_N} public sources", ("sources",)),
     ("BioScience-Harness/README.md", rf"tools/\s+{_N} native bioinformatics, clinical and TCM tools", ("native",)),
 )
@@ -225,6 +229,9 @@ def facts() -> dict[str, int]:
         "kernel_cases": len(json.loads((REPO / KERNEL_CASES).read_text(encoding="utf-8"))["cases"]),
         # the research files the browser's storage check cannot count before a snapshot build
         "unsized_files": sum(1 for f in registry_document()["groups"]["research"]["files"] if f["bytes"] is None),
+        # the research files without a reviewed checksum, for which a benchmark stage that reads one stays
+        # UNVERIFIED (STRING's aliases file has one, pinned from two live downloads)
+        "unchecked_files": sum(1 for f in registry_document()["groups"]["research"]["files"] if not f["checksum"]),
     }
     return out
 

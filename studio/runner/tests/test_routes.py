@@ -210,7 +210,7 @@ def test_a_source_that_cannot_run_names_what_covers_it_and_what_that_changes():
     assert tcm["unanswered_here"]["needs"] and tcm["unanswered_here"]["to_answer_it"] == [
         "Turn web access on."]
     assert all("covered_by" not in s for s in tcm["sources"])
-    assert view["counts"] == {"sources": 19, "runnable_now": 2}
+    assert view["counts"] == {"sources": 20, "runnable_now": 2}
     assert view["scaffold"]["id"] == "target_engagement"
     assert "research_inquiry" in view["scaffold"]["how"]
     assert view["rules"] == list(rt.RULES) and set(view["evidence"]) <= set(rt.EVIDENCE)
@@ -298,28 +298,48 @@ def _rows(view, step):
 
 def test_a_browser_job_is_judged_by_the_inputs_its_call_names(browser_ctx, runner_ctx):
     """A route's job call runs here only when the entry's own browser rules run the inputs it
-    names: docking from a structure, RNA-seq from FASTQ and single-cell from an .h5ad need the
-    runner, so the same job on prepared PDBQT files, a count table or count tables covers
-    each, and says so."""
+    names: docking from a structure, RNA-seq from FASTQ, single-cell from an .h5ad and ADMET
+    on an SDF need the runner, so the same job on prepared PDBQT files, a count table, count
+    tables or SMILES covers each, and says so."""
     ctx = {**browser_ctx, "network": True, "browser_jobs": True}
     dock = _rows(call("research_routes", {"route": "structure_binding"}, ctx)["result"], "docking")
-    raw = dock["job.pipeline.dock (from a structure)"]
+    by_id = dock["job.pipeline.dock (from a PDB or UniProt id)"]
+    by_file = dock["job.pipeline.dock (from a PDB file)"]
     prepared = dock["job.pipeline.dock (prepared inputs)"]
     assert prepared["runnable_now"] is True
     assert prepared["call"]["arguments"]["arguments"]["receptor"].endswith(".pdbqt")
-    # the receptor and the ligands each need the runner, which prepares them
-    assert raw["runnable_now"] is False
-    assert len([n for n in raw["needs"] if "runner" in n and ".pdbqt" in n]) == 2
-    assert raw["covered_by"] == "job.pipeline.dock (prepared inputs)"
-    assert raw["changes"].startswith("the same job on prepared inputs")
+    # the receptor and the ligands each need the runner, which prepares them, and so does
+    # the fetch of a structure (allow_remote)
+    for raw, reasons in ((by_id, 3), (by_file, 2)):
+        assert raw["runnable_now"] is False
+        assert len([n for n in raw["needs"] if "runner" in n and ".pdbqt" in n]) == reasons
+        assert raw["covered_by"] == "job.pipeline.dock (prepared inputs)"
+        assert raw["changes"].startswith("the same job on prepared inputs")
+    # a PDB:/UniProt: receptor is fetched only with allow_remote; a PDB file is fetched not
+    assert by_id["call"]["arguments"]["arguments"]["allow_remote"] is True
+    assert "allow_remote" not in by_file["call"]["arguments"]["arguments"]
+    assert by_file["call"]["arguments"]["arguments"]["receptor"].endswith(".pdb")
     assert dock["skill.dock-ligands"]["covered_by"] == "job.pipeline.dock (prepared inputs)"
-    # both calls name the docking site, which either runtime requires
-    assert {"center", "size"} <= set(raw["call"]["arguments"]["arguments"])
-    assert {"center", "size"} <= set(prepared["call"]["arguments"]["arguments"])
+    # every call names the docking site, which either runtime requires
+    for row in (by_id, by_file, prepared):
+        assert {"center", "size"} <= set(row["call"]["arguments"]["arguments"])
     targets = call("research_routes", {"route": "compound_targets"}, ctx)["result"]
     binding = next(s for s in targets["steps"] if s["step"] == "binding")
     assert "unanswered_here" not in binding
-    assert [s["runnable_now"] for s in binding["sources"]] == [False, True]
+    assert [s["runnable_now"] for s in binding["sources"]] == [False, False, True]
+
+    # ADMET: SMILES and CSV, TSV or .smi tables run here; an SDF or .mol file needs the runner
+    # (RDKit's SDMolSupplier), in both steps that name the job
+    for route_, step in (("safety", "toxicity"), ("exposure_metabolism", "models")):
+        rows = _rows(call("research_routes", {"route": route_}, ctx)["result"], step)
+        smiles = rows["job.pipeline.admet (SMILES or CSV/TSV/.smi)"]
+        sdf = rows["job.pipeline.admet (SDF or .mol)"]
+        assert smiles["runnable_now"] is True and "needs" not in smiles, (route_, smiles)
+        assert sdf["call"]["arguments"]["arguments"]["molecules"].endswith(".sdf")
+        assert sdf["runnable_now"] is False and "SDMolSupplier" in sdf["needs"][0]
+        assert sdf["covered_by"] == "job.pipeline.admet (SMILES or CSV/TSV/.smi)"
+        assert sdf["changes"].startswith("the same job on SMILES or CSV/TSV/.smi")
+        assert not [k for k in rows if k == "job.pipeline.admet"], "every ADMET call names its mode"
 
     omics = call("research_routes", {"route": "omics_datasets"}, ctx)["result"]
     bulk, single = _rows(omics, "analysis"), _rows(omics, "single_cell_analysis")
@@ -333,11 +353,17 @@ def test_a_browser_job_is_judged_by_the_inputs_its_call_names(browser_ctx, runne
     # a single-cell atlas is covered by the single-cell job, never by a bulk RNA-seq one
     assert single["skill.scrna-cell-atlas"]["covered_by"] == "job.pipeline.scrna (count tables)"
 
-    # the rules are the browser's: the runner judges the two calls of a job alike
-    on_runner = _rows(call("research_routes", {"route": "structure_binding"},
-                           runner_ctx)["result"], "docking")
-    assert on_runner["job.pipeline.dock (from a structure)"]["runnable_now"] == on_runner[
-        "job.pipeline.dock (prepared inputs)"]["runnable_now"]
+    # the rules are the browser's: the runner judges the calls of a job alike, except that a
+    # structure is fetched only with web access on
+    for network in (False, True):
+        on_runner = _rows(call("research_routes", {"route": "structure_binding"},
+                               {**runner_ctx, "network": network})["result"], "docking")
+        here = on_runner["job.pipeline.dock (prepared inputs)"]["runnable_now"]
+        assert on_runner["job.pipeline.dock (from a PDB file)"]["runnable_now"] == here
+        fetch = on_runner["job.pipeline.dock (from a PDB or UniProt id)"]
+        assert ("web access for this project" in fetch.get("needs", [])) is not network
+        if network:
+            assert fetch["runnable_now"] == here
 
 
 def test_a_job_template_is_judged_as_the_call_it_stands_for():
@@ -365,6 +391,74 @@ def test_a_job_template_is_judged_as_the_call_it_stands_for():
         assert template == filled, (r.id, s.id, rt.label(u))
         judged += 1
     assert judged >= 7
+
+
+def test_every_pipeline_a_route_names_is_taken_by_its_job_kind_once_filled_in(tmp_path):
+    """Each pipeline job a route names, its '<…>' filled with a value of the kind each stands
+    for (a '<…>.sdf' with a file of that suffix), is a call the runner's job kind takes as
+    given: a PDB:/UniProt: receptor comes with the allow_remote that fetches it, a FASTQ run
+    with the transcriptome it is quantified against, a fold by the default method with the
+    allow_remote that sends the sequence out. The runner refuses a call that leaves one out
+    before it is queued, so a route that left it out would send the agent back for it."""
+    import re
+
+    from tcmstudio.kinds import KINDS, BadParams, PrepareContext
+    found: dict[str, tuple[Path, dict]] = {}
+
+    def upload(name, text=""):
+        path = tmp_path / "files" / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        found[name] = (path, {"upload": f"u_{len(found):016x}", "name": name})
+        return name
+    reads = upload("reads_1.fastq", "@r1\nACGTACGT\n+\nIIIIIIII\n")
+    stands_for = {
+        "<PDB:id or UniProt:accession>": "PDB:1M17",
+        "<SMILES, or a CSV, SDF or .smi file>": "CCO",
+        "<SMILES, or a CSV, TSV or .smi file>": "CCO",
+        "<x>": 1.5, "<y>": -2.0, "<z>": 3.25, "<x, Å>": 20.0, "<y, Å>": 20.0, "<z, Å>": 20.0,
+        "<sequence or FASTA>": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ",
+        "<gene × sample count table>": upload("counts.tsv", "gene\tS1\tS2\nG1\t1\t2\n"),
+        "<sample table>": upload("samples.csv", "sample,condition\nS1,a\nS2,b\n"),
+        "<sample sheet of FASTQ files>": upload("sheet.csv", f"sample,fastq_1\nS1,{reads}\n"),
+        "<transcriptome FASTA>": upload("transcripts.fa", ">t1\nACGTACGT\n"),
+        "<count tables (CSV/TSV), or a sample sheet of them>": upload("cells.csv",
+                                                                      "gene,c1,c2\nG1,1,0\n"),
+    }
+
+    def fill(key, value):
+        if isinstance(value, list):
+            return [fill(key, v) for v in value]
+        if not isinstance(value, str) or "<" not in value:
+            return value
+        suffix = re.fullmatch(r"<[^<>]*>(\.[\w.]+)", value)
+        if suffix:
+            return upload(f"{key}{suffix.group(1)}")
+        if value not in stands_for:
+            raise BadParams(f"{value!r}: say in this test what it stands for")
+        return stands_for[value]
+    ctx = PrepareContext(job_id="j1", job_dir=tmp_path / "job", project_id=None, paths={},
+                         data_env={"BIOAGENT_DATA_LAKE": str(tmp_path / "lake")},
+                         find=found.get, settings={})
+    refused, taken = [], []
+    for r, s, u in _uses():
+        if not u.entry.startswith("job.pipeline."):
+            continue
+        try:
+            KINDS[u.entry.split(".", 1)[1]].prepare(
+                {k: fill(k, v) for k, v in u.args.items()}, ctx)
+        except BadParams as exc:
+            refused.append(f"{r.id}/{s.id}/{rt.label(u)}: {exc}")
+            continue
+        taken.append(rt.label(u))
+    assert not refused, "the runner refuses these calls as the routes give them:\n" + "\n".join(
+        refused)
+    assert {"job.pipeline.dock (from a PDB or UniProt id)", "job.pipeline.dock (from a PDB file)",
+            "job.pipeline.dock (prepared inputs)", "job.pipeline.rnaseq (FASTQ)",
+            "job.pipeline.rnaseq (count matrix)", "job.pipeline.admet (SDF or .mol)",
+            "job.pipeline.admet (SMILES or CSV/TSV/.smi)", "job.pipeline.fold",
+            "job.pipeline.scrna (count tables)", "job.pipeline.scrna (AnnData or 10x HDF5)"
+            } == set(taken)
 
 
 def test_a_built_dataset_makes_its_relation_kind_runnable(runner_ctx, monkeypatch):
@@ -421,6 +515,11 @@ def test_a_built_dataset_makes_its_relation_kind_runnable(runner_ctx, monkeypatc
     ("Is c.1799T>A pathogenic?", "variants_pharmacogenomics"),
     ("What does GO:0008150 map to?", "ontology_mapping"),
     ("What is ChEMBL25?", "compound_identity"),
+    # a 伤寒论 syndrome named without its closing 证, and what a syndrome is treated with
+    ("桂枝汤治疗太阳中风的证据", "traditional_use"),
+    ("太阳中风用什么方？", "traditional_use"),
+    ("少阴病四逆汤的条文", "traditional_use"),
+    ("Dock quercetin into EGFR", "structure_binding"),
 ])
 def test_a_question_finds_its_route(question, expected):
     assert rt.match(question)[0][0].id == expected
