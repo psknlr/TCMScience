@@ -65,16 +65,26 @@ Where the Pharmacopoeia and the knowledge base disagree, the stricter applies an
 report says the sources differ. For example, the Pharmacopoeia 2020 says 孕妇慎用 for
 附子 and the seed's reading says 禁用, so 附子 in pregnancy is a stop.
 
-An allergy entry is read for the name it records. The words a history writes around the
-name are dropped, with either colon (： or :) and any spaces:
-- 过敏 or 过敏史 after it: 黄耆过敏, 黄耆过敏史, 对黄耆过敏, 有黄耆过敏史;
-- a label before it: 过敏：黄耆, 过敏史：黄耆, 药物过敏史：黄耆, 过敏原：黄耆. 过敏性 is not a
-  label: 过敏性鼻炎 is a condition.
+The intake splits an allergy record into entries at 、，,；;。 and line breaks, so
+对黄耆、人参过敏 gives the entries 对黄耆 and 人参过敏. Each entry is read for the name it
+records. The words a history writes around the name are dropped, with either colon (： or
+:) and any spaces:
+- 对 or 有 before it, with or without 过敏 after it, and a word of time before that (曾,
+  曾经, 既往, 以往): 对黄耆, 有黄耆过敏史, 曾对黄耆过敏, 既往黄耆过敏;
+- a label before it: 过敏, 过敏史, 过敏原 or 过敏源, 过敏药物, 过敏物, 过敏反应, and 药物 or
+  食物 before 过敏 or 过敏史 (过敏：黄耆, 过敏源：黄耆, 药物过敏史：黄耆). 过敏性 is not a
+  label: 过敏性鼻炎 is a condition, read whole;
+- 过敏 after it, and what follows: 黄耆过敏, 黄耆过敏史, 黄耆过敏反应, 黄耆过敏（皮疹）,
+  对黄耆有过敏史. So 花粉过敏性鼻炎 records 花粉.
 
-An entry that records no allergy (无, 否认, 否认过敏史, 过敏史：无, 无药物过敏史, NKDA)
-names nothing and matches no herb. A drug whose name starts with such a word (没药, 无食子)
-is still that drug. The entry as written is also searched for the herb's name as a whole
-(人参过敏史 names 人参), but it is not split into characters.
+No name the tables know starts with one of these words, holds 过敏 or ends in 有. An entry
+that records no allergy (无, 否认, 否认过敏史, 过敏史：无, 无药物过敏史, NKDA) or no allergen
+(过敏体质, 过敏反应, 过敏史不详) names nothing and matches no herb. A drug whose name starts
+with such a word (没药, 无食子) is still that drug. The entry as written is also searched
+for the herb's name as a whole (人参过敏史 names 人参), but it is not split into characters.
+Names joined by 及, 和 or 与 in one entry are not split: 对人参及黄耆过敏 is read as the
+name 人参及黄耆, so it stops 人参, whose own name it holds, but not 黄芪 under its other name
+黄耆. Separate the names with 、 or ，.
 
 Names are compared as written, in simplified characters. The repository has no
 traditional-to-simplified table, so an entry in traditional characters is recognised only
@@ -246,7 +256,7 @@ practitioner reviews it, every report repeats that status.
 - 安全核查：
   - 十八反、十九畏：须说明理由；
   - 妊娠禁用：停止；慎用：须说明理由；育龄期患者妊娠状态未知：须先确认；
-  - 过敏：识别过敏记录所写的药名，去掉名称前后的过敏用语（全角“：”或半角“:”均可，前后空格不计）：名称后的“过敏”“过敏史”（黄耆过敏、黄耆过敏史、对黄耆过敏、有黄耆过敏史），名称前的标签（过敏：黄耆、过敏史：黄耆、药物过敏史：黄耆、过敏原：黄耆）。“过敏性”不是标签：过敏性鼻炎是病证。记为无过敏的（无、否认、否认过敏史、过敏史：无、无药物过敏史、NKDA）不指任何药，不与任何药材匹配；以这类字开头的药名（没药、无食子）仍是该药。原记录也按完整药名查找（人参过敏史含人参），但不拆字找药名。药名按简体字比对：本仓库没有繁简转换表，繁体字记录只有名表收录了该写法时才能识别（药材名表把芎藭列在川芎下，对川芎须说明理由，即下文的 `allergy_source`），其他如黃耆（黄芪）、人參（人参）、當歸（当归）不识别为该药，也不提示，过敏史请用简体字记录。
+  - 过敏：过敏记录先在“、，,；;。”和换行处拆为条目（对黄耆、人参过敏拆为“对黄耆”和“人参过敏”），再识别每条所写的药名，去掉名称前后的过敏用语（全角“：”或半角“:”均可，前后空格不计）：名称前的“对”“有”，后面有无“过敏”均可，其前还可有“曾”“曾经”“既往”“以往”（对黄耆、有黄耆过敏史、曾对黄耆过敏、既往黄耆过敏）；名称前的标签：过敏、过敏史、过敏原或过敏源、过敏药物、过敏物、过敏反应，以及前加“药物”“食物”的过敏、过敏史（过敏：黄耆、过敏源：黄耆、药物过敏史：黄耆），“过敏性”不是标签：过敏性鼻炎是病证，按整条识别；名称后的“过敏”及其后的文字（黄耆过敏、黄耆过敏史、黄耆过敏反应、黄耆过敏（皮疹）、对黄耆有过敏史），所以花粉过敏性鼻炎记的是花粉。名表中没有以这些用语开头、含“过敏”或以“有”结尾的药名。记为无过敏的（无、否认、否认过敏史、过敏史：无、无药物过敏史、NKDA）或无过敏原的（过敏体质、过敏反应、过敏史不详）不指任何药，不与任何药材匹配；以这类字开头的药名（没药、无食子）仍是该药。原记录也按完整药名查找（人参过敏史含人参），但不拆字找药名。同一条中用“及”“和”“与”连接的药名不拆分：对人参及黄耆过敏识别为“人参及黄耆”，按完整药名查找停止人参，但不识别黄耆即黄芪，请用“、”或“，”分隔药名。药名按简体字比对：本仓库没有繁简转换表，繁体字记录只有名表收录了该写法时才能识别（药材名表把芎藭列在川芎下，对川芎须说明理由，即下文的 `allergy_source`），其他如黃耆（黄芪）、人參（人参）、當歸（当归）不识别为该药，也不提示，过敏史请用简体字记录。
     - 停止：记录与药名相同，或一名包含另一名（人参过敏史与人参，黄芪与炙黄芪）；或种子知识库认定为同一药材（黄耆、北芪即黄芪，芍药即白芍，国老、炙甘草即甘草），其名称前加炮制词的仍是该药（炙黄耆即黄芪）；或二者是同一药材的不同炮制品：已知药名前加炮制词即该药的炮制品，所以生地黄、熟地黄都是地黄，对其一过敏即停止另一；简称经其全称归并（生地即生地黄，熟地即熟地黄）。“鲜”“干”等状态词只在药材名表把两名列于同一条下时去掉（鲜生地即生地，干姜不是姜）；药材名表列在另一药名下的名称不算其所含药名的炮制品（炮姜列在干姜下，不是姜即生姜的炮制品）；
     - 须说明理由：记录可能指该药、但名称无法判定时，医师须记录理由（即消息所说的“请核实”）才能签署，分三类：
       - `allergy_source`：药材名表（materia）把记录与该药归于同一来源，即记录是该表列在该药名下的另一名称（薯蓣与山药，双花与金银花），或二者来自同一物种（芍药与赤芍，都可来自 Paeonia lactiflora）。该表收录知识包中除首乌藤外的全部药材，但按来源而非按药归并名称（鸡内金下列有鸡蛋，海藻下列有海带、昆布），所以消息只说二者同源（同一物种/来源），不称为同一药材；

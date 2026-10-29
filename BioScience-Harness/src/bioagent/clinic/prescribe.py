@@ -227,35 +227,51 @@ def _forms(kb: Any, name: str) -> tuple[list[str], list[str]]:
     return forms, wider
 
 
-#: The label an allergy history writes before the name: 过敏：黄耆, 过敏史：黄耆, 药物过敏史：
-#: 黄耆, 过敏原：黄耆 (the intake drops the colon, so 过敏黄耆). 过敏性 is the adjective of a
-#: condition (过敏性鼻炎), not a label.
-_ALLERGY_LABEL = re.compile(r"(?:药物|食物)?过敏(?:史|原)?(?!性)")
-#: 过敏 or 过敏史 after the name, with 对 or 有 before it: 黄耆过敏, 黄耆过敏史, 对黄耆过敏,
-#: 有黄耆过敏史.
-_ALLERGY_SUFFIX = re.compile(r"(?:对|有)?(?P<name>.*?)过敏史?")
+#: The words before the name, with or without 过敏 after it: a word of time (曾, 曾经, 既往,
+#: 以往) and 对 or 有. 对 is read on its own: the intake splits 对黄耆、人参过敏 at 、 into 对黄耆
+#: and 人参过敏, so the first name of a list has 对 and no 过敏. No name the tables know
+#: starts with one of these words.
+_ALLERGY_LEAD = re.compile(r"(?:既往|以往|曾经|曾)?(?:对|有)?")
+#: The label before the name: 过敏, 过敏史, 过敏原 or 过敏源, 过敏药物, 过敏物, 过敏反应, and
+#: 药物过敏(史) or 食物过敏(史) (过敏：黄耆; the intake drops the colon, so 过敏黄耆). 过敏性
+#: is the adjective of a condition (过敏性鼻炎), not a label.
+_ALLERGY_LABEL = re.compile(r"(?:药物|食物)?过敏(?:史|原|源|药物|食物|药|物|反应)?(?!性)")
 #: What is left of a record that there is none: 无, 否认 (否认过敏史), 过敏史：无, 无药物过敏史,
 #: 否认食物及药物过敏史, NKDA. The whole remainder must be such words, so a drug whose name
 #: starts with one (没药, 无食子, 无灰酒) is still that drug.
 _NO_ALLERGY = re.compile(
     r"(?:无|否认|没有|暂无|未|不|none|no|nil|nka|nkda)+"
     r"(?:明显|已知|特殊|任何|发现|药物|食物|药|及|和|与)*")
+#: What is left of a record that names no allergen without denying one: 过敏体质 (an atopic
+#: constitution), 过敏史不详 or 不明 (not known). 过敏反应 is a label with nothing after it.
+_NO_ALLERGEN = re.compile(r"体质|不详|不明|未知|未详|待查")
 
 
 def _allergen(entry: str) -> str:
     """The name an allergy record names, or "" when it names none.
 
-    The words a history writes around the name are dropped: a label before it (过敏：黄耆,
-    过敏:黄耆, 过敏史：黄耆, 药物过敏史：黄耆), or 过敏 / 过敏史 after it (黄耆过敏, 黄耆过敏史,
-    对黄耆过敏), with either colon and any whitespace. A record of no allergy (无, 否认过敏史,
-    过敏史：无) names none. Traditional characters are not folded (黃耆 stays 黃耆): the
+    The words a history writes around the name are dropped, with either colon and any
+    whitespace (the intake has already split a list at 、，,；;。 and line breaks):
+
+    * before it, 对 or 有, after a word of time or not: 对黄耆 (the first name of
+      对黄耆、人参过敏), 有黄耆过敏史, 曾对黄耆过敏, 既往黄耆过敏;
+    * before it, a label: 过敏：黄耆, 过敏史：黄耆, 过敏原：黄耆, 过敏源：黄耆, 过敏药物：黄耆,
+      过敏物：黄耆, 药物过敏史：黄耆;
+    * after it, 过敏 and what follows: 黄耆过敏, 黄耆过敏史, 黄耆过敏反应, 黄耆过敏（皮疹）,
+      对黄耆有过敏史.
+
+    A record of no allergy (无, 否认过敏史, 过敏史：无) or of no allergen (过敏体质, 过敏反应,
+    过敏史不详) names none. Traditional characters are not folded (黃耆 stays 黃耆): the
     repository has no conversion table."""
     text = normalise(entry)                     # NFKC, no whitespace or punctuation
-    if label := _ALLERGY_LABEL.match(text):
+    text = text[_ALLERGY_LEAD.match(text).end():]
+    if label := _ALLERGY_LABEL.match(text):     # 过敏史：对黄耆过敏 reads on as 对黄耆过敏
         text = text[label.end():]
-    if named := _ALLERGY_SUFFIX.fullmatch(text):
-        text = named["name"]
-    return "" if not text or _NO_ALLERGY.fullmatch(text) else text
+        text = text[_ALLERGY_LEAD.match(text).end():]
+    if (at := text.find("过敏")) > 0:           # no name the tables know holds 过敏, or ends in 有
+        text = text[:at].removesuffix("有")
+    return ("" if not text or _NO_ALLERGY.fullmatch(text) or _NO_ALLERGEN.fullmatch(text)
+            else text)
 
 
 #: Names that an allergy record uses for something other than the drug the materia table
