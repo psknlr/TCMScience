@@ -90,6 +90,9 @@ ROUTE_IDS = ("herb_identity", "herb_composition", "formula_composition", "tradit
 # --------------------------------------------------------------- clinic schemas
 
 _STRINGS = arr(S())
+#: An entry of a record written as text (an allergy, a medication, a condition): a number
+#: there is refused, as the clinic library refuses it, not read as the text of the number.
+_TEXT = S(**{"x-text-only": True})
 _FINDINGS = obj({"present": arr(S(), "findings present, e.g. 神疲乏力、胃口差"),
                  "absent": arr(S(), "findings asked about and absent")})
 
@@ -110,9 +113,9 @@ INTAKE_SCHEMA = obj({
                       "absent": _STRINGS}, description="切诊"),
     "vitals": obj({"temperature_c": N(), "heart_rate": N(), "resp_rate": N(), "systolic": N(),
                    "diastolic": N(), "spo2": N("percent")}),
-    "medications": _nullable(arr(S(), "current medications; null = not asked, [] = none")),
-    "allergies": _nullable(arr(S(), "null = not asked, [] = none")),
-    "conditions": _nullable(arr(S(), "known conditions; null = not asked, [] = none")),
+    "medications": _nullable(arr(_TEXT, "current medications; null = not asked, [] = none")),
+    "allergies": _nullable(arr(_TEXT, "null = not asked, [] = none")),
+    "conditions": _nullable(arr(_TEXT, "known conditions; null = not asked, [] = none")),
     "red_flags_cleared": arr(obj({"flag": S(), "by": S(), "how": S()},
                                  required=("flag", "by", "how")),
                              "red flags a clinician has examined and excluded"),

@@ -295,24 +295,9 @@ def test_check_reviews_a_practitioners_own_prescription(pack):
     assert found["unknown_herb:不在知识包的药"] == "block"
 
 
-@pytest.mark.parametrize("allergy,herb", [("黄耆", "黄芪"), ("北芪", "黄芪"), ("绵芪", "黄芪"),
-                                          ("炙黄芪", "黄芪"), ("芍药", "白芍"), ("国老", "甘草"),
-                                          ("国老", "炙甘草"), ("黄芪", "黄芪"),
-                                          ("黄耆过敏", "黄芪"), ("对北芪过敏", "黄芪"),
-                                          # a processing word before a knowledge-base name
-                                          ("黄耆", "炙黄芪"), ("炙黄耆", "黄芪"),
-                                          ("芍药", "炒白芍")])
-def test_an_allergy_written_under_another_name_of_the_herb_stops_it(pack, allergy, herb):
-    # 黄耆 is the classics' name of 黄芪 (Taiwan writes it 黃耆, in traditional characters,
-    # which is not folded here), 北芪 a trade name: the same herb
-    it = parse_intake(case(*SPLEEN, allergies=[allergy]), pack)
-    found = {i.id: i for i in check([Line(herb, 9, "practitioner")], it, pack)}
-    assert found[f"allergy:{herb}"].severity == "stop", sorted(found)
-    assert allergy in found[f"allergy:{herb}"].message
-    assert "过敏与" not in found[f"allergy:{herb}"].message    # 黄耆与黄芪, not 黄耆过敏与黄芪
-
-
-_ALLERGY_CODES = ("allergy", "allergy_source", "allergy_near_name", "allergy_homonym")
+# ------------------------------------------------------------------ allergies
+_ALLERGY_CODES = ("allergy", "allergy_source", "allergy_near_name", "allergy_formula",
+                  "allergy_homonym", "allergy_denied")
 
 
 def _allergy_issues(pack, allergy, herb):
@@ -321,12 +306,48 @@ def _allergy_issues(pack, allergy, herb):
             if i.code in _ALLERGY_CODES]
 
 
+def _found(pack, allergy, herb):
+    return [(i.severity, i.code) for i in _allergy_issues(pack, allergy, herb)]
+
+
+def _all_herbs_issues(pack, record):
+    it = parse_intake(case(*SPLEEN, allergies=[record]), pack)
+    lines = [Line(h, 9, "practitioner") for h in pack.herbs]
+    return [i for i in check(lines, it, pack) if i.code in _ALLERGY_CODES]
+
+
+@pytest.mark.parametrize("allergy,herb", [("黄耆", "黄芪"), ("北芪", "黄芪"), ("绵芪", "黄芪"),
+                                          ("炙黄芪", "黄芪"), ("芍药", "白芍"), ("国老", "甘草"),
+                                          ("国老", "炙甘草"), ("黄芪", "黄芪"),
+                                          ("黄耆过敏", "黄芪"), ("对北芪过敏", "黄芪"),
+                                          # a processing word before a knowledge-base name
+                                          ("黄耆", "炙黄芪"), ("炙黄耆", "黄芪"),
+                                          ("芍药", "炒白芍")])
+def test_an_allergy_written_under_another_name_of_the_herb_stops_it(pack, allergy, herb):
+    # 黄耆 is the classics' name of 黄芪 (Taiwan writes it 黃耆, which is folded to 黄耆), 北芪
+    # a trade name: the same herb
+    it = parse_intake(case(*SPLEEN, allergies=[allergy]), pack)
+    found = {i.id: i for i in check([Line(herb, 9, "practitioner")], it, pack)}
+    assert found[f"allergy:{herb}"].severity == "stop", sorted(found)
+    assert allergy in found[f"allergy:{herb}"].message
+    assert "过敏与" not in found[f"allergy:{herb}"].message    # 黄耆与黄芪, not 黄耆过敏与黄芪
+
+
 def test_an_allergy_to_another_herb_is_not_read_as_this_one(pack):
-    # 党参 is not 人参, and a name that only shares a character is nothing; nor is the one
-    # character a processing word leaves (the 姜 of 生姜 is not looked for in 沙姜, Kaempferia)
-    for allergy, herb in (("党参", "人参"), ("青霉素", "黄芪"), ("黄芩", "黄芪"), ("西洋参", "人参"),
-                          ("沙姜", "生姜"), ("洋姜", "生姜")):
+    # 党参 is not 人参, and a name that only shares a character is nothing
+    for allergy, herb in (("党参", "人参"), ("青霉素", "黄芪"), ("黄芩", "黄芪"), ("西洋参", "人参")):
         assert not _allergy_issues(pack, allergy, herb), (allergy, herb)
+
+
+@pytest.mark.parametrize("allergy", ["沙姜", "洋姜", "老姜", "姜汤"])
+def test_a_one_character_name_inside_another_word_asks_instead_of_passing(pack, allergy):
+    # 姜 is a name of 生姜 in the materia table. In 沙姜 (Kaempferia) or 洋姜 (Jerusalem
+    # artichoke) it is part of another word, which is not ginger; in 老姜 it is ginger. The
+    # character was not looked for at all, so 老姜 passed 生姜 in silence: the record holds
+    # it, and the practitioner now says which was meant (a block, never a stop)
+    found = _allergy_issues(pack, allergy, "生姜")
+    assert [(i.severity, i.code) for i in found] == [("block", "allergy_near_name")], found
+    assert f"“{allergy}”含有“姜”的字样" in found[0].message and "未必" in found[0].message
 
 
 @pytest.mark.parametrize("allergy,herb", [("鸡蛋", "鸡内金"), ("鸡子", "鸡内金"), ("乌鸡", "鸡内金"),
@@ -335,19 +356,29 @@ def test_an_allergy_to_another_herb_is_not_read_as_this_one(pack):
                                           ("麦门冬", "麦冬"), ("双花", "金银花"), ("茯苓", "茯神"),
                                           # a processing word does not make 鸡蛋 the herb
                                           ("生鸡蛋", "鸡内金")])
-def test_a_name_the_materia_table_files_with_the_herb_needs_a_reason_and_never_says_same_herb(
+def test_a_name_the_materia_table_files_with_the_herb_needs_a_reason_and_claims_no_species(
         pack, allergy, herb):
     # the materia table groups names by source, for network pharmacology: its 鸡内金 lists
     # 鸡蛋 and 乌鸡 (Gallus gallus), its 海藻 海带 and 昆布, its 山药 山芋 (in many places
     # today a sweet potato) and 薯蓣, its 莱菔子 萝卜. Read as the herb, an egg allergy was
     # an unsignable stop for 鸡内金 that said the two were one drug; ignored, an allergy
-    # recorded as 薯蓣 passed 山药 in silence. It says they share a source and asks which
-    # was meant, and the answer is recorded: a block, signed only with the reason.
+    # recorded as 薯蓣 passed 山药 in silence. It says where the table files the two and asks
+    # which was meant, and the answer is recorded: a block, signed only with the reason. It
+    # does not say they are one species: the table files 海带 (Saccharina) under 海藻
+    # (Sargassum), and holds no species of its own for a name it files.
     found = _allergy_issues(pack, allergy, herb)
     assert [(i.severity, i.code) for i in found] == [("block", "allergy_source")], found
     msg = found[0].message
-    assert "同源（同一物种/来源）" in msg and "请核实" in msg and "药材名表" in msg, msg
-    assert "为同一药材" not in msg, msg
+    assert "同列于" in msg and "未必同一物种" in msg and "请核实" in msg and "药材名表" in msg, msg
+    assert "为同一药材" not in msg and "同一物种/来源" not in msg and "同源" not in msg, msg
+
+
+def test_a_name_filed_with_another_species_says_only_where_the_table_files_it(pack):
+    # S4: 海带 is Saccharina japonica, 海藻 Sargassum; the old message called them 同源（同一
+    # 物种/来源）
+    found = _allergy_issues(pack, "海带过敏", "海藻")
+    assert [(i.severity, i.code) for i in found] == [("block", "allergy_source")], found
+    assert "药材名表将海带与海藻同列于“海藻”条下（未必同一物种），请核实" in found[0].message
 
 
 def test_an_allergy_to_a_drug_of_the_same_species_needs_a_reason(pack):
@@ -438,7 +469,9 @@ def test_a_pollen_allergy_asks_about_tianhuafen_only(pack, allergy):
 def test_an_allergy_that_may_be_the_herb_is_signed_only_with_a_reason(pack, tmp_path):
     # allergy_source and allergy_near_name ask the practitioner to check (请核实); as warnings
     # they were signed with no trace that anyone had, among them pairs that were stops before
-    for allergy, issue in (("红参", "allergy_source:人参"), ("土茯苓", "allergy_near_name:茯苓")):
+    for allergy, issue in (("红参", "allergy_source:人参"), ("土茯苓", "allergy_near_name:茯苓"),
+                           ("复方甘草片过敏", "allergy_near_name:炙甘草"),
+                           ("否认人参过敏", "allergy_denied:人参")):
         out = tmp_path / allergy
         s = assess(case(*SPLEEN, allergies=[allergy]), out, pack=pack)
         assert s.status != "blocked"                       # not a stop
@@ -452,12 +485,12 @@ def test_an_allergy_that_may_be_the_herb_is_signed_only_with_a_reason(pack, tmp_
 
 @pytest.mark.parametrize("allergy,herb", [("炙黄芪", "黄芪"), ("黄芪", "炙黄芪"), ("地黄", "熟地黄"),
                                           ("熟地黄", "地黄"), ("制附子", "附子"), ("半夏", "法半夏"),
-                                          ("人参过敏史", "人参"), ("贝母", "浙贝母"), ("首乌", "首乌藤"),
-                                          ("丹皮", "牡丹皮"), ("银花", "金银花")])
+                                          ("人参过敏史", "人参"), ("丹皮", "牡丹皮"),
+                                          ("银花", "金银花")])
 def test_containment_still_stops_a_processed_form_or_a_name_the_tables_do_not_contradict(
         pack, allergy, herb):
-    # 熟地黄 is 地黄 processed, though the materia table files the two apart; 贝母 is in no
-    # table (it may be 川贝母 or 浙贝母); 人参过敏史 is free text naming 人参
+    # 熟地黄 is 地黄 processed, though the materia table files the two apart; 人参过敏史 is
+    # free text naming 人参. (贝母, in no table, only asks: see the parts below)
     found = _allergy_issues(pack, allergy, herb)
     assert ("stop", "allergy") in [(i.severity, i.code) for i in found], found
 
@@ -471,20 +504,19 @@ def test_containment_still_stops_a_processed_form_or_a_name_the_tables_do_not_co
     ("对土茯苓、人参过敏", "茯苓", ("block", "allergy_near_name")),
     ("对川牛膝、人参过敏", "牛膝", ("block", "allergy_near_name")),
     ("对花粉、青霉素过敏", "天花粉", ("block", "allergy_homonym")),
-    ("曾对黄耆、人参过敏", "黄芪", ("stop", "allergy")), ("对黄耆、人参过敏", "人参", ("stop", "allergy"))])
-def test_the_first_name_of_an_allergy_list_after_dui_is_read(pack, record, herb, expected):
-    # the intake splits a record at 、，,；; before it is read, so 对黄耆、人参过敏 reaches the
-    # check as 对黄耆 and 人参过敏. Reading 对 only before 过敏 left 对黄耆 a name the tables do
-    # not know: 黄芪 passed, 对土茯苓 stopped 茯苓 for holding its name instead of asking which
-    # was meant, and 对乌头 asked nothing of 附子.
+    ("曾对黄耆、人参过敏", "黄芪", ("stop", "allergy")), ("对黄耆、人参过敏", "人参", ("stop", "allergy")),
+    # names joined by 及 or written with no mark between them are read too
+    ("对人参及黄耆过敏", "黄芪", ("stop", "allergy")), ("北芪人参过敏", "黄芪", ("stop", "allergy"))])
+def test_every_name_of_an_allergy_list_is_read(pack, record, herb, expected):
+    # the intake splits a record at 、，,；; and a reading by wordings lost the names that
+    # were not first or last: 对黄耆 kept its 对, 对人参及黄耆过敏 was the one name 人参及黄耆
     found = _allergy_issues(pack, record, herb)
     assert [(i.severity, i.code) for i in found] == [expected], (record, found)
     assert "对" not in found[0].message.split("：")[-1], found[0].message
 
 
 #: How an allergy history writes a name: 过敏 / 过敏史 / 过敏反应 after it, or a label before
-#: it with either colon, and spaces anywhere; 对 or 有 before it, with 过敏 after it or not
-#: (对黄耆 is the first name of 对黄耆、人参过敏, which the intake splits at 、).
+#: it with either colon, and spaces anywhere; 对 or 有 before it, with 过敏 after it or not.
 _RECORD_FORMS = ("{}过敏史", "过敏：{}", "过敏:{}", "过敏史：{}", "过敏史:{}", " 过敏史 ： {} ",
                  "{}过敏", "对{}过敏", "有{}过敏史", "药物过敏史：{}", "过敏原：{}",
                  "对{}", "有{}", "过敏源：{}", "过敏药物：{}", "过敏物：{}", "过敏反应：{}",
@@ -497,9 +529,6 @@ _RECORD_FORMS = ("{}过敏史", "过敏：{}", "过敏:{}", "过敏史：{}", "�
                                           ("芍药", "白芍"), ("生地", "熟地黄"), ("人参", "人参")])
 def test_an_allergy_in_a_historys_own_words_stops_the_herb_under_any_of_its_names(
         pack, form, allergy, herb):
-    # DB-01: 对黄耆过敏 and 黄耆过敏 were read as 黄耆, but 黄耆过敏史 and 过敏：黄耆, the commonest
-    # ways a history records an allergy, were looked up whole. Only a record holding the
-    # herb's own name (人参过敏史) stopped it; under another name (黄耆, 北芪, 国老) it passed.
     record = form.format(allergy)
     found = _allergy_issues(pack, record, herb)
     assert [(i.severity, i.code) for i in found] == [("stop", "allergy")], (record, found)
@@ -516,58 +545,786 @@ def test_a_name_that_may_be_the_herb_asks_the_same_in_a_historys_own_words(pack,
     assert not _allergy_issues(pack, form.format("花粉"), "瓜蒌")      # pollen, as before
 
 
-def test_every_name_the_tables_know_is_read_back_from_each_record_form():
-    # the affixes are stripped without touching the name: a drug whose name starts with a
-    # word of negation (没药, 无食子, 没食子) is that drug, not a record of no allergy
-    from bioagent.clinic.findings import normalise
-    from bioagent.clinic.prescribe import _allergen, _kb
+def test_every_name_the_tables_know_is_found_standing_in_each_record_form(pack):
+    # the scan finds the name wherever the form puts it, without touching it: a drug whose
+    # name starts with a word of negation (没药, 无食子, 没食子) is that drug, not a denial
+    from bioagent.clinic.allergy import _EVERYDAY, _vocab, fold, mentions
+    from bioagent.clinic.prescribe import _kb
     from bioagent.sources import materia
-    names = set(materia._NAME_INDEX) | set(_kb()._names)
-    assert {"没药", "无食子", "没食子", "黄耆", "北芪", "astragaliradix"} <= names
-    for name in names:
-        for form in ("{}", *_RECORD_FORMS):
-            assert _allergen(form.format(name)) == normalise(name), (form, name)
+    kb = _kb()
+    names = {fold(n) for n in materia._NAME_INDEX} | set(_vocab(kb, pack).names)
+    assert {"没药", "无食子", "没食子", "黄耆", "北芪", "夜交藤", "川黄柏"} <= names
+    for name in sorted(names):
+        for form in ("{}", "{}过敏史", "过敏：{}", "对{}过敏", "有{}", "既往{}过敏", "对{}有过敏史",
+                     "患者自诉{}过敏", "过敏药物：{}（皮疹）"):
+            got = [(m.name, m.word, m.denied) for m in mentions(form.format(name), kb=kb, pack=pack)]
+            before = form[:form.index("{}")][-1:]
+            if before + name[:1] in _EVERYDAY:
+                # 对于术: the 于 of 对于 (regarding) may not start 于术, so the name is read
+                # inside the longer word, and asks
+                assert any(n == name and word for n, word, _ in got), (form, name, got)
+                continue
+            assert (name, "", False) in got, (form, name, got)
 
 
-@pytest.mark.parametrize("record", ["无", "否认", "没有", "否认过敏史", "过敏史：无", "过敏史:否认",
-                                    " 过敏史 ： 无 ", "无过敏史", "无药物过敏史", "否认药物过敏史",
-                                    "否认食物及药物过敏史", "NKDA", "过敏史", "过敏", "对", "有",
-                                    "有过敏史", "过敏源", "过敏药物",
-                                    # no allergen: an atopic constitution, a reaction, unknown
-                                    "过敏体质", "过敏反应", "过敏史不详", "过敏史：不明", "不详",
-                                    # a condition, read whole: 过敏性 is no label
-                                    "过敏性鼻炎"])
+#: Records of no allergy, the review's 44: each names nothing, so each adds nothing.
+_NO_ALLERGY = ["无", "否认过敏史", "过敏史：无", "无药物过敏史", "暂无", "NKDA", "none", "None", "NKA",
+               "nil", "no", "No known drug allergies", "No known allergies", "N/A", "n/a",
+               "无已知药物过敏", "无明确过敏史", "未发现过敏", "否认药物、食物过敏史", "否认药物及食物过敏史",
+               "无特殊", "过敏史：（-）", "过敏史：阴性", "过敏史：否", "否", "没有过敏", "未诉过敏史",
+               "未述过敏史", "不详", "过敏史不详", "无药物食物过敏史", "无过敏", "denies", "denied",
+               "NKFA", "无食物药物过敏", "否认其他过敏史", "过敏史：-", "无 过敏史", "过敏史： 无 ",
+               "无。", "（无）", "无过敏史及家族史", "否认食物、药物过敏史，否认输血史",
+               # and the earlier list: labels and words with no allergen after them
+               "否认", "没有", "过敏史:否认", " 过敏史 ： 无 ", "否认食物及药物过敏史", "过敏史", "过敏",
+               "对", "有", "有过敏史", "过敏源", "过敏药物", "过敏体质", "过敏反应", "过敏史：不明",
+               "过敏性鼻炎", "Allergies: none", "allergy: nil"]
+
+
+@pytest.mark.parametrize("record", _NO_ALLERGY)
 def test_a_record_of_no_allergy_names_nothing_and_matches_no_herb(pack, record):
-    # stripping 过敏史 from 否认过敏史, or the label from 过敏史：无, leaves a word of negation,
-    # which names no drug; nothing may match it, against any herb of the pack. 过敏体质,
-    # 过敏反应 and 过敏史不详 name no allergen either: they were read as the names 体质, 反应
-    # and 不详, which matched nothing by chance
     from bioagent.clinic.prescribe import _allergen
-    if record != "过敏性鼻炎":
-        assert _allergen(record) == "", record
-    it = parse_intake(case(*SPLEEN, allergies=[record]), pack)
-    lines = [Line(h, 9, "practitioner") for h in pack.herbs]
-    assert not [i.id for i in check(lines, it, pack) if i.code in _ALLERGY_CODES], record
+    assert _allergen(record) == "", record
+    assert not [i.id for i in _all_herbs_issues(pack, record)], record
 
 
-@pytest.mark.xfail(strict=False, reason="no traditional-simplified table: 黃耆 is not read as "
-                   "黄芪 (docs/tcm-clinic.md states the limit)")
-def test_an_allergy_in_traditional_characters_stops_the_herb(pack):
-    # the miss is a known limit, not the behaviour wanted: a fold of traditional characters
-    # makes this pass, and nothing here has to be deleted for it
-    assert [(i.severity, i.code) for i in _allergy_issues(pack, "黃耆过敏史", "黄芪")] == [
-        ("stop", "allergy")]
+#: Allergies to what is no herb: silent, against every herb of the pack.
+_NOT_A_HERB = ["青霉素过敏", "海鲜过敏", "头孢过敏", "芒果过敏", "牛奶过敏", "花生过敏", "尘螨过敏",
+               "碘过敏", "虾蟹过敏", "小麦过敏", "乳胶过敏", "磺胺过敏", "鱼虾过敏", "酒精过敏",
+               "阿司匹林过敏", "布洛芬过敏", "链霉素过敏", "猫毛过敏", "粉尘过敏", "紫外线过敏",
+               "造影剂过敏", "鸡肉过敏", "牛肉过敏", "芝麻过敏", "大豆过敏", "坚果过敏", "核桃过敏",
+               "金属过敏", "镍过敏", "化妆品过敏", "染发剂过敏", "苹果过敏", "西红柿过敏", "土豆过敏",
+               "玉米过敏", "燕麦过敏", "龙虾过敏", "蜂毒过敏", "感冒药过敏", "安乃近过敏",
+               "青霉素皮试阳性", "皮肤过敏", "季节性过敏", "过敏性哮喘", "蚊虫叮咬过敏", "动物皮毛过敏",
+               "对青霉素、头孢过敏", "penicillin allergy", "allergic to sulfa", "shellfish"]
 
 
-def test_the_doc_states_that_traditional_characters_are_not_read():
-    # the repository has no traditional-simplified table, so 黃耆 (Taiwan's 黄芪) is not
-    # read as 黄芪: the limit is stated in the doc, in English and Chinese
+@pytest.mark.parametrize("record", _NOT_A_HERB)
+def test_an_allergy_to_what_is_no_herb_is_silent(pack, record):
+    assert not [(i.id, i.message) for i in _all_herbs_issues(pack, record)], record
+
+
+# B1: a denial clause before a real allergy dropped the allergy (960ab72)
+@pytest.mark.parametrize("record,herb", [
+    ("食物过敏史：无 药物过敏史：黄芪", "黄芪"), ("无药物过敏史但对黄芪过敏", "黄芪"),
+    ("否认药物过敏史 对黄芪过敏", "黄芪"), ("无过敏史（黄芪过敏除外）", "黄芪"),
+    ("未发现过敏 人参过敏", "人参"), ("药物过敏史：无 食物过敏史：无 中药过敏：黄芪", "黄芪"),
+    ("无食物过敏 药物过敏：黄芪", "黄芪"), ("无药物过敏史，但对黄芪过敏", "黄芪"),
+    ("过敏史：无 （对人参过敏）", "人参"), ("NKDA except 黄芪", "黄芪"), ("无\n对黄芪过敏", "黄芪"),
+    ("过敏史：否认 人参过敏史", "人参"), ("过敏史不详 人参过敏", "人参"), ("过敏体质 对人参过敏", "人参"),
+    ("过敏性鼻炎 人参过敏", "人参"), ("过敏原：无 过敏药物：黄芪", "黄芪"),
+    ("食物过敏：无 药物过敏：黄芪", "黄芪"), ("食物过敏史：无\t药物过敏史：黄芪", "黄芪"),
+    ("否认食物过敏史 药物过敏史：人参", "人参"), ("无药物过敏史 但服人参后出现皮疹", "人参"),
+    ("不详 人参过敏", "人参"), ("无药物过敏史，对北芪过敏", "黄芪"),
+    # a denial that an event closes (无明显诱因 … 出现) denies nothing after it
+    ("无明显诱因出现人参过敏", "人参")])
+def test_a_denial_before_an_allergy_does_not_drop_it(pack, record, herb):
+    found = _allergy_issues(pack, record, herb)
+    assert [(i.severity, i.code) for i in found] == [("stop", "allergy")], (record, found)
+
+
+@pytest.mark.parametrize("record", ["否认黄芪过敏", "无黄芪过敏史", "否认对黄芪过敏", "患者否认黄芪过敏",
+                                    "黄芪：无", "黄芪过敏史：否", "黄芪（-）", "对黄芪不过敏",
+                                    "否认青霉素、黄芪过敏", "否认北芪过敏", "否認黃耆過敏",
+                                    "no huangqi allergy", "denies 黄芪 allergy", "NKDA 北芪",
+                                    "黄芪皮试阴性", "过敏史：黄芪（-）"])
+def test_a_herb_the_history_denies_asks_for_confirmation_and_is_never_silent(pack, record):
+    # a denial that names a herb may be read as one, but only as a block that asks the
+    # practitioner to confirm it: never a silent pass
+    found = _allergy_issues(pack, record, "黄芪")
+    assert [(i.severity, i.code) for i in found] == [("block", "allergy_denied")], (record, found)
+    assert "否认的字样" in found[0].message and "可能是否认" in found[0].message, found
+    assert "确认该否认无误" in found[0].message
+
+
+@pytest.mark.parametrize("record,herb,word", [("对于术后感染", "白术", "对于术"),
+                                              ("由于术后出现皮疹", "白术", "由于术"),
+                                              ("对鸡蛋白及过敏", "白及", "鸡蛋白及")])
+def test_a_name_whose_first_character_ends_an_everyday_word_asks(pack, record, herb, word):
+    # 于术 is 白术's other name, but in 对于术后 the 于 belongs to 对于 (regarding), and in
+    # 鸡蛋白及 the 白 to 蛋白 (protein): read standing, these were stops that named the herb
+    found = _allergy_issues(pack, record, herb)
+    assert [(i.severity, i.code) for i in found] == [("block", "allergy_near_name")], found
+    assert f"记录中的“{word}”" in found[0].message, found[0].message
+
+
+def test_a_denial_hides_no_name_in_another_clause(pack):
+    it = parse_intake(case(*SPLEEN, allergies=["否认黄芪过敏，对人参过敏", "无过敏史 甘草过敏"]),
+                      pack)
+    lines = [Line(h, 9, "practitioner") for h in ("黄芪", "人参", "甘草")]
+    found = {i.id: i.severity for i in check(lines, it, pack) if i.code in _ALLERGY_CODES}
+    assert found == {"allergy_denied:黄芪": "block", "allergy:人参": "stop", "allergy:甘草": "stop"}
+
+
+# B2: an alias was read only in the wordings a list held
+@pytest.mark.parametrize("record,herb", [
+    # narrative
+    ("患者对国老过敏", "甘草"), ("自诉国老过敏", "甘草"), ("3年前北芪过敏", "黄芪"),
+    ("以前对芍药过敏", "白芍"), ("可疑熟地过敏", "熟地黄"), ("服用北芪后出现皮疹", "黄芪"),
+    ("对芍药严重过敏", "白芍"), ("对北芪也过敏", "黄芪"), ("2019年对北芪过敏", "黄芪"),
+    ("幼时对北芪过敏", "黄芪"), ("北芪过敏3年", "黄芪"), ("过敏史：有 对黄耆过敏", "黄芪"),
+    # lists
+    ("北芪/人参过敏", "黄芪"), ("黄耆 人参过敏", "黄芪"), ("对黄耆及人参过敏", "黄芪"),
+    ("对北芪、国老等过敏", "黄芪"), ("对北芪、国老等过敏", "甘草"), ("对青霉素、北芪均过敏", "黄芪"),
+    ("北芪、国老等", "甘草"), ("对国老等过敏", "炙甘草"),
+    # labels
+    ("过敏药品：北芪", "黄芪"), ("变应原：北芪", "黄芪"), ("已知过敏：北芪", "黄芪"),
+    ("过敏史：黄耆（皮疹）", "黄芪"), ("过敏史：北芪(+)", "黄芪"), ("致敏原：北芪", "黄芪"),
+    ("致敏药物：北芪", "黄芪"), ("过敏史(有)：北芪", "黄芪"), ("药物过敏史（有）：北芪", "黄芪"),
+    ("过敏药物名称：北芪", "黄芪"), ("过敏史：有 北芪", "黄芪"), ("过敏史：+ 北芪", "黄芪"),
+    ("过敏情况：北芪", "黄芪"), ("药物过敏情况：北芪", "黄芪"), ("过敏：是，北芪", "黄芪"),
+    ("明确过敏：北芪", "黄芪"), ("北芪（过敏）", "黄芪"), ("北芪（皮疹，已停药）", "黄芪"),
+    ("北芪；过敏", "黄芪"), ("北芪过敏，表现为皮疹", "黄芪"), ("北芪:皮疹", "黄芪"),
+    ("过敏药物：北芪（皮疹）", "黄芪"),
+    # English, pinyin and Latin
+    ("allergic to 北芪", "黄芪"), ("Allergy: 黄耆", "黄芪"), ("Allergies: 北芪", "黄芪"),
+    ("ALLERGY: 北芪", "黄芪"), ("Allergic to: 黄耆", "黄芪"), ("allergy - 国老", "甘草"),
+    ("allergic to huangqi", "黄芪"), ("Allergy: huangqi", "黄芪"), ("huang qi", "黄芪"),
+    ("Astragali Radix allergy", "黄芪"), ("allergic to Astragali Radix", "黄芪"),
+    ("astragaliradix", "黄芪"), ("Glycyrrhizae Radix et Rhizoma", "甘草"),
+    ("Ginseng Radix et Rhizoma", "人参"),
+    # characters that show nothing, or other marks
+    ("北芪​过敏", "黄芪"), ("﻿北芪过敏", "黄芪"), ("北芪⁠过敏", "黄芪"),
+    ("北芪\x00过敏", "黄芪"), ("过敏史∶北芪", "黄芪"), ("过敏史︰北芪", "黄芪"),
+    ("对「北芪」过敏", "黄芪"), ("对《北芪》过敏", "黄芪"), ("对·北芪·过敏", "黄芪"),
+    ("过敏史：北芪　", "黄芪"), ("北芪\xa0过敏", "黄芪"), ("北芪 过 敏", "黄芪"),
+    ("过 敏 史 ： 北 芪", "黄芪")])
+def test_an_alias_is_read_wherever_the_history_writes_it(pack, record, herb):
+    found = _allergy_issues(pack, record, herb)
+    assert [(i.severity, i.code) for i in found] == [("stop", "allergy")], (record, found)
+
+
+# S1: traditional characters
+@pytest.mark.parametrize("record,herb", [("黃耆過敏", "黄芪"), ("對北芪過敏", "黄芪"), ("過敏史：北芪", "黄芪"),
+                                         ("人參过敏史", "人参"), ("黃耆过敏史", "黄芪"), ("當歸過敏", "当归"),
+                                         ("對黃耆過敏", "黄芪"), ("否認藥物過敏史，對人參過敏", "人参"),
+                                         ("對國老過敏", "炙甘草"), ("熟地黃過敏", "熟地黄")])
+def test_an_allergy_in_traditional_characters_stops_the_herb(pack, record, herb):
+    # the materia table's own fold (materia.to_simplified) reads the names; the words around
+    # them (過敏, 對, 否認) are folded with them
+    assert _found(pack, record, herb) == [("stop", "allergy")], record
+
+
+# S2 and S3: a herb's name inside a longer word
+@pytest.mark.parametrize("record,herb,inner,word", [
+    ("郁金香过敏", "郁金", "郁金", "郁金香"), ("龙胆紫过敏", "龙胆", "龙胆", "龙胆紫"),
+    ("对牛奶蛋白及鸡蛋过敏", "白及", "白及", "牛奶蛋白及"), ("蛋白及乳制品过敏", "白及", "白及", None),
+    ("白蛋白及血浆过敏", "白及", "白及", None), ("对鸡蛋白及花生过敏", "白及", "白及", None),
+    ("海藻酸钠过敏", "海藻", "海藻", "海藻酸钠"), ("预防风疹疫苗过敏", "防风", "防风", "预防风疹疫苗"),
+    ("红花油过敏", "红花", "红花", "红花油"), ("藏红花过敏", "红花", "红花", "藏红花"),
+    ("西红花过敏", "红花", "红花", "西红花"), ("双黄连过敏", "黄连", "黄连", "双黄连"),
+    ("双黄连注射液过敏", "黄连", "黄连", "双黄连注射液"), ("黄连素过敏", "黄连", "黄连", "黄连素"),
+    ("麦芽糖过敏", "麦芽", "麦芽", "麦芽糖"), ("伪麻黄碱过敏", "麻黄", "麻黄", "伪麻黄碱"),
+    ("野菊花过敏", "菊花", "菊花", "野菊花"), ("复方丹参滴丸过敏", "丹参", "丹参", "复方丹参滴丸"),
+    ("黄芪注射液过敏", "黄芪", "黄芪", "黄芪注射液"),
+    ("知柏地黄丸过敏", "熟地黄", "地黄", "知柏地黄丸"), ("知柏地黄丸过敏", "生地黄", "地黄", "知柏地黄丸"),
+    ("复方甘草片过敏", "甘草", "甘草", "复方甘草片"), ("复方甘草片过敏", "炙甘草", "甘草", "复方甘草片")])
+def test_a_herb_name_inside_a_longer_word_asks_and_never_claims_the_herb(pack, record, herb,
+                                                                       inner, word):
+    # 郁金香 is the tulip, 龙胆紫 gentian violet, 蛋白 protein, 海藻酸钠 sodium alginate, 风疹
+    # rubella, 西红花 saffron, 双黄连 and 知柏地黄丸 patent medicines: each was a stop that said
+    # the record named the herb. The record holds the characters; the practitioner says
+    # whether it meant the herb. (六味地黄丸, a formula of the pack, is read as its herbs.)
+    found = _allergy_issues(pack, record, herb)
+    assert [(i.severity, i.code) for i in found] == [("block", "allergy_near_name")], (record, found)
+    msg = found[0].message
+    assert f"含有“{inner}”的字样" in msg and "未必是指" in msg and "请核实" in msg, msg
+    if word:
+        assert f"记录中的“{word}”" in msg, msg
+    assert f"{record.removesuffix('过敏')}与" not in msg, msg        # never the whole text
+
+
+def test_the_reason_names_the_herb_found_not_the_text_around_it(pack):
+    # S3: 患者对地黄过敏 gave “患者对地黄与熟地黄同为地黄或其炮制品”
+    found = _allergy_issues(pack, "患者对地黄过敏", "熟地黄")
+    assert [(i.severity, i.code) for i in found] == [("stop", "allergy")], found
+    assert "地黄与熟地黄" in found[0].message and "对地黄与" not in found[0].message
+    # a product word the materia table resolves to the herb is the herb: 甘草片, 山药粉
+    assert _found(pack, "甘草片过敏", "甘草") == [("stop", "allergy")]
+    assert _found(pack, "山药粉过敏", "山药") == [("stop", "allergy")]
+
+
+# S7: the pack's cited aliases
+def test_the_packs_cited_aliases_are_read(pack):
+    found = _allergy_issues(pack, "对夜交藤过敏", "首乌藤")
+    assert [(i.severity, i.code) for i in found] == [("stop", "allergy")], found
+    assert "夜交藤为首乌藤的别名" in found[0].message and "《中药学》" in found[0].message
+    for record, herb in (("川黄柏过敏", "黄柏"), ("味连过敏", "黄连"), ("对雅连过敏", "黄连"),
+                         ("黑顺片过敏", "附子"), ("白附片过敏", "附子"), ("对松贝过敏", "川贝母"),
+                         ("大贝过敏", "浙贝母"), ("连丹皮过敏", "牡丹皮"), ("毛山药过敏", "山药")):
+        found = _allergy_issues(pack, record, herb)
+        assert [(i.severity, i.code) for i in found] == [("stop", "allergy")], (record, found)
+        assert "药典" in found[0].source, found[0]
+    # 白附子 is still another drug (Typhonium), though the Pharmacopoeia's 白附片 is 附子
+    assert _found(pack, "白附子过敏", "附子") == [("block", "allergy_near_name")]
+    # and a prescribed alias is its herb: 附子 against 黑顺片 written in the prescription
+    assert ("stop", "allergy") in _found(pack, "附子过敏", "黑顺片")
+
+
+@pytest.mark.parametrize("record", ["对何首乌过敏", "对首乌过敏", "制首乌过敏"])
+def test_he_shou_wu_and_shou_wu_teng_are_one_plant_not_one_drug(pack, record):
+    # 何首乌 is the root of Polygonum multiflorum and 首乌藤 its stem (药典 2020): 首乌 stopped
+    # 首乌藤 (the name inside the other) while 何首乌 passed it in silence. Both now ask, on
+    # the species the pack records for 首乌藤
+    found = _allergy_issues(pack, record, "首乌藤")
+    assert [(i.severity, i.code) for i in found] == [("block", "allergy_source")], found
+    assert "Polygonum multiflorum" in found[0].message and "未必是同一种药" in found[0].message
+
+
+def test_every_pack_alias_cites_its_source_and_no_table_gives_it_another_drug(pack):
+    from bioagent.clinic.allergy import _identity
+    from bioagent.clinic.prescribe import _kb
+    from bioagent.sources import materia
+    kb = _kb()
+    assert pack.herb_aliases and pack.herb_sources
+    for alias, (herb, source) in pack.herb_aliases.items():
+        assert herb in pack.herbs and ("药典" in source or "《中药学》" in source), alias
+        assert herb in source or alias in source, alias              # the entry it is cited from
+        drug = materia.resolve_name(alias)
+        assert drug is None or drug == materia.resolve_name(herb), (alias, drug)
+        ids = _identity(kb, alias)
+        assert not ids or ids == _identity(kb, herb), alias
+    for herb, (species, source) in pack.herb_sources.items():
+        assert materia.resolve_name(herb) is None and species and "药典" in source, herb
+
+
+def test_a_pack_alias_with_no_source_or_given_twice_is_refused(pack, tmp_path):
+    base = json.loads(Path(pack.path).read_text(encoding="utf-8"))
+    for extra, refusal in (({"herb": "黄芪", "aliases": ["夜交藤"], "source": "x"}, "夜交藤"),
+                           ({"herb": "黄芪", "aliases": ["芪"], "source": ""}, "cite its source"),
+                           ({"herb": "不在包中", "aliases": ["某药"], "source": "x"},
+                            "not a herb of the pack")):
+        data = json.loads(json.dumps(base))
+        data["herb_aliases"].append(extra)
+        bad = tmp_path / "pack.json"
+        bad.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with pytest.raises(P.PackError, match=refusal):
+            P.load_pack(bad)
+
+
+# S5 and S6: what the field holds
+@pytest.mark.parametrize("blank", ["", "   ", [""], ["。。。"], ["  ", "、"], "///"])
+def test_a_blank_allergy_field_reads_as_not_asked(pack, blank):
+    it = parse_intake(case(*SPLEEN, allergies=blank), pack)
+    assert it.allergies is None and "过敏史未询问" in it.warnings
+    lines =[Line(h, 9, "practitioner") for h in pack.herbs]
+    assert not [i for i in check(lines, it, pack) if i.code in _ALLERGY_CODES]
+    # [] is "asked, none", as the template says
+    it = parse_intake(case(*SPLEEN, allergies=[]), pack)
+    assert it.allergies == () and "过敏史未询问" not in it.warnings
+
+
+@pytest.mark.parametrize("field", ["allergies", "medications", "conditions"])
+@pytest.mark.parametrize("value", [5, 5.5, True, {"北芪": "皮疹"}, [{"substance": "北芪"}], [None],
+                                   [["北芪"]], ["北芪", 3]])
+def test_a_list_field_that_is_not_text_is_refused(pack, field, value):
+    # the studio refuses these with this message; the command line and the library turned an
+    # object into text (and read an allergy out of its keys) or raised a TypeError
+    doc = case(*SPLEEN)
+    doc[field] = value
+    with pytest.raises(IntakeError, match=rf"^{field} must be a list of strings or null$"):
+        parse_intake(doc, pack)
+
+
+# the property: no name any table gives a pack herb passes it in silence
+def _traditional(name):
+    from bioagent.sources import materia
+    back: dict[str, str] = {}
+    for t, s in zip(materia._TRADITIONAL, materia._SIMPLIFIED):
+        back.setdefault(s, t)
+    return "".join(back.get(c, c) for c in name)
+
+
+_TEMPLATES = ("{}", "{}过敏", "对{}过敏", "患者自诉{}过敏", "3年前服用{}后出现皮疹", "{}、青霉素过敏",
+              "青霉素、{}过敏", "对青霉素及{}均过敏", "{}/人参过敏", "过敏药物：{}（皮疹）", "变应原：{}",
+              "allergic to {}", "Allergy: {}", "食物过敏史：无 药物过敏史：{}", "无药物过敏史但对{}过敏",
+              "否认药物过敏史，对{}过敏", "一吃{}就过敏", "因{}过敏住院", "过敏史：\n青霉素\n{}\n头孢",
+              "姜\n{}", "{} 黄芪")
+_TRADITIONAL_TEMPLATES = ("對{}過敏", "過敏史：{}")
+
+
+def test_every_name_any_table_gives_a_pack_herb_is_never_silent(pack):
+    from bioagent.clinic.allergy import _identity, _latin_forms, allergy_issues
+    from bioagent.clinic.prescribe import _kb
+    from bioagent.sources import materia
+    kb = _kb()
+    by_drug: dict[str, set[str]] = {}
+    for name, drug in materia._NAME_INDEX.items():
+        by_drug.setdefault(drug, set()).add(name)
+    checked = 0
+    for herb in pack.herbs:
+        names = {herb}
+        drug = materia.resolve_name(herb)
+        if drug:
+            names |= by_drug.get(drug, set()) | set(_latin_forms(materia.MATERIA[drug].latin))
+        names |= set(pack.herb_pinyin.get(herb, ()))
+        if herb in pack.herb_latin:
+            names |= set(_latin_forms(pack.herb_latin[herb]))
+        ids = _identity(kb, herb)
+        for e in (*kb.herbs.values(), *kb.processed.values()):
+            if (getattr(e, "herb_id", "") or e.id) in ids:
+                names |= set(e.names)
+        names |= {a for a, (h, _) in pack.herb_aliases.items() if h == herb}
+        for name in sorted(names):
+            records = ([t.format(name) for t in _TEMPLATES]
+                       + [t.format(_traditional(name)) for t in _TRADITIONAL_TEMPLATES])
+            for record in records:
+                assert allergy_issues([herb], [record], kb, pack), (herb, name, record)
+                checked += 1
+    assert checked > 10000, checked
+
+
+@pytest.mark.parametrize("record", ["😀", "\ud800北芪过敏", "北芪abc😀过敏ΑΒΓ한국어", "，。、；：！？（）",
+                                    "\\u5317\\u82aa", "黄" * 5000, "过敏" * 5000])
+def test_odd_text_in_a_history_does_not_break_the_check(pack, record):
+    from bioagent.clinic.allergy import allergy_issues
+    from bioagent.clinic.prescribe import _kb
+    out = allergy_issues(list(pack.herbs), [record], _kb(), pack)
+    if "北芪" in record:
+        assert ("allergy:黄芪", "stop") in [(i[0], i[1]) for i in out], out
+
+
+def test_a_long_history_is_read_in_linear_time(pack):
+    import time
+    from bioagent.clinic.allergy import allergy_issues
+    from bioagent.clinic.prescribe import _kb
+    kb, herbs = _kb(), list(pack.herbs)
+
+    def timed(record):
+        t0 = time.perf_counter()
+        out = allergy_issues(herbs, [record], kb, pack)
+        return time.perf_counter() - t0, {i[0]: i[1] for i in out}
+
+    for unit, n, expected in (("很", 1, {"allergy:黄芪": "stop"}),
+                              ("对北芪过敏，", 6, {"allergy:黄芪": "stop"}),
+                              ("白", 1, {}), ("否认", 2, {}), ("过敏", 2, {})):
+        small, _ = timed("对北芪过敏" * (unit == "很") + unit * (20000 // n))
+        large, got = timed("对北芪过敏" * (unit == "很") + unit * (200000 // n))
+        assert got == expected, (unit, got)
+        assert large < 20 and large < 30 * small + 1, (unit, small, large)
+
+
+def test_the_doc_describes_the_scan_and_its_limits():
     doc = Path(__file__).resolve().parents[2] / "docs" / "tcm-clinic.md"
     if not doc.is_file():                       # not checked out next to the harness
         pytest.skip("docs/tcm-clinic.md is not in this tree")
     en, zh = doc.read_text(encoding="utf-8").split("## 中文摘要")
-    assert "黃耆" in en and "traditional characters" in en
-    assert "黃耆" in zh and "繁体字" in zh
+    for phrase in ("黃耆", "traditional characters", "to_simplified", "scanned", "allergy_denied",
+                   "淮山", "夜交藤", "allergy_formula", "herb_pinyin", "herb_common_names", "OpenCC",
+                   "Radix Astragali", "姜 / 黄芪"):
+        assert phrase in en, phrase
+    for phrase in ("黃耆", "繁体字", "to_simplified", "扫描", "allergy_denied", "淮山", "夜交藤",
+                   "allergy_formula", "herb_pinyin", "herb_common_names", "OpenCC",
+                   "Radix Astragali", "姜 / 黄芪"):
+        assert phrase in zh, phrase
+    assert "no traditional-to-simplified table" not in en and "没有繁简转换表" not in zh
+
+
+# ------------------------------------------------------------------ allergies: round 6 fix-up
+def _codes(pack, record, herbs):
+    from bioagent.clinic.allergy import allergy_issues
+    from bioagent.clinic.prescribe import _kb
+    out = allergy_issues(list(herbs), [record], _kb(), pack)
+    return {(i[4][0], i[1], i[2]) for i in out}, {i[4][0]: i[3] for i in out}
+
+
+def _draft_issues(pack, allergies, syndrome):
+    from bioagent.clinic.prescribe import draft
+    rx = draft(parse_intake(case(*SPLEEN, allergies=allergies), pack), syndrome, pack)
+    return rx, {i.herbs[0]: (i.severity, i.code, i.message) for i in rx.issues
+                if i.code in _ALLERGY_CODES}
+
+
+@pytest.mark.parametrize("record,syndrome", [
+    ("四君子汤过敏", "脾胃气虚证"), ("服用四君子汤后出现皮疹", "脾胃气虚证"),
+    ("补中益气丸过敏", "脾虚气陷证"), ("金匮肾气丸过敏", "肾阳虚证"), ("二陈汤过敏", "痰湿证"),
+    ("四物汤过敏", "血虚证"), ("六味地黄丸过敏", "肾阴虚证"), ("龙胆泻肝丸过敏", "肝火炽盛证"),
+    ("清胃散过敏", "胃热炽盛证"), ("天麻钩藤颗粒过敏", "肝阳上亢证")])
+def test_an_allergy_to_a_formula_asks_about_every_herb_of_it(pack, record, syndrome):
+    # a formula the pack holds was read through the herb names in its name only: 四君子汤过敏
+    # drafted 四君子汤 with no allergy issue, and 六味地黄丸 asked about 熟地黄 alone
+    rx, found = _draft_issues(pack, [record], syndrome)
+    herbs = [ln.herb for ln in rx.lines]
+    assert herbs and set(herbs) <= set(found), (record, rx.formula, herbs, found)
+    for herb in herbs:
+        severity, code, message = found[herb]
+        assert (severity, code) == ("block", "allergy_formula"), (record, herb, found[herb])
+        assert "所载方剂" in message and "组成为" in message and f"未必是{herb}" in message
+
+
+def test_a_formula_allergy_through_the_studio_needs_reasons_before_signing(pack, tmp_path):
+    s = assess(case(*SPLEEN, allergies=["四君子汤过敏"]), tmp_path, pack=pack)
+    blocks = {i.id for i in s.prescription.issues if i.code == "allergy_formula"}
+    assert blocks == {f"allergy_formula:{h}" for h in ("人参", "白术", "茯苓", "炙甘草")}
+    with pytest.raises(SignOffError):
+        sign(tmp_path, practitioner="张医师", licence="L-1", decision="accept", pack=pack)
+
+
+def test_a_formula_in_another_product_form_says_its_composition_may_differ(pack):
+    found, messages = _codes(pack, "补中益气丸过敏", ["黄芪", "党参"])
+    assert found == {("黄芪", "block", "allergy_formula")}, found
+    assert "同名而剂型不同，组成未必完全相同" in messages["黄芪"]
+    # 四逆散 is not 四逆汤: 散 is never read as another product form of a formula
+    from bioagent.clinic.allergy import _vocab
+    from bioagent.clinic.prescribe import _kb
+    assert "四逆散" not in _vocab(_kb(), pack).formulas
+
+
+@pytest.mark.parametrize("record", ["姜\n半夏", "姜\n黄芪", "过敏史：\n青霉素\n姜\n黄芪", "姜 黄芩",
+                                    "姜\r\n黄连", "姜\t厚朴", "姜　黄芪"])
+def test_a_name_is_not_read_across_whitespace_where_names_stand_on_both_sides(pack, record):
+    # whitespace was dropped and the scan ran across it: 姜 / 半夏 was 姜半夏, 姜 / 黄芪 was 姜黄 +
+    # 黄芪, and the 姜 of an allergy written one per line was lost
+    found, messages = _codes(pack, record, ["生姜", "干姜", "法半夏"])
+    assert ("生姜", "stop", "allergy") in found, (record, found)
+    assert any(h == "干姜" for h, *_ in found), (record, found)
+    assert all("姜半夏" not in m for m in messages.values()), messages
+    # a name written with spaces between its characters is still read
+    assert ("黄芪", "stop", "allergy") in _codes(pack, "北 芪 过 敏", ["黄芪"])[0]
+
+
+def test_a_ginger_allergy_written_on_its_own_line_blocks_the_draft(pack):
+    rx, found = _draft_issues(pack, ["姜\n半夏"], "风寒表虚证")
+    assert rx.status == "blocked" and found["生姜"][:2] == ("stop", "allergy"), found
+
+
+@pytest.mark.parametrize("record,herb,expected", [
+    ("黑順片過敏", "附子", "stop"), ("黑順片过敏", "附子", "stop"), ("人銜過敏", "人参", "stop"),
+    ("對四君子湯過敏", "人参", "block"), ("天麻鉤藤飲過敏", "天麻", "block"),
+    ("当帰過敏", "当归", "stop"), ("芍薬過敏", "白芍", "stop"), ("竜胆過敏", "龙胆", "stop"),
+    ("甘艸過敏", "甘草", "stop"), ("蔴黃過敏", "麻黄", "stop")])
+def test_traditional_and_japanese_forms_the_materia_fold_leaves_are_folded(pack, record, herb,
+                                                                          expected):
+    found, _ = _codes(pack, record, [herb])
+    assert expected in {sev for h, sev, _ in found if h == herb}, (record, found)
+
+
+def test_a_prescription_written_in_traditional_characters_or_radicals_is_read(pack):
+    assert ("黑順片", "stop", "allergy") in _codes(pack, "附子过敏", ["黑順片"])[0]
+    assert ("⻩芪", "stop", "allergy") in _codes(pack, "黄芪过敏", ["⻩芪"])[0]
+    rx, found = _draft_issues(pack, ["黑順片過敏"], "肾阳虚证")
+    assert rx.status == "blocked" and found["附子"][:2] == ("stop", "allergy"), found
+
+
+def test_every_traditional_form_opencc_gives_a_scanned_name_is_folded(pack):
+    # where OpenCC is installed: every character of every name the scan knows, in its
+    # traditional, Hong Kong and Taiwan forms, folds back (順 and 銜 did not). The table in
+    # bioagent.clinic.allergy was built with this check; OpenCC is not a dependency.
+    opencc = pytest.importorskip("opencc")
+    from bioagent.clinic.allergy import _cjk, _vocab, fold
+    from bioagent.clinic.prescribe import _kb
+    v = _vocab(_kb(), pack)
+    chars = {c for n in (*v.names, *v.formulas) for c in n if _cjk(c)}
+    missed = []
+    for conv in ("s2t", "s2hk", "s2tw"):
+        cc = opencc.OpenCC(conv)
+        for c in sorted(chars):
+            t = cc.convert(c)
+            if len(t) == 1 and t != c and t not in chars and fold(t) != c:
+                missed.append((conv, c, t))
+    assert not missed, missed[:20]
+
+
+@pytest.mark.parametrize("record,herb", [
+    ("allergic to Panax ginseng", "人参"), ("Astragalus membranaceus allergy", "黄芪"),
+    ("Astragalus mongholicus", "黄芪"), ("Glycyrrhiza uralensis allergy", "甘草"),
+    ("Aconitum carmichaelii", "附子"), ("Zingiber officinale", "生姜"),
+    ("Allergy: Cinnamomum cassia", "桂枝"), ("Polygonum multiflorum", "首乌藤"),
+    ("allergic to ginger", "生姜"), ("licorice", "甘草"), ("ginseng allergy", "人参"),
+    ("cinnamon", "桂枝"), ("dong quai allergy", "当归"), ("astragalus", "黄芪"),
+    ("Astragalus", "黄芪")])
+def test_a_species_genus_or_english_name_of_the_source_asks(pack, record, herb):
+    # the species materia files (MateriaEntry.species_names) were never scanned, nor any
+    # English name: allergic to Panax ginseng passed 人参 in silence. A species names a plant,
+    # not a drug, so it asks (a block) and names the species it shares
+    found, messages = _codes(pack, record, [herb])
+    assert found == {(herb, "block", "allergy_source")}, (record, found)
+    assert "来源物种含" in messages[herb] and "未必是对" in messages[herb], messages[herb]
+
+
+def test_a_species_allergy_blocks_the_draft(pack):
+    rx, found = _draft_issues(pack, ["Glycyrrhiza uralensis allergy"], "风寒表虚证")
+    assert found["炙甘草"][:2] == ("block", "allergy_source"), found
+
+
+@pytest.mark.parametrize("record,herb", [
+    ("Allergy: Huáng Qí", "黄芪"), ("Rén Shēn", "人参"), ("Gān Cǎo allergy", "甘草"),
+    ("Fù Zǐ allergy", "附子"), ("dāng guī allergy", "当归"), ("huang2 qi2", "黄芪"),
+    ("Huang'qi", "黄芪"), ("Huang–Qi", "黄芪"), ("HUANGQI", "黄芪"),
+    # every pack herb's pinyin, not only the knowledge base's 23
+    ("huang qin", "黄芩"), ("huang lian", "黄连"), ("dang shen", "党参"), ("jin yin hua", "金银花"),
+    ("shan yao", "山药"), ("gou qi zi", "枸杞子"), ("wu wei zi", "五味子"), ("bo he", "薄荷"),
+    ("xi xin", "细辛"), ("hong hua", "红花"), ("tao ren", "桃仁"), ("chuan xiong", "川芎"),
+    # the older Latin word order, and the Latin of 首乌藤, which only the pack holds
+    ("Radix Astragali", "黄芪"), ("Radix Ginseng", "人参"), ("Radix Glycyrrhizae", "甘草"),
+    ("Rhizoma Zingiberis Recens", "生姜"), ("Polygoni Multiflori Caulis", "首乌藤"),
+    ("Caulis Polygoni Multiflori", "首乌藤")])
+def test_pinyin_with_tones_and_latin_in_either_order_stop(pack, record, herb):
+    found, _ = _codes(pack, record, [herb])
+    assert found == {(herb, "stop", "allergy")}, (record, found)
+
+
+def test_every_pack_herb_has_its_pinyin_read(pack):
+    from bioagent.clinic.allergy import allergy_issues
+    from bioagent.clinic.prescribe import _kb
+    assert set(pack.herb_pinyin) == set(pack.herbs) and pack.herb_pinyin_source
+    for herb, names in pack.herb_pinyin.items():
+        for name in names:
+            out = allergy_issues([herb], [f"allergic to {name}"], _kb(), pack)
+            assert [(i[1], i[2]) for i in out] == [("stop", "allergy")], (herb, name, out)
+
+
+@pytest.mark.parametrize("record,herb", [
+    ("炒夜交藤过敏", "首乌藤"), ("生夜交藤过敏", "首乌藤"), ("制黑顺片过敏", "附子"),
+    ("炮黑顺片过敏", "附子"), ("炙松贝过敏", "川贝母")])
+def test_a_processing_word_before_a_pack_alias_stops_the_herb(pack, record, herb):
+    found, messages = _codes(pack, record, [herb])
+    assert found == {(herb, "stop", "allergy")}, (record, found)
+    assert "的炮制品" in messages[herb] and "的别名" in messages[herb], messages[herb]
+
+
+@pytest.mark.parametrize("record,herb", [("熟川军过敏", "大黄"), ("熟薏米过敏", "薏苡仁")])
+def test_a_processing_word_before_a_materia_name_asks_like_the_name(pack, record, herb):
+    found, _ = _codes(pack, record, [herb])
+    assert found == {(herb, "block", "allergy_source")}, (record, found)
+
+
+@pytest.mark.parametrize("record,herb", [("⻩芪过敏", "黄芪"), ("⻩连过敏", "黄连"), ("⻰胆过敏", "龙胆"),
+                                         ("⼈参过敏", "人参")])
+def test_look_alike_radicals_are_read_as_the_characters_they_show(pack, record, herb):
+    assert _codes(pack, record, [herb])[0] == {(herb, "stop", "allergy")}, record
+
+
+def test_a_radical_look_alike_blocks_the_draft(pack):
+    rx, found = _draft_issues(pack, ["⻩芪过敏"], "脾虚气陷证")
+    assert rx.status == "blocked" and found["黄芪"][:2] == ("stop", "allergy"), found
+
+
+@pytest.mark.parametrize("record,herb,part,of", [
+    ("法夏过敏", "法半夏", "法夏", "法半夏"), ("姜夏过敏", "法半夏", "姜夏", "姜半夏"),
+    ("清夏过敏", "法半夏", "清夏", "清半夏"), ("淮山过敏", "山药", "淮山", "淮山药"),
+    ("怀山过敏", "山药", "怀山", "怀山药"), ("川柏过敏", "黄柏", "川柏", "川黄柏"),
+    ("双钩过敏", "钩藤", "双钩", "双钩藤"), ("交藤过敏", "首乌藤", "交藤", "夜交藤"),
+    ("台乌过敏", "乌药", "台乌", "台乌药"), ("鸡金过敏", "鸡内金", "鸡金", "鸡内金"),
+    # S-blocking (FP): a part no table holds was a stop that claimed one drug
+    ("对金银过敏", "金银花", "金银", "金银花"), ("决明过敏", "石决明", "决明", "石决明"),
+    ("天花过敏", "天花粉", "天花", "天花粉"), ("太子过敏", "太子参", "太子", "太子参"),
+    ("对母草过敏", "益母草", "母草", "益母草"),
+    ("贝母过敏", "浙贝母", "贝母", "浙贝母")])
+def test_a_part_or_abbreviation_of_a_name_asks_and_never_claims_the_herb(pack, record, herb,
+                                                                        part, of):
+    found, messages = _codes(pack, record, [herb])
+    assert found == {(herb, "block", "allergy_near_name")}, (record, found)
+    msg = messages[herb]
+    assert f"“{part}”是名表所载“{of}”的一部分或简写" in msg and "不是名表所载的药名" in msg, msg
+    assert "未必是指" in msg and f"“{part}”与" not in msg, msg          # never "the same drug"
+
+
+@pytest.mark.parametrize("record", ["大麦过敏", "皮肤大红", "炒白菜过敏", "高丽菜过敏"])
+def test_a_word_that_only_starts_a_name_with_where_size_or_colour_is_no_part(pack, record):
+    # 大麦 (barley) is not a part of 大麦冬, nor 大红 (bright red) of 大红枣
+    assert not [i for i in _all_herbs_issues(pack, record)
+                if i.code == "allergy_near_name" and "一部分或简写" in i.message], record
+
+
+#: The narrative wordings the review counted: 1302 of 1395 records naming a pack herb's own
+#: name became blocks that said the record may not mean it.
+_NARRATIVE = ("一吃{}就过敏", "因{}过敏住院", "对{}的成分过敏", "{}的过敏反应", "小时候{}过敏", "似乎{}过敏",
+              "喝{}水过敏", "{}吃了过敏", "{}禁用", "服用含有{}的中药后出现皮疹", "{}服用后皮疹",
+              "听说{}过敏", "我们发现{}过敏", "以前喝过{}，出现皮疹", "{}接触性皮炎", "曾因{}过敏就诊",
+              "黄连素、{}过敏")
+
+
+def test_a_herb_written_in_a_historys_narrative_stops_it(pack):
+    from bioagent.clinic.allergy import allergy_issues
+    from bioagent.clinic.prescribe import _kb
+    kb = _kb()
+    for herb in pack.herbs:
+        for t in _NARRATIVE:
+            record = t.format(herb)
+            out = allergy_issues([herb], [record], kb, pack)
+            assert [(i[1], i[2]) for i in out] == [("stop", "allergy")], (record, out)
+
+
+@pytest.mark.parametrize("record", ["非常严重黄芪过敏", "非常怕黄芪", "未成年时对黄芪过敏", "未成年时黄芪过敏",
+                                    "无意中服用黄芪后过敏", "没想到吃黄芪也会过敏", "未经医嘱服用黄芪后皮疹",
+                                    "无数次服黄芪后皮疹", "非处方购买黄芪服用后皮疹", "无论生熟黄芪均过敏",
+                                    "no doubt huangqi allergy", "none other than huangqi",
+                                    "no other allergy than 黄芪", "无其他过敏仅黄芪过敏", "黄芪过敏无其他过敏"])
+def test_a_word_that_only_starts_with_a_denial_denies_nothing(pack, record):
+    assert _found(pack, record, "黄芪") == [("stop", "allergy")], record
+
+
+@pytest.mark.parametrize("record,herbs", [
+    ("天麻钩藤颗粒过敏", ("天麻", "钩藤")), ("桂枝茯苓丸过敏", ("桂枝", "茯苓")),
+    ("麻黄附子细辛汤过敏", ("麻黄", "附子", "细辛")), ("人参归脾丸过敏", ("人参",)),
+    ("半夏厚朴汤过敏", ("法半夏", "厚朴")), ("当归芍药散过敏", ("当归", "白芍")),
+    ("丹参川芎嗪注射液过敏", ("丹参", "川芎")), ("黄连阿胶汤过敏", ("黄连",)),
+    ("芍药甘草汤过敏", ("白芍", "甘草")), ("柴胡桂枝汤过敏", ("柴胡", "桂枝")),
+    ("黄芪桂枝五物汤过敏", ("黄芪", "桂枝")), ("茯苓桂枝白术甘草汤过敏", ("茯苓", "桂枝", "白术", "甘草"))])
+def test_a_patent_medicine_named_by_its_herbs_asks_about_each_and_stops_none(pack, record,
+                                                                            herbs):
+    # every herb name but the last stood as a word, because the next one started there:
+    # 桂枝茯苓丸 stopped 桂枝 and asked about 茯苓
+    found, _ = _codes(pack, record, herbs)
+    assert {h for h, *_ in found} == set(herbs), (record, found)
+    assert all(sev == "block" for _, sev, _ in found), (record, found)
+
+
+def test_a_product_word_after_a_name_asks_and_never_stops(pack):
+    # 口服 is a word a history writes after a name (北芪口服), but 口服液 is a product: 人参口服液
+    # stopped 人参
+    from bioagent.clinic.allergy import allergy_issues
+    from bioagent.clinic.prescribe import _kb
+    kb = _kb()
+    for herb in pack.herbs:
+        for word in ("口服液", "注射液", "颗粒", "胶囊", "糖浆", "软胶囊", "滴丸"):
+            record = f"{herb}{word}过敏"
+            out = allergy_issues([herb], [record], kb, pack)
+            assert out and all(i[1] == "block" for i in out), (record, out)
+
+
+def test_names_written_together_still_stand_together(pack):
+    assert _codes(pack, "北芪人参过敏", ["黄芪", "人参"])[0] == {("黄芪", "stop", "allergy"),
+                                                           ("人参", "stop", "allergy")}
+    found, messages = _codes(pack, "对牛奶蛋白及鸡蛋过敏", ["白及", "鸡内金"])
+    assert ("鸡内金", "block", "allergy_source") in found          # 及 joins 鸡蛋 to the list
+    assert "记录中的“牛奶蛋白及”" in messages["白及"], messages
+
+
+@pytest.mark.parametrize("record,herbs", [
+    ("黄芪无过敏史", ("黄芪",)), ("对黄芪无过敏反应", ("黄芪",)), ("曾服用黄芪未见过敏", ("黄芪",)),
+    ("黄芪：未见过敏", ("黄芪",)), ("长期服用黄芪无不良反应", ("黄芪",)), ("服黄芪无不适", ("黄芪",)),
+    ("黄芪过敏-否", ("黄芪",)), ("黄芪过敏？否", ("黄芪",)), ("已排除黄芪过敏", ("黄芪",)),
+    ("怀疑黄芪过敏，已排除", ("黄芪",)), ("曾怀疑人参过敏，后证实非过敏", ("人参",)),
+    ("否认中药（黄芪、人参）过敏", ("黄芪", "人参")), ("既往服用黄芪、党参等未见过敏", ("黄芪", "党参")),
+    ("黄芪耐受良好", ("黄芪",)), ("tolerates 黄芪", ("黄芪",)), ("黄芪可用", ("黄芪",)),
+    ("黄芪已用过无事", ("黄芪",)), ("否认药物过敏史，平素服黄芪泡水", ("黄芪",)),
+    ("无过敏史；正在服用黄芪", ("黄芪",)), ("曾服补中益气汤（含黄芪、人参）无不适", ("黄芪", "人参"))])
+def test_a_herb_the_history_says_is_tolerated_asks_and_never_stops(pack, record, herbs):
+    found, _ = _codes(pack, record, herbs)
+    assert {h for h, *_ in found} == set(herbs), (record, found)
+    assert all(sev == "block" for _, sev, _ in found), (record, found)
+    assert {code for *_, code in found} <= {"allergy_denied", "allergy_formula"}, found
+
+
+def test_a_reaction_while_using_a_herb_is_no_tolerance(pack):
+    assert _found(pack, "长期服用人参后出现皮疹", "人参") == [("stop", "allergy")]
+    assert _found(pack, "正在服用黄芪，出现皮疹", "黄芪") == [("stop", "allergy")]
+    # a herb used all along with nothing after it asks, and says why: no denial is written
+    found = _allergy_issues(pack, "否认药物过敏史，平素服黄芪泡水", "黄芪")
+    assert [(i.severity, i.code) for i in found] == [("block", "allergy_denied")]
+    assert "一直在用黄芪" in found[0].message and "否认的字样" not in found[0].message
+
+
+@pytest.mark.parametrize("record", ["黄芪——皮疹", "Hx: huangqi -> hives", "黄芪 -", "黄芪-皮疹",
+                                    "黄芪—皮疹", "黄芪→皮疹"])
+def test_a_dash_or_an_arrow_after_a_name_is_no_denial(pack, record):
+    assert _found(pack, record, "黄芪") == [("stop", "allergy")], record
+    for denied in ("黄芪（-）", "黄芪：-", "黄芪(-)"):
+        assert _found(pack, denied, "黄芪") == [("block", "allergy_denied")], denied
+
+
+@pytest.mark.parametrize("record", ["否认药物、食物及花粉过敏史", "否认花粉过敏", "无花粉过敏", "花粉：无",
+                                    "无药物、食物、花粉过敏"])
+def test_a_denied_pollen_allergy_asks_nothing(pack, record):
+    assert not _allergy_issues(pack, record, "天花粉"), record
+
+
+@pytest.mark.parametrize("record", ["桂花过敏", "桂鱼过敏", "鳜鱼过敏", "桂圆过敏", "胡萝卜过敏"])
+def test_an_everyday_food_that_holds_a_names_characters_is_silent(pack, record):
+    # 桂花 is osmanthus, not 桂 (肉桂) and so not 桂枝; 胡萝卜 the carrot, not the 萝卜 the
+    # materia table files under 莱菔子
+    assert not [(i.id, i.message) for i in _all_herbs_issues(pack, record)], record
+
+
+def test_longan_still_asks_about_longan(pack):
+    # 桂圆 is 龙眼 (the materia table's 龙眼肉, also 桂圆肉): a prescribed 龙眼肉 asks
+    assert ("龙眼肉", "block", "allergy_near_name") in _codes(pack, "桂圆过敏", ["龙眼肉"])[0]
+
+
+@pytest.mark.parametrize("record,herb", [("没药物过敏史", "没药"), ("患者没药物过敏", "没药"),
+                                         ("无食物过敏", "无食子")])
+def test_a_denial_that_starts_like_a_name_is_the_denial(pack, record, herb):
+    assert not _codes(pack, record, [herb])[0], record
+    assert _codes(pack, f"{herb}过敏", [herb])[0] == {(herb, "stop", "allergy")}
+    assert _codes(pack, "没药人参过敏", ["没药", "人参"])[0] == {("没药", "stop", "allergy"),
+                                                           ("人参", "stop", "allergy")}
+
+
+@pytest.mark.parametrize("record", ["北️芪过敏", "北\U000e0100芪过敏", "北͏芪过敏", "北ㅤ芪过敏",
+                                    "北ᅟ芪过敏", "北⠀芪过敏"])
+def test_marks_that_show_nothing_do_not_split_a_name(pack, record):
+    assert _found(pack, record, "黄芪") == [("stop", "allergy")], repr(record)
+
+
+def test_an_allergy_recorded_among_the_conditions_is_read(pack):
+    it = parse_intake(case(*SPLEEN, allergies=[], conditions=["黄芪过敏", "高血压"]), pack)
+    found = {i.id: i.severity for i in check([Line("黄芪", 9, "practitioner")], it, pack)
+             if i.code in _ALLERGY_CODES}
+    assert found == {"allergy:黄芪": "stop"}
+    it = parse_intake(case(*SPLEEN, allergies=[], conditions=["过敏性鼻炎"]), pack)
+    assert not [i for i in check([Line("黄芪", 9, "practitioner")], it, pack)
+                if i.code in _ALLERGY_CODES]
+
+
+@pytest.mark.parametrize("field", ["过敏史：", "Allergies:", "药物过敏史：  食物过敏史：", "过敏史：____",
+                                   "过敏史：（ ）", "过敏原：", "过敏史：待询问", "未问", "待查", "TBD",
+                                   "unknown", "null", "患者昏迷，未能询问", "不详"])
+def test_an_allergy_field_with_only_a_label_or_unknown_reads_as_not_asked(pack, field):
+    it = parse_intake(case(*SPLEEN, allergies=[field]), pack)
+    assert it.allergies is None and "过敏史未询问" in it.warnings, field
+    # what it holds is still read: a name written next to "not asked" is not lost
+    it = parse_intake(case(*SPLEEN, allergies=["过敏史不详 人参过敏"]), pack)
+    assert it.allergies and "过敏史未询问" not in it.warnings
+    assert ("stop", "allergy") in [(i.severity, i.code)
+                                   for i in check([Line("人参", 9, "practitioner")], it, pack)]
+
+
+@pytest.mark.parametrize("field", ["过敏史：（-）", "过敏史：-", "无", "NKDA", "N/A", "否认"])
+def test_a_labelled_none_is_an_answer(pack, field):
+    it = parse_intake(case(*SPLEEN, allergies=[field]), pack)
+    assert it.allergies is not None and "过敏史未询问" not in it.warnings, field
+
+
+def test_a_long_record_is_quoted_as_written(pack):
+    record = ("Patient reports an allergic reaction to Astragali Radix in 2019, presenting as "
+              "rash and itching over both arms")
+    _, messages = _codes(pack, record, ["黄芪"])
+    assert "reaction to Astragali Radix in 2019" in messages["黄芪"], messages
+
+
+@pytest.mark.parametrize("record,herb,code", [("炙草过敏", "炙甘草", "allergy_source"),
+                                              ("对於朮過敏", "白术", "allergy_near_name")])
+def test_short_and_traditional_names_are_never_silent(pack, record, herb, code):
+    assert _found(pack, record, herb) == [("block", code)], record
+
+
+def test_a_long_history_of_distinct_words_is_read_in_linear_time(pack):
+    # every mention had its own message, and messages were de-duplicated by a list scan:
+    # 200k characters took 27 times as long as 20k
+    import itertools
+    import time
+    from bioagent.clinic.allergy import allergy_issues
+    from bioagent.clinic.prescribe import _kb
+    kb = _kb()
+    pool = "珂琪瑶璐琳瑾瑜璇璟瑗琰琨珺玥玮珏"
+
+    def record(n):
+        words = ("".join(w[:3]) + "地黄" + w[3] for w in itertools.product(pool, repeat=4))
+        return "，".join(itertools.islice(words, n))
+
+    allergy_issues(["熟地黄"], ["地黄"], kb, pack)
+
+    def timed(n):
+        t0 = time.perf_counter()
+        out = allergy_issues(["熟地黄", "生地黄"], [record(n)], kb, pack)
+        return time.perf_counter() - t0, out
+
+    small, _ = timed(2500)
+    large, out = timed(25000)
+    assert {i[2] for i in out} == {"allergy_near_name"} and "另有" in out[0][3]
+    assert large < 20 and large < 20 * small + 1, (small, large)
 
 
 @pytest.mark.parametrize("medication,herb,klass,atc", [

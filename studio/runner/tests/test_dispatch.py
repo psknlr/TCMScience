@@ -366,6 +366,39 @@ def test_clinic_bad_intake_is_a_bad_argument(runner_ctx):
     assert e["status"] == "failed" and e["error"]["type"] == "bad_arguments"
 
 
+def test_an_allergy_that_is_not_text_is_refused_alike_here_and_by_the_library(runner_ctx,
+                                                                                 intake):
+    # the command line reads an intake with bioagent.clinic.intake: an allergy given as an
+    # object was turned into text there (or raised a TypeError for a number) while the studio
+    # refused it; both now refuse it with one message
+    import pytest
+    from bioagent.clinic.intake import IntakeError, parse_intake
+    from bioagent.clinic.pack import load_pack
+    herbs = [{"herb": "黄芪", "grams": 9}]
+    for value in ([{"substance": "北芪", "reaction": "皮疹"}], {"北芪": "皮疹"}, [None], 5, [5],
+                  5.5, ["北芪", 3]):
+        bad = {**intake, "allergies": value}
+        e = call("clinic_check_prescription", {"intake": bad, "herbs": herbs}, runner_ctx)
+        assert e["status"] == "failed" and e["error"]["type"] == "bad_arguments"
+        with pytest.raises(IntakeError) as exc:
+            parse_intake(bad, load_pack())
+        assert e["error"]["message"] == f"arguments.intake.{exc.value}", value
+    # a blank allergy field records nothing: not asked, by either path
+    for blank in ("", [""], ["。。。"]):
+        e = call("clinic_check_prescription", {"intake": {**intake, "allergies": blank},
+                                               "herbs": herbs}, runner_ctx)
+        assert e["status"] == "succeeded" and "过敏史未询问" in e["result"]["intake_warnings"]
+    # and an alias in the history's own words stops the herb, through the studio too
+    e = call("clinic_check_prescription", {"intake": {**intake, "allergies": ["患者对北芪过敏"]},
+                                           "herbs": herbs}, runner_ctx)
+    assert e["result"]["stop"] and any(i["id"] == "allergy:黄芪" for i in e["result"]["issues"])
+    # a formula of the pack in the history asks about each of its herbs, through the studio too
+    e = call("clinic_check_prescription", {"intake": {**intake, "allergies": ["补中益气丸过敏"]},
+                                           "herbs": herbs}, runner_ctx)
+    assert any(i["id"] == "allergy_formula:黄芪" and i["severity"] == "block"
+               for i in e["result"]["issues"]), e["result"]["issues"]
+
+
 def test_draft_prescription_skill_is_a_development_run(runner_ctx, intake):
     e = call("call_tool", {"tool": "skill.draft-tcm-prescription",
                            "arguments": {"intake": intake}}, runner_ctx)

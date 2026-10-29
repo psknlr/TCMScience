@@ -2898,6 +2898,216 @@
   "胸胁胀满": "胁肋胀痛",
   "两胁胀痛": "胁肋胀痛"
  },
+ "herb_aliases": [
+  {
+   "herb": "首乌藤",
+   "aliases": ["夜交藤"],
+   "source": "《中药学》（全国中医药行业高等教育规划教材）首乌藤条：又名夜交藤"
+  },
+  {
+   "herb": "黄柏",
+   "aliases": ["川黄柏"],
+   "source": "《中华人民共和国药典》2020年版一部 黄柏条：黄皮树 Phellodendron chinense Schneid. 的干燥树皮，习称“川黄柏”"
+  },
+  {
+   "herb": "山药",
+   "aliases": ["毛山药", "光山药"],
+   "source": "《中华人民共和国药典》2020年版一部 山药条：除去外皮和须根干燥者习称“毛山药”，搓圆打光者习称“光山药”"
+  },
+  {
+   "herb": "黄连",
+   "aliases": ["味连", "雅连", "云连"],
+   "source": "《中华人民共和国药典》2020年版一部 黄连条：黄连、三角叶黄连、云连三种分别习称“味连”“雅连”“云连”"
+  },
+  {
+   "herb": "附子",
+   "aliases": ["盐附子", "黑顺片", "白附片"],
+   "source": "《中华人民共和国药典》2020年版一部 附子条：加工规格习称“盐附子”“黑顺片”“白附片”"
+  },
+  {
+   "herb": "川贝母",
+   "aliases": ["松贝", "青贝", "炉贝"],
+   "source": "《中华人民共和国药典》2020年版一部 川贝母条：按性状不同分别习称“松贝”“青贝”“炉贝”"
+  },
+  {
+   "herb": "浙贝母",
+   "aliases": ["大贝", "珠贝", "浙贝片"],
+   "source": "《中华人民共和国药典》2020年版一部 浙贝母条：大者习称“大贝”，小者习称“珠贝”，趁鲜切厚片者习称“浙贝片”"
+  },
+  {
+   "herb": "牡丹皮",
+   "aliases": ["连丹皮", "刮丹皮"],
+   "source": "《中华人民共和国药典》2020年版一部 牡丹皮条：剥取根皮晒干者习称“连丹皮”，刮去粗皮、除去木心者习称“刮丹皮”"
+  }
+ ],
+ "herb_sources": [
+  {
+   "herb": "首乌藤",
+   "species": ["Polygonum multiflorum"],
+   "latin": "Polygoni Multiflori Caulis",
+   "source": "《中华人民共和国药典》2020年版一部 首乌藤条：蓼科植物何首乌 Polygonum multiflorum Thunb. 的干燥藤茎（Polygoni Multiflori Caulis）"
+  }
+ ],
+ "herb_pinyin": {
+  "source": "按《汉语拼音方案》转写的药名读音，多音字按药名的通行读法（川芎 chuanxiong，黄柏 huangbo 或 huangbai，枳壳 zhike 或 zhiqiao）；只是药名的拼音写法，不是别名",
+  "names": {
+   "人参": ["ren shen"],
+   "黄芪": ["huang qi"],
+   "白术": ["bai zhu"],
+   "茯苓": ["fu ling"],
+   "茯神": ["fu shen"],
+   "甘草": ["gan cao"],
+   "炙甘草": ["zhi gan cao"],
+   "当归": ["dang gui"],
+   "熟地黄": ["shu di huang"],
+   "生地黄": ["sheng di huang"],
+   "白芍": ["bai shao"],
+   "赤芍": ["chi shao"],
+   "川芎": ["chuan xiong"],
+   "陈皮": ["chen pi"],
+   "升麻": ["sheng ma"],
+   "柴胡": ["chai hu"],
+   "桂枝": ["gui zhi"],
+   "麻黄": ["ma huang"],
+   "苦杏仁": ["ku xing ren"],
+   "生姜": ["sheng jiang"],
+   "大枣": ["da zao"],
+   "干姜": ["gan jiang"],
+   "附子": ["fu zi"],
+   "法半夏": ["fa ban xia"],
+   "山茱萸": ["shan zhu yu"],
+   "山药": ["shan yao"],
+   "泽泻": ["ze xie"],
+   "牡丹皮": ["mu dan pi"],
+   "香附": ["xiang fu"],
+   "枳壳": ["zhi ke", "zhi qiao"],
+   "桃仁": ["tao ren"],
+   "红花": ["hong hua"],
+   "牛膝": ["niu xi"],
+   "川牛膝": ["chuan niu xi"],
+   "桔梗": ["jie geng"],
+   "天麻": ["tian ma"],
+   "钩藤": ["gou teng"],
+   "石决明": ["shi jue ming"],
+   "栀子": ["zhi zi"],
+   "黄芩": ["huang qin"],
+   "杜仲": ["du zhong"],
+   "益母草": ["yi mu cao"],
+   "桑寄生": ["sang ji sheng"],
+   "首乌藤": ["shou wu teng"],
+   "龙胆": ["long dan"],
+   "川木通": ["chuan mu tong"],
+   "车前子": ["che qian zi"],
+   "黄连": ["huang lian"],
+   "丹参": ["dan shen"],
+   "甘遂": ["gan sui"],
+   "酸枣仁": ["suan zao ren"],
+   "木香": ["mu xiang"],
+   "紫苏子": ["zi su zi"],
+   "蔓荆子": ["man jing zi"],
+   "知母": ["zhi mu"],
+   "黄柏": ["huang bo", "huang bai"],
+   "枸杞子": ["gou qi zi"],
+   "菊花": ["ju hua"],
+   "郁金": ["yu jin"],
+   "乌药": ["wu yao"],
+   "川楝子": ["chuan lian zi"],
+   "僵蚕": ["jiang can"],
+   "细辛": ["xi xin"],
+   "党参": ["dang shen"],
+   "太子参": ["tai zi shen"],
+   "黄精": ["huang jing"],
+   "麦冬": ["mai dong"],
+   "五味子": ["wu wei zi"],
+   "远志": ["yuan zhi"],
+   "石菖蒲": ["shi chang pu"],
+   "砂仁": ["sha ren"],
+   "厚朴": ["hou po"],
+   "苍术": ["cang zhu"],
+   "薏苡仁": ["yi yi ren"],
+   "葛根": ["ge gen"],
+   "防风": ["fang feng"],
+   "荆芥": ["jing jie"],
+   "薄荷": ["bo he"],
+   "连翘": ["lian qiao"],
+   "金银花": ["jin yin hua"],
+   "浙贝母": ["zhe bei mu"],
+   "川贝母": ["chuan bei mu"],
+   "瓜蒌": ["gua lou"],
+   "天花粉": ["tian hua fen"],
+   "白及": ["bai ji"],
+   "白蔹": ["bai lian"],
+   "海藻": ["hai zao"],
+   "莱菔子": ["lai fu zi"],
+   "山楂": ["shan zha"],
+   "麦芽": ["mai ya"],
+   "鸡内金": ["ji nei jin"],
+   "白芷": ["bai zhi"],
+   "牡蛎": ["mu li"]
+  }
+ },
+ "herb_common_names": [
+  {
+   "names": ["ginger"],
+   "species": ["Zingiber officinale"],
+   "source": "WHO monographs on selected medicinal plants, Vol. 1 (1999): Rhizoma Zingiberis"
+  },
+  {
+   "names": ["licorice", "liquorice"],
+   "species": ["Glycyrrhiza glabra", "Glycyrrhiza uralensis"],
+   "source": "WHO monographs on selected medicinal plants, Vol. 1 (1999): Radix Glycyrrhizae"
+  },
+  {
+   "names": ["ginseng"],
+   "species": ["Panax ginseng"],
+   "source": "WHO monographs on selected medicinal plants, Vol. 1 (1999): Radix Ginseng"
+  },
+  {
+   "names": ["cinnamon", "cassia"],
+   "species": ["Cinnamomum verum", "Cinnamomum cassia"],
+   "source": "WHO monographs on selected medicinal plants, Vol. 1 (1999): Cortex Cinnamomi"
+  },
+  {
+   "names": ["astragalus"],
+   "species": ["Astragalus membranaceus", "Astragalus mongholicus"],
+   "source": "WHO monographs on selected medicinal plants, Vol. 1 (1999): Radix Astragali"
+  },
+  {
+   "names": ["ephedra"],
+   "species": ["Ephedra sinica", "Ephedra intermedia", "Ephedra equisetina"],
+   "source": "WHO monographs on selected medicinal plants, Vol. 1 (1999): Herba Ephedrae"
+  },
+  {
+   "names": ["turmeric"],
+   "species": ["Curcuma longa"],
+   "source": "WHO monographs on selected medicinal plants, Vol. 1 (1999): Rhizoma Curcumae Longae"
+  },
+  {
+   "names": ["peony"],
+   "species": ["Paeonia lactiflora"],
+   "source": "WHO monographs on selected medicinal plants, Vol. 1 (1999): Radix Paeoniae"
+  },
+  {
+   "names": ["coptis", "goldthread"],
+   "species": ["Coptis chinensis", "Coptis deltoidea", "Coptis teeta"],
+   "source": "WHO monographs on selected medicinal plants, Vol. 1 (1999): Rhizoma Coptidis"
+  },
+  {
+   "names": ["bupleurum"],
+   "species": ["Bupleurum chinense", "Bupleurum scorzonerifolium"],
+   "source": "WHO monographs on selected medicinal plants, Vol. 1 (1999): Radix Bupleuri"
+  },
+  {
+   "names": ["platycodon", "balloon flower"],
+   "species": ["Platycodon grandiflorus"],
+   "source": "WHO monographs on selected medicinal plants, Vol. 1 (1999): Radix Platycodi"
+  },
+  {
+   "names": ["dong quai"],
+   "species": ["Angelica sinensis"],
+   "source": "WHO monographs on selected medicinal plants, Vol. 2 (2002): Radix Angelicae Sinensis"
+  }
+ ],
  "reference": {
   "criteria": "《中医诊断学》（全国中医药行业高等教育规划教材）; GB/T 16751.2-2021",
   "formulas": "《方剂学》（全国中医药行业高等教育规划教材）",
