@@ -39,8 +39,9 @@ run builds locally, and every edge built from them carries the licence
 
 Each cell is read as the text it stands for (:func:`read_cell`), by this module's reader and
 by Studio's (``tcmstudio.repository_data.workbook_rows``) alike: the private-use U+E840 that
-the workbook writes for 䓖 (in 芎䓖) is read as 䓖, and Excel's escaped carriage return
-``_x000D_`` as nothing. The workbook is not edited.
+the workbook writes for 䓖 (in 芎䓖) is read as 䓖, the other private-use code points of the
+same code-page block as the characters they stand for (``_PRIVATE_USE``), and Excel's escaped
+carriage return ``_x000D_`` as nothing. The workbook is not edited.
 
 A record whose composition is known to be mis-written (桂枝甘草汤《伤寒论》 lists 草 for
 甘草) is read through an erratum (``data/formula_errata.json``, :func:`load_errata`). The
@@ -75,9 +76,20 @@ TABLE_LICENSE = "LicenseRef-user-supplied-unstated"
 COLUMNS = ("名称", "配方", "出处", "炮制", "功效", "使用方法", "注意")
 #: How a cell is read (:func:`read_cell`), as the provenance of the text served.
 CELL_READING = ("U+E840, the private-use code point the GBK code page gives GB 18030 0xFE7B "
-                "(䓖), is read as U+44D6 䓖; Excel's escaped carriage return _x000D_ is removed. "
-                "The workbook is not edited.")
-_PRIVATE_USE = str.maketrans({"\ue840": "\u44d6"})        # U+E840 -> 䓖
+                "(䓖), is read as U+44D6 䓖, and the code page's others for that block as the "
+                "characters GB 18030 assigns: U+E81F (0xFE5A) as U+359E 㖞, U+E836 (0xFE71) as "
+                "U+2EAE ⺮ and U+E848 (0xFE84) as U+2ECA ⻊; Excel's escaped carriage return "
+                "_x000D_ is removed. The workbook is not edited.")
+#: The private-use code points the GBK code page (Windows 936) gives GB 18030's 0xFE50-0xFEA0
+#: block run from U+E815 in code order (0xFE7F is no code), and each is read as the
+#: character GB 18030 assigns the code. The workbook writes four of them, each where its
+#: context names the character: 䓖 in 芎䓖 (2,581 times), 㖞 in 口眼㖞斜 (413), and two radicals
+#: that open its spellings of characters it cannot write, in the (犭屯) manner: ⺮, bamboo, in
+#: (⺮堇)竹沥, (⺮菫)竹沥 and 竹（⺮条）, and ⻊, foot, in 登高（⻊俞）垣 and 大（⻊母）趾.
+_PRIVATE_USE = str.maketrans({"\ue840": "\u44d6",          # 0xFE7B 䓖
+                              "\ue81f": "\u359e",          # 0xFE5A 㖞
+                              "\ue836": "\u2eae",          # 0xFE71 ⺮ CJK RADICAL BAMBOO
+                              "\ue848": "\u2eca"})         # 0xFE84 ⻊ CJK RADICAL FOOT
 
 
 def read_cell(value: object) -> str:

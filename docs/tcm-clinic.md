@@ -65,8 +65,35 @@ Where the Pharmacopoeia and the knowledge base disagree, the stricter applies an
 report says the sources differ. For example, the Pharmacopoeia 2020 says 孕妇慎用 for
 附子 and the seed's reading says 禁用, so 附子 in pregnancy is a stop.
 
-An allergy entry is read as a whole, or as the name in 对黄耆过敏 or 黄耆过敏. It is not
-searched for herb names inside it. An entry stops a herb (`allergy`) when:
+The intake splits an allergy record into entries at 、，,；;。 and line breaks, so
+对黄耆、人参过敏 gives the entries 对黄耆 and 人参过敏. Each entry is read for the name it
+records. The words a history writes around the name are dropped, with either colon (： or
+:) and any spaces:
+- 对 or 有 before it, with or without 过敏 after it, and a word of time before that (曾,
+  曾经, 既往, 以往): 对黄耆, 有黄耆过敏史, 曾对黄耆过敏, 既往黄耆过敏;
+- a label before it: 过敏, 过敏史, 过敏原 or 过敏源, 过敏药物, 过敏物, 过敏反应, and 药物 or
+  食物 before 过敏 or 过敏史 (过敏：黄耆, 过敏源：黄耆, 药物过敏史：黄耆). 过敏性 is not a
+  label: 过敏性鼻炎 is a condition, read whole;
+- 过敏 after it, and what follows: 黄耆过敏, 黄耆过敏史, 黄耆过敏反应, 黄耆过敏（皮疹）,
+  对黄耆有过敏史. So 花粉过敏性鼻炎 records 花粉.
+
+No name the tables know starts with one of these words, holds 过敏 or ends in 有. An entry
+that records no allergy (无, 否认, 否认过敏史, 过敏史：无, 无药物过敏史, NKDA) or no allergen
+(过敏体质, 过敏反应, 过敏史不详) names nothing and matches no herb. A drug whose name starts
+with such a word (没药, 无食子) is still that drug. The entry as written is also searched
+for the herb's name as a whole (人参过敏史 names 人参), but it is not split into characters.
+Names joined by 及, 和 or 与 in one entry are not split: 对人参及黄耆过敏 is read as the
+name 人参及黄耆, so it stops 人参, whose own name it holds, but not 黄芪 under its other name
+黄耆. Separate the names with 、 or ，.
+
+Names are compared as written, in simplified characters. The repository has no
+traditional-to-simplified table, so an entry in traditional characters is recognised only
+where a name table lists that form: 芎藭, which the materia table files under 川芎, needs a
+reason for 川芎 (`allergy_source`, below). Others, such as 黃耆 (黄芪), 人參 (人参) and 當歸
+(当归), are not read as the herb and give no issue: record allergies in simplified
+characters.
+
+An entry stops a herb (`allergy`) when:
 - it names the herb: the same name, or one name inside the other (人参过敏史 and 人参,
   黄芪 and 炙黄芪);
 - or the seed knowledge base gives both names to one herb. Its names are a herb's own and
@@ -103,7 +130,9 @@ for (请核实). There are three kinds:
 One name inside the other still gives false stops. For example:
 - neither table knows 西红花 or 藏红花 (saffron), so they stop 红花 (safflower);
 - 双黄连 is a patent medicine of 金银花, 黄芩 and 连翘, but it stops 黄连. An allergy to a
-  patent medicine is not read as allergies to its herbs, so the three it holds pass.
+  patent medicine is not read as allergies to its herbs, so the three it holds pass;
+- a record that denies an allergy to a named herb (否认人参过敏) stops that herb. A denial is
+  read only when it names nothing.
 
 The interaction rules name classes of medicines. A recorded medicine also counts as its
 classes when the pack's mapping lists it. The mapping covers 35 medicines, by generic name
@@ -227,13 +256,13 @@ practitioner reviews it, every report repeats that status.
 - 安全核查：
   - 十八反、十九畏：须说明理由；
   - 妊娠禁用：停止；慎用：须说明理由；育龄期患者妊娠状态未知：须先确认；
-  - 过敏：按整条过敏记录识别，“对黄耆过敏”“黄耆过敏”也识别为黄耆，但不在记录中拆字找药名。
+  - 过敏：过敏记录先在“、，,；;。”和换行处拆为条目（对黄耆、人参过敏拆为“对黄耆”和“人参过敏”），再识别每条所写的药名，去掉名称前后的过敏用语（全角“：”或半角“:”均可，前后空格不计）：名称前的“对”“有”，后面有无“过敏”均可，其前还可有“曾”“曾经”“既往”“以往”（对黄耆、有黄耆过敏史、曾对黄耆过敏、既往黄耆过敏）；名称前的标签：过敏、过敏史、过敏原或过敏源、过敏药物、过敏物、过敏反应，以及前加“药物”“食物”的过敏、过敏史（过敏：黄耆、过敏源：黄耆、药物过敏史：黄耆），“过敏性”不是标签：过敏性鼻炎是病证，按整条识别；名称后的“过敏”及其后的文字（黄耆过敏、黄耆过敏史、黄耆过敏反应、黄耆过敏（皮疹）、对黄耆有过敏史），所以花粉过敏性鼻炎记的是花粉。名表中没有以这些用语开头、含“过敏”或以“有”结尾的药名。记为无过敏的（无、否认、否认过敏史、过敏史：无、无药物过敏史、NKDA）或无过敏原的（过敏体质、过敏反应、过敏史不详）不指任何药，不与任何药材匹配；以这类字开头的药名（没药、无食子）仍是该药。原记录也按完整药名查找（人参过敏史含人参），但不拆字找药名。同一条中用“及”“和”“与”连接的药名不拆分：对人参及黄耆过敏识别为“人参及黄耆”，按完整药名查找停止人参，但不识别黄耆即黄芪，请用“、”或“，”分隔药名。药名按简体字比对：本仓库没有繁简转换表，繁体字记录只有名表收录了该写法时才能识别（药材名表把芎藭列在川芎下，对川芎须说明理由，即下文的 `allergy_source`），其他如黃耆（黄芪）、人參（人参）、當歸（当归）不识别为该药，也不提示，过敏史请用简体字记录。
     - 停止：记录与药名相同，或一名包含另一名（人参过敏史与人参，黄芪与炙黄芪）；或种子知识库认定为同一药材（黄耆、北芪即黄芪，芍药即白芍，国老、炙甘草即甘草），其名称前加炮制词的仍是该药（炙黄耆即黄芪）；或二者是同一药材的不同炮制品：已知药名前加炮制词即该药的炮制品，所以生地黄、熟地黄都是地黄，对其一过敏即停止另一；简称经其全称归并（生地即生地黄，熟地即熟地黄）。“鲜”“干”等状态词只在药材名表把两名列于同一条下时去掉（鲜生地即生地，干姜不是姜）；药材名表列在另一药名下的名称不算其所含药名的炮制品（炮姜列在干姜下，不是姜即生姜的炮制品）；
     - 须说明理由：记录可能指该药、但名称无法判定时，医师须记录理由（即消息所说的“请核实”）才能签署，分三类：
       - `allergy_source`：药材名表（materia）把记录与该药归于同一来源，即记录是该表列在该药名下的另一名称（薯蓣与山药，双花与金银花），或二者来自同一物种（芍药与赤芍，都可来自 Paeonia lactiflora）。该表收录知识包中除首乌藤外的全部药材，但按来源而非按药归并名称（鸡内金下列有鸡蛋，海藻下列有海带、昆布），所以消息只说二者同源（同一物种/来源），不称为同一药材；
       - `allergy_near_name`：一名包含另一名，但名表认定为不同药材、且二者不是炮制关系。名称相近的常是另一种药（白附子、香附子不是附子，核桃仁不是桃仁），但“茱萸”这类名称可能指其中任一种。炮制品仍停止：熟地黄是地黄的炮制品，虽然药材名表把二者分列；
       - `allergy_homonym`：记录为“花粉”（花粉、花粉过敏、对花粉过敏）。过敏史中的花粉指植物花粉，是最常见的过敏记录；处方中“花粉”是天花粉的简称，药材名表也列在天花粉下。所以只对天花粉要求说明理由，问清所指；不延及同为栝楼属的瓜蒌；
-    - 按包含关系仍会误停，例如：两个名表都未收西红花、藏红花（番红花），所以停止红花；双黄连是金银花、黄芩、连翘组成的中成药，却停止黄连，而其所含三药不提示（中成药过敏不拆解为其组成药材的过敏）；
+    - 按包含关系仍会误停，例如：两个名表都未收西红花、藏红花（番红花），所以停止红花；双黄连是金银花、黄芩、连翘组成的中成药，却停止黄连，而其所含三药不提示（中成药过敏不拆解为其组成药材的过敏）；否认对某药过敏的记录（否认人参过敏）会停止该药：只有不指任何药的记录才识别为否认；
   - 中西药相互作用：警示。西药按类别名（如利尿剂）识别，也按具体药名识别：知识包按 WHO ATC 分类把 35 种药（中英文通用名和常见商品名，如呋塞米、Lasix）对应到规则中的类别，每种附 ATC 编码，并归入其编码所属的全部类别。噻嗪类（氢氯噻嗪，C03AA03）和吲达帕胺（C03BA11）既是利尿剂也是降压药，所以麻黄与氢氯噻嗪同用也会警示；袢利尿剂（呋塞米）只属利尿剂；β 受体阻滞剂（C07）不属于任何已列类别，未列入。类别名和药名都未识别的用药以“提示”列出，说明未核查其相互作用（未提示不等于无相互作用）；记为“无”“否认”“无特殊用药”“none”等表示未用药的不算用药，不列出；
   - 病证慎用：警示；
   - 毒性药材：警示，并附炮制与煎法；
