@@ -73,10 +73,10 @@ than a list holds: 患者对国老过敏, 3年前北芪过敏, 北芪/人参过�
 huangqi. Each allergy entry, as written, is normalised and then scanned for every name the
 tables hold (`bioagent.clinic.allergy`); whether it states an allergy to each name it holds
 is then decided by one fixed rule (below). An allergy written among the conditions (黄芪过敏
-there) is read the same way, as written (对黄芪、人参过敏 there names both): an entry of the
-conditions is one when it holds a word of allergy (过敏, 致敏, 变态反应, allerg…) outside a
-condition's name (过敏性鼻炎, 过敏性哮喘, 过敏体质 …), so 过敏性鼻炎，服用黄芪后好转 there is a
-condition, not an allergy record.
+there) is read the same way, as written (对黄芪、人参过敏 there names both): every entry of the
+conditions that holds a word of allergy (过敏, 致敏, 变态反应, allerg…) is read whole, a
+condition's name included. The 过敏 of 过敏性鼻炎 is a reaction word like any other (R1c), so
+过敏性鼻炎，服用黄芪后出现皮疹, 过敏体质，黄芪 and 过敏性鼻炎，服用黄芪后好转 there all stop 黄芪.
 
 - **Normalised.** NFKC; zero-width spaces and joiners, the byte-order mark, soft hyphens,
   variation selectors, the Hangul fillers, the braille blank, NUL and the other control
@@ -157,42 +157,58 @@ condition, not an allergy record.
   stop) when any of these holds:
   - **R1a, just names**: the entry is a list of names, with or without allergy labels
     (过敏史：, Allergy:, 药物：, Allergen name:), list marks (、，,；;/ 和 及 与 或, and, or, a line
-    break, a tab, a space next to a Chinese character), item numbers (1. 2.) and 等: a name
-    in an allergy field means an allergy by default. A list item that holds no name the
-    tables know is another entry of the list (青霉素, 头孢, penicillin, fosfomycin) unless it
-    holds a word that answers otherwise (无, 否认, 服用, 耐受, 好转, 不详, none, takes, not
-    asked …); an item that holds a name holds nothing else, so any other word beside the
-    name is context (对黄芪, 黄芪（-）, Dr. Huang Jing; a space between two Latin words joins
-    one item, so penicillin huang qi is one item and penicillin/huang qi two). 黄芪, 过敏史：黄芪,
-    青霉素，黄芪, 青霉素 黄芪, penicillin/huang qi and Allergy: huang qi stop.
-  - **R1b, an allergy statement** about the name that no negator stands right before: the
-    statements a reaction word makes (对黄芪过敏, 黄芪过敏, 黄芪过敏史, 黄芪不耐受, allergic to
-    huang qi: R1c reads them) and the English ones built on the noun (huang qi allergy,
-    allergy to huang qi, Allergies: huang qi). no huangqi allergy, denies 黄芪 allergy and No
-    allergy to huang qi are negated.
+    break, a tab, a space next to a Chinese character or next to a name), item numbers (1. 2.
+    #1) and 等: a name in an allergy field means an allergy by default. An item that holds a
+    name holds nothing else, so any other word beside the name is context (对黄芪, 黄芪（-）).
+    The tables hold no other allergen's name, so a list item that holds no name of theirs is
+    another entry of the list (青霉素, 头孢, penicillin, codeine) unless it is words: it holds
+    a word of a kind R2 and R6 name (无, 否认, 服用, 耐受, 好转, 不详, none, takes, tolerated, not
+    asked …), a small word of English or one for a person (with, for, the, Dr., son …), or it
+    starts with a word the scanner reads before a name or ends with one it reads after a name
+    (有, 的, 医生, 煲汤 …). 黄芪, 过敏史：黄芪, 青霉素，黄芪, 青霉素 黄芪, penicillin huang qi, Huang
+    Qi penicillin, penicillin/huang qi and Allergy: huang qi stop; 黄芪，家里有, 黄芪，医生开的,
+    黄芪，好转, 黄芪，平时煲汤, takes huang qi daily and Dr. Huang Jing are mentioned (R2). An item
+    of other words is read as another allergen's name: the fail-safe side.
+  - **R1b, an allergy statement** about the name: an allergy noun that no negator stands
+    immediately before, in the name's statement. The nouns are the English one (allergy,
+    allergies, allergen) and the labels without 过敏 (致敏原, 变应原, 药敏); a statement ends at
+    a full stop (not an item's number), a semicolon, a question or exclamation mark, a line
+    break or a tab, not at a comma, a colon or a dash. So huang qi allergy, allergy to huang
+    qi, allergy to the herb huang qi, huang qi severe allergy, Allergies: huang qi, Allergies
+    include huang qi and penicillin, Known allergies are huang qi, Allergies reviewed: huang qi
+    and Allergies: #1 huang qi stop; no huang qi allergy, denies 黄芪 allergy and No allergies,
+    takes huang qi are negated, and Allergies: none. Takes huang qi. holds the noun in another
+    statement (R2). The statements a reaction word makes (对黄芪过敏, 黄芪过敏史, 黄芪不耐受,
+    allergic to huang qi) are R1c's.
   - **R1c, an un-negated reaction word** anywhere in the entry. The reaction words are the
     rule's list: 过敏, 过敏反应, 不良反应, 皮疹, 红疹, 疹子, 起疹, 荨麻疹, 风团, 瘙痒, 痒, 红肿, 肿胀,
     水肿, 喉头水肿, 呼吸困难, 哮喘发作, 休克, 不耐受, rash, hives, urticaria, itch, swelling,
     angioedema, anaphylaxis, reaction, allergic, intolerance (with their inflections: rashes,
     itching; allergic reaction and skin rash are one term). One is negated only when a
     negator (无, 未, 未见, 未出现, 未再出现, 没有, 没, 不, 否认, 无明显, no, without, denies, denied,
-    never) stands right before it in its clause, and only that occurrence is. Between the
-    two may stand only the names the negator negates, 对, a word that names a class (药物,
-    食物, 其他, 任何, 已知, 明确, 特殊, known, drug, food, other, any …), list marks (、 / 和 及 与
-    或 and or) and 等: 否认黄芪过敏, 否认对黄芪过敏, 无黄芪过敏史, 无药物过敏史, 否认黄芪、人参过敏
-    and no allergic reaction are negated. A clause ends at any mark other than 、, / and those
-    inside a word, at a line break or a tab, and at a space between two Chinese characters.
-    So 服用黄芪后无不适，次日出现皮疹 stops 黄芪 (皮疹 is not negated), while 服用黄芪未见皮疹 and
-    黄芪，未再出现皮疹 do not; 服用黄芪后未见明显皮疹 stops (明显 stands between), and so do
-    否认青霉素、黄芪过敏 (青霉素 is no name of the tables) and 否认中药（黄芪）过敏 (the bracket ends
-    the clause). The 过敏 of a label (过敏史：无) and of a condition's name (过敏性鼻炎) is a
-    reaction word like any other.
+    never) stands immediately before it in its clause, and only that occurrence is. Only the
+    names the negator negates may stand between, several of them joined as a list (、 / 和 及
+    与 或 跟 以及 and or): 否认黄芪过敏, 无黄芪过敏史, 否认黄芪、人参过敏 and no huang qi allergy are
+    negated. Nothing else may: not 对, not a word that names a class, not any other word. So
+    否认对黄芪过敏, 无药物过敏史，目前在吃黄芪, 无任何皮疹，服用黄芪, 无已知过敏，在吃黄芪, 黄芪皮试阳性，
+    否认其他过敏, no known drug reaction, takes huang qi, no skin rash with huang qi and no
+    allergic reaction to huang qi (no negates allergic, not reaction) stop. A clause ends at
+    any mark other than 、, / and those inside a word, at a line break or a tab, and at a space
+    between two Chinese characters. So 服用黄芪后无不适，次日出现皮疹 stops 黄芪 (皮疹 is not
+    negated), while 服用黄芪未见皮疹 and 黄芪，未再出现皮疹 do not; 服用黄芪后未见明显皮疹 stops
+    (明显 stands between), and so do 否认青霉素、黄芪过敏 (青霉素 is no name of the tables) and
+    否认中药（黄芪）过敏 (the bracket ends the clause). A reaction word inside a name, at the
+    extent the tables give the name, is the name's; one written before a name that does not
+    stand is not (目前在吃人参，皮疹黄芪 stops 人参, 黄芪 there being inside the longer word 皮疹黄芪).
+    The 过敏 of a label (过敏史：无) and of a condition's name (过敏性鼻炎) is a reaction word like
+    any other.
 
   Otherwise the entry only **mentions** the herb (R2, `allergy_mentioned`, a block): it has
   other words around the name and no un-negated reaction word, whether they deny an allergy
   (否认黄芪过敏, 无黄芪过敏史, 黄芪（-）, 黄芪皮试阴性, 对黄芪不过敏), say the herb is tolerated
   (服用黄芪无不适, 黄芪耐受良好), used (目前在吃黄芪, 正在服用黄芪, 服用黄芪治疗咳嗽) or helped
-  (服用黄芪后咳嗽好转), or anything else (对黄芪, 黄芪禁用, Dr. Huang Jing, Can't take huang qi).
+  (服用黄芪后咳嗽好转), or anything else (对黄芪, 黄芪禁用, 黄芪，家里有, Dr. Huang Jing, Can't take
+  huang qi).
   Its message is neutral and the same for all of them: 过敏史记录中写到黄芪（上下文未写明是否过敏）。
   请核实是否对黄芪过敏后再签署. No message of any kind says or implies that the record is not an
   allergy, denies one or calls the herb tolerated, and these cases give no other code. A
@@ -203,20 +219,23 @@ condition, not an allergy record.
   entry that holds any un-negated reaction word stops it, whatever the reaction was to and
   however it ended: 目前在吃人参，青霉素过敏; 过敏史：无，目前在吃人参 (the label's 过敏 is a
   reaction word); 过敏性鼻炎，服用黄芪后好转; 服用黄芪后皮疹好转; 否认黄芪过敏，对人参过敏 stops 黄芪
-  as well as 人参; Penicillin (rash). Recorded by Sheng Jiang stops 生姜. A denial written
-  after the reaction word does not negate it (黄芪过敏史：否, 黄芪过敏-否, 已排除黄芪过敏: stops).
-  And a name with any other word beside it and no reaction word of the rule's list blocks,
-  even where the record means an allergy (对黄芪, NKDA except 黄芪, 黄芪耐受差, 黄芪接触性皮炎,
-  Can't take huang qi, codeine ren shen). A stop is lifted by correcting the record; a block
-  is signed with the practitioner's reason.
+  as well as 人参; Penicillin (rash). Recorded by Sheng Jiang stops 生姜. A negator negates
+  only with nothing but names between, so a denial with a class word or 对 in it stops the
+  names of its entry (无药物过敏史，目前在吃人参; 否认对黄芪过敏; No known allergies, takes huang
+  qi). A denial written after the reaction word does not negate it (黄芪过敏史：否, 黄芪过敏-否,
+  已排除黄芪过敏: stops). A list item of other words is read as another allergen's name (黄芪，
+  挺贵 stops). And a name with any other word beside it and no reaction word of the rule's
+  list blocks, even where the record means an allergy (对黄芪, NKDA except 黄芪, 黄芪耐受差,
+  黄芪接触性皮炎, Can't take huang qi). A stop is lifted by correcting the record; a block is
+  signed with the practitioner's reason.
 
 An entry in which no name the tables know is found gives no issue: a record of no allergy
 (无, 否认过敏史, 过敏史：无, 无药物过敏史, 暂无, NKDA, none, NKA, nil, N/A, No known drug
 allergies, 过敏史：阴性 or （-）, 过敏体质 …), an allergy to what is no herb (青霉素, 头孢,
 阿司匹林, 磺胺, 海鲜, 虾蟹, 牛奶, 花生, 芒果, 小麦, 尘螨, 乳胶, 碘, 酒精 …), what else an allergy
-field holds (否认手术外伤史, 预防接种史随社会, 青霉素过敏（面部皮疹）), and a denied pollen
-allergy (否认药物、食物及花粉过敏史). Where a table does link such a word to a herb, it asks
-about that herb only: 鸡蛋 is filed with 鸡内金, 花粉 is 天花粉's short name. A drug whose name
+field holds (否认手术外伤史, 预防接种史随社会, 青霉素过敏（面部皮疹）). Where a table does link
+such a word to a herb, it asks about that herb only: 鸡蛋 is filed with 鸡内金, 花粉 is
+天花粉's short name (below). A drug whose name
 starts with a word of negation (没药, 无食子) is still that drug. A blank field ("", spaces,
 [""], ["。。。"]) is read as not asked, like `null`, with the 过敏史未询问 warning, and so is
 one that holds only its label or a form's labels (过敏史：, Allergies:, Drug allergies:,
@@ -226,8 +245,10 @@ are not known (未询问, 没有询问, 没问, 漏问, 未询及, 未问, 待�
 不详, 不清楚, 未知, 暂不详, 未详, 不明确, 记不清楚, 不记得, 无法获取, 拒答, 详见病历, unknown, unsure,
 not asked, not recorded, not obtained, deferred, see chart), unless it also holds a name the
 tables know or a none word (无, 否认, 没有, 阴性, none, no, nil, NKDA, N/A, denies, (-)) outside
-the not-asked or not-known phrase (R6). A word of allergy (过敏, 过敏史, allergy) never answers
-by itself. So 过敏史不详 人参过敏, 未问，黄芪, 无药物过敏史，未查过敏原, 过敏史：无，详见病历, NKDA (see
+the not-asked or not-known phrase (R6). R6 reads the whole field, not each entry: ["青霉素
+过敏", "其他未询问"] is not asked as ["青霉素过敏，其他未询问"] is, ["未询问", "皮疹"] and ["不详",
+"青霉素"] are not asked either, and ["无", "其他未询问"] is asked. A word of allergy (过敏, 过敏史,
+allergy) never answers by itself. So 过敏史不详 人参过敏, 未问，黄芪, 无药物过敏史，未查过敏原, 过敏史：无，详见病历, NKDA (see
 chart), NKDA; allergy testing deferred and 否认药物过敏，食物过敏未提及 are asked; 患者昏迷，未能询问,
 没有询问, 患者不知道有无过敏, and 不详，可能对青霉素过敏 and 青霉素过敏，其他未询问 (青霉素 is no name of
 the tables) are not asked. What a not-asked field holds is still read (过敏史不详 人参过敏 stops
@@ -307,12 +328,16 @@ which answers the check its message asks for (请核实). There are five kinds:
   the record holds: 记录中的“郁金香”含有“郁金”的字样，但“郁金香”不是名表所载的药名，未必是指郁金。
   A patent medicine the tables do not hold is not read as its herbs: 知柏地黄丸, 桂枝茯苓丸 and
   复方甘草片 ask about the herbs named in them, they do not stop them.
-- `allergy_homonym`: an entry of 花粉 (花粉, 花粉过敏 or 对花粉过敏) that states an allergy (R1).
-  In an allergy history it means pollen, the most common entry of all. In prescriptions 花粉
-  is 天花粉's short name, and the materia table files it there. So it is a block for 天花粉
-  only, asking which was meant. It does not reach 瓜蒌, though 瓜蒌 comes from the same
-  Trichosanthes, and a pollen allergy the entry only mentions (否认花粉过敏, 花粉：无, 对花粉)
-  asks nothing.
+- `allergy_homonym`: an entry of 花粉. In an allergy history it means pollen, the most
+  common entry of all. In prescriptions 花粉 is 天花粉's short name, and the materia table
+  files it there. So it is a block for 天花粉 only, asking which was meant, whether the entry
+  states an allergy (R1: 花粉, 花粉过敏, 对花粉过敏; the message asks whether the recorded
+  allergy is to 天花粉) or only mentions it (R2: 对花粉, 目前在吃花粉, 花粉皮试阳性, 花粉：无, Can't
+  take 花粉; the message says the record writes 花粉 without saying whether it is an allergy).
+  It does not reach 瓜蒌, though 瓜蒌 comes from the same Trichosanthes. Only an explicit
+  denial of the rule's asks nothing: 否认花粉过敏, 无花粉过敏史, 对花粉不过敏, 花粉（-）, 花粉皮试
+  阴性, no 花粉 allergy, no allergy to 花粉. 否认药物、食物及花粉过敏史 is none (药物、食物 stand
+  between 否认 and 过敏, which is not negated, R1c), and asks.
 
 For each herb a stop stands alone; otherwise there is one block of each kind, listing the
 first places that gave it and how many more. Each distinct reading is matched to each herb
@@ -321,7 +346,8 @@ allergy noun, over the items of an entry) is remembered for the whole record, so
 linear in the record's length: 20,000 and 200,000 characters of any content (runs of names
 with no separators, chains of overlapping names such as 钩钩钩… or 红花椒红花椒…, names across
 whitespace, one long list, a negator before a long list of names, a long run of negated
-reaction words, a clause of names followed by a long run of marks) take about ten times as
+reaction words, a clause of names followed by a long run of marks, long lists of 花粉, of
+English names after an allergy noun or of reaction words glued to names) take about ten times as
 long at 200,000 characters as at 20,000, through the intake and the check as through the
 reading alone: the intake's label, negative and not-asked patterns read a run of whitespace
 once, and the scan R6 runs on a not-asked field is the reading's own.
@@ -330,12 +356,20 @@ The acceptance corpus, `BioScience-Harness/tests/data/clinic_allergy_corpus.json
 every repro of the reviews of this reading, the common forms of the acceptance criteria and
 the rule's own examples, each with its outcome per prescribed herb (stop, block or none),
 every code it gives and the clause of the rule that gives it (R1a, R1b, R1c, R2, R3, R4,
-R0), the records that must name no herb, and the allergy fields that must read as not asked.
-Every expected outcome is derived from the rule oracle in `tests/test_clinic.py`, which
-states R1 and R2 apart from the implementation: it masks each name R0 finds and reads the
-masked entry with regular expressions in the rule's own words. The reading must agree with
-the oracle and the corpus on every case; where the rule changed what the earlier narrative
-reading gave, the case keeps that outcome as `before_r8`. `tests/test_clinic.py` also checks
+R0), the records that must name no herb, the allergy fields that must read as not asked, and
+conditions entries with what they give. Each outcome and code is the reading's, reviewed by
+hand wherever a round changed it: the case keeps the earlier outcome (`before_r8` for the
+rule, `before_r8_review` for its review) and the reason (`review`). The clause is the one
+the rule oracle in `tests/test_clinic.py` gives. The oracle is written from the rule's text,
+apart from the implementation's tables: from the reading it takes only R0 (the names found,
+where they stand) and the name tables' tiers, and it derives each code from the clauses, not
+from the reading's messages; its words are the rule's (the reaction words, the negators, the
+explicit denials, R6's none and not-asked words, the allergy labels the rule names), and a
+test checks that it shares no pattern with the reading. The reading must give the corpus's
+outcome on every case, and the oracle must read every case alike but the few it reads
+otherwise, each of which holds the oracle's reading (`oracle`) and why the corpus differs
+(`reviewed`): list items that the reading takes as words and the oracle as another
+allergen's name (Dr. Huang Jing, 黄芪，家里有, 黄芪，平时煲汤). `tests/test_clinic.py` also checks
 that every name the tables give every pack herb, in each common form and in traditional
 characters, is never silent, and stops wherever the name stops the herb; that the rule's
 templates give every pack herb the rule's outcome; that a negator negates only the reaction
@@ -512,7 +546,7 @@ practitioner reviews it, every report repeats that status.
 - 安全核查：
   - 十八反、十九畏：须说明理由；
   - 妊娠禁用：停止；慎用：须说明理由；育龄期患者妊娠状态未知：须先确认；
-  - 过敏：不按一张措辞清单（过敏史：X、对X过敏、X过敏史……）读过敏史——清单漏掉的每种写法都会静默放行，而过敏史的写法远多于任何清单（患者对国老过敏、3年前北芪过敏、北芪/人参过敏、变应原：北芪、allergic to huangqi）。每条过敏记录按原样先规范化，再扫描（`bioagent.clinic.allergy`）其中名表所载的每个药名，然后按一条固定规则判定记录是否写明对每个药名过敏（见下）；写在病史（conditions）里的过敏（如“黄芪过敏”）按原样同样读取（对黄芪、人参过敏两味都指）：病史条目在病名（过敏性鼻炎、过敏性哮喘、过敏体质……）之外还有过敏字样（过敏、致敏、变态反应、allerg…）时才算过敏记录，所以病史中的“过敏性鼻炎，服用黄芪后好转”是病，不是过敏记录：
+  - 过敏：不按一张措辞清单（过敏史：X、对X过敏、X过敏史……）读过敏史——清单漏掉的每种写法都会静默放行，而过敏史的写法远多于任何清单（患者对国老过敏、3年前北芪过敏、北芪/人参过敏、变应原：北芪、allergic to huangqi）。每条过敏记录按原样先规范化，再扫描（`bioagent.clinic.allergy`）其中名表所载的每个药名，然后按一条固定规则判定记录是否写明对每个药名过敏（见下）；写在病史（conditions）里的过敏（如“黄芪过敏”）按原样同样读取（对黄芪、人参过敏两味都指）：病史中凡有过敏字样（过敏、致敏、变态反应、allerg…）的条目都按原样整条读取，病名也不例外：过敏性鼻炎中的“过敏”与其他反应字样一样（R1c），所以病史中的“过敏性鼻炎，服用黄芪后出现皮疹”“过敏体质，黄芪”“过敏性鼻炎，服用黄芪后好转”都停止黄芪：
     - 规范化：NFKC；去掉零宽空格与连接符、字节顺序标记、软连字符、异体字选择符、韩文填充符、盲文空白、NUL 等控制字符；NFKC 不转换的形近部首（从 PDF 复制的⻩、⻰）按其所示的字读（黄、龙）；繁体字按药材名表自带的字表（`materia.to_simplified`）转为简体，所以黃耆读作黄耆、人參读作人参、當歸读作当归；该表未收、而扫描所用药名及过敏史常用字中出现的繁体、港台与日文字形另按一张字表转换（過敏、對、否認、黑順片、人銜、四君子湯、当帰、芍薬），这张字表已按 OpenCC 的 s2t、s2hk、s2tw 对每个这样的字核对过（OpenCC 不是依赖，装有它时测试会复核）；拉丁字母去掉声调符号（Huáng Qí 即 huang qi）；转为小写；
     - 只扫描名表所载的名称：种子知识库的药名与别名（黄耆、北芪、国老）；药材名表每一条的全部名称，含单字名（姜、枣）；知识包的药名及其注明出处的别名（`herb_aliases`，见下）；知识包和知识库所收方剂的方名与别名（四君子汤、阳旦汤），以及同一方名的其他剂型（补中益气丸、天麻钩藤颗粒、四物膏、补中益气方；“散”“饮”只用于知识包的方剂，所以四逆散不是知识库的四逆汤；单味药名后的“片”不算剂型，麻黄片是麻黄饮片）。名表未列的药名部分或简写一概不扫描：此前逐一扫描每个药名的每个部分，结果读进了日常用词（明天麻的“明天”、淡黄芩的“淡黄”、金铃子的“金子”），已删去。拉丁名与拼音按整词匹配，可带空格、连字符、撇号、声调符号或声调数字（huang qi、Huang-Qi、Huang'qi、huang2 qi2、Huáng Qí）：种子知识库的拼音名与拉丁名，知识包给每味药的拼音（`herb_pinyin`），药材名表与知识包的拉丁名（首乌藤的 Polygoni Multiflori Caulis），按药典 2020 年版的词序和旧词序（Astragali Radix 与 Radix Astragali），名表所载的物种名和属名（Panax ginseng、Astragalus），以及知识包注明出处的英文俗名（`herb_common_names`：ginger、licorice、ginseng、cinnamon、astragalus、dong quai 等）。每个位置的每个药名都是候选，所以较短的药名不会因同一位置起始的较长药名而丢失：枣皮疹中既有独立在“皮疹”之前的“枣”，也有长词中的“枣皮”；
     - 读两遍：一遍以空白为硬分界，所以一行一条或以空格分隔的过敏清单“姜 / 黄芪”读作姜和黄芪；一遍去掉空白，所以北 芪即北芪。所找到的药名取两遍之并。只在跨空白时才找到的药名，若与第一遍中独立成词的两字以上药名重叠则舍去（姜 / 黄芪不读作姜黄，姜 / 半夏不读作姜半夏），若两遍都不独立成词、又与第一遍找到的药名重叠也舍去（枣 / 皮疹不读作枣皮）。这样的药名只有在第二遍中独立成词、或是炮制品时才读，且从不跨换行或制表符：柑橘 皮疹不读作橘皮，猕猴桃 花生不读作桃花，花生 地塞米松不读作生地，荞麦 冬瓜不读作麦冬，面粉换行再写草莓不读作粉草；
@@ -520,12 +554,12 @@ practitioner reviews it, every report repeats that status.
       - 在独立成词的较长药名或方名之中的药名归该长名（苦杏仁中的杏仁、六味地黄丸中的地黄、天麻钩藤颗粒中的天麻），改按长名比对。少数含药名字样的日常用词单独成词，不指任何药（胡萝卜、桂花、桂鱼、舌头）；
       - 不独立成词的两字以上药名“在更长的词中”：郁金香中的郁金、知柏地黄丸中的地黄、双黄连中的黄连、预防风疹疫苗中的防风、桂枝茯苓丸中的桂枝和茯苓、蛋白之后的白及、对于之后的于术（但“对”本身独立成词、于术右侧也独立成词、且其“术”在那里不构成日常用词时除外：对于术过敏、对于术及青霉素过敏、对于术等药物过敏、对于术有过敏史都是“对 + 于术”，知识库把于术归为白术，所以停止白术；对于术后、对于术中、由于术前仍是“对于 + 术后”）。用于的“用”是服用、使用等服用字样的末字时，不构成日常用词：服用于术后出现皮疹是“服用 + 于术 + 后”，停止白术。长词是该药名前加炮制词、或后加制品字（片、粉、末等）时，即为该药的炮制品（炙北芪、炒夜交藤、甘草片、山药粉）。以否认用字开头、又接着否认所指对象的药名，按否认读：没药物过敏史是“没 + 药物过敏史”，不是没药；
     - 规则：记录是否写明对某个药名过敏，按一条固定规则判定，不读药名前后的叙述（此前五轮按“服用过、可耐受、好转、用于治疗”读叙述，始终没有收敛：每一轮的规则都牵动其他写法，部分消息还把真实的反应记录称为“不是过敏记录”，可能使医师签过一次过敏）。一条记录按原文整条读：其中任一处的反应字样对其中每个药名都算，两条记录分开读。对在记录中独立成词、且有药物一级名表说即处方药（见下）的药名，下列任一条成立时，记录“写明过敏”（R1，`allergy`，停止）：
-      - R1a，只有药名：记录是药名的列举，可带过敏标签（过敏史：、Allergy:、药物：、Allergen name:）、列举分隔（、，,；;/ 和 及 与 或、and、or、换行、制表符、汉字旁的空格）、序号（1. 2.）和“等”——过敏史栏中的药名默认就是过敏。列举中没有名表所载药名的一项，是列举中的另一项（青霉素、头孢、penicillin、fosfomycin），除非其中有表示另有答复的字词（无、否认、服用、耐受、好转、不详、none、takes、not asked……）；有药名的一项不能再有别的字词，药名旁的任何其他字词都是上下文（对黄芪、黄芪（-）、Dr. Huang Jing；两个拉丁词之间的空格连成一项，所以 penicillin huang qi 是一项，penicillin/huang qi 是两项）。黄芪、过敏史：黄芪、青霉素，黄芪、青霉素 黄芪、penicillin/huang qi、Allergy: huang qi 都停止；
-      - R1b，关于该药名、且前面没有紧挨着否定词的过敏陈述：由反应字样构成的陈述（对黄芪过敏、黄芪过敏、黄芪过敏史、黄芪不耐受、allergic to huang qi，由 R1c 读），以及以名词 allergy 构成的英文陈述（huang qi allergy、allergy to huang qi、Allergies: huang qi）。no huangqi allergy、denies 黄芪 allergy、No allergy to huang qi 是被否定的；
-      - R1c，记录中任一处未被否定的反应字样。反应字样即规则所列：过敏、过敏反应、不良反应、皮疹、红疹、疹子、起疹、荨麻疹、风团、瘙痒、痒、红肿、肿胀、水肿、喉头水肿、呼吸困难、哮喘发作、休克、不耐受、rash、hives、urticaria、itch、swelling、angioedema、anaphylaxis、reaction、allergic、intolerance（含词形变化：rashes、itching；allergic reaction、skin rash 算一个词）。只有当否定词（无、未、未见、未出现、未再出现、没有、没、不、否认、无明显、no、without、denies、denied、never）在同一分句中紧挨在反应字样之前时，该反应字样才算被否定，而且只否定这一处。二者之间只能有否定词所否定的药名、“对”、表示类别的词（药物、食物、其他、任何、已知、明确、特殊、known、drug、food、other、any……）、列举分隔（、 / 和 及 与 或 and or）和“等”：否认黄芪过敏、否认对黄芪过敏、无黄芪过敏史、无药物过敏史、否认黄芪、人参过敏、no allergic reaction 都是被否定的。分句在“、”“/”和词内符号以外的任何标点、换行、制表符以及两个汉字之间的空格处结束。所以服用黄芪后无不适，次日出现皮疹停止黄芪（“皮疹”未被否定），服用黄芪未见皮疹、黄芪，未再出现皮疹不停止；服用黄芪后未见明显皮疹停止（中间隔着“明显”），否认青霉素、黄芪过敏（青霉素不是名表所载药名）和否认中药（黄芪）过敏（括号结束分句）也停止。标签（过敏史：无）和病名（过敏性鼻炎）中的“过敏”同样是反应字样。
-      否则，记录只是“写到”该药（R2，`allergy_mentioned`，须说明理由）：药名旁有其他字词、且没有未被否定的反应字样，无论这些字词是否认过敏（否认黄芪过敏、无黄芪过敏史、黄芪（-）、黄芪皮试阴性、对黄芪不过敏）、说可耐受（服用黄芪无不适、黄芪耐受良好）、说在用（目前在吃黄芪、正在服用黄芪、服用黄芪治疗咳嗽）、说好转（服用黄芪后咳嗽好转），还是别的（对黄芪、黄芪禁用、Dr. Huang Jing、Can't take huang qi）。消息措辞中性，对这些情形都一样：过敏史记录中写到黄芪（上下文未写明是否过敏）。请核实是否对黄芪过敏后再签署。任何消息都不说、也不暗示记录不是过敏记录、否认了过敏或该药可耐受，这些情形也不给出其他代码。按整词独立的拼音或拉丁名与中文药名同样按规则读，不查常见过敏原表，也不查人的称谓。
-      规则的代价是已知的，也是出于安全的选择：记录中有任何未被否定的反应字样，其中写到的药名都停止，无论反应是对什么、结果如何（目前在吃人参，青霉素过敏；过敏史：无，目前在吃人参——标签中的“过敏”是反应字样；过敏性鼻炎，服用黄芪后好转；服用黄芪后皮疹好转；否认黄芪过敏，对人参过敏对黄芪也停止；Penicillin (rash). Recorded by Sheng Jiang 停止生姜）；写在反应字样之后的否认不否定它（黄芪过敏史：否、黄芪过敏-否、已排除黄芪过敏：停止）；药名旁有其他字词、又没有规则所列反应字样的，即使记录指的是过敏，也只须说明理由（对黄芪、NKDA except 黄芪、黄芪耐受差、黄芪接触性皮炎、Can't take huang qi、codeine ren shen）。停止须更正记录后解除；须说明理由的，由医师记录理由后签署；
-    - 扫描不到任何名表所载药名的条目不提示：记为无过敏的（无、否认过敏史、过敏史：无、无药物过敏史、暂无、NKDA、none、NKA、nil、N/A、No known drug allergies、过敏史：阴性或（-）、过敏体质……），对非药材过敏的（青霉素、头孢、阿司匹林、磺胺、海鲜、虾蟹、牛奶、花生、芒果、小麦、尘螨、乳胶、碘、酒精……），过敏史栏中的其他内容（否认手术外伤史、预防接种史随社会、青霉素过敏（面部皮疹）），以及否认花粉过敏（否认药物、食物及花粉过敏史）。名表确把这类词与某药相连时，只就该药提问：鸡蛋列在鸡内金下，花粉是天花粉的简称。以否认用字开头的药名（没药、无食子）仍是该药。空白的过敏史（""、空格、[""]、["。。。"]）与 `null` 一样视为未询问，并提示“过敏史未询问”；只有标签或表格标签的（过敏史：、Allergies:、Drug allergies:、Known allergies:、过敏史（药物/食物）：、过敏史及不良反应史：、药物：____ 食物：____、过敏史：□无 □有、过敏史：无/有、过敏史：XX，标签也包括 Allergy hx:、Allergy status:），或写明未询问、不详的（未询问、没有询问、没问、漏问、未询及、未问、待询问、未能询问、未查、未提及、患者不能配合、不详、不清楚、未知、暂不详、未详、不明确、记不清楚、不记得、无法获取、拒答、详见病历、unknown、unsure、not asked、not recorded、not obtained、deferred、see chart）也是如此，除非在未询问或不详的字样之外还有名表所载的药名或表示“无”的字词（无、否认、没有、阴性、none、no、nil、NKDA、N/A、denies、(-)）（R6）。过敏字样（过敏、过敏史、allergy）本身从不算答复。所以过敏史不详 人参过敏、未问，黄芪、无药物过敏史，未查过敏原、过敏史：无，详见病历、NKDA (see chart)、NKDA; allergy testing deferred、否认药物过敏，食物过敏未提及都算已询问；患者昏迷，未能询问、没有询问、患者不知道有无过敏，以及不详，可能对青霉素过敏、青霉素过敏，其他未询问（青霉素不是名表所载药名）都算未询问。未询问的过敏史栏的内容仍会读取（过敏史不详 人参过敏仍停止人参）；“没问题”不是未询问的字样。`[]` 才是询问后无，写阴性的也是询问后无，标签后有无冒号均可（过敏史：（-）、过敏史：-、过敏史（-）、（-）、(-)）；单独的“-”可能只是表格行首，按未询问读。过敏史、用药与病史须为文字：填入数字或对象，库与工作室都以同一消息拒绝（`allergies must be a list of strings or null`）；
+      - R1a，只有药名：记录是药名的列举，可带过敏标签（过敏史：、Allergy:、药物：、Allergen name:）、列举分隔（、，,；;/ 和 及 与 或、and、or、换行、制表符、汉字旁或药名旁的空格）、序号（1. 2. #1）和“等”——过敏史栏中的药名默认就是过敏。有药名的一项不能再有别的字词，药名旁的任何其他字词都是上下文（对黄芪、黄芪（-））。名表不收其他过敏原的名称，所以列举中没有名表所载药名的一项，是列举中的另一项（青霉素、头孢、penicillin、codeine），除非它是字词而非名称：其中有 R2、R6 所列种类的字词（无、否认、服用、耐受、好转、不详、none、takes、tolerated、not asked……）、英文的虚词或称呼人的词（with、for、the、Dr.、son……），或以扫描在药名前所读的词开头、以扫描在药名后所读的词结尾（有、的、医生、煲汤……）。黄芪、过敏史：黄芪、青霉素，黄芪、青霉素 黄芪、penicillin huang qi、Huang Qi penicillin、penicillin/huang qi、Allergy: huang qi 都停止；黄芪，家里有、黄芪，医生开的、黄芪，好转、黄芪，平时煲汤、takes huang qi daily、Dr. Huang Jing 只是写到（R2）。其他字词构成的一项按另一过敏原读，这是偏向安全的一侧；
+      - R1b，关于该药名的过敏陈述：在药名所在的陈述中，有前面没有紧挨着否定词的过敏名词。过敏名词即英文名词（allergy、allergies、allergen）和不含“过敏”的标签（致敏原、变应原、药敏）；陈述在句号（序号的点除外）、分号、问号、叹号、换行或制表符处结束，逗号、冒号、破折号不结束陈述。所以 huang qi allergy、allergy to huang qi、allergy to the herb huang qi、huang qi severe allergy、Allergies: huang qi、Allergies include huang qi and penicillin、Known allergies are huang qi、Allergies reviewed: huang qi、Allergies: #1 huang qi 都停止；no huang qi allergy、denies 黄芪 allergy、No allergies, takes huang qi 是被否定的；Allergies: none. Takes huang qi. 中的名词在另一陈述中（R2）。由反应字样构成的陈述（对黄芪过敏、黄芪过敏史、黄芪不耐受、allergic to huang qi）由 R1c 读；
+      - R1c，记录中任一处未被否定的反应字样。反应字样即规则所列：过敏、过敏反应、不良反应、皮疹、红疹、疹子、起疹、荨麻疹、风团、瘙痒、痒、红肿、肿胀、水肿、喉头水肿、呼吸困难、哮喘发作、休克、不耐受、rash、hives、urticaria、itch、swelling、angioedema、anaphylaxis、reaction、allergic、intolerance（含词形变化：rashes、itching）。只有当否定词（无、未、未见、未出现、未再出现、没有、没、不、否认、无明显、no、without、denies、denied、never）在同一分句中紧挨在反应字样之前时，该反应字样才算被否定，而且只否定这一处。二者之间只能有否定词所否定的药名（几个药名可用 、 / 和 及 与 或 跟 以及 and or 连成列举）：否认黄芪过敏、无黄芪过敏史、否认黄芪、人参过敏、no huang qi allergy 都是被否定的。其他任何字词都不能在中间，“对”、表示类别的词、别的字词都不行：所以否认对黄芪过敏、无药物过敏史，目前在吃黄芪、无任何皮疹，服用黄芪、无已知过敏，在吃黄芪、黄芪皮试阳性，否认其他过敏、no known drug reaction, takes huang qi、no skin rash with huang qi、no allergic reaction to huang qi（no 只否定 allergic，不否定 reaction）都停止。分句在“、”“/”和词内符号以外的任何标点、换行、制表符以及两个汉字之间的空格处结束。所以服用黄芪后无不适，次日出现皮疹停止黄芪（“皮疹”未被否定），服用黄芪未见皮疹、黄芪，未再出现皮疹不停止；服用黄芪后未见明显皮疹停止（中间隔着“明显”），否认青霉素、黄芪过敏（青霉素不是名表所载药名）和否认中药（黄芪）过敏（括号结束分句）也停止。按名表所给范围的药名之内的反应字样属于该药名；写在不独立成词的药名之前的则不属于（目前在吃人参，皮疹黄芪停止人参，其中的黄芪在长词“皮疹黄芪”之内）。标签（过敏史：无）和病名（过敏性鼻炎）中的“过敏”同样是反应字样。
+      否则，记录只是“写到”该药（R2，`allergy_mentioned`，须说明理由）：药名旁有其他字词、且没有未被否定的反应字样，无论这些字词是否认过敏（否认黄芪过敏、无黄芪过敏史、黄芪（-）、黄芪皮试阴性、对黄芪不过敏）、说可耐受（服用黄芪无不适、黄芪耐受良好）、说在用（目前在吃黄芪、正在服用黄芪、服用黄芪治疗咳嗽）、说好转（服用黄芪后咳嗽好转），还是别的（对黄芪、黄芪禁用、黄芪，家里有、Dr. Huang Jing、Can't take huang qi）。消息措辞中性，对这些情形都一样：过敏史记录中写到黄芪（上下文未写明是否过敏）。请核实是否对黄芪过敏后再签署。任何消息都不说、也不暗示记录不是过敏记录、否认了过敏或该药可耐受，这些情形也不给出其他代码。按整词独立的拼音或拉丁名与中文药名同样按规则读，不查常见过敏原表，也不查人的称谓。
+      规则的代价是已知的，也是出于安全的选择：记录中有任何未被否定的反应字样，其中写到的药名都停止，无论反应是对什么、结果如何（目前在吃人参，青霉素过敏；过敏史：无，目前在吃人参——标签中的“过敏”是反应字样；过敏性鼻炎，服用黄芪后好转；服用黄芪后皮疹好转；否认黄芪过敏，对人参过敏对黄芪也停止；Penicillin (rash). Recorded by Sheng Jiang 停止生姜）；否定词只在中间只有药名时才否定，所以带有类别词或“对”的否认，其中写到的药名都停止（无药物过敏史，目前在吃人参；否认对黄芪过敏；No known allergies, takes huang qi）；写在反应字样之后的否认不否定它（黄芪过敏史：否、黄芪过敏-否、已排除黄芪过敏：停止）；列举中其他字词构成的一项按另一过敏原读（黄芪，挺贵停止）；药名旁有其他字词、又没有规则所列反应字样的，即使记录指的是过敏，也只须说明理由（对黄芪、NKDA except 黄芪、黄芪耐受差、黄芪接触性皮炎、Can't take huang qi）。停止须更正记录后解除；须说明理由的，由医师记录理由后签署；
+    - 扫描不到任何名表所载药名的条目不提示：记为无过敏的（无、否认过敏史、过敏史：无、无药物过敏史、暂无、NKDA、none、NKA、nil、N/A、No known drug allergies、过敏史：阴性或（-）、过敏体质……），对非药材过敏的（青霉素、头孢、阿司匹林、磺胺、海鲜、虾蟹、牛奶、花生、芒果、小麦、尘螨、乳胶、碘、酒精……），过敏史栏中的其他内容（否认手术外伤史、预防接种史随社会、青霉素过敏（面部皮疹））。名表确把这类词与某药相连时，只就该药提问：鸡蛋列在鸡内金下，花粉是天花粉的简称（见下）。以否认用字开头的药名（没药、无食子）仍是该药。空白的过敏史（""、空格、[""]、["。。。"]）与 `null` 一样视为未询问，并提示“过敏史未询问”；只有标签或表格标签的（过敏史：、Allergies:、Drug allergies:、Known allergies:、过敏史（药物/食物）：、过敏史及不良反应史：、药物：____ 食物：____、过敏史：□无 □有、过敏史：无/有、过敏史：XX，标签也包括 Allergy hx:、Allergy status:），或写明未询问、不详的（未询问、没有询问、没问、漏问、未询及、未问、待询问、未能询问、未查、未提及、患者不能配合、不详、不清楚、未知、暂不详、未详、不明确、记不清楚、不记得、无法获取、拒答、详见病历、unknown、unsure、not asked、not recorded、not obtained、deferred、see chart）也是如此，除非在未询问或不详的字样之外还有名表所载的药名或表示“无”的字词（无、否认、没有、阴性、none、no、nil、NKDA、N/A、denies、(-)）（R6）。R6 按整个过敏史栏读，而不是逐条读：["青霉素过敏", "其他未询问"] 与 ["青霉素过敏，其他未询问"] 一样算未询问，["未询问", "皮疹"]、["不详", "青霉素"] 也算未询问，["无", "其他未询问"] 算已询问。过敏字样（过敏、过敏史、allergy）本身从不算答复。所以过敏史不详 人参过敏、未问，黄芪、无药物过敏史，未查过敏原、过敏史：无，详见病历、NKDA (see chart)、NKDA; allergy testing deferred、否认药物过敏，食物过敏未提及都算已询问；患者昏迷，未能询问、没有询问、患者不知道有无过敏，以及不详，可能对青霉素过敏、青霉素过敏，其他未询问（青霉素不是名表所载药名）都算未询问。未询问的过敏史栏的内容仍会读取（过敏史不详 人参过敏仍停止人参）；“没问题”不是未询问的字样。`[]` 才是询问后无，写阴性的也是询问后无，标签后有无冒号均可（过敏史：（-）、过敏史：-、过敏史（-）、（-）、(-)）；单独的“-”可能只是表格行首，按未询问读。过敏史、用药与病史须为文字：填入数字或对象，库与工作室都以同一消息拒绝（`allergies must be a list of strings or null`）；
     - 每个找到的药名与它相符的每一味处方药比对，而不只是第一味：茯苓过敏对茯苓停止、对茯神提问，地黄过敏对生地黄、熟地黄都停止。处方药按原名（与过敏史同样规范化：黑順片、⻩芪都能读）、按知识包别名、按知识库名称（处方写黑顺片即附子）、按其所炮制的药比对；名表都不认识的处方药名还按其中所含药名比对（山药颗粒中的山药，按名称相近处理）；
     - 停止：药名独立成词、记录写明对它过敏（R1），且有药物一级的名表说记录所写即该药：与药名相同（人参过敏史含人参）；或种子知识库认定为同一药材（黄耆、北芪即黄芪，芍药即白芍，国老、炙甘草即甘草），其名称前加炮制词的仍是该药（炙黄耆即黄芪）；或为知识包注明出处的别名，前面有没有炮制词都算（夜交藤即首乌藤，炒夜交藤、制黑顺片、炙松贝亦然），或药材名表逐一复核过的别名（川当归即当归）；或为该药的拼音名、拉丁名（huang qin、Radix Astragali），按整词独立；或二者是同一药材的不同炮制品：名表所给药名前加炮制词即该药的炮制品，所以生地黄、熟地黄都是地黄，对其一过敏即停止另一；熟地是知识库给熟地黄的简称，经它归并到生地黄；甘草片、山药粉是该药的饮片和粉末。“鲜”“干”等状态词只在药材名表把两名列于同一条下时去掉（鲜地黄即地黄，干姜不是姜）；药材名表列在另一药名下的名称不算其所含药名的炮制品（炮姜列在干姜下，不是姜即生姜的炮制品）。一名包含另一名本身从不停止，只有药材名表给出的名称也不停止：莱菔（萝卜）与莱菔子（其种子）、车前与车前子、菖蒲与石菖蒲、丹皮与牡丹皮、生地与生地黄、枣与大枣，都被该表列在同一条下，而该表按来源归并名称，分不清同义名（丹皮）与同源之物（鸡内金下的鸡蛋），所以都只提问（`allergy_source`）。姜之所以停止生姜，只因为二者是炮制关系：“生”是炮制词，该表又把姜列在生姜下；枣对大枣只提问，因为“大”不是炮制词。消息写出找到的药名，而不是其前后的文字：患者对地黄过敏对熟地黄给出（地黄与熟地黄同为地黄或其炮制品）；40 字以内的记录按原文整条引用，更长的只按原文引用药名前后的一段。每条消息的引文都有上限：药名前后各 12 字，所在长词最多前后各 6 字，每味药每类只列前四处及其余处数；
     - 须说明理由：记录可能指该药、但没有药物一级的名表说它就是该药，或记录只是写到该药时，医师须记录理由（即消息所说的“请核实”）才能签署，分五类：
@@ -533,9 +567,9 @@ practitioner reviews it, every report repeats that status.
       - `allergy_source`（R3，无论药名旁写什么：否认海带过敏与海带过敏一样对海藻提问）：药材名表把该名、或其所炮制的药，列在该药条下（丹皮与牡丹皮，熟川军与大黄）。该表按来源而非按药归并名称：鸡内金下列有鸡蛋，海藻（马尾藻属）下列有海带（海带属）、昆布，所以消息只说该表把二者列于何条之下（药材名表将海带与海藻同列于“海藻”条下（未必同一物种）），不称为同一药材或同一物种；或二者来自同一物种，物种取自药材名表、知识库，或名表未收的药取知识包记录的物种：芍药与赤芍（Paeonia lactiflora），何首乌与首乌藤（Polygonum multiflorum，根与藤茎）；或记录写的是该药来源的物种名、属名或英文俗名（allergic to Panax ginseng、Astragalus、ginger）——植物不等于药材。此时消息写出物种；
       - `allergy_formula`（R4）：记录写明对知识包或知识库所收的方剂过敏（R1），或对同一方名的其他剂型过敏（四君子汤过敏、服用四君子汤后出现皮疹、补中益气丸过敏、龙胆泻肝丸过敏、单写四君子汤）。过敏可能由方中任一味药引起，所以凡是该方组成药、或经上述各层与组成药相关的处方药（生地黄与六味地黄丸中的熟地黄），都须说明理由；消息写出该方组成，其他剂型还说明组成未必完全相同。方剂本身从不停止；记录只是写到方剂时，按 `allergy_mentioned` 写出方名。起草同一首方剂不会静默通过；
       - `allergy_near_name`：一名包含另一名，而名表认定为不同药材（白附子、香附子不是附子，核桃仁不是桃仁，土茯苓不是茯苓）或未作说明（“茱萸”可能指其中任一种）；在名表不认识的长词中找到的药名，无论属于哪一层、旁边写什么，也归此类，消息只说记录中有什么：记录中的“郁金香”含有“郁金”的字样，但“郁金香”不是名表所载的药名，未必是指郁金。名表未收的中成药不拆解为其药材：知柏地黄丸、桂枝茯苓丸、复方甘草片对其名中的药须说明理由，不停止；
-      - `allergy_homonym`：写明过敏（R1）的“花粉”（花粉、花粉过敏、对花粉过敏）。过敏史中的花粉指植物花粉，是最常见的过敏记录；处方中“花粉”是天花粉的简称，药材名表也列在天花粉下。所以只对天花粉要求说明理由，问清所指；不延及同为栝楼属的瓜蒌；只是写到花粉（否认花粉过敏、花粉：无、对花粉）不提示；
-    - 每味药有“停止”时只列“停止”；否则每类各列一条，写出给出该类的前几处及其余处数。每种不同的读法与每味药只比对一次，规则的每一次查找（从反应字样往回找否定词、沿列举找到 allergy、逐项读记录）全文只计算一次，所以读取时间与记录长度成正比：2 万字与 20 万字的任意内容（不加分隔的连写药名、钩钩钩……或红花椒红花椒……这类互相重叠的药名链、跨空白的药名、很长的列举、否定词之后很长一串药名、很长一串被否定的反应字样、一串药名之后跟很长一串标点）20 万字所用时间约为 2 万字的十倍；经过四诊采集再核查时也是如此：采集中识别标签、阴性和未询问的模式对一串空白只读一遍，R6 对未询问栏所做的扫描就是读取本身的扫描；
-    - 验收语料 `BioScience-Harness/tests/data/clinic_allergy_corpus.json` 收录各轮审查的全部复现记录、验收标准中的常见写法和规则本身的示例，每条写明对每味处方药的结果（停止、须说明理由或不提示）、给出的全部代码和给出它们的规则条款（R1a、R1b、R1c、R2、R3、R4、R0），以及不得指向任何药材的记录和必须视为未询问的过敏史栏。每个预期结果都由 `tests/test_clinic.py` 中的规则判定器（oracle）推出：它独立于实现陈述 R1 与 R2，把 R0 找到的每个药名替换为占位符，再用按规则原文写成的正则表达式读取。读取结果须在每一条上与判定器和语料一致；规则改变了此前叙述式读法的结果时，该条以 `before_r8` 保留原结果。`tests/test_clinic.py` 还检查名表给每味知识包药材的每个名称，按每种常见写法和繁体字书写，都不会静默放行，凡该名称能停止该药之处都停止；规则的模板对每味知识包药材给出规则的结果；否定词只否定紧随其后的反应字样；任何消息都不称记录不是过敏；每个“停止”只给出药物一级名表所给的理由；并对比 2 万字与 20 万字的用时；
+      - `allergy_homonym`：“花粉”。过敏史中的花粉指植物花粉，是最常见的过敏记录；处方中“花粉”是天花粉的简称，药材名表也列在天花粉下。所以只对天花粉要求说明理由，问清所指，无论记录写明过敏（R1：花粉、花粉过敏、对花粉过敏，消息问所记过敏是否为天花粉）还是只是写到（R2：对花粉、目前在吃花粉、花粉皮试阳性、花粉：无、Can't take 花粉，消息说记录写到花粉而未写明是否过敏）；不延及同为栝楼属的瓜蒌。只有规则所列的明确否认不提示：否认花粉过敏、无花粉过敏史、对花粉不过敏、花粉（-）、花粉皮试阴性、no 花粉 allergy、no allergy to 花粉；否认药物、食物及花粉过敏史不是（“药物、食物”隔在“否认”与“过敏”之间，“过敏”未被否定，R1c），仍提示；
+    - 每味药有“停止”时只列“停止”；否则每类各列一条，写出给出该类的前几处及其余处数。每种不同的读法与每味药只比对一次，规则的每一次查找（从反应字样往回找否定词、沿列举找到 allergy、逐项读记录）全文只计算一次，所以读取时间与记录长度成正比：2 万字与 20 万字的任意内容（不加分隔的连写药名、钩钩钩……或红花椒红花椒……这类互相重叠的药名链、跨空白的药名、很长的列举、否定词之后很长一串药名、很长一串被否定的反应字样、一串药名之后跟很长一串标点、很长一串花粉、过敏名词之后很长一串英文药名、粘在药名上的一串反应字样）20 万字所用时间约为 2 万字的十倍；经过四诊采集再核查时也是如此：采集中识别标签、阴性和未询问的模式对一串空白只读一遍，R6 对未询问栏所做的扫描就是读取本身的扫描；
+    - 验收语料 `BioScience-Harness/tests/data/clinic_allergy_corpus.json` 收录各轮审查的全部复现记录、验收标准中的常见写法和规则本身的示例，每条写明对每味处方药的结果（停止、须说明理由或不提示）、给出的全部代码和给出它们的规则条款（R1a、R1b、R1c、R2、R3、R4、R0），以及不得指向任何药材的记录、必须视为未询问的过敏史栏和病史条目及其结果。每个结果和代码都是读取给出的，凡某一轮改变了结果的都经人工复核：该条保留原结果（规则改变的为 `before_r8`，规则复核改变的为 `before_r8_review`）及理由（`review`）。条款取自 `tests/test_clinic.py` 中的规则判定器（oracle）。判定器按规则原文写成，不用实现的词表：它只从读取取 R0（找到的药名及其位置）和名表的层级，代码由条款推出而不取读取的消息；所用字词都是规则自己的（反应字样、否定词、明确否认、R6 的“无”字与未询问字样、规则所举的过敏标签），并有测试检查它与读取不共用任何模式。读取须在每一条上给出语料的结果；判定器也须在每一条上读得一致，只有少数几条例外，这些条目写明判定器的读法（`oracle`）和语料为何不同（`reviewed`）：读取当作字词、判定器当作另一过敏原名称的列举项（Dr. Huang Jing、黄芪，家里有、黄芪，平时煲汤）。`tests/test_clinic.py` 还检查名表给每味知识包药材的每个名称，按每种常见写法和繁体字书写，都不会静默放行，凡该名称能停止该药之处都停止；规则的模板对每味知识包药材给出规则的结果；否定词只否定紧挨其后的反应字样（中间只能有它所否定的药名）；任何消息都不称记录不是过敏；每个“停止”只给出药物一级名表所给的理由；并对比 2 万字与 20 万字的用时；
     - 知识包的名称：`herb_aliases` 收录两个名表都没有的知识包药材别名，每个注明出处：夜交藤（首乌藤，《中药学》），以及《药典》2020 年版的习称：川黄柏（黄柏），毛山药、光山药（山药），味连、雅连、云连（黄连），盐附子、黑顺片、白附片（附子），松贝、青贝、炉贝（川贝母），大贝、珠贝、浙贝片（浙贝母），连丹皮、刮丹皮（牡丹皮）。`herb_sources` 记录首乌藤的物种和拉丁名——它是药材名表唯一未收的知识包药材（药典 2020：何首乌原植物的干燥藤茎，Polygoni Multiflori Caulis）。`herb_pinyin` 给出每味知识包药材的拼音，是音译而非别名（多音字按药名读音：川芎 chuanxiong，黄柏 huangbo 或 huangbai）。`herb_common_names` 给出英文俗名，每个注明所指物种和出处的 WHO 专论（ginger，Rhizoma Zingiberis；licorice，Radix Glycyrrhizae；ginseng，Radix Ginseng；cinnamon、cassia，Cortex Cinnamomi；astragalus，Radix Astragali；ephedra；turmeric；peony；coptis；bupleurum；platycodon；dong quai，Radix Angelicae Sinensis），按物种读，只提问、不停止。只收有出处的名称；没有出处、同一别名给了两味药、别名或拼音所指的药不在知识包中、俗名没有物种或出处，知识包都拒绝加载；
     - 仍会漏读或多读（验收标准之外的写法）：名表中没有的名称、简写或误写不识别——淮山、怀山（山药），法夏、姜夏、清夏（法半夏），川柏（黄柏），双钩、勾藤（钩藤），交藤（首乌藤），贝母（川贝母、浙贝母都不识别），苡米、米仁（薏苡仁），公英（蒲公英），桂圆（龙眼肉），野山参、园参（人参），贡菊、亳菊（菊花），老翘（连翘），北杏（苦杏仁），焦三仙，肾气丸，去掉剂型字的方名（四君子），柴胡舒肝丸（“舒”作“疏”），生龙牡，古写黄蓍，误写（川穹、白敛、姜蚕、沙仁、牛夕、瓜娄），日文欝金、釣藤，泛称（参类、中药过敏），简称的拼音（shu di、dan pi、bei qi、gou qi），知识包未注明出处的英文俗名（aconite、goji、honeysuckle、hawthorn、jujube、mint、tang kuei），不是名表药名换词序而得的旧拉丁名（Flos Lonicerae、Herba Menthae、Radix Platycodi），以及一个词内的声调数字（huang2qi2）。这些都需要名表中有出处的条目；逐一扫描药名各部分的做法虽能读出其中一些，也读进了日常用词。单字药名只在单独成条或位于过敏字词之间时才算：姜蒜过敏、老姜过敏、对姜片过敏、姜注射液过敏、服用含姜的中药后出现皮疹不涉及生姜；人名标签或称谓之后的名称按其所拼写的药读（记录人：姜、Dr. Huang Jing 分别是写到生姜、黄精：须说明理由）。只有药材名表给出的简称（生地、丹皮、银花、枣、枸杞）只提问、不停止（见上）。名表未收的中成药不拆解为其所含药材：双黄连只就黄连提问，不涉及金银花、黄芩、连翘；参麦注射液不提示。规则不读叙述、也不读语法，其代价见上（任一处反应字样对记录中每个药名都停止；药名旁有字词而无规则所列反应字样的只须说明理由）。规则未列的反应字样（腹泻、头晕、胸闷、皮炎、疙瘩）不算反应字样，所以服用黄芪后，自觉胸闷只须说明理由、不停止。物种和属名指植物而非药材：Panax ginseng 对人参只提问、不停止，属名（Citrus、Prunus）对该属的每味知识包药材提问。上述以外的字符（其他形近字、私用区字符）不转换；只读过敏史栏和病史中的过敏条目：写在别处的反应（主诉“服用含黄芪的中药后全身皮疹”，病史中不带“过敏”二字的“药疹（黄芪所致）”）不读；
   - 中西药相互作用：警示。西药按类别名（如利尿剂）识别，也按具体药名识别：知识包按 WHO ATC 分类把 35 种药（中英文通用名和常见商品名，如呋塞米、Lasix）对应到规则中的类别，每种附 ATC 编码，并归入其编码所属的全部类别。噻嗪类（氢氯噻嗪，C03AA03）和吲达帕胺（C03BA11）既是利尿剂也是降压药，所以麻黄与氢氯噻嗪同用也会警示；袢利尿剂（呋塞米）只属利尿剂；β 受体阻滞剂（C07）不属于任何已列类别，未列入。类别名和药名都未识别的用药以“提示”列出，说明未核查其相互作用（未提示不等于无相互作用）；记为“无”“否认”“无特殊用药”“none”等表示未用药的不算用药，不列出；

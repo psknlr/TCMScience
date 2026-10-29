@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import bisect
+import functools
 import json
 import re
 from pathlib import Path
@@ -590,11 +592,10 @@ def test_a_name_that_may_be_the_herb_asks_the_same_in_a_historys_own_words(pack,
                                 ("白附子", "附子", "allergy_near_name")):
         found = _allergy_issues(pack, form.format(allergy), herb)
         assert [(i.severity, i.code) for i in found] == [("block", code)], (form, found)
-    # 花粉 is pollen in a history: it asks about 天花粉 where the record states an allergy (R1)
-    # and nothing where it only mentions it (对花粉, as 否认花粉过敏)
+    # 花粉 is pollen in a history: it asks about 天花粉 whether the record states an allergy (R1)
+    # or only mentions it (对花粉); only an explicit denial (否认花粉过敏) asks nothing
     found = _allergy_issues(pack, form.format("花粉"), "天花粉")
-    want = [] if form in _MENTION_FORMS else [("block", "allergy_homonym")]
-    assert [(i.severity, i.code) for i in found] == want, (form, found)
+    assert [(i.severity, i.code) for i in found] == [("block", "allergy_homonym")], (form, found)
     assert not _allergy_issues(pack, form.format("花粉"), "瓜蒌")      # pollen, as before
 
 
@@ -678,16 +679,17 @@ def test_a_denial_before_an_allergy_does_not_drop_it(pack, record, herb):
     assert [(i.severity, i.code) for i in found] == [("stop", "allergy")], (record, found)
 
 
-@pytest.mark.parametrize("record", ["否认黄芪过敏", "无黄芪过敏史", "否认对黄芪过敏", "患者否认黄芪过敏",
+@pytest.mark.parametrize("record", ["否认黄芪过敏", "无黄芪过敏史", "患者否认黄芪过敏",
                                     "黄芪：无", "黄芪（-）", "对黄芪不过敏", "否认北芪过敏", "否認黃耆過敏",
                                     "no huangqi allergy", "denies 黄芪 allergy", "NKDA 北芪",
-                                    "黄芪皮试阴性", "否认黄芪、人参过敏", "无药物及黄芪过敏史",
+                                    "黄芪皮试阴性", "否认黄芪、人参过敏", "无黄芪及人参过敏史",
                                     # no reaction word, and NKDA next to the name: not just names
                                     "NKDA except 黄芪"])
 def test_a_herb_the_history_denies_is_mentioned_and_never_silent(pack, record):
-    # R2: a negator right before the reaction word or the statement (否认黄芪过敏, 无黄芪过敏史,
-    # no huangqi allergy), or another word and no reaction word at all (黄芪：无, 黄芪（-）): a
-    # block that says the record writes the name, never that it denies an allergy
+    # R2: a negator immediately before the reaction word or the statement, only the names it
+    # negates between (否认黄芪过敏, 无黄芪过敏史, 否认黄芪、人参过敏, no huangqi allergy), or
+    # another word and no reaction word at all (黄芪：无, 黄芪（-）): a block that says the record
+    # writes the name, never that it denies an allergy
     found = _allergy_issues(pack, record, "黄芪")
     assert [(i.severity, i.code) for i in found] == [("block", "allergy_mentioned")], (record, found)
     assert "上下文未写明是否过敏" in found[0].message and "请核实是否对" in found[0].message, found
@@ -1032,12 +1034,12 @@ def test_a_stop_claims_only_what_a_drug_level_table_says(pack):
     # the rule's own walks: a negator before a long list of what it negates (R1c), a reaction
     # word after each of many negators, a long list of items (R1a), and a long list of names
     # before or after an allergy noun (R1b)
-    (lambda n: "否认" + "黄芪、" * (n // 3) + "过敏", {"allergy_mentioned:黄芪": "block"}),
-    (lambda n: "否认" + "药物、" * (n // 3) + "黄芪过敏", {"allergy_mentioned:黄芪": "block"}),
+    (lambda n: "否认" + "黄芪、" * (n // 3) + "黄芪过敏", {"allergy_mentioned:黄芪": "block"}),
+    (lambda n: "否认" + "药物、" * (n // 3) + "黄芪过敏", {"allergy:黄芪": "stop"}),
     (lambda n: "服用黄芪，" + "未见皮疹，" * (n // 5), {"allergy_mentioned:黄芪": "block"}),
     (lambda n: "黄芪，" + "青霉素，" * (n // 4), {"allergy:黄芪": "stop"}),
     (lambda n: "黄芪，" + "青霉素，" * (n // 4) + "无", {"allergy_mentioned:黄芪": "block"}),
-    (lambda n: "no " + "huang qi and " * (n // 13) + "allergy", {"allergy_mentioned:黄芪": "block"}),
+    (lambda n: "no " + "huang qi and " * (n // 13) + "huang qi allergy", {"allergy_mentioned:黄芪": "block"}),
     (lambda n: "allergy to " + "huang qi, " * (n // 10), {"allergy:黄芪": "stop"}),
     (lambda n: "no " * (n // 3) + "rash, huang qi", {"allergy_mentioned:黄芪": "block"}),
     (lambda n: ("Took huang qi, no reaction. " * n)[:n], {"allergy_mentioned:黄芪": "block"}),
@@ -1101,118 +1103,128 @@ def test_a_long_history_of_random_names_is_read_in_linear_time(pack):
 
 
 # ------------------------------------------------------------------ the rule, stated again
-# An oracle for the rule's R1 and R2, written apart from bioagent.clinic.allergy and in the
-# rule's own words. It takes what R0 gives (the names the scan finds, each with the extent it
-# reads as the name) and masks each name with one placeholder; it then reads the masked record
-# with regular expressions: R1a (the record is just names), R1b (an allergy statement about
-# the name with no negator right before it) and R1c (a reaction word with no negator right
-# before it). The codes follow from R1 or R2 for each name (``allergy._issue`` turns them into
-# the tiers' codes and wordings, which this round did not change). The acceptance corpus is
-# derived from this oracle, and the reading must agree with it on every case.
-_O_CJK = "㐀-鿿豈-﫿〇\U00020000-\U0003134f"
-_O_NAME_CJK, _O_NAME_ASCII = "", ""
-_O_NAMES = f"[{_O_NAME_CJK}{_O_NAME_ASCII}]"
-#: R1c, as the rule lists them; a Chinese reaction word may be written with spaces in it.
+# An oracle for R1-R4, written from the rule's text and not from bioagent.clinic.allergy's
+# tables. From the implementation it takes only what R0 keeps (the names the scan finds and
+# where they stand: ``allergy.mentions``) and the name tables' tiers (``_Matcher.match`` says
+# whether a drug-level table makes a name the herb, a source-mate or a near name; ``species``
+# and the formulas' compositions). Everything else is the rule's own words: its reaction words
+# and negators as it lists them, its explicit denials, R6's none and not-asked words, and the
+# allergy labels it gives as examples (过敏史：, Allergy:). Its codes follow from the clauses
+# (R1 and a drug-level name: allergy; R2: allergy_mentioned; R3: allergy_source; R4:
+# allergy_formula; a near name: allergy_near_name; 花粉: allergy_homonym), not from
+# ``allergy._issue``. Where it reads a case otherwise than the implementation, the corpus says
+# so and why (``oracle``, ``reviewed``): such a case is reviewed by hand, never re-derived.
+_O_CJK = "㐀-鿿豈-﫿〇\U00020000-\U0003134f"
+_O_NAME = ""            # a name at the extent the tables give it
+_O_WORD = ""            # in R1a, a near name's longer word
+_O_BREAKS = "\t\n\r\v\f\x85  "
+#: R1c, as the rule lists them (a Chinese one may be written with spaces in it), and the English
+#: ones in their usual forms (rashes, itching, swollen, anaphylactic, intolerant).
 _O_REACTION = re.compile(
     "|".join(r"\s*".join(w) for w in sorted(
         "过敏 过敏反应 不良反应 皮疹 红疹 疹子 起疹 荨麻疹 风团 瘙痒 痒 红肿 肿胀 水肿 喉头水肿 呼吸困难 哮喘发作 休克 "
         "不耐受".split(), key=len, reverse=True))
-    + r"|(?<![a-z0-9])(?:(?:allergic|adverse|skin|drug)(?:\s+|[\-–]))*"
-      r"(?:rash|hive|urticari|itch|swell|swollen|angioedem|anaphyla|reaction|allergic|intoleran)[a-z0-9]*")
+    + r"|(?<![a-z0-9])(?:rash(?:es)?|hives?|urticaria[a-z]*|itch(?:es|ing|y)?|swelling|swollen|swell(?:s|ed)?"
+      r"|angioedema|anaphyla(?:xis|ctic)|reactions?|allergic|intoleran(?:ce|t))(?![a-z0-9])")
 _O_NEGATOR = (r"(?:未再出现|未出现|无明显|未见|没有|否认|无|未|没|不"
-              r"|(?<![a-z0-9])(?:no|without|denies|denied|never))")
-#: What may stand between a negator and what it negates: the names it negates, 对, a class of
-#: what is negated, list marks.
-_O_BETWEEN = (rf"(?:{_O_NAMES}|以及|中药材|中成药|药物|药品|食物|食品|中药|西药|草药|药材|饮片|其他|其它|任何"
-              r"|已知|明确|特殊|相关|成分|对|[、/／]|和|及|与|或|跟|等"
-              r"|(?<![a-z0-9])(?:and|or|known|drugs?|foods?|other|any|medications?|medicines?"
-              r"|herbal)(?![a-z0-9]))")
-_O_NEGATED = re.compile(_O_NEGATOR + r"(?:\s*" + _O_BETWEEN + r")*\s*$")
-#: Where a clause ends: a line break or a tab, a space between two Chinese characters, any mark
-#: but 、 / and those inside a word.
+              r"|(?<![a-z0-9])(?:no|without|denies|denied|never)(?![a-z0-9]))")
+#: Between a negator and what it negates, only the names it negates (否认X过敏, 无X过敏史),
+#: several of them joined as a list (否认X、Y过敏).
+_O_JOIN = r"(?:以及|[、/／和及与或跟]|(?<![a-z0-9])(?:and|or)(?![a-z0-9]))"
+_O_NAMES_RUN = rf"{_O_NAME}(?:\s*{_O_JOIN}\s*{_O_NAME})*"
+_O_NEGATED = re.compile(rf"{_O_NEGATOR}\s*(?:{_O_NAMES_RUN}\s*)?$")
+#: A clause ends at a line break or a tab, a space between two Chinese characters, and any mark
+#: but those of a list (、 /) and those inside a word (' - ·).
 _O_CLAUSE_END = re.compile(
-    rf"[\t\n\r\v\f\x85  ]|(?<=[{_O_CJK}])[^\S\t\n\r\v\f\x85  ]+(?=[{_O_CJK}])"
-    rf"|[^\w\s{_O_NAME_CJK}{_O_NAME_ASCII}、/／·'’\-–]|_")
-#: R1a: what ends a list item.
+    rf"[{_O_BREAKS}]|(?<=[{_O_CJK}])[^\S{_O_BREAKS}]+(?=[{_O_CJK}])"
+    rf"|[^\w\s{_O_NAME}{_O_WORD}、/／·'’\-–]|_")
+#: R1b: the English noun of "X allergy", "allergy to X", "Allergy: X" (the adjective is R1c's),
+#: read in the name's sentence, which a full stop (not an item's number), a semicolon, a question
+#: or exclamation mark, a line break or a tab ends.
+_O_NOUN = re.compile(r"(?<![a-z0-9])allerg(?:y|ies|ens?)(?![a-z0-9])")
+_O_SENTENCE_END = re.compile(rf"[。；;！!？?{_O_BREAKS}]|(?<![0-9])[.．]")
+#: R1a: a list's items end at its marks, its words, a line break or a tab, and a space next to
+#: a Chinese character or a name.
 _O_ITEM_END = re.compile(
-    rf"[、，,；;/／|｜。？?！!&]|[\t\n\r\v\f\x85  ]|(?<=[{_O_CJK}])\s+|\s+(?=[{_O_CJK}])"
+    rf"[、，,；;/／|｜。？?！!&]|[{_O_BREAKS}]|(?<=[{_O_CJK}{_O_NAME}{_O_WORD}])\s+|\s+(?=[{_O_CJK}{_O_NAME}{_O_WORD}])"
     r"|以及|和|及|与|或|跟|(?<![a-z0-9])(?:and|or|plus)(?![a-z0-9])")
-#: R1a: words that are not context next to a name: labels, a class word, 等, the reaction words
-#: (R1c reads them) and an item's number.
-_O_LABELS = re.compile(
-    r"(?:既往|已知|明确|药物|食物|中药|西药|其他|其它){0,3}(?:过敏史|过敏原|过敏源|过敏物质|过敏物|过敏药物|过敏药品"
-    r"|过敏食物|过敏情况|过敏反应|过敏|药敏史|药敏|致敏药物|致敏原|致敏物|变应原|变态反应)"
-    r"|中成药|药物|药品|食物|食品|中药|西药|名称|等等|之类|一类|等|类|均|都|也|皆"
-    r"|(?<![a-z0-9])(?:allerg[a-z]*|known|drugs?|foods?|medications?|meds?|medicines?|hx|history|list"
-    r"|status|names?|substances?|etc|intoleran[a-z]*|reactions?|rash[a-z]*|hives?|urticari[a-z]*|itch[a-z]*|swell[a-z]*"
-    r"|swollen|angioedem[a-z]*|anaphyla[a-z]*)(?![a-z0-9])")
-_O_NUMBER = re.compile(r"^\s*\d{1,3}(?![0-9])|(?<![0-9a-z.])\d{1,3}\s*[.．)）](?![0-9])|[(（]\d{1,3}[)）]")
-_O_NEGATIVE = re.compile(r"[(（\[【]\s*[-－−]\s*[)）\]】]|[:：∶]\s*[-－−]\s*$")
-#: R1a: an item with no name is another entry of the list unless it answers otherwise.
-_O_ANSWERS = re.compile(
-    r"无|未|没|不|否|排除|除外|阴性|正常|询问|未问|没问|漏问|待查|拒|服|吃|喝|使用|食用|饮用|外用|可用|用过|用后|用药"
-    r"|在用|正在|目前|现在|平素|平时|长期|每日|每天|经常|常年|泡|炖|煲|煮|熬|耐受|可以|可吃|可服|能吃|能用|能服|良好"
-    r"|问题|安全|好转|缓解|改善|减轻|减少|消退|消失|痊愈|有效|效佳|见效|见好|治疗|主治|调理|保健|进补"
-    r"|(?<![a-z0-9])(?:no|not|none|nil|nkda|nka|nkfa|n/?a|negative|neg|denies|denied|deny|without"
-    r"|never|unknown|unsure|deferred|asked|see|chart|notes?|takes?|taking|took|taken|using|uses?"
-    r"|used|on|currently|daily|toleran[a-z]*|tolerat[a-z]*|ok|okay|fine|improved|better|resolved"
-    r"|treat[a-z]*)(?![a-z0-9])")
-#: R1b: the English statements that use the noun, and the labels with no reaction word.
-_O_NOUN = r"(?<![a-z0-9])allerg(?:y|ies|en|ens)(?![a-z0-9])"
-_O_JOIN = r"\s*(?:(?:以及|[、/／,，&和及与或]|(?<![a-z0-9])(?:and|or)(?![a-z0-9]))\s*)?"
-_O_CHAIN = rf"{_O_NAMES}(?:{_O_JOIN}{_O_NAMES})*"
-_O_STATED_AFTER = re.compile(rf"({_O_CHAIN}){_O_JOIN}{_O_NOUN}")
-_O_STATED_BEFORE = re.compile(
-    rf"({_O_NOUN}\s*(?:to|against|of|toward|towards)(?![a-z0-9])|(?:{_O_NOUN}|致敏药物|致敏原|致敏物|变应原|药敏史|药敏)"
-    rf"\s*[:：∶︰\-–—])\s*({_O_CHAIN})")
+#: R1a: what an item of names may hold besides them: an allergy label at its start (过敏史：,
+#: Allergy: and their like: words with 过敏, 敏 or allerg in them and no negator, then a colon),
+#: the item's number and 等. A negative mark is a word (X（-） is R2's).
+_O_LABEL = re.compile(rf"^\s*(?:(?!{_O_NEGATOR})[^{_O_NAME}{_O_WORD}:：∶])*(?:过敏|敏|变应|allerg)"
+                      rf"(?:(?!{_O_NEGATOR})[^{_O_NAME}{_O_WORD}:：∶])*[:：∶]")
+_O_LIST_WORDS = re.compile(r"^\s*(?:\d{1,3}\s*[.．)）]|[(（]\d{1,3}[)）]|#\s*\d{1,3})|等")
+_O_NEGATIVE = re.compile(r"[(（]\s*[-－−]\s*[)）]|[:：∶]\s*[-－−]")
+#: R1a: an item with no name is another entry of the list (青霉素) unless it holds a word the rule
+#: gives for something other than a name: a negator (R1c), a none word or a not-asked phrase
+#: (R6, a negative mark among them), or a word of R2's examples (皮试阴性, 无不适, 耐受良好, 目前在吃,
+#: 正在服用, 服用X治疗, and improvement: 好转), in Chinese or English.
+_O_NOT_A_NAME = re.compile(
+    _O_NEGATOR + r"|否认|[(（]\s*[-－−]\s*[)）]|没有询问|没问|漏问|未询及|未询问|未问|不详|不清楚|未知"
+    r"|皮试|阴性|耐受|良好|目前|在吃|正在|服用|治疗|好转"
+    r"|(?<![a-z0-9])(?:none|nkda|nka|nil|n/a|unknown|not asked|deferred|negative|tolerat[a-z]*|take|takes|taking"
+    r"|took|taken|on|currently|improved|better|treat[a-z]*|for)(?![a-z0-9])")
+#: 花粉's explicit denials (R0, R2): 否认X过敏, 无X过敏史, 对X不过敏, X（-）, X皮试阴性, no X allergy,
+#: no allergy to X.
+_O_DENIED_BEFORE = re.compile(rf"(?:{_O_NEGATOR}\s*(?:{_O_NAME}\s*{_O_JOIN}\s*)*"
+                              rf"|{_O_NEGATOR}\s*allerg(?:y|ies)\s+(?:to|of)\s*(?:{_O_NAME}\s*{_O_JOIN}\s*)*)$")
+_O_DENIED_AFTER = re.compile(rf"^(?:\s*{_O_JOIN}\s*{_O_NAME})*\s*(?:过敏|allerg(?:y|ies)(?![a-z]))")
+_O_DENIED_ITSELF = re.compile(rf"^(?:\s*{_O_JOIN}\s*{_O_NAME})*\s*(?:{_O_NEGATOR}\s*(?:过敏|allerg(?:y|ies|ic))"
+                              r"|[(（]\s*[-－−]\s*[)）]|[:：∶]\s*[-－−]|皮试阴性|阴性)")
 
 
-def _o_masked(record, ms):
-    """The record folded, each name (the extent R0 reads as it) one placeholder; and where
-    each mention's placeholder is."""
+def _o_masked(record, spans):
+    """The record folded, each span one placeholder (the first one's kind), and where each span
+    starts in the result."""
     from bioagent.clinic.allergy import fold
     f = fold(record)
     keep = [i for i, c in enumerate(f) if not c.isspace()]
     runs = []
-    for s, e in sorted(m.span for m in ms):
+    for s, e, mark in sorted(spans):
         if runs and s < runs[-1][1]:
             runs[-1][1] = max(runs[-1][1], e)
         else:
-            runs.append([s, e])
-    out, at, i, where = [], {}, 0, {}
-    for k, (s, e) in enumerate(runs):
+            runs.append([s, e, mark])
+    out, at, i = [], [], 0
+    for s, e, mark in runs:
         a, b = keep[s], keep[e - 1] + 1
         out.append(f[i:a])
-        at[k] = sum(map(len, out))
-        out.append(_O_NAME_CJK if not f[a].isascii() else _O_NAME_ASCII)
+        at.append((s, e, sum(map(len, out))))
+        out.append(mark)
         i = b
     out.append(f[i:])
-    for m in ms:
-        k = next(k for k, (s, e) in enumerate(runs) if s <= m.span[0] < e)
-        where[m] = at[k]
-    return "".join(out), where
+    return "".join(out), at
+
+
+def _o_place(at, s):
+    return next(p for a, b, p in at if a <= s < b)
+
+
+@functools.lru_cache(maxsize=64)
+def _o_clause_ends(masked):
+    return [m.end() for m in _O_CLAUSE_END.finditer(masked)]
 
 
 def _o_negated(masked, p):
-    """A negator right before ``p`` in its clause (R1c's negation)."""
-    start = max((m.end() for m in _O_CLAUSE_END.finditer(masked) if m.end() <= p), default=0)
+    """A negator immediately before ``p`` in its clause, only negated names between."""
+    ends = _o_clause_ends(masked)
+    k = bisect.bisect_right(ends, p)
+    start = ends[k - 1] if k else 0
     return _O_NEGATED.search(masked[start:p]) is not None
 
 
 def _o_just_names(masked):
-    """R1a."""
+    """R1a: every item holds names and labels only, or no name and no word of something else."""
     named = False
     for item in _O_ITEM_END.split(masked):
         if not item.strip():
             continue
-        if _O_NEGATIVE.search(item.replace(_O_NAME_CJK, " ").replace(_O_NAME_ASCII, " ")):
-            return False
-        if _O_NAME_CJK in item or _O_NAME_ASCII in item:
+        if _O_NAME in item or _O_WORD in item:
             named = True
-            rest = _O_LABELS.sub(" ", item.replace(_O_NAME_CJK, " ").replace(_O_NAME_ASCII, " "))
-            if any(c.isalnum() for c in _O_NUMBER.sub(" ", rest)):
+            rest = _O_LIST_WORDS.sub(" ", _O_LABEL.sub(" ", item)).replace(_O_NAME, " ").replace(_O_WORD, " ")
+            if any(c.isalnum() for c in rest) or _O_NEGATIVE.search(rest):
                 return False
-        elif _O_ANSWERS.search(item):
+        elif _O_NOT_A_NAME.search(item):
             return False
     return named
 
@@ -1223,63 +1235,94 @@ def _o_reaction(masked):
 
 
 def _o_stated(masked):
-    """R1b: the placeholders an un-negated statement names."""
+    """R1b: the sentences (by where they start) that hold an un-negated allergy noun."""
+    starts = [0] + [m.end() for m in _O_SENTENCE_END.finditer(masked)]
     stated = set()
-    for m in _O_STATED_AFTER.finditer(masked):
-        for n in re.finditer(_O_NAMES, m.group(1)):
-            p = m.start(1) + n.start()
-            if not _o_negated(masked, p):
-                stated.add(p)
-    for m in _O_STATED_BEFORE.finditer(masked):
-        if not _o_negated(masked, m.start(1)):
-            stated.update(m.start(2) + n.start() for n in re.finditer(_O_NAMES, m.group(2)))
-    return stated
+    for m in _O_NOUN.finditer(masked):
+        if not _o_negated(masked, m.start()):
+            stated.add(max(s for s in starts if s <= m.start()))
+    return starts, stated
 
 
 def _o_rule(record, pack):
-    """(mention, R1 holds, which clause) for each name the record holds."""
+    """(mention, which clause of R1 holds or "", denied) for each name the record holds."""
     from bioagent.clinic.allergy import mentions
     from bioagent.clinic.prescribe import _kb
     ms = mentions(record, kb=_kb(), pack=pack)
     if not ms:
         return []
-    masked, where = _o_masked(record, ms)
-    r1a, r1c, stated = _o_just_names(masked), _o_reaction(masked), _o_stated(masked)
+    own, at = _o_masked(record, [(m.start, m.end, _O_NAME) for m in ms])
+    words, _ = _o_masked(record, [(*m.span, _O_WORD if m.word else _O_NAME) for m in ms])
+    r1a, r1c = _o_just_names(words), _o_reaction(own)
+    starts, stated = _o_stated(own)
     out = []
     for m in ms:
-        why = "R1a" if r1a else "R1c" if r1c else "R1b" if where[m] in stated else ""
-        out.append((m, bool(why), why))
+        p = _o_place(at, m.start)
+        sentence = max(s for s in starts if s <= p)
+        why = "R1a" if r1a else "R1c" if r1c else "R1b" if sentence in stated else ""
+        denied = not why and (_O_DENIED_ITSELF.search(own[p + 1:]) is not None
+                              or (_O_DENIED_BEFORE.search(own[:p]) is not None
+                                  and _O_DENIED_AFTER.search(own[p + 1:]) is not None)
+                              or _o_denied_after_noun(own, p))
+        out.append((m, why, denied))
     return out
+
+
+def _o_denied_after_noun(own, p):
+    """no allergy to X, denies allergies to X."""
+    m = re.search(rf"{_O_NEGATOR}\s*allerg(?:y|ies)\s+(?:to|of)\s*(?:{_O_NAME}\s*{_O_JOIN}\s*)*$", own[:p])
+    return m is not None
+
+
+def _o_code(m, why, denied, herb, matcher, vocab):
+    """The code the rule gives the herb for the name ``m``, and its clause tag, or None."""
+    from bioagent.clinic.allergy import _herb_key, _materia
+    hk = _herb_key(herb)
+    r1 = bool(why)
+    if m.kind == "name" and m.name == "花粉":
+        same = _materia(hk) is not None and _materia(hk) == _materia(m.name)
+        if (same or m.name in hk) and not denied:
+            return "allergy_homonym", "R0"
+        return None
+    if m.kind in ("species", "genus"):
+        sp, _ = matcher.species(hk)
+        sp = {x.lower() for x in sp}
+        if m.kind == "species":
+            hit = any(s.lower() in sp for s in m.species)
+        else:
+            hit = any(s.startswith(m.species[0].lower() + " ") for s in sp)
+        return ("allergy_source", "R3") if hit else None
+    if m.kind == "formula":
+        f = vocab.formulas.get(m.written) or next(
+            (v for v in vocab.formulas.values() if v.name == m.of), None)
+        if f is None or not any((hit := matcher.match(_herb_key(c), hk)) and hit[0].rank >= 2
+                                for c in f.herbs):
+            return None
+        return ("allergy_formula", "R4") if r1 else ("allergy_mentioned", "R2")
+    hit = matcher.match(m.name, hk)
+    if hit is None:
+        return None
+    tier, _, hp = hit
+    if hp.inner or m.word or tier.rank == 1:
+        return "allergy_near_name", "R0"
+    if tier.rank == 2:
+        return "allergy_source", "R3"
+    return ("allergy", why) if r1 else ("allergy_mentioned", "R2")
 
 
 def _oracle(record, herbs, pack):
     """For each herb: (stop / block / none, the codes, the rule clauses that gave them)."""
-    from dataclasses import replace
-
-    from bioagent.clinic.allergy import _herb_key, _issue, _Matcher, _vocab
+    from bioagent.clinic.allergy import _Matcher, _vocab
     from bioagent.clinic.prescribe import _kb
     kb = _kb()
-    matcher = _Matcher(kb, pack, _vocab(kb, pack))
+    vocab = _vocab(kb, pack)
+    matcher = _Matcher(kb, pack, vocab)
     found = {h: {} for h in herbs}
-    for m, r1, why in _o_rule(record, pack):
+    for m, why, denied in _o_rule(record, pack):
         for h in herbs:
-            issue = _issue(replace(m, allergy=r1, why=why), h, _herb_key(h), record, matcher)
-            if issue is None:
-                continue
-            severity, code = issue[0], issue[1]
-            # the rule's table: a drug-level name stops under R1 and is mentioned under R2; a
-            # formula asks about each herb under R1 and is mentioned under R2; the rest ask
-            if code == "allergy":
-                assert r1 and severity == "stop", (record, m)
-            elif code == "allergy_mentioned":
-                assert not r1 and severity == "block", (record, m)
-            elif code == "allergy_formula":
-                assert r1 and m.kind == "formula", (record, m)
-            else:
-                assert severity == "block", (record, m)
-            tag = {"allergy": why, "allergy_mentioned": "R2", "allergy_formula": "R4",
-                   "allergy_source": "R3"}.get(code, "R0")
-            found[h].setdefault(code, set()).add(tag)
+            got = _o_code(m, why, denied, h, matcher, vocab)
+            if got is not None:
+                found[h].setdefault(got[0], set()).add(got[1])
     result = {}
     for h, codes in found.items():
         if "allergy" in codes:
@@ -1322,14 +1365,38 @@ def test_the_acceptance_corpus(pack, case):
             assert not any(text in i[3] for i in mine), (herb, text, mine)
 
 
+def test_the_oracle_is_written_apart_from_the_reading():
+    # r8 review: the oracle shared the reading's tables (its answer words, negative marks, item
+    # numbers, labels and the words allowed between a negator and what it negates) and took its
+    # codes from allergy._issue. It now holds none of the reading's patterns and words, and
+    # derives every code from the rule's clauses
+    import inspect
+
+    from bioagent.clinic import allergy as A
+    mine = {v.pattern for k, v in globals().items() if k.startswith("_O_") and hasattr(v, "pattern")}
+    theirs = {v.pattern for v in vars(A).values() if hasattr(v, "pattern")}
+    assert mine and not mine & theirs
+    # from the reading it takes only R0's names (mentions, fold) and the name tables' tiers
+    allowed = {"mentions", "fold", "_herb_key", "_materia", "_Matcher", "_vocab"}
+    for f in (_oracle, _o_code, _o_rule, _o_masked, _o_just_names, _o_negated, _o_stated):
+        source = inspect.getsource(f)
+        taken = {n.strip() for m in re.finditer(r"from bioagent\.clinic\.allergy import ([\w, ]+)", source)
+                 for n in m.group(1).split(",")}
+        assert taken <= allowed and "_issue" not in source, (f.__name__, taken)
+
+
 @pytest.mark.parametrize("case", _corpus()["cases"], ids=lambda c: c["id"])
-def test_the_rule_oracle_derives_the_acceptance_corpus(pack, case):
-    # every expected outcome, code and clause of the corpus is the rule's, as the oracle (which
-    # states R1 and R2 apart from the implementation) reads it
+def test_the_rule_oracle_reads_the_acceptance_corpus_alike(pack, case):
+    # the oracle, written from the rule's text, reads every case as the corpus does: its outcome,
+    # codes and clause. A case it reads otherwise is pinned to the oracle's reading (oracle) and
+    # says why the corpus differs (reviewed), so no difference passes unseen
     herbs = list(pack.herbs) if case["herbs"] == "pack" else case["herbs"]
     got = _oracle(case["record"], herbs, pack)
     for herb in herbs:
         outcome, codes, clauses = got[herb]
+        if herb in case.get("oracle", {}):
+            assert case["reviewed"] and [outcome, codes] == case["oracle"][herb], (herb, got[herb])
+            continue
         assert outcome == case["expect"].get(herb, "none"), (herb, got[herb])
         assert codes == case["codes"].get(herb, []), (herb, got[herb])
         assert clauses == case["rule"].get(herb, []), (herb, got[herb])
@@ -1346,6 +1413,21 @@ def test_the_acceptance_corpus_records_that_name_no_herb(pack, group):
     assert not {r: v for r, v in noisy.items() if v}
 
 
+@pytest.mark.parametrize("entry", _corpus().get("conditions", []), ids=lambda e: e["id"])
+def test_the_acceptance_corpus_conditions_entries(pack, entry):
+    # every conditions entry with a word of allergy is read whole, a condition's name with 过敏
+    # included (过敏性鼻炎，服用黄芪后出现皮疹 stops 黄芪); one without such a word is not read
+    it = parse_intake(case(*SPLEEN, allergies=entry["allergies"], conditions=entry["conditions"]), pack)
+    issues = [i for i in check([Line(h, 9, "practitioner") for h in entry["herbs"]], it, pack)
+              if i.code in _ALLERGY_CODES]
+    for herb in entry["herbs"]:
+        mine = [(i.severity, i.code) for i in issues if i.herbs[0] == herb]
+        severities = {sev for sev, _ in mine}
+        outcome = "stop" if "stop" in severities else "block" if severities else "none"
+        assert outcome == entry["expect"].get(herb, "none"), (herb, mine)
+        assert sorted({c for _, c in mine}) == entry["codes"].get(herb, []), (herb, mine)
+
+
 @pytest.mark.parametrize("entry", _corpus()["intake"], ids=lambda e: e["id"])
 def test_the_acceptance_corpus_allergy_fields(pack, entry):
     # C3: a blank field, one holding only a label, or one saying not asked or not known reads
@@ -1357,14 +1439,27 @@ def test_the_acceptance_corpus_allergy_fields(pack, entry):
 
 def test_the_corpus_holds_every_repro_and_each_criterion():
     doc = _corpus()
-    assert doc["schema"] == "bioagent.clinic.allergy_corpus/2"
+    assert doc["schema"] == "bioagent.clinic.allergy_corpus/3"
     ids = [c["id"] for c in doc["cases"]]
     assert len(ids) == len(set(ids))
     sources = {c["source"].split(":")[0] for c in doc["cases"]}
     for source in ("r6 review round 1 (d087468)", "r6 review round 2 (f8cf0eb)", "review6 scripts",
                    "C1 common form", "C3 common corpus", "r7 review round 1 (03a822b)",
-                   "r7 review round 2 (b989f7d)", "r8 rule (fix/r8-allergy)"):
+                   "r7 review round 2 (b989f7d)", "r8 rule (fix/r8-allergy)", "r8 review (bfd2467)"):
         assert any(s.startswith(source) for s in sources), source
+        assert source in doc["sources"], source
+    # every outcome the review of the rule changed says why and what it was; every case the
+    # oracle reads otherwise says why the corpus differs, and such cases stay few
+    for c in doc["cases"]:
+        assert ("before_r8_review" in c) == ("review" in c), c["id"]
+        assert ("oracle" in c) == ("reviewed" in c), c["id"]
+    assert len([c for c in doc["cases"] if "oracle" in c]) <= 10
+    records = {c["record"] for c in doc["cases"]}
+    for repro in ("Can't take 花粉", "对花粉", "花粉皮试阳性", "无任何皮疹，服用黄芪", "无药物过敏史，目前在吃人参",
+                  "皮疹黄芪所致，人参无不适", "Allergies include huang qi", "penicillin huang qi",
+                  "Huang Qi penicillin", "黄芪，家里有", "黄芪，平时煲汤", "黄芪皮试阳性，否认其他过敏"):
+        assert repro in records, repro
+    assert len(doc["conditions"]) >= 5
     assert {c["expect"].get(h) for c in doc["cases"] for h in c["expect"]} == {"stop", "block"}
     assert any(h not in c["expect"] for c in doc["cases"] for h in c["herbs"] if c["herbs"] != "pack")
     # every clause of the rule decides some case
@@ -1398,18 +1493,25 @@ _RULE_STOP_TEMPLATES = (
     # the known costs of the fail-safe rule: a reaction word anywhere stops every name of the entry
     "目前在吃{}，过敏史：无", "目前在吃{}，青霉素过敏", "过敏性鼻炎，服用{}后喷嚏减少", "过敏性鼻炎（服用{}后好转）",
     "服用{}后精神好转，青霉素过敏", "服用{}期间，青霉素过敏", "服用{}后，有青霉素过敏史", "{}治疗过敏性鼻炎有效",
-    "曾用{}治疗皮疹，效佳", "服用{}后皮疹好转", "否认青霉素、{}过敏", "{}过敏史：否")
+    "曾用{}治疗皮疹，效佳", "服用{}后皮疹好转", "否认青霉素、{}过敏", "{}过敏史：否",
+    # a negator negates only with nothing but the names it negates between (r8 review): 对, a
+    # class word or another word between leaves the reaction word un-negated
+    "否认对{}过敏", "无药物过敏史，目前在吃{}", "无任何皮疹，服用{}", "服用{}后无任何皮疹", "无明确过敏史，服{}",
+    "无其他药物过敏史，服用{}", "否认其他过敏，{}", "无食物过敏，正在服用{}", "无已知过敏，在吃{}",
+    "{}皮试阳性，否认其他过敏", "曾用{}，无明确过敏史",
+    # a reaction word before a name inside a longer word is still a reaction word (r8 review)
+    "目前在吃{}，皮疹黄芪", "皮疹黄芪所致，{}无不适")
 #: R2: other words next to the name and no un-negated reaction word: a negator right before every
 #: reaction word (否认{}过敏, 服用{}未见皮疹, 未再出现皮疹), or none at all (服用{}无不适, 目前在吃{},
 #: {}耐受差: 耐受差 is not one of the rule's reaction words).
 _RULE_MENTION_TEMPLATES = (
-    "否认{}过敏", "无{}过敏史", "否认对{}过敏", "{}（-）", "{}：-", "{}皮试阴性", "对{}不过敏", "服用{}无不适",
+    "否认{}过敏", "无{}过敏史", "否认{}、人参过敏", "{}（-）", "{}：-", "{}皮试阴性", "对{}不过敏", "服用{}无不适",
     "{}耐受良好", "目前在吃{}", "正在服用{}", "服用{}治疗咳嗽", "服用{}后咳嗽好转", "服用{}未见皮疹",
     "服用{}，未再出现皮疹", "{}，未再出现皮疹", "服用{}后无不适", "{}服用后未见过敏", "服用{}期间无不良反应",
     "{}吃了没事", "{}用过，无过敏", "{}：服用中", "{}（服用中）", "{}可以吃", "{}没问题", "服用{}后，自觉无不适",
     "曾服{}，次日无不适", "长期服用{}，自觉无不适", "服用{}，3天后无任何不适", "服用{}后，面部无红肿",
     "服用{}后，皮肤未见皮疹", "{}\t服用中\t无不适", "服用{}后咳嗽缓解", "因咳嗽服用{}", "服用{}后，头晕好转",
-    "服用{}，次日青霉素皮试阳性", "服用{}治疗咳嗽，有效", "无药物过敏史，目前在吃{}", "{}；无", "对{}",
+    "服用{}，次日青霉素皮试阳性", "服用{}治疗咳嗽，有效", "无过敏史，目前在吃{}", "{}；无", "对{}",
     "未见皮疹，未见瘙痒，服用{}", "无明显皮疹，服用{}", "{}耐受差", "对{}耐受性差", "{}耐受不良",
     "吃{}后，嘴唇肿了", "服用{}后起疙瘩", "服用{}后，自觉胸闷")
 
@@ -1446,12 +1548,17 @@ def test_the_rule_stops_or_mentions_every_herb_of_the_pack_as_the_oracle_does(pa
     # Chinese characters, a bracket, a comma) leaves it standing; 无明显 is a negator
     ("服用{}后未见明显皮疹", "stop"), ("服用{}后无明显皮疹", "block"), ("服用{}，无 皮疹", "stop"),
     ("否认（{}）过敏", "stop"), ("否认，{}过敏", "stop"),
-    # the names it negates, 对, a class word and list marks may stand between
-    ("否认{}、人参过敏", "block"), ("否认对{}过敏", "block"), ("无药物及{}过敏史", "block"),
+    # only the names it negates, joined as a list, may stand between; 对, a class word or any
+    # other word leaves the reaction word un-negated (r8 review)
+    ("否认{}、人参过敏", "block"), ("否认人参及{}过敏", "block"), ("否认对{}过敏", "stop"),
+    ("无药物及{}过敏史", "stop"), ("无任何皮疹，服用{}", "stop"), ("无已知过敏，服用{}", "stop"),
+    ("无药物过敏史，目前在吃{}", "stop"), ("无过敏史，目前在吃{}", "block"),
     # English: no, without, denies, denied, never; not is no negator of the rule's
-    ("Took {}, no rash", "block"), ("Took {} without any reaction", "block"), ("{}: never had hives", "stop"),
-    ("{}: denies rash", "block"), ("not allergic to {}", "stop"), ("no allergic reaction to {}", "block"),
-    ("no {} allergy", "block"), ("no doubt {} allergy", "stop")])
+    ("Took {}, no rash", "block"), ("Took {} without any reaction", "stop"), ("{}: never had hives", "stop"),
+    ("{}: denies rash", "block"), ("not allergic to {}", "stop"), ("no allergic reaction to {}", "stop"),
+    ("no {} allergy", "block"), ("no doubt {} allergy", "stop"), ("Denies any rash with {}", "stop"),
+    ("no known drug reaction, takes {}", "stop"), ("no skin rash with {}", "stop"),
+    ("no reaction with {}", "block")])
 def test_a_negator_negates_only_the_reaction_word_right_after_it(pack, record, expected):
     # R1c: 服用X后无不适，次日出现皮疹 stops; 服用X未见皮疹 and 未再出现皮疹 alone are mentions
     for herb, name in (("黄芪", "黄芪"), ("人参", "ren shen"), ("当归", "当归")):
@@ -1506,12 +1613,27 @@ def test_a_reaction_narrative_blocks_the_draft_and_a_mentioned_herb_never_stops_
     rec = sign(tmp_path / "b", practitioner="张医师", licence="L-1", decision="accept", pack=pack,
                reasons={"allergy_mentioned:人参": "已核实：患者对人参不过敏"})
     assert "allergy_mentioned:人参" in rec["acknowledged"]
-    # a condition's name with 过敏 (过敏性鼻炎) does not make a conditions entry an allergy record
-    it = parse_intake(case(*SPLEEN, allergies=[], conditions=["过敏性鼻炎，服用黄芪后无不适"]), pack)
-    assert not [i for i in check([Line("黄芪", 9, "practitioner")], it, pack) if i.code in _ALLERGY_CODES]
-    it = parse_intake(case(*SPLEEN, allergies=[], conditions=["过敏性鼻炎，对黄芪过敏"]), pack)
-    assert {(i.id, i.severity) for i in check([Line("黄芪", 9, "practitioner")], it, pack)
-            if i.code in _ALLERGY_CODES} == {("allergy:黄芪", "stop")}
+    # every conditions entry with a word of allergy is read whole (r8 review): the 过敏 of a
+    # condition's name (过敏性鼻炎) is a reaction word like any other, so the entry stops 黄芪
+    for conditions in (["过敏性鼻炎，服用黄芪后出现皮疹"], ["过敏体质，黄芪"], ["过敏性鼻炎，服用黄芪后无不适"],
+                       ["过敏性鼻炎，对黄芪过敏"]):
+        it = parse_intake(case(*SPLEEN, allergies=[], conditions=conditions), pack)
+        assert {(i.id, i.severity) for i in check([Line("黄芪", 9, "practitioner")], it, pack)
+                if i.code in _ALLERGY_CODES} == {("allergy:黄芪", "stop")}, conditions
+    s = assess(case(*SPLEEN, allergies=["无"], conditions=["过敏性哮喘，服用人参后哮喘发作"]), tmp_path / "c",
+               pack=pack)
+    assert s.status == "blocked" and "allergy:人参" in {i.id for i in s.prescription.issues}
+
+
+@pytest.mark.parametrize("allergy", ["无药物过敏史，目前在吃人参", "无任何皮疹，服用人参", "Denies any rash with ren shen",
+                                     "过敏史：无，目前在吃人参", "目前在吃人参，皮疹黄芪", "Allergies include ren shen",
+                                     "ren shen severe allergy", "penicillin ren shen"])
+def test_a_stated_allergy_the_review_found_blocks_the_draft(pack, tmp_path, allergy):
+    # the r8 review's records through clinic.assess (四君子汤 holds 人参): each states an allergy
+    # (R1), so the draft is blocked by a stop on 人参, not drafted with a block
+    s = assess(case(*SPLEEN, allergies=[allergy]), tmp_path / "a", pack=pack)
+    assert s.status == "blocked", (allergy, s.status)
+    assert ("allergy:人参", "stop") in {(i.id, i.severity) for i in s.prescription.issues}, allergy
 
 
 @pytest.mark.parametrize("record", ["头孢过敏，归类为药疹", "中药归经", "过年归来，否认过敏史", "患者来自枣庄，否认过敏史",
@@ -1551,9 +1673,10 @@ def test_a_long_allergy_field_is_read_through_the_intake_in_linear_time(pack, ma
 
 def test_a_pinyin_or_latin_name_reads_by_the_rule_like_a_chinese_one(pack):
     # R5: a pinyin or Latin name standing as words is a name, and R1/R2 read it: listed with
-    # another allergen (penicillin/huang qi, penicillin and huang qi, PCN/…) it stops as after
-    # "Allergy:"; with another word next to it (codeine ren shen, Dr. Huang Jing, patient
-    # name: Huang Qi) it is mentioned. No list of allergens or person titles is consulted
+    # another allergen (penicillin/huang qi, penicillin and huang qi, codeine ren shen, PCN/…) it
+    # stops as after "Allergy:", a space next to a name ending a list item as it does next to a
+    # Chinese character; with words next to it (Dr. Huang Jing, patient name: Huang Qi) it is
+    # mentioned. No list of allergens is consulted
     from bioagent.clinic.allergy import allergy_issues, names_of
     from bioagent.clinic.prescribe import _kb
     kb = _kb()
@@ -1566,8 +1689,8 @@ def test_a_pinyin_or_latin_name_reads_by_the_rule_like_a_chinese_one(pack):
                 continue
             for t, listed in (("penicillin/{}", True), ("penicillin and {}", True), ("sulfa or {}", True),
                               ("{} and penicillin", True), ("PCN/{}", True), ("{}/aspirin", True),
-                              ("fosfomycin, {}", True), ("codeine {}", False), ("Dr. {}", False),
-                              ("patient name: {}", False)):
+                              ("fosfomycin, {}", True), ("codeine {}", True), ("{} penicillin", True),
+                              ("Dr. {}", False), ("patient name: {}", False)):
                 checked += 1
                 got = {(i[1], i[2]) for i in allergy_issues([herb], [t.format(name)], kb, pack)}
                 # mentioned: a block that says so (a Latin genus name may also ask as a source)
@@ -1590,9 +1713,18 @@ def test_a_pinyin_or_latin_name_reads_by_the_rule_like_a_chinese_one(pack):
     (lambda n: ("Took huang qi, she got " * n)[:n], {"allergy_mentioned:黄芪": "block"}),
     (lambda n: "吃黄芪" + "。" * n + "皮疹", {"allergy:黄芪": "stop"}),
     (lambda n: ("服用黄芪未见皮疹，" * n)[:n], {"allergy_mentioned:黄芪": "block"}),
-    (lambda n: "否认" + "对" * n + "黄芪过敏", {"allergy_mentioned:黄芪": "block"}),
+    (lambda n: "否认" + "对" * n + "黄芪过敏", {"allergy:黄芪": "stop"}),
+    (lambda n: "否认" + "人参、" * (n // 3) + "黄芪过敏" + "，否认黄芪过敏" * (n // 7),
+     {"allergy_mentioned:黄芪": "block"}),
+    (lambda n: ("花粉，" * n)[:n], {"allergy_homonym:天花粉": "block"}),
+    (lambda n: "目前在吃" + "花粉、" * (n // 3), {"allergy_homonym:天花粉": "block"}),
+    (lambda n: ("否认花粉过敏，" * n)[:n], {}),
+    (lambda n: "Allergies include " + "huang qi, " * (n // 10), {"allergy:黄芪": "stop"}),
+    (lambda n: ("penicillin huang qi " * n)[:n], {"allergy:黄芪": "stop"}),
+    (lambda n: ("皮疹黄芪" * n)[:n] + "，人参", {"allergy:人参": "stop"}),
 ], ids=["story", "story_cut", "time_run", "tolerated_story", "improved", "row_cells", "yushu", "pinyin_list",
-        "english_story", "marks_run", "negated_runs", "between_run"])
+        "english_story", "marks_run", "negated_runs", "between_run", "negated_chains", "pollen_list",
+        "pollen_taken_list", "pollen_denied_run", "include_list", "penicillin_spaces", "reaction_near_words"])
 def test_a_long_story_is_read_in_linear_time(pack, make, expected):
     # C4 / R7: each walk of the rule (back from a reaction word to a negator, along a list, over
     # the items of an entry) is remembered, so a long record of any content takes linear time
@@ -1613,6 +1745,8 @@ def test_a_long_story_is_read_in_linear_time(pack, make, expected):
     assert all(len(i[3]) < 1200 for i in out), max(len(i[3]) for i in out)
     got = {i[0]: i[1] for i in out}
     assert {k: got.get(k) for k in expected} == expected, sorted(got.items())[:10]
+    if not expected:
+        assert not [k for k in got if k.endswith(":天花粉")], sorted(got.items())[:10]
 
 
 @pytest.mark.parametrize("make,asked", [(lambda n: "无，" + "see chart " * (n // 10), True),
@@ -1932,10 +2066,10 @@ def test_a_word_that_only_starts_with_a_denial_denies_nothing(pack, record):
     # a negator negates only when it stands right before the reaction word: 未成年时对黄芪过敏
     # has 时 and 对 between, 无数次服黄芪后皮疹 the rest of the story
     assert _found(pack, record, "黄芪") == [("stop", "allergy")], record
-    # with no reaction word at all, the name is mentioned (R2): 非常怕黄芪, and "no other
-    # allergy than 黄芪", whose allergy is the noun, not a reaction word
-    for mentioned in ("非常怕黄芪", "no other allergy than 黄芪"):
-        assert _found(pack, mentioned, "黄芪") == [("block", "allergy_mentioned")], mentioned
+    # with no reaction word and no allergy noun, the name is mentioned (R2): 非常怕黄芪; "no
+    # other allergy than 黄芪" states one (R1b: other stands between no and allergy)
+    assert _found(pack, "非常怕黄芪", "黄芪") == [("block", "allergy_mentioned")]
+    assert _found(pack, "no other allergy than 黄芪", "黄芪") == [("stop", "allergy")]
 
 
 @pytest.mark.parametrize("record,herbs", [
@@ -1990,7 +2124,7 @@ def test_a_herb_the_history_says_is_tolerated_is_mentioned_and_never_stops(pack,
 
 
 @pytest.mark.parametrize("record,herbs", [
-    ("无过敏史，目前在吃人参", ("人参",)), ("否认药物过敏史，平素服黄芪泡水", ("黄芪",)),
+    ("无过敏史，目前在吃人参", ("人参",)), ("否认过敏史，平素服黄芪泡水", ("黄芪",)),
     ("无过敏史；正在服用黄芪", ("黄芪",)), ("无过敏史，喜食生姜", ("生姜",)), ("无，爱吃大枣", ("大枣",)),
     ("否认过敏史，常食山药", ("山药",)), ("无过敏史，喜欢喝菊花茶", ("菊花",)),
     ("无过敏史，每周炖汤加党参、黄芪", ("党参", "黄芪")), ("否认过敏史。现用药：人参、黄芪泡水", ("人参", "黄芪")),
@@ -2030,10 +2164,29 @@ def test_a_dash_or_an_arrow_after_a_name_is_no_denial(pack, record):
         assert _found(pack, denied, "黄芪") == [("block", "allergy_mentioned")], denied
 
 
-@pytest.mark.parametrize("record", ["否认药物、食物及花粉过敏史", "否认花粉过敏", "无花粉过敏", "花粉：无",
-                                    "无药物、食物、花粉过敏"])
+@pytest.mark.parametrize("record", ["否认花粉过敏", "无花粉过敏", "无花粉过敏史", "对花粉不过敏", "花粉不过敏",
+                                    "花粉（-）", "花粉(-)", "花粉：-", "花粉皮试阴性", "否认黄芪、花粉过敏",
+                                    "no 花粉 allergy", "denies allergy to 花粉", "花粉 without allergy"])
 def test_a_denied_pollen_allergy_asks_nothing(pack, record):
+    # R0: only an explicit denial of the rule (否认X过敏, 无X过敏史, 对X不过敏, X（-）, X皮试阴性) of
+    # 花粉 asks nothing about 天花粉
     assert not _allergy_issues(pack, record, "天花粉"), record
+
+
+@pytest.mark.parametrize("record", ["花粉", "花粉过敏", "对花粉", "Can't take 花粉", "NKDA except 花粉", "目前在吃花粉",
+                                    "花粉，未再出现皮疹", "花粉 without rash", "never rash with 花粉", "服用花粉治疗失眠",
+                                    "家中常备花粉", "花粉 tolerated", "takes 花粉 daily", "花粉皮试阳性", "花粉耐受差",
+                                    "花粉：无", "否认药物、食物及花粉过敏史", "无药物、食物、花粉过敏", "否认对花粉过敏",
+                                    "否认尘螨、花粉过敏"])
+def test_every_other_pollen_entry_asks_about_tianhuafen(pack, record):
+    # R0 and R2 (r8 review): every entry of 花粉 but an explicit denial asks about 天花粉, under R1
+    # (a stated allergy) and under R2 (only mentioned) alike, and never about 瓜蒌
+    found = _allergy_issues(pack, record, "天花粉")
+    assert [(i.severity, i.code) for i in found] == [("block", "allergy_homonym")], (record, found)
+    assert "天花粉也简称“花粉”" in found[0].message
+    if record != "花粉" and "过敏" not in record and "allerg" not in record.lower():
+        assert "上下文未写明是否过敏" in found[0].message and "请核实是否对天花粉过敏" in found[0].message
+    assert not _allergy_issues(pack, record, "瓜蒌")
 
 
 @pytest.mark.parametrize("record", ["桂花过敏", "桂鱼过敏", "鳜鱼过敏", "桂圆过敏", "胡萝卜过敏"])

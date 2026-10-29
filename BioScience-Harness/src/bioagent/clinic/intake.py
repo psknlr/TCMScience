@@ -17,7 +17,9 @@ or says it was not asked or is not known (过敏史：, Allergies:, Allergy hx:,
 患者不能配合, 不详, 不清楚, 未知, 暂不详, 记不清楚, 拒答, unknown, not asked, deferred), unless it
 also holds a name the tables know or a none word (无, 否认, none, NKDA …) outside that phrase
 (过敏史不详 人参过敏; 无药物过敏史，未查过敏原; NKDA (see chart)); a word of allergy (过敏, 过敏史,
-allergy) never answers by itself. What a not-asked field holds is still scanned. A negative in
+allergy) never answers by itself. The field is read whole, not entry by entry: ["青霉素过敏",
+"其他未询问"] is not asked, as ["青霉素过敏，其他未询问"] is. What a not-asked field holds is still
+scanned. A negative in
 brackets is an answer, with or without a label (过敏史：（-）, 过敏史（-）, （-）). Medications,
 allergies and conditions are text: a number or an object there is refused, not turned into text.
 """
@@ -215,7 +217,7 @@ def _names_a_herb(text: str, pack: ClinicPack | None) -> bool:
 
 
 def _answers(entry: str, pack: ClinicPack | None = None) -> bool:
-    """An allergy entry that answers the question (R6).
+    """An allergy field (its entries joined, one per line) that answers the question (R6).
 
     A blank entry, one that holds only its label or a form's labels (过敏史：, 过敏史：____,
     Allergies:, Drug allergies:, 过敏史（药物/食物）：, 药物：____ 食物：____, 过敏史：□无 □有), and
@@ -305,8 +307,10 @@ def parse_intake(doc: Mapping[str, Any], pack: ClinicPack) -> Intake:
     meds = _list(doc.get("medications"), "medications")
     allergy_records = _items(doc.get("allergies"), "allergies")
     allergies = None
+    # R6 reads the field, not each entry: ["青霉素过敏", "其他未询问"] says not asked as
+    # ["青霉素过敏，其他未询问"] does, and ["无", "其他未询问"] answers as ["无，其他未询问"] does
     if allergy_records is not None and (not allergy_records
-                                        or any(_answers(a, pack) for a in allergy_records)):
+                                        or _answers("\n".join(allergy_records), pack)):
         allergies = tuple(split_entries(allergy_records))
     conditions = _list(doc.get("conditions"), "conditions")
     if meds is None:
