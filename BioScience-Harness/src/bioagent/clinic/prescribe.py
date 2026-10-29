@@ -16,10 +16,12 @@ then made to fit the person:
 ``check`` then holds the prescription, drafted or the practitioner's own, to:
 十八反 / 十九畏 (the pack's rules and the seed knowledge base's records); pregnancy
 (禁用 stops, 慎用 needs the practitioner's reason, an unknown status in a woman of
-child-bearing age needs it asked first); allergies (the whole history is scanned for every
-name the tables know, see ``allergy``: a stop when it names the herb or another processed
-form of it, the practitioner's reason when it only may — the materia table gives the two one
-source, a near name, the name inside a longer word, a denied allergy, or 花粉); drug
+child-bearing age needs it asked first); allergies (the whole history, and an allergy
+written among the conditions, is scanned for every name the tables know, see ``allergy``: a
+stop when it names the herb or another processed form of it, the practitioner's reason when
+it only may — the materia table gives the two one source, a species or English name of the
+source, a formula that holds the herb, a near name, a part of the name, the name inside a
+longer word, a denied or tolerated herb, or 花粉); drug
 interactions with the recorded medications, and which of them the rules do not recognise
 (so an unchecked medicine is not mistaken for a safe one); cautions for recorded
 conditions; toxic herbs and
@@ -40,7 +42,7 @@ from typing import Any, Mapping, Sequence
 
 from .allergy import (_ALLERGY_HOMONYMS, _STATE_WORDS, _allergen, _base, _forms,  # noqa: F401
                       _identity, _materia, _materia_names, _one_drug, _processed, _resolve,
-                      allergy_issues)
+                      allergy_issues, allergy_records_in)
 from .findings import TermMatcher, normalise
 from .intake import Intake
 from .pack import ClinicPack
@@ -373,7 +375,10 @@ def check(lines: Sequence[Line], intake: Intake, pack: ClinicPack, *, kb: Any = 
                                 f"哺乳期：{ln.herb}{spec.toxicity}，须医师权衡", (ln.herb,)))
         _pregnancy(issues, ln.herb, spec.pregnancy, entity, kb, patient)
     _incompatibility(issues, herbs, entities, kb, pack)
-    records = intake.allergy_records if intake.allergy_records is not None else intake.allergies
+    records = list(intake.allergy_records if intake.allergy_records is not None
+                   else intake.allergies or ())
+    # an allergy recorded among the conditions (黄芪过敏 there) is read as well
+    records += allergy_records_in(intake.conditions or ())
     if records:
         issues += _allergies(herbs, records, kb, pack)
     if intake.medications is not None:

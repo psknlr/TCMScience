@@ -233,6 +233,11 @@ def _check(schema: Mapping[str, Any], value: Any, path: str, res: ValidationResu
             res.problems.append(f"{path} must be a string, not {_kind_of(value)}")
             return value
         if not isinstance(value, str):
+            if schema.get("x-text-only"):
+                # a record that must be written (an allergy, a medication): a number there
+                # is no entry, and the library refuses it too
+                res.problems.append(f"{path} must be a string, not {_kind_of(value)}")
+                return value
             res.notes.append(f"{path}: the number {value} was read as the text \"{value}\"")
             value = str(value)
         if "minLength" in schema and len(value) < schema["minLength"]:

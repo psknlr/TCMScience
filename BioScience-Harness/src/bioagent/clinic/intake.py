@@ -11,13 +11,16 @@ grouped by the 十问 order, with the tongue and pulse terms as references, so t
 collector can see what the differentiation will look for. ``None`` and ``[]`` differ:
 ``"medications": null`` is *not asked* and ``[]`` is *none*; interactions are checked only
 when the medications were asked. A blank field ("", ["  "], ["。。。"]) records neither and
-is read as not asked. Medications, allergies and conditions are text: a number or an object
+is read as not asked; so is an allergy field that holds only its label or says it was not
+asked or is not known (过敏史：, Allergies:, 过敏史：____, 待询问, 不详, unknown), though what it
+holds is still scanned. Medications, allergies and conditions are text: a number or an object
 there is refused, not turned into text.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -135,6 +138,33 @@ def _items(v: Any, name: str) -> list[str] | None:
     return written or None
 
 
+#: The labels of an allergy field, which answer nothing on their own: 过敏史：, 药物过敏史：,
+#: 过敏原：, Allergies:.
+_ALLERGY_LABELS = re.compile(
+    r"(?:既往|药物|食物|中药|西药|其他|其它)?(?:过敏史|过敏原|过敏源|过敏物|过敏药物|过敏药品|过敏情况"
+    r"|过敏|药敏史|药敏)|allerg(?:ies|y|ens?|ic)?", re.IGNORECASE)
+#: Words that say the allergies are not known: 不详, 待查, unknown, TBD, null.
+_UNKNOWN = re.compile(r"不详|不明|未知|不清楚|不知道|待查|待补充|待补"
+                      r"|\b(?:unknown|unk|tbd|tba|null|n/k)\b", re.IGNORECASE)
+#: Words that say they were not asked: 未询问, 待询问, 患者昏迷，未能询问.
+_NOT_ASKED = re.compile(r"未询问|未能询问|无法询问|待询问|未及询问|未问|待问|未采集|not asked",
+                        re.IGNORECASE)
+
+
+def _answers(entry: str) -> bool:
+    """An allergy entry that answers the question, with a name or a none: not one that holds
+    only its label (过敏史：, 过敏史：____, Allergies:), says it was not asked (待询问, 未能询问)
+    or that the allergies are not known (不详, unknown). A negative mark after a label
+    (过敏史：（-）) is an answer."""
+    text = unicodedata.normalize("NFKC", entry)
+    if _NOT_ASKED.search(text):
+        return False
+    rest = _UNKNOWN.sub("", _ALLERGY_LABELS.sub("", text))
+    if any(unicodedata.category(c)[0] in "LN" for c in rest):
+        return True
+    return any(c in "-－−" for c in rest)
+
+
 def _list(v: Any, name: str) -> tuple[str, ...] | None:
     items = _items(v, name)
     return None if items is None else tuple(split_entries(items))
@@ -196,7 +226,10 @@ def parse_intake(doc: Mapping[str, Any], pack: ClinicPack) -> Intake:
         warnings.append("妊娠状态未记录：育龄期患者开方前须确认是否妊娠")
     meds = _list(doc.get("medications"), "medications")
     allergy_records = _items(doc.get("allergies"), "allergies")
-    allergies = None if allergy_records is None else tuple(split_entries(allergy_records))
+    allergies = None
+    if allergy_records is not None and (not allergy_records
+                                        or any(_answers(a) for a in allergy_records)):
+        allergies = tuple(split_entries(allergy_records))
     conditions = _list(doc.get("conditions"), "conditions")
     if meds is None:
         warnings.append("目前用药未询问：无法检查中西药相互作用")

@@ -375,7 +375,8 @@ def test_an_allergy_that_is_not_text_is_refused_alike_here_and_by_the_library(ru
     from bioagent.clinic.intake import IntakeError, parse_intake
     from bioagent.clinic.pack import load_pack
     herbs = [{"herb": "黄芪", "grams": 9}]
-    for value in ([{"substance": "北芪", "reaction": "皮疹"}], {"北芪": "皮疹"}, [None]):
+    for value in ([{"substance": "北芪", "reaction": "皮疹"}], {"北芪": "皮疹"}, [None], 5, [5],
+                  5.5, ["北芪", 3]):
         bad = {**intake, "allergies": value}
         e = call("clinic_check_prescription", {"intake": bad, "herbs": herbs}, runner_ctx)
         assert e["status"] == "failed" and e["error"]["type"] == "bad_arguments"
@@ -391,6 +392,11 @@ def test_an_allergy_that_is_not_text_is_refused_alike_here_and_by_the_library(ru
     e = call("clinic_check_prescription", {"intake": {**intake, "allergies": ["患者对北芪过敏"]},
                                            "herbs": herbs}, runner_ctx)
     assert e["result"]["stop"] and any(i["id"] == "allergy:黄芪" for i in e["result"]["issues"])
+    # a formula of the pack in the history asks about each of its herbs, through the studio too
+    e = call("clinic_check_prescription", {"intake": {**intake, "allergies": ["补中益气丸过敏"]},
+                                           "herbs": herbs}, runner_ctx)
+    assert any(i["id"] == "allergy_formula:黄芪" and i["severity"] == "block"
+               for i in e["result"]["issues"]), e["result"]["issues"]
 
 
 def test_draft_prescription_skill_is_a_development_run(runner_ctx, intake):
