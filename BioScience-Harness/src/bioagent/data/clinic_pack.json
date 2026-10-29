@@ -2016,7 +2016,7 @@
   }
  ],
  "drug_classes": {
-  "about": "Specific medicines, by generic name (Chinese and English) and common brand names, mapped to the class word a drug_interactions rule uses, so a record of 呋塞米 or Lasix is read as 利尿剂. A medicine is listed only when its ATC code places it in the ATC groups of one rule class: one that belongs to two (a beta blocker is an antihypertensive and an antiarrhythmic; aspirin an analgesic and an antiplatelet agent) is left to the class words. Names are matched as text within each recorded medication; a medicine not listed here is matched by the class words alone.",
+  "about": "Specific medicines, by generic name (Chinese and English) and common brand names, mapped to the class words the drug_interactions rules use, so a record of 呋塞米 or Lasix is read as 利尿剂. A medicine is read as every rule class whose ATC groups hold its ATC code, and only those: a thiazide (C03AA) or indapamide (C03BA) is both 利尿剂 and 降压药, a loop diuretic (C03CA) is 利尿剂 alone. A medicine whose code no class's groups hold is not listed: beta blockers (C07, antihypertensive and antiarrhythmic) are not, because no class here lists C07. Names are matched as text within each recorded medication; a medicine not listed here is matched by the class words alone, and a recorded medication that neither matches is reported as not recognised.",
   "source": "WHO Collaborating Centre for Drug Statistics Methodology, ATC classification index (https://atcddd.fhi.no/atc_ddd_index/); transcribed, not reviewed",
   "classes": {
    "利尿剂": {
@@ -2048,10 +2048,12 @@
    "降压药": {
     "atc": [
      "C02",
+     "C03AA",
+     "C03BA",
      "C08CA",
      "C09"
     ],
-    "note": "the ATC index files antihypertensive agents under C02 and, by mechanism, under C03, C07, C08 and C09; listed here are C02, the dihydropyridine calcium channel blockers (C08CA) and the renin-angiotensin agents (C09). Diuretics are listed under 利尿剂, and beta blockers (C07, also antiarrhythmic) are left to the class words"
+    "note": "the ATC index files antihypertensive agents under C02 and, by mechanism, under C03, C07, C08 and C09; listed here are C02, the thiazides (C03AA) and thiazide-like sulfonamides (C03BA), which are also 利尿剂, the dihydropyridine calcium channel blockers (C08CA) and the renin-angiotensin agents (C09). Loop diuretics (C03C) are listed under 利尿剂 alone, and beta blockers (C07, also antiarrhythmic) are left to the class words"
    },
    "华法林": {
     "atc": [
@@ -2115,7 +2117,10 @@
    },
    {
     "atc": "C03AA03",
-    "class": "利尿剂",
+    "class": [
+     "利尿剂",
+     "降压药"
+    ],
     "names": [
      "氢氯噻嗪",
      "双氢克尿噻",
@@ -2124,7 +2129,10 @@
    },
    {
     "atc": "C03BA11",
-    "class": "利尿剂",
+    "class": [
+     "利尿剂",
+     "降压药"
+    ],
     "names": [
      "吲达帕胺",
      "indapamide",
