@@ -192,3 +192,46 @@ def test_readiness_checks_every_tool_the_rnaseq_pipeline_runs(tmp_path, monkeypa
     rec, = readiness({"groups": {"t": {"packages": {}, "binaries": ["featureCounts"]}}})
     assert rec.check("featureCounts:binary").status == PASS
     assert rec.check("featureCounts:binary").detail == "featureCounts v2.0.6"
+
+
+#: The head of `samtools --version` from Ubuntu 24.04's samtools 1.19.2-1build2: the build
+#: path in its flags is written «BUILDPATH» in Latin-1, so byte 0xab is at offset 338.
+SAMTOOLS_UBUNTU = (
+    b"samtools 1.19.2\nUsing htslib 1.19\nCopyright (C) 2024 Genome Research Ltd.\n\n"
+    b"Samtools compilation details:\n    Features:       build=configure curses=yes \n"
+    b"    CC:             gcc\n    CPPFLAGS:       -frelease  -Wdate-time -D_FORTIFY_SOURCE=3\n"
+    b"    CFLAGS:         -g -O2 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer "
+    b"-ffile-prefix-map=\xabBUILDPATH\xbb=. -flto=auto -ffat-lto-objects\n")
+
+
+def test_a_version_banner_that_is_not_utf8_never_crashes_the_report(tmp_path, monkeypatch):
+    # analysis job, ci 351: once samtools was asked too (with hisat2-build and featureCounts),
+    # Ubuntu's samtools printed byte 0xab at offset 338 of its banner; decoding it as UTF-8
+    # raised UnicodeDecodeError out of readiness() and `bioagent validate deps` wrote no report
+    # at all. Every byte decodes now, a bad one as U+FFFD, and the check names its stream.
+    import shutil
+
+    from bioagent.validation.dependencies import readiness
+    assert SAMTOOLS_UBUNTU.index(b"\xab") == 338
+    (tmp_path / "samtools.out").write_bytes(SAMTOOLS_UBUNTU)
+    cat = shutil.which("cat")                       # found before PATH is narrowed below
+    _tool(tmp_path / "samtools", f'[ "$1" = --version ] && exec {cat} "{tmp_path / "samtools.out"}"\n'
+                                 'exit 1\n')
+    _tool(tmp_path / "hisat2-build", "printf 'hisat2-build-s version 2.2.1 \\253\\273\\n'; exit 0\n")
+    _tool(tmp_path / "featureCounts", "printf '\\377\\376 broken\\n' >&2; exit 1\n")
+    _tool(tmp_path / "fastp", 'echo "fastp 0.23.4" >&2; exit 0\n')
+    monkeypatch.setenv("PATH", str(tmp_path))
+    rec, = readiness({"groups": {"t": {"packages": {}, "binaries": [
+        "samtools", "hisat2-build", "featureCounts", "fastp"]}}})
+    sam = rec.check("samtools:binary")
+    assert sam.status == PASS and sam.detail == "samtools 1.19.2"
+    assert sam.evidence["not_utf8"] == ["stdout"]
+    build = rec.check("hisat2-build:binary")
+    assert build.status == PASS and build.detail == "hisat2-build-s version 2.2.1 ��"
+    broken = rec.check("featureCounts:binary")
+    assert broken.status == FAIL and "exited 1" in broken.detail and "broken" in broken.detail
+    assert broken.evidence["not_utf8"] == ["stderr"]
+    # the tool after them is still asked, and a clean banner carries no such note
+    fastp = rec.check("fastp:binary")
+    assert fastp.status == PASS and fastp.detail == "fastp 0.23.4"
+    assert "not_utf8" not in fastp.evidence
