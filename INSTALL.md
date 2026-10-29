@@ -152,12 +152,12 @@ how to read it.
 `-m unit` selects the tier that needs no network and no data lake; there is an
 `integration` tier that does, and it is not run by default. On 2026-10-29, in a
 Python 3.12 environment with both packages installed, the first printed `1575 passed`
-and the second `5269 passed, 31 skipped, 16 deselected` (a test whose optional engine is
+and the second `5623 passed, 31 skipped, 16 deselected` (a test whose optional engine is
 not installed skips, so the skipped count depends on the environment); the second took 27
 minutes. The counts grow as tests are added: they are what that day's tree printed.
 
 <!-- zh -->
-`-m unit` 选中的是既不需要网络、也不需要数据湖的那一层；另有一个 `integration` 层需要它们，默认不跑。2026-10-29 在装好两个包的 Python 3.12 环境中，第一条命令输出 `1575 passed`，第二条输出 `5269 passed, 31 skipped, 16 deselected`（缺少可选引擎的测试会跳过，所以跳过的数量取决于环境）；第二条用了 27 分钟。测试会不断增加，这些数字是当天的代码树输出的。
+`-m unit` 选中的是既不需要网络、也不需要数据湖的那一层；另有一个 `integration` 层需要它们，默认不跑。2026-10-29 在装好两个包的 Python 3.12 环境中，第一条命令输出 `1575 passed`，第二条输出 `5623 passed, 31 skipped, 16 deselected`（缺少可选引擎的测试会跳过，所以跳过的数量取决于环境）；第二条用了 27 分钟。测试会不断增加，这些数字是当天的代码树输出的。
 
 ## The CI checks, runnable locally · CI 检查，可在本地运行
 

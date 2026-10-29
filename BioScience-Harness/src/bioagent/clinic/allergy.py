@@ -44,8 +44,13 @@ Reading each name in its place
       on its own far side (北芪人参过敏). A formula's name stands only with a boundary of its
       own before it (柴胡桂枝汤 holds 桂枝汤 inside a longer word). A name of one character
       stands only with a boundary of its own on both sides, from a shorter list of words (对,
-      服用, 吃, 及, 和, 因, 过敏, 过敏史, 后, 就, 皮疹, 否认 …: 对姜过敏, 姜过敏, 、姜、), never
-      through a neighbouring name and never inside a word (面部, 姜某, 枣红色, 归档).
+      服用, 吃, 及, 和, 因, 年, 中药, 过敏, 过敏史, 后, 就, 皮疹, 出现, 引起, 致, 会, 严重, 否认 …:
+      对姜过敏, 姜过敏, 、姜、, 对姜严重过敏, 吃姜出现皮疹), never through a neighbouring name and
+      never inside a word (面部, 姜某, 枣红色, 归档, 归类, 姜片).
+    * A name whose first character ends an everyday word (于术 after 对于, 白及 after 蛋白) is
+      inside that word, unless the everyday word's first character stands as a word of a
+      history and a word of allergy follows the name: 对于术过敏 is 对 + 于术 + 过敏, 对于术后
+      is 对于 + 术后.
     * A name inside a longer standing name, or inside a formula's name, is that name's (杏仁
       in 苦杏仁, 地黄 in 六味地黄丸, 天麻 in 天麻钩藤颗粒); the longer name is matched instead. A
       few everyday words that hold a name are words of their own (胡萝卜, 桂花, 舌头), and a
@@ -56,18 +61,33 @@ Reading each name in its place
       山药粉), it is that processed name. A name that starts with a denial's character and
       runs into what a denial names is the denial (没药物过敏史).
     * A name written right after a label that introduces a person (记录人：姜, Dr. Huang Jing,
-      interpreter Hong Hua), with no word of allergy after it in its clause, is a person's
-      name and is not read.
+      interpreter Hong Hua, patient name: Huang Qi), with no word of allergy after it in its
+      clause, or right before a title (Jing Jie, MD) with no word of allergy in its clause, is
+      a person's name and is not read. After a bare name label (Name: huang qi) it asks.
+    * A clause ends at punctuation other than 、, / and an apostrophe, at a space between two
+      Chinese characters, and at a line break or a tab whatever stands around it (NKDA, then a
+      line 黄芪过敏, is two statements).
     * A name is *denied* when its clause opens with a denial (否认, 无, 没有, 未, 排除, NKDA,
-      no …) that no 过敏, 史, 但, 出现, "except" or "than" closes before the name (the clause
-      being a bracket inside such a denial: 否认中药（黄芪、人参）过敏); when a denial follows
-      the name or the list it ends (黄芪：无, 黄芪（-）, 黄芪无过敏史, 黄芪耐受); or when the next
-      clause only takes it back (怀疑黄芪过敏，已排除). A record that the herb is tolerated
-      (黄芪耐受, 黄芪可用, 服黄芪无不适, tolerates 黄芪) is a denial that says so. A word that only
-      starts with a denial is none (非常, 未成年, 无意中, no doubt).
-    * A name is *taken* when its clause says it is taken, eaten or used (目前在吃人参, 现用药：
-      人参, 喜食生姜, currently on huangqi) and neither that clause nor a clause that goes on
-      from it (以前喝过黄芪，出现皮疹) holds a word of allergy or reaction.
+      no …) that no 过敏, 史, 但, 出现, "except", "than" or "allergies" (not followed by to, of
+      …) closes before the name (the clause being a bracket inside such a denial: 否认中药
+      （黄芪、人参）过敏); when a denial follows the name or the list it ends (黄芪：无, 黄芪（-）,
+      黄芪无过敏史, 黄芪耐受); or when the next clause only takes it back (怀疑黄芪过敏，已排除).
+      A denial that takes no object (NKDA, NKA, nil, none) does not deny a name with a word of
+      allergy after it (NKDA 黄芪过敏). A record that the herb is tolerated (黄芪耐受, 黄芪可用,
+      人参可以吃, 人参：可, 服黄芪无不适, 服用黄芪后无不适, 黄芪服用后未见过敏, 人参吃了没事, 当归用过，
+      无过敏, 曾服当归，无反应, tolerates 黄芪) is a denial that says so. A word that only starts
+      with a denial is none (非常, 未成年, 无意中, no doubt).
+    * A name is *taken* when the record says it is taken, eaten or used (目前在吃人参, 现用药：
+      人参, 喜食生姜, 每日泡黄芪水喝, 黄芪：服用中, currently on huangqi) and says no reaction to
+      it: neither its clause (with the label before it) nor a clause that goes on from it in
+      its sentence holds a word of allergy or reaction (过敏, 疹, 痒, 肿, 呼吸困难, 疙瘩, 心慌,
+      发麻 …, rash, hives, can't take …; such a word inside a name, 泻 of 泽泻, is the name's).
+      A clause goes on when the herb's ends in a time after it (服用黄芪后，皮肤瘙痒) or when it
+      opens with a time, a part of the body, a word of feeling or a reaction (服用黄芪，3小时后
+      出现皮疹; 吃人参后，嘴唇肿了; 以前喝过黄芪，出现皮疹); not when it names something of its own
+      (目前在吃人参，青霉素过敏) or is a label or a denial (目前在吃人参，过敏史：无). A herb named as a
+      cause (与服用黄芪有关, 服用黄芪所致) or in a note in brackets on a reaction (皮疹（服黄芪后）)
+      is no herb merely taken.
     * A Latin or pinyin name in an English sentence that says nothing of an allergy (no
       allerg*, rash, hives, 过敏 …, and other words than names) is *unconfirmed*: pinyin is
       also how Chinese person names are written.
@@ -265,7 +285,7 @@ _ALLERGY_HOMONYMS: Mapping[str, str] = {"花粉": "植物花粉"}
 _OTHER_WORDS: Mapping[str, str] = {
     "桂花": "木犀（Osmanthus fragrans）的花", "桂鱼": "鳜鱼", "鳜鱼": "鳜鱼",
     "胡萝卜": "胡萝卜（Daucus carota）", "桂圆": "龙眼（Dimocarpus longan）",
-    "舌头": "舌", "眉头": "眉", "额头": "额", "鸡皮疙瘩": "鸡皮疙瘩"}
+    "舌头": "舌", "眉头": "眉", "额头": "额", "鸡皮疙瘩": "鸡皮疙瘩", "归类": "分类"}
 
 
 # ============================================================== normalising
@@ -305,13 +325,18 @@ def _invisible(c: str) -> bool:
     if c in _BLANKS or 0xFE00 <= o <= 0xFE0F or 0xE0100 <= o <= 0xE01EF or 0x180B <= o <= 0x180F:
         return True
     cat = unicodedata.category(c)
-    return cat in ("Cf", "Cs") or (cat == "Cc" and c not in "\t\n\r")
+    return cat in ("Cf", "Cs") or (cat == "Cc" and c not in _LINE_BREAKS)
+
+
+#: Whitespace that ends a line (or a field: a tab), which ends a clause whatever stands on
+#: either side of it: NKDA, then a line that says 黄芪过敏, is two statements.
+_LINE_BREAKS = frozenset("\t\n\r\v\f\x85  ")
 
 
 def _visible(text: str) -> str:
     """``text`` without the characters that show nothing but can split a name: format
     characters (zero-width space and joiners, the byte-order mark, soft hyphen, bidi
-    marks), surrogates, controls other than tab and line breaks (NUL), variation selectors,
+    marks), surrogates, controls other than tabs and line breaks (NUL), variation selectors,
     fillers and the braille blank."""
     if text.isascii() and text.isprintable():
         return text
@@ -421,26 +446,35 @@ _AFTER_MAX = max(map(len, _AFTER))
 #: The words around a name of one character (姜, 枣, 归, 面): only the words of an allergy
 #: record itself, of a list, of taking it and of denying it. A name of one character is a word
 #: far more often than a name (面部, 方便面, 姜某, 归档), so it counts only between these or
-#: between boundaries: 对姜过敏, 姜过敏史, 、姜、, 服用姜后皮疹, 否认姜过敏.
+#: between boundaries: 对姜过敏, 姜过敏史, 、姜、, 服用姜后皮疹, 否认姜过敏, 对姜严重过敏, 吃姜会过敏,
+#: 吃姜出现皮疹, 姜致皮疹, 2019年姜过敏, 对中药姜过敏. Every pair of a word here and a name of one
+#: character the tables give a pack herb (姜, 归, 枣, 桂, 芎) was checked for an everyday word
+#: (``test_no_one_character_reading_is_an_everyday_word``); the one found, 归类, is a word of
+#: its own (``_OTHER_WORDS``).
 _BEFORE_ONE = frozenset("""
 对 曾对 有 有过 曾 曾经 既往 年前 月前 前 患者 自诉 自述 诉 述 怀疑 疑似 可疑 服用 服 吃 喝 食用 饮用 用
 使用 吃了 喝了 用了 服了 吃过 喝过 用过 服过 一吃 接触 过敏 过敏史 过敏原 过敏源 过敏物 过敏药物 过敏药品
 过敏食物 致敏原 变应原 药物 食物 及 和 与 或 或者 以及 并 等 也 均 否认 无 没有 未 对其 因 因为
+年 中药 中药材 草药 药材 含 含有
 """.split())
 _AFTER_ONE = frozenset("""
 过敏 过敏史 过敏反应 后 等 及 和 与 或 或者 以及 也 均 都 皮疹 瘙痒 红肿 不耐受 不适 类 制品 中毒
 皮炎 红疹 荨麻疹 风团 水肿 腹泻 呕吐 吃了 用了 服了 喝了 无 否 未 没有 阴性 阳性 皮试 就 有过敏
+出现 发生 引起 引发 导致 所致 诱发 致 会 严重 特别 非常 轻度 中度 重度 明显 药物 煎剂 煎液 汤剂
 """.split())
 _BEFORE_ONE_MAX = max(map(len, _BEFORE_ONE))
 _AFTER_ONE_MAX = max(map(len, _AFTER_ONE))
 
 #: Everyday words whose last character starts a name: in 对于术后 the 于 is 对于's, not the
 #: first character of 于术 (白术), and in 鸡蛋白及 the 白 is 蛋白's (protein), not 白及's. A
-#: name after one of them is read as inside a longer word, whatever stands before it.
+#: name after one of them is read as inside a longer word, unless the everyday word's first
+#: character stands as a word of a history on its own and a word of allergy (or the end of
+#: the entry) follows the name: 对于术过敏 is 对 + 于术 + 过敏, 对于术后 is 对于 + 术后.
 _EVERYDAY = frozenset("""
 对于 关于 由于 至于 属于 位于 等于 用于 大于 小于 基于 在于 便于 易于 过于 终于 处于
 蛋白 空白 苍白 明白 坦白 表白 洁白 雪白 黑白 灰白 清白
 """.split())
+_STRONG_AFTER = ("过敏", "不耐受", "皮疹", "瘙痒", "中毒")
 
 #: Words that may open a clause before its denial: 患者否认, 过敏史无, 既往无, 已排除.
 _CLAUSE_LEADS = tuple(sorted("""
@@ -468,14 +502,25 @@ _CLOSERS = re.compile(r"过敏|史|但|除|不过|然而|却|唯|只|仅|可是|
 _AFTER_LABEL = re.compile(r"(?:过敏(?:史|反应|试验)?|皮试(?:结果)?|试验|反应)?")
 _AFTER_SEP = re.compile(r"[:：∶?？=]*[\-－—–~]*[(\[【]?")
 #: A denial written after the name that may run on: 黄芪无过敏史, 对黄芪无过敏反应, 曾服用黄芪未见
-#: 过敏, 服黄芪无不适, 长期服用黄芪无不良反应, 黄芪耐受, 黄芪可用, 黄芪过敏已排除.
+#: 过敏, 服黄芪无不适, 长期服用黄芪无不良反应, 黄芪耐受, 黄芪可用, 黄芪过敏已排除, 人参可以吃, 人参没问题.
 _DENIAL_PHRASE = re.compile(
     r"(?:(?:已|曾|均)?(?:服用过|使用过|用过|服过|吃过|喝过))?(?:"
-    r"(?:无|未见|没有|没|未发现|未出现|未发生|未有|并无|从无|从未|未)"
-    r"(?:明显|任何|特殊|相关|什么)?(?:过敏|不良反应|不适|异常|反应|副作用|皮疹)"
+    r"(?:均|都|也|亦)?(?:无|未见|没有|没|未发现|未出现|未发生|未有|并无|从无|从未|未诉|未述|未)"
+    r"(?:明显|任何|特殊|相关|什么|啥)?"
+    r"(?:过敏|不良反应|不适|异常|反应|副作用|皮疹|问题|不舒服)"
     r"|不过敏|不会过敏|未过敏|没过敏|没有过敏|无过敏|耐受|可耐受|可以用|可用|可以服|可服|能用"
-    r"|无事|没事|无碍|已排除|已除外|排除|否认)"
-    r"|noreaction|noallerg|notallergic|nosideeffect|noproblem|tolerat")
+    r"|可以吃|能吃|可吃|可以喝|能喝|能服|一切正常|一切如常|无事|没事|无碍|无妨|已排除|已除外|排除|否认)"
+    r"|noreaction|noallerg|notallergic|nosideeffect|noproblem|noissue|tolerat")
+#: What may stand between a name (or the list it ends) and a denial that says the herb was
+#: used with no reaction: 服用黄芪后无不适, 黄芪服用后未见过敏, 服用黄芪期间无不良反应, 人参吃了没事,
+#: 当归用过，无过敏, 服黄芪3天后无不适, 喝黄芪水后没有不适. Its use word or its 后 / 期间 says the herb
+#: was taken, so what follows says it was tolerated.
+_USE_SEGMENT = re.compile(
+    r"(?:泡水|水|茶|汤|粥)?"
+    r"(?:(?:已|曾|均|都|也|多次|长期|一直|经常|平时)?(?:服用|使用|食用|饮用|口服|服|用|吃|喝)(?:过|了|完)?)?"
+    r"(?:\d+(?:个)?多?(?:天|日|周|月|年))?(?:之后|以后|后|期间|时|中|过程中)?")
+#: A word after a separator that says a herb can be used: 人参：可, 黄芪（可）, ginseng: ok.
+_TOLERATE_BARE = re.compile(r"可以|可|能|ok|okay|fine")
 #: Of those, the ones that deny an allergy; the rest say the herb is tolerated (耐受, 可用, 无不适,
 #: 无不良反应, tolerates).
 _DENIES_ALLERGY = re.compile(r"过敏|allerg|否认|排除|除外")
@@ -495,28 +540,39 @@ _RETRACTION = re.compile(
 _DENIED_OBJECTS = ("药物", "药品", "食物", "过敏", "其他", "其它", "特殊", "明显",
                    "已知", "任何", "发现")
 #: Marks that do not end a clause: a list goes on after 、 and /, and 否认青霉素、黄芪过敏
-#: denies 黄芪 too.
-_CLAUSE_MARK = re.compile(r"[^\w、/·\-]|_")
+#: denies 黄芪 too; an apostrophe is inside a word (can't, Huang'qi).
+_CLAUSE_MARK = re.compile(r"[^\w、/·\-'’]|_")
 _OPEN_BRACKETS = "(（[【〔"
 #: What a list may end in before a denial written after it: 黄芪、党参等未见过敏.
 _LIST_TAIL = re.compile(r"(?:等(?:中药|药物|药)?|之类|一类|类|均|都|皆|也|全部|等等)*")
 _CLOSE_BRACKETS = ")）]】〕"
 
-#: Words of allergy or reaction (and of a herb to be avoided). A clause that holds one, or a
-#: clause that goes on from it, records an allergy, not a herb taken: 服用北芪后出现皮疹,
-#: 以前喝过黄芪，出现皮疹, 黄芪禁用.
+#: Words of allergy, of a reaction or symptom, and of a herb to be avoided. A clause that holds
+#: one, or a clause that goes on from it, records an allergy, not a herb taken: 服用北芪后出现
+#: 皮疹, 以前喝过黄芪，出现皮疹, 服用黄芪后，皮肤瘙痒, 黄芪禁用. Such a word inside a name the
+#: scan found is that name's (泻 of 泽泻, 肿 of 肿节风), not a reaction.
 _ALLERGY_CJK = re.compile(
-    r"过敏|敏感|致敏|变态反应|变应|疹|痒|肿|风团|红斑|水疱|水泡|反应|副作用|不良|不耐|休克|喘|憋|胸闷"
-    r"|心慌|心悸|呕|吐|泻|腹痛|头晕|头痛|中毒|不适|难受|不舒服|发红|皮炎|阳性|禁|忌|慎用|停用|勿用"
-    r"|避免|不能用|不能吃|不宜|上火|发热|发烧|出血|鼻血")
+    r"过敏|敏感|致敏|变态反应|变应|疹|痒|肿|风团|红斑|斑块|水疱|水泡|疙瘩|起包|鼓包|红点|反应|副作用|不良"
+    r"|不耐|休克|晕|昏厥|喘|憋|胸闷|气促|气急|气短|气紧|呼吸困难|呼吸急促|窒息|喉头|心慌|心悸|心跳"
+    r"|心动过速|呕|吐|恶心|泻|拉肚子|腹痛|胃痛|胃疼|头痛|头疼|中毒|不适|难受|不舒服|发红|潮红|充血"
+    r"|发麻|麻木|刺痛|灼热|烧灼|皮炎|脱皮|咳|喷嚏|流涕|阳性|禁|忌|慎用|停用|勿用|避免|不能用|不能吃"
+    r"|不能服|不能喝|不可服|吃不了|用不了|不敢吃|不敢用|不宜|上火|发热|发烧|出血|鼻血")
 _ALLERGY_ASCII = ("allerg", "react", "rash", "hive", "itch", "swell", "anaphyla", "intoleran",
                   "sensitiv", "adverse", "urticari", "wheez", "angioedem", "adr", "contraindicat",
-                  "avoid", "hypersensitiv")
+                  "avoid", "hypersensitiv", "breath", "nause", "vomit", "diarrh", "dizz",
+                  "palpitat", "flush", "blister", "wheal", "welt", "tingl", "numbn", "faint",
+                  "syncop", "headache", "upset", "sick", "unwell", "shock", "edema", "oedema")
+#: English words that say a herb cannot be taken (can't take huang qi, unable to take, does not
+#: tolerate): they record an intolerance, which is read like an allergy.
+_CANNOT_ASCII = frozenset("cannot cant unable".split())
+_CANNOT_NT = frozenset("can couldn shouldn mustn won".split())
+_NOT_TOLERATE = frozenset("not never poorly doesn didn don".split())
 #: Words that say a herb is taken, eaten or used: 目前在吃人参, 现用药：人参, 喜食生姜, 平素服黄芪
-#: 泡水, 每周炖汤加党参. 食物 (food) and 衣服 are not; 用 after 禁, 忌, 慎, 停, 作 or 药 is not.
+#: 泡水, 每周炖汤加党参, 每日泡黄芪水喝. 食物, 食品, 饮食, 饮片 and 衣服 are not; 用 after 禁, 忌, 慎,
+#: 停, 作 or 药 is not, nor 泡 of 水泡 or 起泡.
 _USE_CJK = re.compile(
-    r"吃|喝|(?<![衣舒说克制])服(?![务装])|饮(?!食)|食(?!物)|泡水|泡茶|炖|煲|煮|熬|嚼|含服|涂|擦|敷"
-    r"|(?<![禁忌慎停勿作药不副])用(?![量法])|常备|进补|药膳|代茶")
+    r"吃|喝|(?<![衣舒说克制])服(?![务装])|饮(?![食片])|食(?![物品])|泡水|泡茶|(?<![水起气血])泡(?![沫澡脚疹])"
+    r"|炖|煲|煮|熬|嚼|含服|涂|擦|敷|(?<![禁忌慎停勿作药不副])用(?![量法])|常备|进补|药膳|代茶")
 #: Words after a name that say it is taken all along: 人参每日一支, 黄芪泡水, 党参炖汤, 枸杞常吃.
 _USE_AFTER = re.compile(r"每日|每天|每周|每晚|长期|常年|泡水|泡茶|煲汤|炖汤|代茶|在服|在吃|在用|服用中|常吃|常喝|常服"
                         r"|调理|保健|进补")
@@ -524,28 +580,73 @@ _USE_ASCII = frozenset("""
 take takes taking took taken on using uses use used drink drinks drinking drank eat eats eating
 ate enjoys enjoy consume consumes consuming supplement supplements supplementing currently
 """.split())
-#: Words that open a clause going on from the one before it: 以前喝过黄芪，出现皮疹.
-_CONTINUE_CJK = ("出现", "发生", "引起", "导致", "随即", "立即", "马上", "然后", "之后", "后来", "继而",
-                 "即", "就", "起", "后", "致", "全身", "皮疹", "过敏", "瘙痒", "红肿", "当即", "当天")
-_CONTINUE_ASCII = frozenset("then developed develops causing caused resulting followed with and"
-                            .split())
+#: Words that open a clause going on from the one before it, to tell what happened: 以前喝过
+#: 黄芪，出现皮疹; 服用黄芪，3小时后出现皮疹; 吃人参后，嘴唇肿了; 服用黄芪后，自觉胸闷. A time, a
+#: part of the body or a word of feeling opens one; a clause that names something else of its own
+#: (目前在吃人参，青霉素过敏) does not.
+_CONTINUE_CJK = tuple(sorted("""
+出现 发生 发作 引起 引发 导致 诱发 随即 立即 立刻 马上 然后 之后 以后 后来 继而 接着 随后 稍后 不久 很快 片刻
+即 就 便 起 后 致 当即 当天 当晚 当日 次日 翌日 第二天 隔天 隔日 约 大约 自觉 感觉 感到 觉得 伴 伴有 开始
+逐渐 渐 突然 突发 皮疹 过敏 瘙痒 红肿 全身 周身 浑身 皮肤 面部 颜面 面颊 面色 脸 脸上 脸部 嘴唇 口唇 口周
+口腔 口角 嘴 舌头 舌体 眼睛 眼睑 眼周 双眼 眼部 身上 躯干 四肢 上肢 下肢 双手 手部 手臂 手背 手掌 双腿 腿部
+胸部 胸口 胸前 背部 腹部 胃部 喉咙 喉头 咽喉 咽部 头部 头面 头皮 颈部 脖子 耳朵 鼻子 局部
+""".split(), key=len, reverse=True))
+_CONTINUE_TIME = re.compile(r"(?:\d+|[一二两三四五六七八九十半几数]+)个?多?(?:分钟|分|小时|钟头|天|日|周|星期|月)"
+                            r"(?:之后|以后|后|内|左右|许)")
+_TIME_UNITS = frozenset("min mins minute minutes hr hrs hour hours day days week weeks".split())
+_CONTINUE_ASCII = frozenset("""
+then developed develops causing caused resulting followed with and got get gets getting had broke
+breaks experienced experiences noticed felt feels suffered presented resulted leading led after
+within later soon immediately next shortly subsequently which
+""".split())
+#: Words after a name in its clause that name it as a cause: 与服用黄芪有关, 服用黄芪所致, 服黄芪引起.
+#: A herb named as the cause of something is no herb merely taken.
+_CAUSE_CJK = re.compile(r"所致|有关|相关|引起|引发|导致|诱发|造成|致使|而致|所引")
+#: A cause written right before the herb: 全身皮疹，因服用黄芪; 由于吃人参.
+_CAUSE_BEFORE = re.compile(r"(?:因为|因|由于)(?:服用|服|吃了|吃|喝了|喝|使用|用了|用|食用)?$")
+_CAUSE_ASCII = frozenset("caused due induced related attributed secondary triggered".split())
+#: Words a temporal clause ends with after a name: 服用黄芪后, 服用黄芪期间, 吃人参之后. What
+#: follows it in its sentence tells what happened after the herb was taken.
+_TEMPORAL = re.compile(r"(?:服用|使用|食用|饮用|服|用|吃|喝)?(?:过|了|完)?"
+                       r"(?:\d+(?:个)?多?(?:分钟|小时|天|日|周|月))?(?:之后|以后|后|期间|时|过程中)")
+#: Denials that are a statement of their own and take no object: NKDA, NKA, nil, none. A name
+#: after one with a word of allergy after it is another statement: NKDA 黄芪过敏.
+_COMPLETE_DENIALS = frozenset("nkda nka nkfa nil none".split())
+#: Words after allergies that make it the object of a denial still open (no allergy to …).
+_ALLERGY_OF = frozenset("""
+to against of for with from toward towards reaction reactions history hx status or nor
+""".split())
+#: Marks that end a sentence; a line break or a tab does too.
+_SENTENCE_MARK = re.compile(r"[。！？；;!?]|(?<!\d)\.|\.(?!\d)")
 #: Labels after which a name is a person's (记录人：姜, 姓名：黄精): in a history a label that
 #: introduces a person names nobody's allergy.
 _PERSON_CJK = re.compile(
     r"(?:记录人|记录者|记录员|签名|签字|医生|医师|护士|询问人|询问者|填写人|填表人|录入人|录入者"
     r"|审核人|姓名|联系人|翻译|陪诊|陪同|采集人|采集者|操作者)[:：∶]?$")
 #: Titles before a Latin-lettered name, or after it, that make it a person's: Dr. Huang Jing,
-#: interpreter Hong Hua, son Yuan Zhi, Du Zhong, RN.
+#: interpreter Hong Hua, son Yuan Zhi, patient name: Huang Qi, Du Zhong, RN. A name label
+#: that says whose name it is makes it a person's; one that names a drug (Allergen name:,
+#: Drug name:, Substance name:) does not, and a bare one (Name:) leaves it unconfirmed.
 _PERSON_BEFORE = re.compile(
     r"(?:\b(?:dr|doctor|mr|mrs|ms|miss|prof|professor|nurse|pharmacist|interpreter|translator"
-    r"|son|daughter|wife|husband|mother|father|brother|sister|name|per"
+    r"|son|daughter|wife|husband|mother|father|brother|sister|per"
+    r"|(?:patient|patient's|pt|full|first|last|family|given|maiden|person's|staff|user|caller"
+    r"|signer|doctor's|nurse's|recorder|clinician|provider|physician|informant|contact)\s+name"
     r"|(?:reviewed|recorded|confirmed|signed|seen|completed|entered|written|taken|checked|obtained)"
     r"\s+by|history\s+from)\b\.?\s*[:：,，\-–]?\s*)$")
 _PERSON_AFTER = re.compile(r"^\s*[,，]?\s*\b(?:rn|md|rph|np|pa|lpn|mbbs|phd|pharmd)\b")
-#: Words of an English allergy line that are not names: Allergy: huang qi and ren shen.
+#: A bare name label right before a Latin-lettered name: Name: huang qi.
+_NAME_LABEL = re.compile(r"(?:^|[^a-z'’])name\s*[:：\-–]?\s*$")
+_DRUG_NAME_LABEL = re.compile(
+    r"\b(?:allergen|allergy|allergic|drug|substance|medication|medicine|med|herb|herbal|product"
+    r"|agent|item|ingredient|food|trade|brand|generic|chemical|causative|offending)\s+name"
+    r"\s*[:：\-–]?\s*$")
+#: Words of an English allergy line that are not names: Allergy: huang qi and ren shen;
+#: Substance name: ren shen.
 _ASCII_LABELS = frozenset("""
 to and or hx history list known drug drugs med meds medication medications herb herbs herbal
-x the a an of
+x the a an of name names substance substances agent agents product products item items
+ingredient ingredients food foods
 """.split())
 
 
@@ -806,7 +907,8 @@ class Mention:
     ``denied`` says the record denies an allergy to it, ``taken`` that the record says it is
     taken or eaten with no reaction. ``kind`` is "name", "formula" (``of`` is the formula),
     "species" or "genus" (``species`` holds them). ``context`` is "unconfirmed" for a Latin
-    or pinyin name in an English sentence that says nothing of an allergy.
+    or pinyin name in an English sentence that says nothing of an allergy, and "name_label"
+    for one right after a bare name label (Name: huang qi), which may introduce a person.
     """
 
     name: str
@@ -823,12 +925,15 @@ class Mention:
     context: str = ""
 
 
-def _compact(text: str) -> tuple[str, frozenset[int], tuple[int, ...]]:
-    """``text`` without whitespace, the positions in the result that had some before, and
-    for each character of the result its position in ``text``."""
+def _compact(text: str) -> tuple[str, frozenset[int], tuple[int, ...], frozenset[int]]:
+    """``text`` without whitespace, the positions in the result that had some before, for
+    each character of the result its position in ``text``, and the positions whose
+    whitespace before held a line break or a tab."""
     keep = [i for i, c in enumerate(text) if not c.isspace()]
     gaps = frozenset(k for k in range(1, len(keep)) if keep[k] != keep[k - 1] + 1)
-    return "".join(text[i] for i in keep), gaps, tuple(keep)
+    breaks = frozenset(k for k in gaps
+                       if any(c in _LINE_BREAKS for c in text[keep[k - 1] + 1:keep[k]]))
+    return "".join(text[i] for i in keep), gaps, tuple(keep), breaks
 
 
 def _tokens(t: str, gaps: frozenset[int]) -> list[tuple[int, int]]:
@@ -925,11 +1030,13 @@ class _Reader:
         self.shown = _shown_text(record)
         self._raw: tuple[str, list[int]] | None = None
         self.f = _fold_shown(self.shown)              # folded, whitespace kept
-        self.t, self.gaps, self.keep = _compact(self.f)
+        self.t, self.gaps, self.keep, self.breaks = _compact(self.f)
         self.n = len(self.t)
         self.cuts = sorted(self.gaps)
         self._dl: dict[tuple[int, bool, bool], bool] = {}
         self._dr: dict[tuple[int, bool, bool], bool] = {}
+        self._da: dict[int, str] = {}
+        self._nw: list[int] | None = None
 
     # ---------------------------------------------------------------- text helpers
     def raw(self) -> tuple[str, list[int]]:
@@ -1007,6 +1114,24 @@ class _Reader:
             self._dr[key] = v
         return self._dr[key]
 
+    def _strong_right(self, p: int, spaced: bool) -> bool:
+        """After position ``p``: the end of the entry, a mark, Latin letters or a digit, or a
+        word of allergy itself (过敏, 不耐受, 皮疹)."""
+        t = self.t
+        return (p >= self.n or (spaced and p in self.gaps) or not _cjk(t[p])
+                or t.startswith(_STRONG_AFTER, p))
+
+    def next_word(self, p: int) -> int:
+        """The first position at or after ``p`` that holds a letter, a digit or a Chinese
+        character (``n`` if none): worked out once for the whole record."""
+        if self._nw is None:
+            t, n = self.t, self.n
+            nw = [n] * (n + 1)
+            for i in range(n - 1, -1, -1):
+                nw[i] = i if (t[i].isalnum() or _cjk(t[i])) else nw[i + 1]
+            self._nw = nw
+        return self._nw[min(p, self.n)]
+
     # ---------------------------------------------------------------- reading
     def read(self) -> list[Mention]:
         t, n = self.t, self.n
@@ -1068,6 +1193,11 @@ class _Reader:
                 return self.dl(s, spaced) and rx[e]
             if e - s == 1:
                 return self.dl(s, spaced, True) and self.dr(e, spaced, True)
+            if kind == "name" and s > 0 and t[s - 1:s + 1] in _EVERYDAY:
+                # 对于术过敏: the 于 of 对于 may start 于术 after all, where 对 stands as a word
+                # and an allergy word, or the end of the entry, follows (对于术后 is 对于 + 术后)
+                return (t[s - 1] in _BEFORE and self.dl(s - 1, spaced)
+                        and self._strong_right(e, spaced))
             return lx[s] and rx[e]
 
         standing = [kind != "other" and stands(x) for x, (_, _, kind) in enumerate(cands)]
@@ -1119,7 +1249,8 @@ class _Reader:
         for s, e, _ in latin:
             self.end_at[s] = max(self.end_at.get(s, 0), e)
         self.latin_cover = _Cover([(s, e) for s, e, _ in latin])
-        self._clause_marks()
+        self._clause_marks(_Marks(n, [(cands[x][0], cands[x][1]) for x in keep_x
+                                      if cands[x][2] != "other"]))
         # 5. each name in its place
         out: list[Mention] = []
         for x in keep_x:
@@ -1149,7 +1280,8 @@ class _Reader:
             written = self.text(s, e)
             denied, taken = self._status(s, e)
             if entry.kind == "name":
-                ctx = "" if denied or taken else self._ascii_context(s, e)
+                ctx = "" if denied or taken else (self._bare_name_label(s, e)
+                                                  or self._ascii_context(s, e))
                 out.append(Mention(entry.target[0], s, e, written=written, how=entry.how,
                                    denied=denied, taken=taken, context=ctx))
             else:
@@ -1209,30 +1341,72 @@ class _Reader:
                 and not self._has(self.allergy, e, self._clause(s)[1]))
 
     def _person_ascii(self, s: int, e: int) -> bool:
+        """The Latin-lettered name right after a title or label that introduces a person
+        (Dr. Huang Jing, patient name: Huang Qi), with no word of allergy after it in its
+        clause; or right before a title (Jing Jie, MD), with no word of allergy anywhere in
+        its clause (Reaction to huang qi, MD notified is an allergy)."""
         a, b = self.keep[s], self.keep[e - 1] + 1
-        return ((_PERSON_BEFORE.search(self.f[max(0, a - 40):a]) is not None
-                 or _PERSON_AFTER.match(self.f[b:b + 12]) is not None)
-                and not self._has(self.allergy, e, self._clause(s)[1]))
+        cs, ce = self._clause(s)
+        if self._has(self.allergy, e, ce):
+            return False
+        if _PERSON_BEFORE.search(self.f[max(0, a - 40):a]) is not None:
+            return True
+        return (_PERSON_AFTER.match(self.f[b:b + 12]) is not None
+                and not self._has(self.allergy, self._lead_clause(cs), s))
+
+    def _bare_name_label(self, s: int, e: int) -> str:
+        """"name_label" for a Latin-lettered name right after a bare name label (Name: huang
+        qi) with no word of allergy in its clause or its label: such a label also introduces
+        a person. A label that names a drug (Allergen name:, Drug name:) is an allergy line's."""
+        a = self.keep[s]
+        before = self.f[max(0, a - 40):a]
+        if _NAME_LABEL.search(before) is None or _DRUG_NAME_LABEL.search(before) is not None:
+            return ""
+        cs, ce = self._clause(s)
+        return "" if self._has(self.allergy, self._lead_clause(cs), ce) else "name_label"
 
     # ---------------------------------------------------------------- clauses
-    def _clause_marks(self) -> None:
+    def _clause_marks(self, names: "_Marks") -> None:
         t, n, gaps = self.t, self.n, self.gaps
         self.bounds = sorted({0, *(m.end() for m in _CLAUSE_MARK.finditer(t)),
-                              *(g for g in gaps if 0 < g < n and _cjk(t[g - 1]) and _cjk(t[g]))})
-        self.closers = [m.start() for m in _CLOSERS.finditer(t)]
-        allergy = [m.start() for m in _ALLERGY_CJK.finditer(t)]
-        use = [m.start() for m in _USE_CJK.finditer(t)]
+                              *(g for g in gaps if 0 < g < n and _cjk(t[g - 1]) and _cjk(t[g])),
+                              *(g for g in self.breaks if 0 < g < n)})
+        self.sentences = sorted({*(m.end() for m in _SENTENCE_MARK.finditer(t)),
+                                 *(g for g in self.breaks if 0 < g < n)})
+        closers = [m.start() for m in _CLOSERS.finditer(t)]
+        # a word of allergy, reaction or use inside a name found is the name's: 泻 of 泽泻,
+        # 食 of 食盐
+        allergy = [m.start() for m in _ALLERGY_CJK.finditer(t)
+                   if not names.all(m.start(), m.end())]
+        use = [m.start() for m in _USE_CJK.finditer(t) if not names.all(m.start(), m.end())]
         self.use_after = [m.start() for m in _USE_AFTER.finditer(t)]
-        self.other_tok: list[int] = []
-        for s, e in self.toks:
+        cause = [m.start() for m in _CAUSE_CJK.finditer(t)]
+        toks = self.toks
+        for k, (s, e) in enumerate(toks):
             w = t[s:e]
+            nxt = t[toks[k + 1][0]:toks[k + 1][1]] if k + 1 < len(toks) else ""
             if w.startswith(_ALLERGY_ASCII):
                 allergy.append(s)
+                # allergies that a denial does not go on to name closes it: No known drug
+                # allergies 黄芪过敏; not No allergy to huang qi, No allergic reaction to …
+                if w.startswith("allerg") and nxt not in _ALLERGY_OF:
+                    closers.append(s)
             elif w in _USE_ASCII:
                 use.append(s)
+            elif w in _CAUSE_ASCII:
+                cause.append(s)
+            # can't take, cannot take, unable to take, does not tolerate: an intolerance
+            if (w in _CANNOT_ASCII or (w in _CANNOT_NT and nxt == "t"
+                                       and t[e:toks[k + 1][0]] in ("'", "’"))):
+                allergy.append(s)
+            elif w.startswith("tolerat") and k > 0 and t[toks[k - 1][0]:toks[k - 1][1]] in (
+                    *_NOT_TOLERATE, "t"):
+                allergy.append(s)
         self.allergy = sorted(allergy)
         self.use = sorted(use)
-        self.tok_starts = [s for s, _ in self.toks]
+        self.cause = sorted(cause)
+        self.closers = sorted(closers)
+        self.tok_starts = [s for s, _ in toks]
         self._opens: dict[int, tuple[int, str]] = {}
         self._after: dict[int, int] = {}
 
@@ -1260,29 +1434,84 @@ class _Reader:
             return True, how == "tolerate"
         return False, self._taken(s, e)
 
+    def _used(self, s: int, e: int, lead: int, ce: int) -> tuple[bool, int]:
+        """Whether the record says the herb at ``s``–``e`` is taken, eaten or used: a word
+        of use before it in its clause or label (目前在吃人参, 现用药：人参, 每日泡黄芪水喝), or
+        right after it or its list, also across a colon or a bracket (人参每日一支, 黄芪水喝,
+        人参吃了, 黄芪：服用中, 黄芪（服用中）); and where the clause it is said in ends."""
+        # (``s``–``e`` may be the longer word a name is inside: 党参炖汤)
+        if (self._has(self.use, max(lead, s - 40), s)
+                or self._has(self.use_after, s + 1, min(ce, e + 8))
+                or self._has(self.use, s + 1, min(ce, e + 8))):
+            return True, ce
+        for p in dict.fromkeys((e, self._after_list(e))):
+            r = _AFTER_SEP.match(self.t, p, min(self.n, p + 4)).end()
+            if r > p and (self._has(self.use, r, min(self.n, r + 4))
+                          or self._has(self.use_after, r, min(self.n, r + 4))):
+                return True, self._clause(r)[1]
+        return False, ce
+
     def _taken(self, s: int, e: int) -> bool:
-        """The clause says the herb is taken, eaten or used, and neither it nor a clause
-        going on from it holds a word of allergy or reaction."""
+        """The record says the herb is taken, eaten or used, and says no reaction to it:
+        neither its clause (with the label before it) nor a clause going on from it, to the
+        end of the sentence, holds a word of allergy or reaction; it is not named as the cause
+        of something (与服用黄芪有关, 服用黄芪所致, 全身皮疹，因服用黄芪); and it is not a note in
+        brackets on a reaction written before it (皮疹（服黄芪后）)."""
+        t = self.t
         cs, ce = self._clause(s)
         lead = self._lead_clause(cs)
-        if self._has(self.allergy, lead, ce):
+        if (self._has(self.allergy, lead, ce) or self._has(self.cause, e, ce)
+                or _CAUSE_BEFORE.search(t, max(cs, s - 5), s)):
             return False
-        if not (self._has(self.use, max(lead, s - 40), s)
-                or self._has(self.use_after, s + 1, min(ce, e + 8))):
+        used, ce = self._used(s, e, lead, ce)
+        if not used or self._has(self.allergy, lead, ce):
             return False
-        nxt = ce
-        while nxt < self.n and not (self.t[nxt].isalnum() or _cjk(self.t[nxt])):
-            nxt += 1
-        if nxt < self.n:
-            _, ce2 = self._clause(nxt)
-            k = bisect_left(self.tok_starts, nxt)
-            first = (self.t[nxt:self.toks[k][1]] if k < len(self.toks)
-                     and self.toks[k][0] == nxt else "")
-            goes_on = (self.t.startswith(_CONTINUE_CJK, nxt) or first in _CONTINUE_ASCII
-                       or first.startswith(_ALLERGY_ASCII))
-            if goes_on and self._has(self.allergy, nxt, ce2):
+        if cs > 0 and t[cs - 1] in _OPEN_BRACKETS:
+            # a note on a reaction before it, not on a denial (无过敏史（曾服四君子汤，效佳）)
+            before, _ = self._clause(cs - 1)
+            if self._has(self.allergy, before, cs - 1) and not self._opening(before)[1]:
                 return False
-        return True
+        return not self._goes_on(e, ce)
+
+    def _goes_on(self, e: int, ce: int) -> bool:
+        """A clause after the one that ends at ``ce`` goes on from it, in the same sentence,
+        and holds a word of allergy or reaction. It goes on when the herb's clause ends in a
+        time after the herb (服用黄芪后，皮肤瘙痒; 服用黄芪期间，…) or when it opens with a word
+        that tells what happened: a time (3小时后, 次日), a part of the body (皮肤, 面部, 嘴唇),
+        a word of feeling (自觉, 感觉), a reaction (皮疹), or an English word that goes on
+        (then, got, developed). A clause that is a label (过敏史：) or opens with a denial
+        (无不适) is passed over. Looks no further than 60 characters and four clauses."""
+        t, n = self.t, self.n
+        nxt = self.next_word(ce)
+        if nxt >= n:
+            return False
+        k = bisect_right(self.sentences, ce - 1)
+        end = min(n, ce + 60, self.sentences[k] if k < len(self.sentences) else n)
+        if nxt >= end:
+            return False
+        p = self._after_list(e)
+        timed = p < ce and _TEMPORAL.match(t, p, ce) is not None
+        if not timed:
+            j = bisect_left(self.tok_starts, nxt)
+            words = [t[a:b] for a, b in self.toks[j:j + 3]] if (
+                j < len(self.toks) and self.toks[j][0] == nxt) else []
+            first = words[0] if words else ""
+            later = (len(words) == 3 and first.isdigit() and words[1] in _TIME_UNITS
+                     and words[2] in ("later", "after"))       # 2 hours later, …
+            if not (t.startswith(_CONTINUE_CJK, nxt) or _CONTINUE_TIME.match(t, nxt, end)
+                    or _ALLERGY_CJK.match(t, nxt, end) or first in _CONTINUE_ASCII
+                    or later or first.startswith(_ALLERGY_ASCII)):
+                return False
+        a = nxt
+        for _ in range(4):
+            if a >= end:
+                break
+            b = min(self._clause(a)[1], end)
+            label = t[b - 1] in ":：∶" if b > a else False
+            if not label and not self._opening(a)[1] and self._has(self.allergy, a, b):
+                return True
+            a = self.next_word(b)
+        return False
 
     def _ascii_context(self, s: int, e: int) -> str:
         """"" when the Latin or pinyin name at ``s``–``e`` stands in an allergy line (a word
@@ -1292,9 +1521,7 @@ class _Reader:
         lead = self._lead_clause(cs)
         if self._has(self.allergy, lead, ce):
             return ""
-        nxt = ce
-        while nxt < self.n and not (self.t[nxt].isalnum() or _cjk(self.t[nxt])):
-            nxt += 1
+        nxt = self.next_word(ce)
         if nxt < self.n and nxt - ce <= 3:
             _, ce2 = self._clause(nxt)
             if self._has(self.allergy, nxt, min(ce2, nxt + 12)):
@@ -1312,9 +1539,9 @@ class _Reader:
         return ""
 
     # ---------------------------------------------------------------- denials
-    def _opens_denial(self, cs: int, s: int) -> bool:
-        """The clause that starts at ``cs`` opens with a denial that no closer ends before
-        ``s`` (``_opens[cs]`` holds which)."""
+    def _opening(self, cs: int) -> tuple[int, str]:
+        """Where the denial a clause starting at ``cs`` opens with stands, and which (""
+        for none): 患者否认 → 否认, 过敏史无 → 无."""
         t, gaps = self.t, self.gaps
         if cs not in self._opens:
             i = cs
@@ -1327,7 +1554,12 @@ class _Reader:
             if neg and self.named.get(i, 0) > i + len(neg):
                 neg = ""                    # 没药人参过敏: the 没 is 没药's, no denial
             self._opens[cs] = (i, neg)
-        i, neg = self._opens[cs]
+        return self._opens[cs]
+
+    def _opens_denial(self, cs: int, s: int) -> bool:
+        """The clause that starts at ``cs`` opens with a denial that no closer ends before
+        ``s`` (``_opens[cs]`` holds which)."""
+        i, neg = self._opening(cs)
         if not neg or i + len(neg) > s:
             return False
         j = i + len(neg)
@@ -1369,7 +1601,21 @@ class _Reader:
 
     def _denied_after(self, p: int) -> str:
         """"deny" or "tolerate" when a denial is written at ``p``, after a name or its list
-        (黄芪：无, 黄芪无过敏史; 黄芪耐受, 服黄芪无不适), or ""."""
+        (黄芪：无, 黄芪无过敏史; 黄芪耐受, 服黄芪无不适, 服用黄芪后无不适, 人参吃了没事, 当归用过，
+        无过敏, 人参：可), or "". Worked out once for each place: many names of one list share
+        the place after it."""
+        if p not in self._da:
+            self._da[p] = self._denied_at(p)
+        return self._da[p]
+
+    def _ends_word(self, j: int) -> bool:
+        t, n = self.t, self.n
+        while j < n and t[j] in _CLOSE_BRACKETS:
+            j += 1
+        return (j >= n or j in self.gaps
+                or not (_cjk(t[j]) or (t[j].isascii() and t[j].isalnum())))
+
+    def _denied_at(self, p: int) -> str:
         t, n = self.t, self.n
         if _DENIAL_DASH.match(t, p):
             return "deny"
@@ -1378,14 +1624,35 @@ class _Reader:
         m = _DENIAL_PHRASE.match(t, r)
         if m:
             return "deny" if _DENIES_ALLERGY.search(m.group(0)) else "tolerate"
+        # a word of use or a time between: 服用黄芪后无不适, 黄芪服用后未见过敏, 人参吃了没事,
+        # 当归用过，无过敏. The herb was taken, so what follows says it was tolerated.
+        u = _USE_SEGMENT.match(t, r).end()
+        if u > r:
+            v = u + 1 if u < n and t[u] in ",，" else u
+            if _DENIAL_PHRASE.match(t, v):
+                return "tolerate"
         m = _DENIAL_BARE.match(t, r)
-        if not m:
-            return ""
-        j = m.end()
-        while j < n and t[j] in _CLOSE_BRACKETS:
-            j += 1
-        return "deny" if (j >= n or j in self.gaps
-                          or not (_cjk(t[j]) or (t[j].isascii() and t[j].isalnum()))) else ""
+        if m:
+            return "deny" if self._ends_word(m.end()) else ""
+        m = _TOLERATE_BARE.match(t, r)
+        if m and r > q and t[r - 1] in ":：∶(" and self._ends_word(m.end()):
+            return "tolerate"                       # 人参：可, 黄芪（可）
+        return ""
+
+    def _next_clause_tolerates(self, s: int, e: int) -> bool:
+        """A clause that says the herb is used, and the next clause says there was no
+        reaction: 曾服当归，无反应; 吃过人参，没事; Took ginseng, no reaction."""
+        cs, ce = self._clause(s)
+        lead = self._lead_clause(cs)
+        if self._has(self.allergy, lead, ce):
+            return False
+        used, ce = self._used(s, e, lead, ce)
+        if not used:
+            return False
+        nxt = self.next_word(ce)
+        if nxt >= self.n or nxt - ce > 3 or nxt in self.breaks:
+            return False
+        return _DENIAL_PHRASE.match(self.t, nxt) is not None
 
     def _retracted(self, p: int) -> bool:
         k = bisect_right(self.bounds, p)
@@ -1401,9 +1668,13 @@ class _Reader:
     def _denial(self, s: int, e: int) -> str:
         """"deny", "tolerate" (the record says the herb is used with no reaction, or can be
         used: 黄芪耐受, 服黄芪无不适, 黄芪可用, tolerates 黄芪) or ""."""
-        cs, _ = self._clause(s)
+        cs, ce = self._clause(s)
         if self._opens_denial(cs, s):
-            return "tolerate" if self._opens[cs][1] in _TOLERATES else "deny"
+            neg = self._opens[cs][1]
+            # NKDA, nil, none take no object: NKDA 黄芪过敏 is a second statement, not a denial
+            # of 黄芪 (NKDA 北芪 still is one)
+            if not (neg in _COMPLETE_DENIALS and self._has(self.allergy, e, ce)):
+                return "tolerate" if neg in _TOLERATES else "deny"
         t = self.t
         if cs > 0 and t[cs - 1] in _OPEN_BRACKETS:
             # a bracket inside a denial that names what it denies: 否认中药（黄芪、人参）过敏
@@ -1417,7 +1688,8 @@ class _Reader:
                     return "deny"
         p = self._after_list(e)
         return (self._denied_after(e) or self._denied_after(p)
-                or ("deny" if self._retracted(p) else ""))
+                or ("deny" if self._retracted(p) else "")
+                or ("tolerate" if self._next_clause_tolerates(s, e) else ""))
 
 
 class _Cover:
@@ -1464,6 +1736,10 @@ class _Marks:
 
     def any(self, s: int, e: int) -> bool:
         return self.acc[e] - self.acc[s] > 0
+
+    def all(self, s: int, e: int) -> bool:
+        """Every position of ``s``–``e`` is covered."""
+        return self.acc[e] - self.acc[s] == e - s
 
 
 def mentions(record: Any, *, kb: Any = None, pack: Any = None,
@@ -1840,7 +2116,7 @@ def _issue(m: Mention, h: str, hk: str, shown: str, matcher: _Matcher
                     "请核实并确认该否认无误后再签署", source)
         if m.taken:
             return ("block", "allergy_taken",
-                    f"{prefix}。{what}，记录写到在服用或食用它，所在语句未写过敏或不良反应；{tail}，"
+                    f"{prefix}。{what}，记录写到在服用或食用它，所在分句未写过敏或不良反应；{tail}，"
                     f"这不是过敏记录，也不能据此排除对{h}过敏，请核实后再签署", source)
         return ("block", "allergy_source", f"{prefix}。{what}，{tail}，所记过敏未必是对{h}，请核实",
                 source)
@@ -1875,7 +2151,7 @@ def _issue(m: Mention, h: str, hk: str, shown: str, matcher: _Matcher
                     "请核实并确认该否认无误后再签署", source)
         if m.taken:
             return ("block", "allergy_taken",
-                    f"{prefix}。{what}，{via}；记录写到在服用该方，所在语句未写过敏或不良反应，这不是过敏记录，"
+                    f"{prefix}。{what}，{via}；记录写到在服用该方，所在分句未写过敏或不良反应，这不是过敏记录，"
                     f"也不能据此排除对{h}过敏，请核实后再签署", source)
         return ("block", "allergy_formula",
                 f"{prefix}。{what}，{via}；所记过敏可能由方中任一味药引起，未必是{h}，请核实", source)
@@ -1903,7 +2179,7 @@ def _issue(m: Mention, h: str, hk: str, shown: str, matcher: _Matcher
                     "请核实并确认该否认无误后再签署", source)
         if m.taken:
             return ("block", "allergy_taken",
-                    f"{prefix}。{inside}；记录写到在服用或使用它，所在语句未写过敏或不良反应，这不是过敏记录，"
+                    f"{prefix}。{inside}；记录写到在服用或使用它，所在分句未写过敏或不良反应，这不是过敏记录，"
                     f"也不能据此排除对{h}过敏，请核实后再签署", source)
         return ("block", "allergy_near_name", f"{prefix}。{inside}，请核实所记过敏是否与{h}有关",
                 source)
@@ -1919,12 +2195,16 @@ def _issue(m: Mention, h: str, hk: str, shown: str, matcher: _Matcher
     if m.taken:
         return ("block", "allergy_taken",
                 f"{prefix}。记录写到在服用或食用{m.name}" + (f"（{why}）" if why else "")
-                + f"，所在语句未写过敏或不良反应：这不是过敏记录，也不能据此排除对{h}过敏，请核实后再签署",
+                + f"，所在分句未写过敏或不良反应：这不是过敏记录，也不能据此排除对{h}过敏，请核实后再签署",
                 source)
     if m.context == "unconfirmed":
         return ("block", "allergy_near_name",
-                f"{prefix}。记录中写有“{m.written}”（{why}），但所在语句未写过敏或不良反应，"
+                f"{prefix}。记录中写有“{m.written}”（{why}），但所在分句未写过敏或不良反应，"
                 f"可能另有所指（拼音也是人名的写法），请核实所记是否为对{h}过敏", source)
+    if m.context == "name_label":
+        return ("block", "allergy_near_name",
+                f"{prefix}。记录中写有“{m.written}”（{why}），写在“name”一类的标签之后，可能是人名"
+                f"（拼音也是人名的写法），请核实所记是否为对{h}过敏", source)
     if tier.rank == 3:
         return ("stop", "allergy", prefix + (f"（{why}）" if why else ""), source)
     if tier.rank == 2:

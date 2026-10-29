@@ -596,9 +596,10 @@ def test_every_name_the_tables_know_is_found_standing_in_each_record_form(pack):
                      "患者自诉{}过敏", "过敏药物：{}（皮疹）"):
             got = [(m.name, m.word, m.denied) for m in mentions(form.format(name), kb=kb, pack=pack)]
             before = form[:form.index("{}")][-1:]
-            if before + name[:1] in _EVERYDAY:
-                # 对于术: the 于 of 对于 (regarding) may not start 于术, so the name is read
-                # inside the longer word, and asks
+            after = form[form.index("{}") + 2:]
+            if before + name[:1] in _EVERYDAY and not after.startswith("过敏"):
+                # 对于术有: the 于 of 对于 (regarding) may not start 于术, so the name is read
+                # inside the longer word, and asks; 对于术过敏 is 对 + 于术 + 过敏 (below)
                 assert any(n == name and word for n, word, _ in got), (form, name, got)
                 continue
             assert (name, "", False) in got, (form, name, got)
@@ -974,8 +975,22 @@ def test_a_stop_claims_only_what_a_drug_level_table_says(pack):
     (lambda n: "过敏" * (n // 2), {}), (lambda n: "白" * n, {}),
     (lambda n: "对北芪过敏" + "很" * n, {"allergy:黄芪": "stop"}),
     (lambda n: "黄芪" + " " * n + "过敏", {"allergy:黄芪": "stop"}),
+    # r7 review round 1: a scan past the marks after a clause, once per name in it, and the
+    # separators after a list, once per name of it
+    (lambda n: ("吃人参" * n)[: n // 2] + "，" * (n - n // 2), {"allergy_taken:人参": "block"}),
+    (lambda n: ("人参" * n)[: n // 2] + "：" * (n - n // 2), {"allergy:人参": "stop"}),
+    (lambda n: ("人参" * n)[: n // 2] + "？" * (n - n // 2), {"allergy:人参": "stop"}),
+    (lambda n: ("人参" * n)[: n // 2] + "-" * (n - n // 2), {"allergy:人参": "stop"}),
+    (lambda n: ("huangqi " * n)[: n // 2] + "." * (n - n // 2), {"allergy:黄芪": "stop"}),
+    (lambda n: ("taking huangqi " * n)[: n // 2] + "." * (n - n // 2), {"allergy_taken:黄芪": "block"}),
+    (lambda n: ("服用黄芪后，" * n)[:n], {"allergy_taken:黄芪": "block"}),
+    (lambda n: ("NKDA\n黄芪过敏\n" * n)[:n], {"allergy:黄芪": "stop"}),
+    (lambda n: ("人参吃了没事" * n)[:n], {"allergy_denied:人参": "block"}),
+    (lambda n: "黄芪" + "\n" * n + "过敏", {"allergy:黄芪": "stop"}),
 ], ids=["run_in_word", "gou_chain", "honghuajiao", "yu_huangqi_xiang", "bei_qi_spaced", "jiang_huang_spaced",
-        "list", "taken", "formula", "pinyin", "fouren", "wu", "dui", "guomin", "bai", "hen", "spaces"])
+        "list", "taken", "formula", "pinyin", "fouren", "wu", "dui", "guomin", "bai", "hen", "spaces",
+        "taken_commas", "chain_colons", "chain_qmarks", "chain_dashes", "pinyin_dots", "taken_pinyin_dots",
+        "temporal", "nkda_lines", "tolerated", "line_breaks"])
 def test_a_long_history_is_read_in_linear_time_with_bounded_messages(pack, make, expected):
     # C4: 20k and 200k characters of any content (runs of names with no separators, chains
     # of overlapping names, names across whitespace, long lists): the time grows with the
@@ -1088,7 +1103,7 @@ def test_the_corpus_holds_every_repro_and_each_criterion():
     assert len(ids) == len(set(ids))
     sources = {c["source"].split(":")[0] for c in doc["cases"]}
     for source in ("r6 review round 1 (d087468)", "r6 review round 2 (f8cf0eb)", "review6 scripts",
-                   "C1 common form", "C3 common corpus"):
+                   "C1 common form", "C3 common corpus", "r7 review round 1 (03a822b)"):
         assert any(s.startswith(source) for s in sources), source
     assert {c["expect"].get(h) for c in doc["cases"] for h in c["expect"]} >= {"stop", "block", "none"}
     assert sum(len(g["records"]) for g in doc["silent"]) > 200 and len(doc["intake"]) > 80
@@ -1100,6 +1115,86 @@ def test_a_list_allergy_written_among_the_conditions_is_read_whole(pack):
     found = {i.id: i.severity for i in check([Line("黄芪", 9, "practitioner"), Line("人参", 9, "practitioner")],
                                              it, pack) if i.code in _ALLERGY_CODES}
     assert found == {"allergy:黄芪": "stop", "allergy:人参": "stop"}, found
+
+
+# ------------------------------------------- r7 review round 1 (03a822b), beyond the corpus
+#: A reaction told after the herb (C1: 服用X后出现皮疹 and its variants). They were read as the
+#: herb taken, a block whose message said no reaction was written.
+_REACTION_TEMPLATES = ("服用{}后，皮肤瘙痒", "服{}后，皮肤过敏", "服用{}，3小时后出现皮疹", "服{}后,皮肤瘙痒",
+                       "服{}后 皮肤瘙痒", "服{}后，面部红肿", "吃{}后，嘴唇肿了", "服用{}后出现呼吸困难",
+                       "服用{}后起疙瘩", "皮疹（服{}后）", "荨麻疹（服用{}后）", "出现皮疹，考虑与服用{}有关",
+                       "全身瘙痒，服用{}所致", "服用{}后，自觉胸闷")
+#: A denial on one line and the allergy on the next, or after a denial that takes no object
+#: (C1: a denial clause before the allergy, line breaks as separators).
+_LINE_TEMPLATES = ("NKDA\n{}过敏", "NKDA\n\n对{}过敏", "NKDA\r\n{}过敏", "No known drug allergies\n{}过敏",
+                   "None\n{}过敏", "denies allergies\n{}过敏", "nil\n{}过敏", "No\n{}过敏", "NKDA {}过敏",
+                   "nil {}过敏", "NKDA\t{}过敏", "No known drug allergies {}过敏")
+#: A herb taken or tolerated (C3: at most a block that says so, never a stop).
+_TOLERATED_TEMPLATES = ("服用{}后无不适", "{}服用后未见过敏", "服用{}期间无不良反应", "{}吃了没事", "{}用过，无过敏",
+                        "{}：服用中", "{}（服用中）", "{}可以吃", "{}没问题", "目前在吃{}，过敏史：无", "目前在吃{}",
+                        "目前在吃{}，青霉素过敏")
+
+
+def test_a_reaction_after_a_herb_or_an_allergy_after_a_denial_line_stops_every_pack_herb(pack):
+    from bioagent.clinic.allergy import allergy_issues
+    from bioagent.clinic.prescribe import _kb
+    kb = _kb()
+    missed = []
+    for herb in pack.herbs:
+        for t in _REACTION_TEMPLATES + _LINE_TEMPLATES:
+            out = allergy_issues([herb], [t.format(herb)], kb, pack)
+            if ("stop", "allergy") not in {(i[1], i[2]) for i in out}:
+                missed.append((t.format(herb), [(i[1], i[2]) for i in out]))
+        for t in _TOLERATED_TEMPLATES:
+            out = allergy_issues([herb], [t.format(herb)], kb, pack)
+            if not out or any(i[1] == "stop" for i in out):
+                missed.append((t.format(herb), [(i[1], i[2]) for i in out]))
+    assert not missed, missed[:20]
+
+
+def test_a_reaction_narrative_blocks_the_draft_and_a_tolerated_herb_never_stops_it(pack, tmp_path):
+    s = assess(case(*SPLEEN, allergies=["服用人参后，皮肤瘙痒"]), tmp_path / "a", pack=pack)
+    assert s.status == "blocked" and "allergy:人参" in {i.id for i in s.prescription.issues}
+    s = assess(case(*SPLEEN, allergies=["服用人参后无不适"]), tmp_path / "b", pack=pack)
+    found = {(i.id, i.severity) for i in s.prescription.issues if i.code in _ALLERGY_CODES}
+    assert ("allergy_denied:人参", "block") in found and not any(v == "stop" for _, v in found), found
+    it = parse_intake(case(*SPLEEN, allergies=[], conditions=["过敏性鼻炎，服用黄芪后无不适"]), pack)
+    found = {(i.id, i.severity) for i in check([Line("黄芪", 9, "practitioner")], it, pack)
+             if i.code in _ALLERGY_CODES}
+    assert found == {("allergy_denied:黄芪", "block")}, found
+
+
+@pytest.mark.parametrize("record", ["头孢过敏，归类为药疹", "中药归经", "过年归来，否认过敏史", "患者来自枣庄，否认过敏史",
+                                    "桂林人，青霉素过敏", "芒果过敏，皮肤呈枣红色斑疹", "姜某，否认过敏史", "无，已归档",
+                                    "皮疹归属于药疹", "过敏史归纳：无", "回归正常饮食后无过敏", "2019年归国后出现皮疹"])
+def test_no_one_character_reading_is_an_everyday_word(pack, record):
+    # the words around a name of one character (allergy._BEFORE_ONE, _AFTER_ONE) were
+    # checked pairwise with 姜, 归, 枣, 桂 and 芎 for everyday words: 归类 (classify) was one,
+    # and is a word of its own; these are the others a record writes
+    assert not _all_herbs_issues(pack, record), record
+
+
+@pytest.mark.parametrize("make", [lambda n: "黄芪" + " " * n + "过敏", lambda n: "过敏史：" + " " * n + "黄芪",
+                                  lambda n: "过敏史：" + "\t" * n + "黄芪", lambda n: "(" + " " * n + "黄芪"],
+                         ids=["spaces", "colon_spaces", "colon_tabs", "bracket_spaces"])
+def test_a_long_allergy_field_is_read_through_the_intake_in_linear_time(pack, make):
+    # C4 through the intake, not only the reading: its label and negative patterns
+    # backtracked over a run of whitespace, so 200,000 spaces took minutes before the
+    # allergy reading began
+    import time
+    lines = [Line("黄芪", 9, "practitioner"), Line("人参", 9, "practitioner")]
+
+    def timed(n):
+        t0 = time.perf_counter()
+        out = check(lines, parse_intake(case(*SPLEEN, allergies=[make(n)]), pack), pack)
+        return time.perf_counter() - t0, out
+
+    timed(1000)
+    small, _ = timed(20000)
+    large, out = timed(200000)
+    assert large < 30 and large < 20 * small + 1, (small, large)
+    assert ("allergy:黄芪", "stop") in {(i.id, i.severity) for i in out}
+    assert all(len(i.message) < 1200 for i in out)
 
 
 def test_the_doc_describes_the_scan_and_its_limits():
@@ -1514,10 +1609,12 @@ def test_a_long_record_is_quoted_as_written(pack):
     assert "reaction to Astragali Radix in 2019" in messages["黄芪"], messages
 
 
-@pytest.mark.parametrize("record,herb,code", [("炙草过敏", "炙甘草", "allergy_source"),
-                                              ("对於朮過敏", "白术", "allergy_near_name")])
-def test_short_and_traditional_names_are_never_silent(pack, record, herb, code):
-    assert _found(pack, record, herb) == [("block", code)], record
+@pytest.mark.parametrize("record,herb,expected", [
+    ("炙草过敏", "炙甘草", ("block", "allergy_source")),
+    # 於 folds to 于: 对 + 于术 + 过敏, and the knowledge base gives 于术 to 白术
+    ("对於朮過敏", "白术", ("stop", "allergy"))])
+def test_short_and_traditional_names_are_never_silent(pack, record, herb, expected):
+    assert _found(pack, record, herb) == [expected], record
 
 
 def test_a_long_history_of_distinct_words_is_read_in_linear_time(pack):
