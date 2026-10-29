@@ -556,8 +556,11 @@ export class App {
 
   async #onRoute(route) {
     // A project or conversation route waits on the store; a later navigation may start and finish meanwhile (a click
-    // on About while a project opens). The earlier one then stops at its next step: it sets no state, and its route is
-    // neither set nor shown over the later one's.
+    // on About while a project opens). The earlier one then stops at its next step: its route is neither set nor shown
+    // over the later one's, and it sets nothing more. What it set before that step can remain where the later route
+    // does not set it: once its project was read, state.project and the tool router's settings, and that project's
+    // conversation list (About, settings and the catalog keep the project). The open conversation is always the
+    // latest navigation's: every route sets or clears it (home, or a missing project, through the route it goes on to).
     const nav = ++this.#navigation;
     const stale = () => nav !== this.#navigation;
     this.state.sidebarOpen = false;

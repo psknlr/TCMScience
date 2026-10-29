@@ -1,6 +1,9 @@
 // Navigations that overlap: a project or conversation route waits on the store (App#onRoute), and a page's module is
 // loaded the first time it is shown (the shell's mountView). A later navigation that finishes first stays on screen:
 // the earlier one is dropped, its route neither set nor shown, and nothing of it painted over the later page.
+// The overlap is made, not timed: the earlier navigation's store answer (or page module) is held until the test lets
+// it go, which it does only once the later route is shown; the test then waits until every navigation has finished.
+// No step waits a fixed time, so a slow or loaded machine changes how long a test takes, not what it sees.
 import { window } from "./setup.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -51,36 +54,71 @@ async function until(fn, what, ms = 10000) {
 }
 
 /**
- * `fn` of the store answers `ms` later for the ids `slow` names → a promise that the slow answer has been given and its
- * caller has had the time to go on with it (the store's next steps, as a navigation that is not dropped would take).
+ * A gate: `wait()` (a promise) is held until `open()`; `waiting()` says whether anything has come to wait at it yet.
  */
-function slowDown(obj, fn, slow, ms) {
+function gate() {
+  let open;
+  let waiting = false;
+  const opened = new Promise((resolve) => { open = resolve; });
+  return { wait() { waiting = true; return opened; }, open: () => open(), waiting: () => waiting };
+}
+
+/**
+ * The store's `fn`, for the ids `held` names, reads its answer and then holds it at a gate until the test opens it
+ * (the store is slow for that one read) → the gate: `waiting()` once its caller is waiting on that read.
+ */
+function holdBack(obj, fn, held) {
   const real = obj[fn];
-  let given;
-  const answered = new Promise((resolve) => { given = resolve; });
+  const g = gate();
   obj[fn] = async (id, ...rest) => {
     const v = await real(id, ...rest);
-    if (slow.includes(id)) { await delay(ms); setTimeout(() => delay(50).then(given), 0); }
+    if (held.includes(id)) await g.wait();
     return v;
   };
-  return answered;
+  return g;
+}
+
+/**
+ * Every navigation the router hands the app (App#onRoute, through HashRouter#onChange) → `settled(what)`: waits until
+ * each one has finished or stopped (a dropped navigation stops at its next step), and throws an error one ended with.
+ */
+function trackNavigations(app) {
+  const runs = [];
+  const onChange = app.router.onChange;
+  app.router.onChange = (route, prev) => {
+    const run = { done: false, error: null };
+    runs.push(run);
+    const p = Promise.resolve(onChange(route, prev));
+    p.then(() => { run.done = true; }, (e) => { run.done = true; run.error = e; });
+    return p;
+  };
+  return {
+    async settled(what) {
+      await until(() => runs.every((r) => r.done), what);
+      const failed = runs.find((r) => r.error);
+      if (failed) throw failed.error;
+    },
+  };
 }
 
 test("a project still being read when About is opened does not take the page back: About stays, its route set", async () => {
   const { app, routes } = await makeApp("#/settings/models");
   const slow = await app.store.projects.create({ name: "慢的项目" });
-  const answered = slowDown(app.store.projects, "get", [slow.id], 60);
+  const read = holdBack(app.store.projects, "get", [slow.id]);
   await app.startRouting();
+  const navigations = trackNavigations(app);
   try {
     app.navigate({ name: "project", projectId: slow.id });
-    await delay(10); // its hashchange has fired: the project route is waiting on the store
+    await until(read.waiting, "the project route to wait on the store");
     app.navigate({ name: "about" });
     await until(() => routes.includes("about"), "About");
-    await answered; // and the project's record has come back since
+    read.open(); // the project's record comes back only now, after About was shown
+    await navigations.settled("both navigations to finish");
     assert.equal(location.hash, "#/about");
     assert.equal(app.state.route.name, "about", "the route the address says");
     assert.deepEqual(routes, ["settings", "about"], "the project's route was never shown");
   } finally {
+    read.open();
     app.router.destroy();
   }
 });
@@ -92,18 +130,20 @@ for (const slow of ["its project's conversations", "its messages"]) test(`a conv
   const [c1, c2] = [await s.conversations.create({ projectId: p1.id, title: "一" }), await s.conversations.create({ projectId: p2.id, title: "二" })];
   await s.messages.put({ conversationId: c1.id, role: "user", content: "甲的问题" });
   await s.messages.put({ conversationId: c2.id, role: "user", content: "乙的问题" });
-  const answered = slow === "its messages" ? slowDown(s.messages, "list", [c1.id], 60) : slowDown(s.conversations, "list", [p1.id], 60);
+  const read = slow === "its messages" ? holdBack(s.messages, "list", [c1.id]) : holdBack(s.conversations, "list", [p1.id]);
   const lists = [];
   const threads = [];
   app.on("conversations", (list) => lists.push([...new Set(list.map((c) => c.projectId))]));
   app.on("messages", (list) => threads.push(list.map((m) => m.content)));
   await app.startRouting();
+  const navigations = trackNavigations(app);
   try {
     app.navigate({ name: "conversation", projectId: p1.id, convId: c1.id });
-    await delay(10);
+    await until(read.waiting, `the first conversation to wait on the store (${slow})`);
     app.navigate({ name: "conversation", projectId: p2.id, convId: c2.id });
     await until(() => routes.includes(`conversation:${c2.id}`), "the second conversation");
-    await answered;
+    read.open(); // the first conversation's read comes back only now, after the second was shown
+    await navigations.settled("both navigations to finish");
     assert.equal(app.state.route.convId, c2.id);
     assert.equal(app.state.project.id, p2.id);
     assert.equal(app.state.conversation.id, c2.id);
@@ -116,6 +156,7 @@ for (const slow of ["its project's conversations", "its messages"]) test(`a conv
     assert.deepEqual(threads.at(-1), ["乙的问题"]);
     assert.ok(!threads.slice(threads.findIndex((m) => m[0] === "乙的问题")).some((m) => m.includes("甲的问题")), JSON.stringify(threads));
   } finally {
+    read.open();
     app.router.destroy();
   }
 });
@@ -124,11 +165,12 @@ test("the shell: a page whose module arrives after a later route was mounted is 
   const { app } = await makeApp("#/about");
   const mounted = [];
   const destroyed = [];
-  const arrived = [];
-  // the project page's module is slow to arrive (its first load); About's is at hand
-  const page = (name, ms) => async () => {
-    await delay(ms);
-    setTimeout(() => arrived.push(name), 20); // a moment after the shell had it, as it would mount it at once
+  // the project page's module is slow to arrive (its first load): it comes when the test opens its gate; About's is
+  // at hand
+  const projectModule = gate();
+  let projectArrived = false;
+  const page = (name) => async () => {
+    if (name === "project") { await projectModule.wait(); projectArrived = true; }
     return (_app, main) => {
       const el = document.createElement("div");
       el.className = `page page--${name}`;
@@ -138,13 +180,19 @@ test("the shell: a page whose module arrives after a later route was mounted is 
     };
   };
   const root = document.createElement("div");
-  const { main } = mountShell(app, root, { pages: { home: page("home", 0), project: page("project", 60), about: page("about", 0) } });
+  const pages = { home: page("home"), project: page("project"), about: page("about") };
+  const { main } = mountShell(app, root, { pages });
   app.state.route = { name: "project", projectId: "p1" };
   app.emit("route", app.state.route);
-  await delay(10);
+  await until(projectModule.waiting, "the shell to ask for the project page's module");
   app.state.route = { name: "about" };
   app.emit("route", app.state.route);
-  await until(() => arrived.includes("about") && arrived.includes("project"), "both pages' modules");
+  await until(() => mounted.includes("about"), "About");
+  projectModule.open(); // the project page's module arrives only now, after About was mounted
+  await until(() => projectArrived, "the project page's module");
+  // what the shell does with a module that arrived it does at once (no await between): one turn of the event loop
+  // later it has done it
+  await new Promise((r) => setImmediate(r));
   assert.deepEqual(mounted, ["about"], "the project page was dropped, not mounted after About");
   assert.deepEqual(destroyed, []);
   assert.equal(main.children.length, 1);
