@@ -10,12 +10,15 @@ about and is ``absent``; a negated entry (无自汗) is read as absent as well.
 grouped by the 十问 order, with the tongue and pulse terms as references, so the
 collector can see what the differentiation will look for. ``None`` and ``[]`` differ:
 ``"medications": null`` is *not asked* and ``[]`` is *none*; interactions are checked only
-when the medications were asked.
+when the medications were asked. A blank field ("", ["  "], ["。。。"]) records neither and
+is read as not asked. Medications, allergies and conditions are text: a number or an object
+there is refused, not turned into text.
 """
 
 from __future__ import annotations
 
 import json
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -73,6 +76,10 @@ class Intake:
     collected_at: str
     warnings: tuple[str, ...] = ()
     raw: Mapping[str, Any] = field(default_factory=dict)
+    #: the allergy entries as written, unsplit and unnormalised, which the allergy check
+    #: scans whole (``allergies`` holds them split and normalised, for the report); None
+    #: when allergies were not asked
+    allergy_records: tuple[str, ...] | None = None
 
     @property
     def all_text(self) -> list[str]:
@@ -108,10 +115,29 @@ def _bool(v: Any, name: str) -> bool | None:
     raise IntakeError(f"{name} must be true, false or null, not {v!r}")
 
 
-def _list(v: Any) -> tuple[str, ...] | None:
+def _items(v: Any, name: str) -> list[str] | None:
+    """The written entries of a list field (medications, allergies, conditions), or None
+    when it was not asked.
+
+    ``null`` is *not asked* and ``[]`` is *none*. A blank — "", spaces, entries without a
+    letter or a digit ("   ", [""], ["。。。"], ["///"]) — records neither, so it reads as
+    not asked, never as "asked, none". Anything but text (a number, an object, true, a nested
+    list) is refused with the message the studio's argument check gives, rather than
+    turned into text or left to fail later."""
     if v is None:
         return None
-    return tuple(split_entries(v))
+    items = [v] if isinstance(v, str) else v
+    if not isinstance(items, (list, tuple)) or not all(isinstance(x, str) for x in items):
+        raise IntakeError(f"{name} must be a list of strings or null")
+    if not items:
+        return []
+    written = [x for x in items if any(unicodedata.category(c)[0] in "LN" for c in x)]
+    return written or None
+
+
+def _list(v: Any, name: str) -> tuple[str, ...] | None:
+    items = _items(v, name)
+    return None if items is None else tuple(split_entries(items))
 
 
 def parse_intake(doc: Mapping[str, Any], pack: ClinicPack) -> Intake:
@@ -168,9 +194,10 @@ def parse_intake(doc: Mapping[str, Any], pack: ClinicPack) -> Intake:
         warnings.append("脉象未记录：四诊合参需要脉象")
     if patient.childbearing_age and patient.pregnant is None:
         warnings.append("妊娠状态未记录：育龄期患者开方前须确认是否妊娠")
-    meds = _list(doc.get("medications"))
-    allergies = _list(doc.get("allergies"))
-    conditions = _list(doc.get("conditions"))
+    meds = _list(doc.get("medications"), "medications")
+    allergy_records = _items(doc.get("allergies"), "allergies")
+    allergies = None if allergy_records is None else tuple(split_entries(allergy_records))
+    conditions = _list(doc.get("conditions"), "conditions")
     if meds is None:
         warnings.append("目前用药未询问：无法检查中西药相互作用")
     if allergies is None:
@@ -189,7 +216,8 @@ def parse_intake(doc: Mapping[str, Any], pack: ClinicPack) -> Intake:
                   conditions=conditions, red_flags_cleared=tuple(cleared),
                   collected_by=str(doc.get("collected_by") or ""),
                   collected_at=str(doc.get("collected_at") or ""), warnings=tuple(warnings),
-                  raw=dict(doc))
+                  raw=dict(doc),
+                  allergy_records=None if allergy_records is None else tuple(allergy_records))
 
 
 def read_intake(path: str | Path, pack: ClinicPack) -> Intake:

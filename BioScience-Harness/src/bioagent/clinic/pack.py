@@ -11,7 +11,10 @@ every output built on the pack says so.
 every syndrome's formula exists, every finding a criterion scores is on the intake form,
 no base formula contains a pair the pack itself calls incompatible, every medicine mapped to
 drug-interaction classes is mapped to exactly the classes whose ATC groups hold its ATC code
-(a thiazide to both 利尿剂 and 降压药). A pack that fails is not loaded.
+(a thiazide to both 利尿剂 and 降压药), every herb alias (``herb_aliases``, read by the allergy
+check) names a pack herb, cites its source and is given to one herb only, and every herb
+source record (``herb_sources``: the species of a herb the materia table lacks) names a pack
+herb and cites its source. A pack that fails is not loaded.
 """
 
 from __future__ import annotations
@@ -122,6 +125,13 @@ class ClinicPack:
     drug_classes_source: str = ""
     path: str = ""
     extra: Mapping[str, Any] = field(default_factory=dict)
+    #: another name of a pack herb -> (the herb, the source that gives the name): 夜交藤 ->
+    #: 首乌藤, 川黄柏 -> 黄柏. Read by the allergy check; a name no source is cited for is not
+    #: listed.
+    herb_aliases: Mapping[str, tuple[str, str]] = field(default_factory=dict)
+    #: a pack herb the materia table does not hold -> (its source species, the source):
+    #: 首乌藤 is the stem of the plant whose root is 何首乌, Polygonum multiflorum
+    herb_sources: Mapping[str, tuple[tuple[str, ...], str]] = field(default_factory=dict)
 
     @property
     def reviewed(self) -> bool:
@@ -213,6 +223,15 @@ def _build(data: Mapping[str, Any], digest: str, path: str) -> ClinicPack:
         for n in _tuple(d["names"]):
             if named.setdefault(n, entry) != entry:
                 raise PackError(f"drug_classes: {n} is listed as {named[n]} and as {entry}")
+    aliases: dict[str, tuple[str, str]] = {}
+    for a in data.get("herb_aliases") or ():
+        entry = (str(a["herb"]), str(a.get("source") or ""))
+        for name in _tuple(a["aliases"]):
+            if aliases.setdefault(name, entry)[0] != entry[0]:
+                raise PackError(f"herb_aliases: {name} is given to {aliases[name][0]} and to "
+                                f"{entry[0]}")
+    sources = {str(r["herb"]): (_tuple(r.get("species")), str(r.get("source") or ""))
+               for r in data.get("herb_sources") or ()}
     vitals = data.get("vital_limits") or {}
     vital_rules = tuple(
         VitalRule(id=str(v["id"]), field=str(v["field"]),
@@ -240,7 +259,7 @@ def _build(data: Mapping[str, Any], digest: str, path: str) -> ClinicPack:
         emergency_syndromes=frozenset(_tuple(data.get("emergency_syndromes"))),
         inquiry_groups={g: _tuple(t) for g, t in (data.get("inquiry_groups") or {}).items()},
         synonyms={str(k): str(v) for k, v in (data.get("synonyms") or {}).items()},
-        digest=digest, path=path)
+        digest=digest, path=path, herb_aliases=aliases, herb_sources=sources)
 
 
 def _pairs(rules: Any) -> tuple[tuple[str, str, str], ...]:
@@ -332,6 +351,18 @@ def check(pack: ClinicPack) -> list[str]:
         if sorted(groups) != sorted(read_as):
             problems.append(f"drug_classes: {name} ({atc}) is read as {list(read_as)}, but the "
                             f"classes whose ATC groups hold its code are {groups}")
+    for name, (herb, source) in pack.herb_aliases.items():
+        if herb not in pack.herbs:
+            problems.append(f"herb alias {name}: {herb} is not a herb of the pack")
+        if name in pack.herbs:
+            problems.append(f"herb alias {name} is itself a herb of the pack")
+        if not name.strip() or not source.strip():
+            problems.append(f"herb alias {name!r} of {herb} must cite its source")
+    for herb, (species, source) in pack.herb_sources.items():
+        if herb not in pack.herbs:
+            problems.append(f"herb source {herb} is not a herb of the pack")
+        if not species or not source.strip():
+            problems.append(f"herb source {herb} must give its species and cite its source")
     ids = [r.id for r in pack.red_flags] + [v.id for v in pack.vital_rules]
     if len(ids) != len(set(ids)):
         problems.append("red-flag and vital-sign rule ids must be unique")
