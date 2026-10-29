@@ -397,6 +397,55 @@ def test_the_design_rules_prefer_no_answer_to_a_wrong_one(text, design):
         assert reading.note
 
 
+#: 半, 类 or 准 before 随机 qualifies it (quasi-random) unless it ends a word that does not.
+#: The excluded words are whole words: excluding a character (种 for 种类, 过 for 过半, 人
+#: for 人类, 该 and 此) hid the quasi-random terms each of these sentences states.
+QUASI_RANDOM_ZH = [
+    "通过半随机分组，将120例患者按入院顺序分为治疗组和对照组。",
+    "通过类随机分组将患者按入院日期分为两组。",
+    "通过准随机分配，将患者按就诊顺序分为两组。",
+    "本研究采用一种半随机分组方法，将120例患者按入院顺序分为两组。",
+    "本研究采用一种类随机分组方法，将120例患者按入院顺序分为两组。",
+    "本研究采用一种准随机对照设计，将120例患者按就诊顺序分为两组。",
+    "将120例病人半随机分为治疗组和对照组。",
+    "将120例病人类随机分为两组。",
+    "将120例病人准随机分为两组。",
+    "将240人半随机分为两组。",
+    "该准随机对照试验纳入120例患者。",
+    "此半随机对照研究纳入120例患者。",
+    "这项半随机对照研究纳入120例患者。",
+    "针对半随机对照试验的偏倚进行分析。",
+    "多中心、准随机对照试验。",
+    "半随机分组，将120例患者分为两组。",
+]
+#: ...and the words that end in 半, 类 or 准 without qualifying the randomisation after them.
+ORDINARY_ZH = [
+    "其中一半随机分配至治疗组。",                      # half of them
+    "入组患者过半随机分配至治疗组。",                  # more than half
+    "按1:1对半随机分配至两组。",                       # in halves
+    "患者分为三类随机分组。",                          # three kinds
+    "将患者按病情分类随机分组。",                      # classified
+    "将患者按病情种类随机分为两组。",                  # kind
+    "本研究为人类随机对照试验，纳入120例患者。",        # humankind
+    "采用标准随机分组方法，将120例患者分为治疗组和对照组。",  # standard
+    "采用基准随机分组，将120例患者分为两组。",          # benchmark
+    "患者经伦理委员会批准随机分为两组。",              # approved
+    "经伦理委员会核准随机分为两组。",                  # approved
+    "获准随机分组。",                                  # permitted
+]
+
+
+@pytest.mark.parametrize("text,design", [(t, "") for t in QUASI_RANDOM_ZH]
+                         + [(t, "randomized_trial") for t in ORDINARY_ZH])
+def test_a_quasi_random_term_is_set_aside_and_a_word_ending_like_one_is_not(text, design):
+    reading = read_fields(text)["design"]
+    assert reading.value == design
+    if design:
+        assert reading.rule == "design.trial.zh"
+    else:
+        assert "quasi-random" in reading.note
+
+
 def test_a_passage_given_other_content_is_refused():
     doc = IndexedDocument(ref=DocumentRef(path="a.txt", sha256=_sha(b"abc")), bytes=3,
                           parser="strict utf-8", text_sha256=_sha(b"abc"), text_chars=3,

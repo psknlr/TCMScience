@@ -243,8 +243,14 @@ def _digest(value: Any) -> str:
 
 
 def _real(value: Any) -> bool:
-    return (isinstance(value, (int, float)) and not isinstance(value, bool)
-            and math.isfinite(value))
+    """A finite number a float can hold. An integer too large for one (JSON allows any) is
+    not: ``math.isfinite`` would raise ``OverflowError`` on it rather than answer."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _text(value: Any) -> bool:
@@ -1513,13 +1519,15 @@ class Inquiry:
             [Analysis.from_dict(a) for a in opened["analyses"]],
             StoppingRule.from_dict(opened["rule"]), inquiry_id=opened["inquiry_id"]))
         inquiry._engine = engine
-        _same(inquiry._trail[0]["body"], opened, "opened")
+        _replayed("the opening entry", _same, inquiry._trail[0]["body"], opened, "opened")
         for seq, entry in enumerate(trail[1:], start=1):
             event, body = entry.get("event"), entry.get("body")
-            _replayed(f"trail entry {seq} ({event})", inquiry._replay, event, body)
-            _same(inquiry._trail[-1]["body"], body, event)
+            where = f"trail entry {seq} ({event})"
+            _replayed(where, inquiry._replay, event, body)
+            _replayed(where, _same, inquiry._trail[-1]["body"], body, event)
         if "belief" in data:
-            _same(inquiry.belief, data["belief"], "final belief")
+            _replayed("the final belief", _same, inquiry.belief, data["belief"],
+                      "final belief")
         # Every body recomputed to within float rounding, so the stored chain stands: a
         # last-bit difference in a logarithm on another platform must not move the head.
         inquiry._trail = [json.loads(_canonical(entry)) for entry in trail]
@@ -1646,7 +1654,9 @@ def _from_posterior(p: float, accept_at: float) -> Certainty:
 def _replayed(where: str, apply: Callable[..., Any], *args: Any) -> Any:
     """``apply(*args)``, with any failure to replay ``where`` made the trail's refusal
     (``INQ150``): a chain recomputed around a malformed entry is a trail that does not
-    verify, whatever step of the replay, or whichever constructor, notices it first."""
+    verify, whatever step of the replay, or whichever constructor, notices it first. An
+    ``ArithmeticError`` is one such failure: ``float()`` of an integer too large for a
+    float, as a hand-edited store file can hold, raises ``OverflowError``."""
     try:
         return apply(*args)
     except InquiryRefused as exc:
@@ -1654,7 +1664,7 @@ def _replayed(where: str, apply: Callable[..., Any], *args: Any) -> Any:
             raise
         raise InquiryRefused("INQ150", f"{where} does not replay: {exc.code} "
                              f"{exc.detail}") from exc
-    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+    except (KeyError, TypeError, ValueError, AttributeError, ArithmeticError) as exc:
         raise InquiryRefused("INQ150", f"{where} is malformed: {type(exc).__name__}: "
                              f"{exc}") from exc
 

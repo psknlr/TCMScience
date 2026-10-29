@@ -327,13 +327,20 @@ predicts. Most of the gain held.
 quasi- and pseudo-randomised allocation (by alternation or admission day; "quasi-randomized
 trial", "pseudo-randomized", "半随机", "类随机", "准随机") read as a randomized trial, and so did
 a trial described as "now recruiting". Quasi-random allocation is not randomisation, and
-PubMed does not type it as a randomized trial. A randomisation mention right after "quasi-"
-or "pseudo-" (or 半, 类, 准, unless they end another word, as in "标准随机" or "一半随机") is now
-set aside, as a negated one is, and a trial or study that "is (now) recruiting", or "we are
-recruiting", marks a protocol; "trials that are currently recruiting", which a review looks
-for, does not. The sample holds no such record: `--check` shows no record reading
-differently, and the results were regenerated only for the rules' digest. The cases are in
-`tests/test_literature_evidence.py`.
+PubMed does not type it as a randomized trial. A randomisation mention right after "quasi-",
+"pseudo-", 半, 类 or 准 is now set aside, as a negated one is, and a trial or study that "is
+(now) recruiting", or "we are recruiting", marks a protocol; "trials that are currently
+recruiting", which a review looks for, does not. 半, 类 and 准 also end ordinary words, and
+after one of those the randomisation is read: 一半, 大半, 多半, 各半, 两半, 过半, 对半, 减半,
+折半; a numeral (一 to 十, 两, 几, 数) or 多, 各, 大, 同, 此, 该, 这, 那, 某 before 类, and
+分类, 归类, 种类, 人类; 标准, 水准, 基准, 批准, 核准, 获准, 校准, 精准 (`_ORDINARY_ZH` in
+`evidence.py`). Each is
+excluded as a whole word, not by the character before 半, 类 or 准, so "通过半随机",
+"针对半随机", "一种类随机", "一种准随机", "病人半随机", "病人类随机", "该准随机对照试验" and
+"此半随机对照研究" read as quasi-random. A first version excluded single characters (过 for
+过半, 种 for 种类, 人, 该, 此), which hid these. The sample holds no such record: `--check`
+shows no record reading differently, and the results were regenerated only for the rules'
+digest. The cases are in `tests/test_literature_evidence.py`.
 
 One expectation in `tests/test_literature_evidence.py` changed. "A systematic review and
 meta-analysis of randomized trials in adults" now reads as a systematic review: the trials
@@ -429,6 +436,6 @@ Tests: `BioScience-Harness/tests/test_evidence_typing_benchmark.py` (offline). I
 - 有歧义的文本仍保持未评估。
 - 测试集上发现的缺口（如"随机分成"、"2例并文献复习"、方案"更新"）只记录，不修改，以免在测试集上调参。
 
-**此后的一处修改（来自样本之外的案例）：** 审查发现半随机/伪随机分配（按交替或入院日期分组；"quasi-randomized trial"、"pseudo-randomized"、"半随机"、"类随机"、"准随机"）会被读作随机对照试验，"now recruiting"（仍在招募）的试验也一样。半随机分配不是随机化，PubMed 也不将其标为随机对照试验。现在紧跟在"quasi-"或"pseudo-"（或"半""类""准"，但它们作为其他词的末字时除外，如"标准随机""一半随机"）之后的随机化提及与否定提及一样被跳过；试验或研究"is (now) recruiting"或"we are recruiting"视为试验方案，而综述所检索的"trials that are currently recruiting"不算。样本中没有此类记录：`--check` 显示没有任何记录的读法改变，结果文件只因规则摘要而重新生成。相应用例见 `tests/test_literature_evidence.py`。
+**此后的一处修改（来自样本之外的案例）：** 审查发现半随机/伪随机分配（按交替或入院日期分组；"quasi-randomized trial"、"pseudo-randomized"、"半随机"、"类随机"、"准随机"）会被读作随机对照试验，"now recruiting"（仍在招募）的试验也一样。半随机分配不是随机化，PubMed 也不将其标为随机对照试验。现在紧跟在"quasi-""pseudo-""半""类"或"准"之后的随机化提及与否定提及一样被跳过；试验或研究"is (now) recruiting"或"we are recruiting"视为试验方案，而综述所检索的"trials that are currently recruiting"不算。"半""类""准"也是一些普通词的末字，在这些词之后的随机化照常读取：一半、大半、多半、各半、两半、过半、对半、减半、折半；数词（一至十、两、几、数）或"多""各""大""同""此""该""这""那""某"加"类"，以及分类、归类、种类、人类；标准、水准、基准、批准、核准、获准、校准、精准（见 `evidence.py` 中的 `_ORDINARY_ZH`）。排除的是整个词，而不是"半""类""准"前面的单个字，因此"通过半随机""针对半随机""一种类随机""一种准随机""病人半随机""病人类随机""该准随机对照试验""此半随机对照研究"都读作半随机。最初的版本按单个字排除（为"过半"排除"过"，为"种类"排除"种"，以及"人""该""此"），把这些术语也一并漏掉了。样本中没有此类记录：`--check` 显示没有任何记录的读法改变，结果文件只因规则摘要而重新生成。相应用例见 `tests/test_literature_evidence.py`。
 
 **CI：** `scripts/run_evidence_typing_benchmark.py --check` 离线运行。出现以下情况即判为回退：某条记录读得比已提交结果差，人工核对为正确的字段读法改变，或样本被改动。

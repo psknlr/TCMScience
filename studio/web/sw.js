@@ -6,11 +6,14 @@
 // or a page served by the local runner) PRECACHE stays null and this worker caches nothing.
 //
 // Rules:
-// - One build at a time. The shell (HTML, modules, styles, fonts, the runtime's boot.json and catalog) is served from
+// - One build per page. The shell (HTML, modules, styles, fonts, the runtime's boot.json and catalog) is served from
 //   the cache of the version that installed it, so a page never mixes modules of two builds: the app imports many
 //   modules lazily. A new version installs in the background and waits; the page offers to reload into it. When one
-//   tab does, the others follow (core/offline.js); one that holds unsent work says so and reloads once that is done,
-//   and until then a module it had not loaded yet comes from the new build.
+//   tab does, the new version takes over every page of the site at once, and the others follow (core/offline.js); one
+//   that holds unsent work says so and reloads once that is done. Until then it still runs the build it loaded: the
+//   new version keeps the old version's shell while a page that runs it (or a worker that page started) is open, and
+//   answers that page from it (olderBuild). A page is counted when a version takes it over at activation, under the
+//   version that was active until then, which loaded it (unless it was counted already, under an older one).
 // - Installing checks every file against its SHA-256: a deploy that lands while files are being fetched fails the
 //   install (retried on the next visit) instead of caching a mixture.
 // - Never cached: the model relay (/v1/*), the database gateway and the telemetry (/api/*), the admin dashboard
@@ -52,6 +55,14 @@ const VINA_PREFIX = "tcmstudio-cdn-vina-";
 // pages it already controls until they close, and from now on answers nothing and keeps nothing
 let removed = false;
 
+// The pages (and the workers they started) that run an older build than this worker's: client id -> that build's
+// version. Kept in a cache, since a stopped worker forgets its variables, and read once per start. Under the shell
+// prefix, so a stand-down removes it with the others.
+const OLDER_CACHE = `${SHELL_PREFIX}clients`;
+const OLDER_KEY = "/older-clients.json";
+let older = null; // Map, once read
+let olderP = null;
+
 const shellCache = () => `${SHELL_PREFIX}${PRECACHE.version}`;
 const pyodideCache = () => `${PYODIDE_PREFIX}${(PRECACHE.index_url || "").replace(/[^A-Za-z0-9.]+/g, "_")}`;
 /** The wasm this build's chemistry loads: {url (absolute), sha256}. */
@@ -78,7 +89,7 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(cleanup());
+  event.waitUntil(adoptOlderPages().then(() => cleanup()));
 });
 
 self.addEventListener("message", (event) => {
@@ -95,9 +106,17 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  const response = route(req, url);
+  // a page loads (a reload, a new tab): the pages of older builds that have closed since are forgotten
+  if (req.mode === "navigate") event.waitUntil(forgetClosedPages());
+  const response = olderBuild(event, req, url) || route(req, url);
   if (response) event.respondWith(response);
 });
+
+/** Never answered here: the model relay, the gateway and telemetry, the worker itself, the admin dashboard. */
+function passedOn(url) {
+  return url.pathname.startsWith("/v1/") || url.pathname.startsWith("/api/") || url.pathname === "/sw.js" ||
+    url.pathname === "/admin" || url.pathname.startsWith("/admin/");
+}
 
 /** The response for a request this worker answers, or null to let the network answer it as usual. */
 function route(req, url) {
@@ -107,8 +126,7 @@ function route(req, url) {
   const vina = vinaWasm();
   if (vina && req.url === vina.url) return keepChecked(vinaCache(vina), req, vina.sha256);
   if (url.origin === self.location.origin) {
-    if (url.pathname.startsWith("/v1/") || url.pathname.startsWith("/api/") || url.pathname === "/sw.js") return null;
-    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) return null;
+    if (passedOn(url)) return null;
     // the app is one page (its routes are in the hash); other pages of the site are not the app
     if (req.mode === "navigate") return url.pathname === "/" || url.pathname === "/index.html" ? fromShell("/", req) : null;
     const path = url.pathname === "/index.html" ? "/" : url.pathname;
@@ -122,6 +140,94 @@ function route(req, url) {
 }
 
 const SHELL = new Set(PRECACHE ? PRECACHE.files.map((f) => f.path) : []);
+
+/**
+ * The answer for a request of a page that runs an older build, or of a worker it started: that build's own file while
+ * its shell is kept, else what this version answers (route, or the network). Null when the request cannot be one: a
+ * navigation (it loads a new page, of this version), another origin, a range, what is never answered here, or a page
+ * known to run this version. A worker such a page starts runs its build too (the request's resultingClientId).
+ */
+function olderBuild(event, req, url) {
+  const id = event.clientId;
+  if (!id || req.mode === "navigate" || url.origin !== self.location.origin || req.headers.has("range") || passedOn(url)) return null;
+  if (older && !older.has(id)) return null;
+  return (async () => {
+    const map = await olderPages();
+    const version = map.get(id);
+    if (version && version !== PRECACHE.version && !removed) {
+      if (event.resultingClientId && !map.has(event.resultingClientId)) {
+        map.set(event.resultingClientId, version);
+        await saveOlderPages();
+      }
+      try {
+        const hit = await caches.match(url.pathname === "/index.html" ? "/" : url.pathname, { cacheName: `${SHELL_PREFIX}${version}` });
+        if (hit) return hit;
+      } catch { /* storage refused: as for any page */ }
+    }
+    return (await route(req, url)) || fetch(req);
+  })();
+}
+
+/** The pages that run an older build, read once per start of this worker. */
+function olderPages() {
+  return (olderP ||= (async () => {
+    let entries = null;
+    try {
+      const hit = await caches.match(OLDER_KEY, { cacheName: OLDER_CACHE });
+      if (hit) entries = await hit.json();
+    } catch { /* none kept, or unreadable: no page is known to run an older build */ }
+    older = new Map(Object.entries(entries && typeof entries === "object" ? entries : {}).filter(([, v]) => typeof v === "string"));
+    return older;
+  })());
+}
+
+async function saveOlderPages() {
+  try {
+    if (!older.size) await caches.delete(OLDER_CACHE);
+    else await (await caches.open(OLDER_CACHE)).put(OLDER_KEY, new Response(JSON.stringify(Object.fromEntries(older)), { headers: { "content-type": "application/json" } }));
+  } catch { /* quota: those pages get this version's files, as before */ }
+}
+
+/**
+ * At activation: every page this version now controls was loaded under an older one. A page counted already keeps
+ * its build; any other ran the version that was active until now: the one shell cache besides this version's that no
+ * counted page holds (activation and forgetClosedPages delete every other), or none if that is not a single one. Then
+ * the pages that have closed are forgotten, and cleanup() deletes the shells no open page runs.
+ */
+async function adoptOlderPages() {
+  if (!PRECACHE || !self.clients?.matchAll) return;
+  const map = await olderPages();
+  const held = new Set(map.values());
+  const shells = (await caches.keys()).filter((n) => n.startsWith(SHELL_PREFIX) && n !== OLDER_CACHE && n !== shellCache())
+    .map((n) => n.slice(SHELL_PREFIX.length)).filter((v) => !held.has(v));
+  const previous = shells.length === 1 ? shells[0] : null;
+  for (const c of await self.clients.matchAll({ type: "all" })) if (previous && !map.has(c.id)) map.set(c.id, previous);
+  await closedSince(map);
+  await saveOlderPages();
+}
+
+/** Drop the pages that have closed from `map`. → the older builds no open page runs any more. */
+async function closedSince(map) {
+  const before = new Set(map.values());
+  for (const id of [...map.keys()]) if (!(await self.clients.get(id))) map.delete(id);
+  const after = new Set(map.values());
+  return [...before].filter((v) => !after.has(v));
+}
+
+/** Forget the pages of older builds that have closed, and delete the shells no open page runs any more. */
+async function forgetClosedPages() {
+  if (!self.clients?.get) return;
+  const map = await olderPages();
+  if (!map.size) return;
+  const size = map.size;
+  const gone = await closedSince(map);
+  if (map.size === size) return;
+  await saveOlderPages();
+  for (const v of gone) {
+    if (v === PRECACHE.version) continue;
+    try { await caches.delete(`${SHELL_PREFIX}${v}`); } catch { /* deleted at the next activation */ }
+  }
+}
 
 async function fromShell(path, req) {
   try {
@@ -180,7 +286,9 @@ async function precache() {
 
 async function cleanup({ all = false } = {}) {
   const vina = vinaWasm();
-  const keepNames = PRECACHE && !all ? new Set([shellCache(), pyodideCache(), CDN_CACHE, rdkitCache(), ...(vina ? [vinaCache(vina)] : [])]) : new Set();
+  // the shells of older builds that open pages still run
+  const held = all || !older ? [] : [OLDER_CACHE, ...[...older.values()].map((v) => `${SHELL_PREFIX}${v}`)];
+  const keepNames = PRECACHE && !all ? new Set([shellCache(), pyodideCache(), CDN_CACHE, rdkitCache(), ...(vina ? [vinaCache(vina)] : []), ...held]) : new Set();
   for (const name of await caches.keys()) {
     const ours = name.startsWith(SHELL_PREFIX) || name.startsWith(PYODIDE_PREFIX) || name === CDN_CACHE || name.startsWith(RDKIT_PREFIX) ||
       name.startsWith(VINA_PREFIX);

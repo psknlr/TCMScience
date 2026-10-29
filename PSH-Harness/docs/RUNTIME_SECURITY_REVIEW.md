@@ -284,8 +284,9 @@ also read the evidence-signing key. Three changes close this
   inside the kernel's state directory, whatever `allowed_paths` says, wherever the payload
   names it: under a path-like key (`path`, `file`, `output`, …, relative paths included), as
   any payload value that is itself an absolute or `~` path (`src`, `input`, `cwd`, …), or as
-  a word of a command line (`cat <state>/secrets/evidence.key`, `--file=<state>/…`). Only
-  the workspace and the artifact store are handed to tools. The default allowlist is now
+  a word of a command line (`cat <state>/secrets/evidence.key`, `--file=<state>/…`), quoted
+  or escaped, also when the state directory's path holds a blank. Only the workspace and
+  the artifact store are handed to tools. The default allowlist is now
   `state_dir/workspace/*`. What the gateway cannot see is a path a command builds at run
   time: relative to its working directory (`cd <state>; cat secrets/…`), from a variable or
   through a glob. The execution policy asks about variables and substitutions, but this is
@@ -327,7 +328,7 @@ detail it cannot serialise, instead of raising into the caller. The release gate
 <!-- zh -->
 默认的工具允许名单是 `state_dir/*`，而 `fnmatch` 的 `*` 会跨越 `/`。因此，一个写文件的工具只需调用一次，就能改写 `execpolicy.json`。该文件会在下次启动时整体替换随包发布的规则，而审计链仍然校验通过。文件系统工具还能读取证据签名密钥。三项改动关闭了这个问题（`tests/test_audit_2026_10_kernel.py`）：
 
-* **状态目录属于内核。** 不论 `allowed_paths` 怎么写，只要解析后落在内核状态目录之内，`ToolGateway` 都会拒绝该路径，无论 payload 在哪里指名它：在类似路径的键下（`path`、`file`、`output` 等，包括相对路径）；作为任何本身就是绝对路径或 `~` 路径的 payload 取值（`src`、`input`、`cwd` 等）；或者作为一行命令中的一个词（`cat <state>/secrets/evidence.key`、`--file=<state>/…`）。只有工作区和制品存储交给工具使用。默认允许名单现在是 `state_dir/workspace/*`。网关看不到的，是命令在运行时才构造出来的路径：相对于其工作目录的路径（`cd <state>; cat secrets/…`）、来自变量的路径，或经由通配符得到的路径。执行策略会对变量和命令替换发出询问，但这对 shell 工具而言并不是边界；只有操作系统沙箱（`SandboxBackend`）才是。
+* **状态目录属于内核。** 不论 `allowed_paths` 怎么写，只要解析后落在内核状态目录之内，`ToolGateway` 都会拒绝该路径，无论 payload 在哪里指名它：在类似路径的键下（`path`、`file`、`output` 等，包括相对路径）；作为任何本身就是绝对路径或 `~` 路径的 payload 取值（`src`、`input`、`cwd` 等）；或者作为一行命令中的一个词（`cat <state>/secrets/evidence.key`、`--file=<state>/…`），带引号或转义的也一样，状态目录路径含空格时亦然。只有工作区和制品存储交给工具使用。默认允许名单现在是 `state_dir/workspace/*`。网关看不到的，是命令在运行时才构造出来的路径：相对于其工作目录的路径（`cd <state>; cat secrets/…`）、来自变量的路径，或经由通配符得到的路径。执行策略会对变量和命令替换发出询问，但这对 shell 工具而言并不是边界；只有操作系统沙箱（`SandboxBackend`）才是。
 * **策略文件受完整性校验。** 每次保存都会把文件的 SHA-256 记入审计链（`execpolicy_saved`）。启动时，与最后一条记录不符的文件不会被加载：随包发布的规则生效，并由一个 `execpolicy_rejected` 事件和一条警告说明这一点。被拒绝的文件会被移到一旁，改名为 `execpolicy.json.rejected-<sha16>`，因此拒绝只记录一次，文件中的规则仍然可读。本次改动之前保存的策略文件没有这样的记录，同样如此：升级后第一次打开时它会被移到一旁，其中持久化的修正会被重新询问。`psh verify` 和 BioScience 的 `AuditChainAttestor` 读取事件存储时不打开内核，因此校验审计链永远不会向它追加事件。
 * **策略对一行命令所运行的每一条命令作出裁决。** 只匹配第一个词，曾让“只读检查”规则在无需审批的情况下允许 `find . -delete`、`find . -exec …` 和 `echo hi > /etc/passwd`。它也让 `/usr/bin/sudo`、`env sudo` 和 `rm --recursive --force` 落到 PROMPT 默认值，而不是各自的 forbidden 规则。现在策略在匹配之前先分析每一行命令：
   * 在 shell 读取运算符的地方拆分字符串：未加引号、未被转义，并把注释当作注释。加了引号的 `'|'` 或被转义的 `\;` 是 shell 传给命令的一个词，因此 `find . '|' ls -delete` 是一条会删除文件的 `find`；

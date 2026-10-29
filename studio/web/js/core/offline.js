@@ -47,10 +47,12 @@ function watchForUpdates(registration, sw, location, { onUpdate, busy, onReplace
     location.reload();
   };
   // A new version that takes over this page reloads it, whichever tab asked for it: activation switches every page of
-  // the site at once and deletes the old version's cache, so a page left as it is would import the new build's modules
-  // into the old build's. Asked for here: at once. Asked for in another tab: as soon as nothing here would be lost
-  // (busy(): an answer running, text not sent…), looked at again every IDLE_CHECK_MS; meanwhile onReplaced(reload) lets
-  // the person know, and reload sooner. A page no version ran (the very first install) has nothing to mix.
+  // the site at once, to the version the person chose. Asked for here: at once. Asked for in another tab: as soon as
+  // nothing here would be lost (busy(): an answer running, text not sent…), looked at again every IDLE_CHECK_MS;
+  // meanwhile onReplaced(reload) lets the person know, and reload sooner. Until it reloads, the page runs the build it
+  // loaded: the new version keeps that build's shell while the page is open, and answers what the page, or a worker it
+  // starts, loads later from it (sw.js olderBuild), never with the new build's modules. A page no version ran (the very
+  // first install) has nothing to switch.
   if (sw.controller) {
     sw.addEventListener?.("controllerchange", () => {
       if (asked || typeof busy !== "function" || !busy()) return reload();

@@ -731,6 +731,9 @@ def first(data, event):
     return next(e for e in data["trail"] if e["event"] == event)
 
 
+HUGE = 10 ** 400    # JSON holds an integer of any size; a float cannot hold this one
+
+
 @pytest.mark.parametrize("malform", [
     lambda d: first(d, "planned")["body"].update(size=9),
     lambda d: first(d, "planned")["body"].update(size=None),
@@ -747,10 +750,19 @@ def first(data, event):
     lambda d: d["trail"][0]["body"]["rule"].update(catch_all_floor=0.9),
     lambda d: d["trail"][0]["body"]["explanations"][0].update(prior=0.9),
     lambda d: d["trail"][1]["body"]["predictions"]["target"].update(enriched=math.nan),
+    lambda d: d["trail"][0]["body"]["explanations"][0].update(prior=HUGE),
+    lambda d: d["trail"][0]["body"]["analyses"][0].update(cost=HUGE),
+    lambda d: d["trail"][0]["body"]["rule"].update(budget=HUGE),
+    lambda d: d["trail"][0]["body"]["rule"].update(accept_at=HUGE),
+    lambda d: d["trail"][1]["body"]["predictions"]["target"].update(enriched=HUGE),
+    lambda d: first(d, "observed")["body"]["posterior"].update(target=HUGE),
 ], ids=["plan of 9", "plan of no size", "declared nothing", "body a string",
         "observed nothing", "no body", "a string probability", "not an entry",
         "no opening body", "an explanation as text", "an analysis as a number",
-        "a stopping rule out of range", "a closed world", "a NaN"])
+        "a stopping rule out of range", "a closed world", "a NaN",
+        "a prior too large for a float", "a cost too large for a float",
+        "a budget too large for a float", "a threshold too large for a float",
+        "a prediction too large for a float", "a posterior too large for a float"])
 def test_a_malformed_trail_entry_is_a_trail_that_does_not_verify(malform):
     """Whoever rewrote the chain around a malformed entry gets the trail's refusal, not an
     error from deep inside the replay, or from a constructor the opening entry calls."""
@@ -760,6 +772,57 @@ def test_a_malformed_trail_entry_is_a_trail_that_does_not_verify(malform):
     data = copy.deepcopy(inquiry.as_dict())
     malform(data)
     refused("INQ150", Inquiry.from_dict, rehashed(data))
+
+
+def test_no_rewritten_trail_fails_except_as_a_trail_that_does_not_verify():
+    """A seeded fuzz over the stored trail: one value in one entry replaced, removed or
+    retyped, and the chain recomputed around it. Each such trail either still replays or
+    is refused ``INQ150``; no other error (``OverflowError`` from an integer too large for
+    a float was one) reaches whoever loads the store."""
+    import random
+    inquiry = opened()
+    inquiry.add_analysis(Analysis("extra", "extra", SILICO, BINARY))
+    inquiry.declare("extra", {h: row(0.6) for h in ("target", "coverage", "nonspecific")})
+    inquiry.plan(2)
+    inquiry.observe("assayed", "enriched")
+    inquiry.withdraw("random-2", "cannot run")
+    inquiry.observe("reactome", "enriched")
+    inquiry.admit([Explanation("late", "a late explanation", MECH)], {"late": 0.5})
+    base = inquiry.as_dict()
+    values = [HUGE, -HUGE, 2 ** 63, 5e-324, -0.0, 1e308, math.nan, math.inf, "1e400", None,
+              "x", "", 0, 1, -1, 9, True, [], {}, [1], {"a": 1}, ["x"], 0.5, "enriched"]
+    events = ["observed", "declared", "planned", "admitted", "withdrawn", "analysis_added"]
+    rng = random.Random(20261028)
+
+    def mutate(node, depth=0):
+        keys = list(node) if isinstance(node, dict) else range(len(node))
+        if not keys:
+            return
+        key = rng.choice(list(keys))
+        r = rng.random()
+        if r < 0.2:
+            del node[key]
+        elif r < 0.6 and depth < 4 and isinstance(node[key], (dict, list)) and node[key]:
+            mutate(node[key], depth + 1)
+        else:
+            node[key] = copy.deepcopy(rng.choice(values))
+
+    escaped = []
+    for _ in range(1500):
+        data = copy.deepcopy(base)
+        entry = rng.choice(data["trail"])
+        if rng.random() < 0.1:
+            entry["event"] = rng.choice(values + events)
+        elif isinstance(entry.get("body"), dict):
+            mutate(entry["body"])
+        try:
+            Inquiry.from_dict(rehashed(data))
+        except InquiryRefused as exc:
+            if exc.code != "INQ150":
+                escaped.append(f"{exc.code}: {exc.detail}")
+        except Exception as exc:     # noqa: BLE001 - any other error is the failure
+            escaped.append(f"{type(exc).__name__}: {exc}")
+    assert escaped == []
 
 
 @pytest.mark.parametrize("data", ["a trail", {"schema": 1, "trail": 5}],

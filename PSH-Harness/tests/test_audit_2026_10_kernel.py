@@ -145,6 +145,48 @@ def test_a_command_or_any_payload_field_cannot_name_the_kernels_files(kernel, pa
     assert not decision.allowed and "kernel's own state" in decision.reason
 
 
+def _escaped(path):
+    return str(path).replace(" ", "\\ ")
+
+
+@pytest.mark.parametrize("command", [
+    lambda s: f"cat '{s}/secrets/evidence.key'",
+    lambda s: f'cat "{s}/execpolicy.json"',
+    lambda s: f"cat {_escaped(s)}/secrets/evidence.key",
+    lambda s: f"cat '{s}'/secrets/evidence.key",
+    lambda s: f"cat '{s}/workspace/../secrets/evidence.key'",
+    lambda s: f"tail -n+1 '{s}/secrets/evidence.key'",
+    lambda s: f"git diff --no-index /dev/null '{s}/secrets/evidence.key'",
+    lambda s: f"grep -r --file='{s}/execpolicy.json' x .",
+    lambda s: f"cat <'{s}/secrets/evidence.key'",
+    lambda s: f"cat x;cat '{s}/secrets/evidence.key'",
+    lambda s: f"sh -c \"cat '{s}/secrets/evidence.key'\"",
+    lambda s: f"sh -c \"cat {_escaped(_escaped(s))}/secrets/evidence.key\"",
+    lambda s: ["cat", f"{s}/secrets/evidence.key"],
+    lambda s: ["sh", "-c", f"cat {_escaped(s)}/secrets/evidence.key"],
+], ids=["single quotes", "double quotes", "escaped blank", "quote ends in the word",
+        "dot-dot", "tail", "git diff", "option", "redirect", "after an operator",
+        "sh -c, quoted", "sh -c, escaped", "argv", "argv sh -c"])
+def test_a_command_names_the_kernels_files_under_a_state_dir_with_a_blank(tmp_path,
+                                                                          command):
+    """Every word of the line was split again at blanks, so ``cat '/my k/secrets/…'``
+    became ``/my`` and ``k/secrets/…``; neither named the state, and the shipped ``cat``
+    rule ran it with no approval wherever PSH_HOME held a space."""
+    state = tmp_path / "my k"
+    k = _kernel(state)
+    try:
+        decision = k.tool_gateway.check({"command": command(state)}, Shell().manifest,
+                                        k.policy.envelope())
+        assert not decision.allowed and "kernel's own state" in decision.reason
+        for handed_to_tools in (f"ls '{state}/workspace'",
+                                f"cat {_escaped(state)}/workspace/notes.txt",
+                                ["cat", f"{state}/artifacts/out.bin"]):
+            assert k.tool_gateway.check({"command": handed_to_tools}, Shell().manifest,
+                                        k.policy.envelope()).allowed
+    finally:
+        k.close()
+
+
 def test_a_command_may_still_name_the_workspace(kernel):
     env, state = kernel.policy.envelope(), kernel.config.state_dir
     assert kernel.tool_gateway.check({"command": f"ls {state}/workspace"},

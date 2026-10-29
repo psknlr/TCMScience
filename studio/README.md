@@ -162,7 +162,7 @@ tcmstudio serve
 - **离线可用。** 第一次访问后，网页、Python 运行环境和字体由 Service Worker 按带 SHA-256 的清单缓存，断网时仍能打开页面、
   运行浏览器工具；用过的数据文件（如方剂表）也保存在本地并经校验。新版本下载好后提示重新载入，不会强制切换；在一个标签页里
   重新载入后，本站其他打开的标签页也随之重新载入（标签页里还有进行中的回答或任务、未发送的文字或打开的对话框时，先提示，
-  等这些结束后再重新载入）；网址加 `?nosw` 可移除 Service Worker 及其缓存。模型调用和数据库查询仍需联网。
+  在此之前继续完整运行原来载入的版本，等这些结束后再重新载入）；网址加 `?nosw` 可移除 Service Worker 及其缓存。模型调用和数据库查询仍需联网。
 - **手机免安装数据库访问。** 注册的数据库查询经同源网关转发，仍需项目联网开关和批准。完整方剂表按需下载并校验，保留全部
   84,294 条来源记录；`tcmdb.formulas` 加 `rank: true` 可多词检索并按相关度排序，药名同时按药材表中的其他写法查找（如
   黄芪 / 黄耆），每条记录注明如何匹配。查药材（`tcm_herb`）会列出完整方剂库中含此药的方剂（`tcmdb.formulas` 加 `herb`
@@ -354,7 +354,7 @@ clinical tool or identifying details), and counts anonymous usage you can switch
   manifest of SHA-256 hashes, so the page opens and runs browser tools offline; data files used once (the formula
   workbook, for example) stay in a verified local cache. A new version is offered, never forced; once you reload into
   it in one tab, the site's other open tabs reload with it (a tab with an answer or job under way, unsent text or a
-  dialog open says so first, and reloads once those are done). `?nosw` removes the service worker and its caches.
+  dialog open says so first, keeps running the whole version it loaded, and reloads once those are done). `?nosw` removes the service worker and its caches.
   Model calls and database queries still need the network ([docs/BROWSER_ACCESS.md](docs/BROWSER_ACCESS.md)).
 - **Add the local runner**: in a virtual environment (Ubuntu 23.04+, Debian 12 and Homebrew Python refuse a
   system-wide `pip install` with `externally-managed-environment`; on Debian/Ubuntu `python3 -m venv` first needs

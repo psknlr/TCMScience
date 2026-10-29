@@ -59,15 +59,27 @@ FIELDS = ("design", "population", "comparator", "outcome")
 #: A negation just before a design mention: "non-randomized", "not randomly assigned",
 #: "未随机分组", "非随机对照".
 _NEGATED = re.compile(r"(?:\bnot|\bnon[-–]?|\bwithout|未|非|无)\s*$", re.I)
+#: The words ending in 半, 类 or 准 that put that character just before 随机 without making
+#: the allocation quasi-random, each a whole word: "一半随机分配" half of them randomised,
+#: "标准随机分组" standard randomisation, "经…批准随机分为" approved, then randomised, "按证型
+#: 分类随机" classified, then randomised. A word is excluded, not its first character: 种,
+#: excluded for 种类, also hid "一种准随机", and 过, for 过半, hid "通过半随机". So where a
+#: longer word ends in the excluded one but splits the other way, it is named before it:
+#: "通过|半随机", "针对|半随机", "一种|类随机", "病人|类随机" stay quasi-random. Each entry
+#: is two characters wide, as a look-behind requires.
+_ORDINARY_ZH = (
+    "[一大多各两]半", "(?<!通)过半", "(?<!针)对半", "[减折]半",            # half, most of
+    "[一二两三四五六七八九十几数多各大同此该这那某]类", "[分归]类",       # kinds, such
+    "(?<![一这那某该此每另])种类", "(?<!病)人类",                       # kind, humankind
+    "[标水基批核获校精]准",                     # standard, level, approved, calibrated
+)
 #: Allocation that only resembles randomisation, just before a randomisation mention:
 #: "quasi-randomized", "pseudo-randomised", "quasi-randomly allocated", "半随机", "类随机",
 #: "准随机". Allocation by alternation, admission day or record number is not
-#: randomisation, and PubMed does not type it as a randomized trial. 半, 类 and 准 also end
-#: common words that do not qualify the randomisation, and those are not set aside:
-#: "标准随机分组" is standard randomisation, "一半随机分配" half of them randomised,
-#: "经…批准随机分为" approved, then randomised.
+#: randomisation, and PubMed does not type it as a randomized trial. 半, 类 and 准 ending
+#: one of :data:`_ORDINARY_ZH` do not qualify the randomisation, and are not set aside.
 _QUASI = re.compile(r"(?:\bquasi|\bpseudo)[-–]?\s*$"
-                    r"|(?<![一大多过各减折两人分种此该这那同归标水基批核校精])[半类准]$", re.I)
+                    rf"|[半类准](?<!{'|'.join(_ORDINARY_ZH)})$", re.I)
 
 #: The study noun a design mention qualifies, when one follows it through modifiers only
 #: ("randomized, double-blind, placebo-controlled trial", "randomized and non-randomized
