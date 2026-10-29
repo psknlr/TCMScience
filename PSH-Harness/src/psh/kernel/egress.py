@@ -273,21 +273,31 @@ class ToolGateway(_GateBase):
         ``><state>/execpolicy.json``). A path a command builds — relative to its working
         directory, or from a variable — is not visible here; the execution policy asks about
         expansions, and only an OS sandbox bounds what a shell can reach.
+
+        A state directory may hold a blank (``/data/my lab/psh``). A shell word naming a
+        path in it carries the blank quoted or escaped, and keeps it once the quotes are
+        removed (``shlex``), so each word is also read split only at the shell's operators
+        and option separators, not at blanks. Split at blanks, as the raw line is, such a
+        path was cut in two, and neither half named the state.
         """
         strings: list[str] = []
         _flatten_into(raw, strings, [_WALK_MAX_NODES], 0)
         candidates = {s.strip() for s in strings
                       if s.strip()[:1] in ("/", "~") and "\n" not in s.strip()}
         if command is not None:
+            # A text is the line, or one argv element; a word is one argument as the program
+            # receives it. A word with a blank in it may be a line given to ``sh -c``, whose
+            # own words are read once more.
             texts = [command] if isinstance(command, str) else [str(c) for c in command]
-            if isinstance(command, str):
-                try:
-                    texts += shlex.split(command)       # quotes removed: '/st'ate/…
-                except ValueError:
-                    pass
-            candidates.update(piece for text in texts
-                              for piece in _COMMAND_WORD_SPLIT.split(text)
-                              if piece[:1] in ("/", "~"))
+            words: list[str] = []
+            for text in texts:
+                for word in _shell_words(text):         # quotes removed: '/st'ate/…
+                    words.append(word)
+                    if any(ch.isspace() for ch in word):
+                        words += _shell_words(word)
+            candidates.update(piece for word in (*texts, *words)
+                              for split in (_COMMAND_WORD_SPLIT, _COMMAND_PATH_SPLIT)
+                              for piece in split.split(word) if piece[:1] in ("/", "~"))
         for candidate in sorted(candidates):
             try:
                 target = Path(candidate).expanduser().resolve(strict=False)
@@ -997,7 +1007,19 @@ _PATH_KEYS = ("path", "file", "filename", "dest", "destination", "output", "targ
 #: Where a word of a command line may hold a path: between blanks, after "=" or ":"
 #: (``--file=/x``, ``PATH=/a:/b``), against an operator (``>/x``), inside quotes or braces.
 _COMMAND_WORD_SPLIT = re.compile(r"""[\s=:<>|;&()`'",{}]+""")
+#: The same separators without the blanks, for a word whose blanks are its own: an argv
+#: element, or a word of a line with its quotes and escapes removed (``'/my lab/…'``).
+_COMMAND_PATH_SPLIT = re.compile(r"""[=:<>|;&()`'",{}]+""")
 _COMMAND_KEYS = ("command", "cmd", "argv", "args", "shell")
+
+
+def _shell_words(text: str) -> list[str]:
+    """The words a POSIX shell reads in ``text``, quotes and escapes removed, or none if it
+    does not lex (an unclosed quote): the raw text is still split for paths."""
+    try:
+        return shlex.split(text)
+    except ValueError:
+        return []
 
 
 _COMMAND_COMPONENT_HINTS = ("shell", "bash", "sh", "exec", "command", "terminal", "subprocess")

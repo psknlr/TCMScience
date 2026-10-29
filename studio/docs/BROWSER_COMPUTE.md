@@ -453,10 +453,13 @@ software adapter always reads "software, not evidence".
   SHA-256, and checked against it when cached), Pyodide, and the fonts. The page loads and runs tools with the network
   off. An offline run produced the same output hash as an online one.
 - Each version is a consistent snapshot. A new version installs in the background and is offered ("a new version is
-  ready"); it takes over only when the person reloads, and then every open tab of the site reloads into it (a tab left
-  on the old version would load the new build's modules into the old build's). The tab where the person reloaded does
-  so at once; another tab that holds what a reload would lose (an answer or a browser job under way, text typed or
-  files attached and not sent, a dialog open) says so, and reloads once that is done (looked at every three seconds).
+  ready"); it takes over only when the person reloads, and then every open tab of the site reloads into it. The tab
+  where the person reloaded does so at once; another tab that holds what a reload would lose (an answer or a browser
+  job under way, text typed or files attached and not sent, a dialog open) says so, and reloads once that is done
+  (looked at every three seconds). Until then that tab still runs the build it loaded: the new version keeps the old
+  build's shell while a page that runs it is open, and serves that page, and any worker it starts, from it, so a module
+  the tab loads later (another page of the app, a job's worker) is never the new build's. The old shell is deleted
+  once no open page runs it.
 - It never caches `/v1` (model traffic) or `/api` (database queries), nor range requests. `?nosw` unregisters it and
   deletes its caches, as a way out. Automated browsers get it only when they ask (`?sw`).
 - The Python bundle and data assets were already content-addressed: kept by SHA-256 in the runtime cache and verified
