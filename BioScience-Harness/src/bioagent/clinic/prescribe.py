@@ -16,11 +16,13 @@ then made to fit the person:
 ``check`` then holds the prescription, drafted or the practitioner's own, to:
 十八反 / 十九畏 (the pack's rules and the seed knowledge base's records); pregnancy
 (禁用 stops, 慎用 needs the practitioner's reason, an unknown status in a woman of
-child-bearing age needs it asked first); allergies; drug interactions with the recorded
-medications; cautions for recorded conditions; toxic herbs and their processing and
-decoction notes; doses outside the (age-scaled) range. Where the pack and the knowledge
-base disagree on a safety point (附子 in pregnancy: 药典 2020 慎用, the seed's 《中药学》
-reading 禁用), the stricter applies and the report says the sources differ.
+child-bearing age needs it asked first); allergies (a stop when the entry names the herb, a
+warning when the materia table only gives the two one source); drug interactions with the
+recorded medications, and which of them the rules do not recognise (so an unchecked
+medicine is not mistaken for a safe one); cautions for recorded conditions; toxic herbs and
+their processing and decoction notes; doses outside the (age-scaled) range. Where the pack
+and the knowledge base disagree on a safety point (附子 in pregnancy: 药典 2020 慎用, the
+seed's 《中药学》 reading 禁用), the stricter applies and the report says the sources differ.
 
 Severities: ``stop`` — cannot be signed as it stands; ``block`` — can be signed only with
 the practitioner's recorded reason; ``warn`` and ``info`` — shown. Nothing here decides;
@@ -129,19 +131,104 @@ def _resolve(kb: Any, herb: str) -> Any:
 
 def _identity(kb: Any, name: str) -> set[str]:
     """The herb a whole written name denotes by the seed knowledge base's names (黄耆, 北芪 and
-    绵芪 are 黄芪, 芍药 is 白芍, 国老 is 甘草); a processed form is its herb (炙甘草). Not by
-    the materia table's: it groups the names of a source, so its 鸡内金 also lists 鸡蛋 and
-    乌鸡, its 海藻 海带 and 昆布, and a food allergy would read as the herb."""
+    绵芪 are 黄芪, 芍药 is 白芍, 国老 is 甘草); a processed form is its herb, whether the
+    knowledge base lists it (炙甘草) or a processing word stands before one of its names
+    (炙黄耆, 酒当归). This is drug identity. The materia table's names are not: it groups the
+    names of a source, so its 鸡内金 also lists 鸡蛋 and 乌鸡, and its 海藻 海带 and 昆布
+    (``_materia``)."""
+    from ..sources.materia import PROCESSING_WORDS
     entity = _resolve(kb, name)
+    for word in sorted(PROCESSING_WORDS, key=len, reverse=True):
+        if entity is not None:
+            break
+        if name.startswith(word) and len(name) > len(word):
+            entity = _resolve(kb, name[len(word):])
     if entity is None:
         return set()
     herb = getattr(entity, "herb_id", "") or entity.id
     return {herb} if herb.startswith("herb.") else set()
 
 
+def _materia(name: str) -> Any:
+    """The materia table's entry for a whole written name, or None. The table files names
+    by source (species or product), for network pharmacology: an entry's names are of one
+    source, not always of one drug (鸡内金 with 鸡蛋, 海藻 with 海带)."""
+    from ..sources.materia import MATERIA, resolve_name
+    try:
+        drug = resolve_name(name)
+    except Exception:                                            # noqa: BLE001
+        return None
+    return MATERIA.get(drug) if drug else None
+
+
+def _processed(longer: str, shorter: str) -> bool:
+    """``longer`` is ``shorter`` with a processing word in front: 炙黄芪 of 黄芪, 熟地黄 of
+    地黄, 制附子 of 附子. Not a word of origin or colour (白附子 is not 附子)."""
+    from ..sources.materia import PROCESSING_WORDS
+    return (len(longer) > len(shorter) and longer.endswith(shorter)
+            and longer[:-len(shorter)] in PROCESSING_WORDS)
+
+
 def _allergen(entry: str) -> str:
     """The name in an allergy entry written as 对黄耆过敏 or 黄耆过敏."""
     return entry.removeprefix("对").removesuffix("过敏") or entry
+
+
+def _allergies(herbs: Sequence[str], allergies: Sequence[str], kb: Any) -> list[Issue]:
+    """Each herb against each recorded allergy.
+
+    ``stop`` (cannot be signed) when the entry names the herb: the same name, one inside the
+    other (人参过敏史 and 人参, 黄芪 and 炙黄芪), or a name the seed knowledge base gives the
+    same herb (黄耆, 北芪 and 黄芪; 芍药 and 白芍; 国老 and 甘草).
+
+    ``warn`` when the materia table puts the two under one source: the entry is another of
+    the names it files with the herb (薯蓣 and 山药, 双花 and 金银花, but also 鸡蛋 and 鸡内金,
+    海带 and 海藻), or the two drugs come from one species (芍药 and 赤芍, Paeonia
+    lactiflora). The table groups names by source, not by drug, so the message says they
+    share a source and asks the practitioner to check; it never says they are one herb.
+
+    One name inside the other is not taken for the herb when both name known drugs that
+    differ, unless the longer is the shorter processed (熟地黄 of 地黄): a near name is often
+    another drug (白附子 and 附子, 香附子 and 附子, 核桃仁 and 桃仁, 川牛膝 and 牛膝). It is
+    then a ``warn``, because a name such as 茱萸 may mean either drug.
+    """
+    entries = [(a, name, _identity(kb, name), _materia(name))
+               for a in allergies for name in (_allergen(a),)]
+    out: list[Issue] = []
+    for h in herbs:
+        h_kb, h_m, h_n = _identity(kb, h), _materia(h), normalise(h)
+        for a, name, a_kb, a_m in entries:
+            recorded = f"过敏史记录“{a}”：处方含{h}"
+            same_kb = bool(h_kb & a_kb)
+            both = a_m is not None and h_m is not None
+            inside = bool(h_n) and (h_n in a or (len(a) >= 2 and a in h_n))
+            # the name tables give the two names to different drugs (白附子 and 附子)
+            other = not same_kb and ((both and a_m.id != h_m.id) or (bool(a_kb) and bool(h_kb)))
+            if inside and other:
+                other = not (_processed(name, h_n) or _processed(h_n, name))
+            if inside and not other:
+                out.append(Issue(f"allergy:{h}", "stop", "allergy", recorded, (h,)))
+            elif same_kb:
+                out.append(Issue(f"allergy:{h}", "stop", "allergy",
+                                 f"{recorded}（{name}与{h}为同一药材）", (h,), "种子知识库"))
+            elif both and a_m.id == h_m.id:
+                out.append(Issue(f"allergy_source:{h}", "warn", "allergy_source",
+                                 f"{recorded}。药材名表将{name}与{h}同列于“{h_m.chinese}”条下，"
+                                 "按该表二者同源（同一物种/来源），未必是同一种药，请核实", (h,),
+                                 "药材名表（materia）"))
+            elif both and (shared := [s for s in a_m.species_names if s in h_m.species_names]):
+                out.append(Issue(f"allergy_source:{h}", "warn", "allergy_source",
+                                 f"{recorded}。{name}与{h}同源（同一物种：{'、'.join(shared)}），"
+                                 "未必是同一种药，请核实", (h,), "药材名表（materia）"))
+            elif inside:
+                which = (f"药材名表将{name}"
+                         + ("" if a_m.chinese == name else f"（{a_m.chinese}）")
+                         + f"与{h}列为不同药材" if both
+                         else f"种子知识库将{name}与{h}列为不同药材")
+                out.append(Issue(f"allergy_near_name:{h}", "warn", "allergy_near_name",
+                                 f"{recorded}。二者名称相近，但{which}，请核实所记过敏为何药",
+                                 (h,)))
+    return out
 
 
 def _line_for(pack: ClinicPack, herb: str, dose: float | None, fraction: float, *,
@@ -384,27 +471,17 @@ def check(lines: Sequence[Line], intake: Intake, pack: ClinicPack, *, kb: Any = 
         _pregnancy(issues, ln.herb, spec.pregnancy, entity, kb, patient)
     _incompatibility(issues, herbs, entities, kb, pack)
     if intake.allergies:
-        # by name and by identity: 黄耆, 北芪 and 黄芪 are one herb, 芍药 is 白芍, 国老 is 甘草
-        allergic = {a: _identity(kb, _allergen(a)) for a in intake.allergies}
-        for h in herbs:
-            same = _identity(kb, h)
-            for a in intake.allergies:
-                if normalise(h) in a or (len(a) >= 2 and a in normalise(h)):
-                    issues.append(Issue(f"allergy:{h}", "stop", "allergy",
-                                        f"过敏史记录“{a}”：处方含{h}", (h,)))
-                elif same & allergic[a]:
-                    issues.append(Issue(f"allergy:{h}", "stop", "allergy",
-                                        f"过敏史记录“{a}”：处方含{h}"
-                                        f"（{_allergen(a)}与{h}为同一药材）",
-                                        (h,)))
+        issues += _allergies(herbs, intake.allergies, kb)
     if intake.medications is not None:
         meds = [normalise(m) for m in intake.medications]
         named = _named_medicines(pack, meds)
         for rule in pack.drug_interactions:
             present = [h for h in herbs if h in rule["herbs"]]
             drugs = [d for d in rule["drugs"] if any(normalise(d) in m for m in meds)]
-            # a medicine recorded by name (呋塞米, Lasix) is read as its ATC class (利尿剂)
-            by_name = [(n, word, atc) for n, word, atc in named if word in rule["drugs"]]
+            # a medicine recorded by name (呋塞米, Lasix) is read as its ATC class (利尿剂);
+            # one in two classes (氢氯噻嗪: 利尿剂 and 降压药) by each rule that names either
+            by_name = [(n, next(w for w in words if w in rule["drugs"]), atc)
+                       for n, words, atc in named if any(w in rule["drugs"] for w in words)]
             if present and (drugs or by_name):
                 labels = drugs + [f"{n}（{word}，ATC {atc}）" for n, word, atc in by_name]
                 source = str(rule.get("source") or "")
@@ -415,6 +492,14 @@ def check(lines: Sequence[Line], intake: Intake, pack: ClinicPack, *, kb: Any = 
                                     "interaction",
                                     f"{'、'.join(present)}与正在使用的{'、'.join(labels)}："
                                     f"{rule['risk']}", tuple(present), source))
+        # "no interaction" is told from "not recognised": a medicine neither a rule's class
+        # word nor the ATC mapping names was not checked at all (美托洛尔, 螺内酯)
+        unknown = _unrecognised(pack, intake.medications)
+        if unknown:
+            issues.append(Issue("medications_unrecognised", "info", "medications_unrecognised",
+                                f"未识别的用药：{'、'.join(unknown)}。知识包的相互作用规则与药物"
+                                "分类均未收录，未核查其与本方的相互作用（未提示不等于无相互作用）",
+                                (), pack.drug_classes_source))
     if intake.conditions:
         conds = [normalise(c) for c in intake.conditions]
         for rule in pack.condition_cautions:
@@ -428,21 +513,31 @@ def check(lines: Sequence[Line], intake: Intake, pack: ClinicPack, *, kb: Any = 
     return _dedupe(issues)
 
 
-def _named_medicines(pack: ClinicPack, meds: Sequence[str]) -> list[tuple[str, str, str]]:
-    """(name, class word, ATC code) of each medicine the pack's ATC mapping finds in the
+def _named_medicines(pack: ClinicPack, meds: Sequence[str]
+                     ) -> list[tuple[str, tuple[str, ...], str]]:
+    """(name, class words, ATC code) of each medicine the pack's ATC mapping finds in the
     recorded medications, once per ATC code. A name inside a longer one found in the same
     record is that one's (泼尼松 in 泼尼松龙 is prednisolone, not prednisone)."""
-    out: list[tuple[str, str, str]] = []
+    out: list[tuple[str, tuple[str, ...], str]] = []
     codes: set[str] = set()
     for m in meds:
         found = [n for n in pack.drug_classes if normalise(n) and normalise(n) in m]
         for n in found:
-            word, atc = pack.drug_classes[n]
+            words, atc = pack.drug_classes[n]
             if atc in codes or any(n != o and normalise(n) in normalise(o) for o in found):
                 continue
             codes.add(atc)
-            out.append((n, word, atc))
+            out.append((n, words, atc))
     return out
+
+
+def _unrecognised(pack: ClinicPack, medications: Sequence[str]) -> list[str]:
+    """The recorded medications that no interaction rule's class word and no name in the
+    ATC mapping is found in: nothing was checked for them."""
+    known = {normalise(str(d)) for r in pack.drug_interactions for d in r.get("drugs") or ()}
+    known |= {normalise(n) for n in pack.drug_classes}
+    known.discard("")
+    return [m for m in medications if not any(k in normalise(m) for k in known)]
 
 
 def _pregnancy(issues: list[Issue], herb: str, pack_note: str, entity: Any, kb: Any,

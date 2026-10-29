@@ -48,8 +48,11 @@ practitioner (`clinic check`):
 | Pregnancy: 禁用 | stop |
 | Pregnancy: 慎用 | block |
 | Pregnancy status unknown in a woman of child-bearing age | block |
-| Allergy, to the herb under any name the seed knowledge base gives it (黄耆 or 北芪 is 黄芪, 芍药 is 白芍, 国老 is 甘草) | stop |
+| Allergy, to the herb by name or under any name the seed knowledge base gives it (黄耆 or 北芪 is 黄芪, 芍药 is 白芍, 国老 is 甘草) | stop |
+| Allergy recorded under a name the materia table files with the herb's source (薯蓣 with 山药, but also 鸡蛋 with 鸡内金), or to a drug of the same species (芍药 and 赤芍) | warn |
+| Allergy to a near name that the name tables give another drug (白附子 and 附子) | warn |
 | Interaction with a recorded medication, named by its class (利尿剂) or by its own name (呋塞米, Lasix) | warn |
+| A recorded medication that neither the rules' class words nor the named medicines recognise | info |
 | Caution for a recorded condition | warn |
 | Toxic herb, with its processing and decoction notes | warn |
 | Dose above the (age-scaled) range: toxic herb | block |
@@ -63,22 +66,48 @@ Where the Pharmacopoeia and the knowledge base disagree, the stricter applies an
 report says the sources differ. For example, the Pharmacopoeia 2020 says 孕妇慎用 for
 附子 and the seed's reading says 禁用, so 附子 in pregnancy is a stop.
 
-An allergy entry matches a herb when one name contains the other, or when both name the
-same herb in the seed knowledge base. Its names are a herb's own and its processed forms'
-(炙甘草 is 甘草). The herb is found from the whole entry, or from the name in 对黄耆过敏
-or 黄耆过敏. An entry is not searched for herb names inside it: 花粉过敏 is a pollen
-allergy, not one to 天花粉. The materia table's names are not used. That table groups the
-names of a source, so its 鸡内金 also lists 鸡蛋, and its 海藻 lists 海带 and 昆布. Read
-as one herb, an egg allergy would stop 鸡内金. A herb the knowledge base does not hold
-matches by its name alone.
+An allergy entry is read as a whole, or as the name in 对黄耆过敏 or 黄耆过敏. It is not
+searched for herb names inside it. An entry stops a herb (`allergy`) when:
+- it names the herb: the same name, or one name inside the other (人参过敏史 and 人参,
+  黄芪 and 炙黄芪);
+- or the seed knowledge base gives both names to one herb. Its names are a herb's own and
+  its processed forms' (黄耆 and 北芪 are 黄芪, 芍药 is 白芍, 国老 and 炙甘草 are 甘草), and a
+  processing word before one of them is the same herb processed (炙黄耆 is 黄芪).
+
+An entry warns (`allergy_source`) when the materia table puts it and the herb under one
+source. Either the entry is another name the table files with the herb (薯蓣 with 山药,
+双花 with 金银花), or the two drugs come from one species (芍药 and 赤芍 both come from
+Paeonia lactiflora). The table covers all but one of the pack's herbs (首乌藤), so an
+alias the knowledge base does not hold is no longer missed. But the table groups names by
+source, not by drug: its 鸡内金 also lists 鸡蛋, and its 海藻 lists 海带 and 昆布. So the
+warning says that the two share a source, asks the practitioner to check, and never says
+they are one herb.
+
+One name inside the other does not stop the herb when the name tables give the two names
+to different drugs. A near name is often another drug: 白附子 and 香附子 are not 附子, and
+核桃仁 (walnut) is not 桃仁. Such a pair warns instead (`allergy_near_name`), because a
+name such as 茱萸 can mean either drug. A processed form still stops: 熟地黄 is 地黄
+processed, though the materia table files the two apart.
+
+Two false stops remain, because no naming rule can tell them apart:
+- the materia table lists 花粉 as a name of 天花粉 (its usual short name in
+  prescriptions), so a bare 花粉 entry stops 天花粉. An entry written 花粉过敏 is read as
+  the name 花粉 and only warns;
+- neither table knows 西红花 or 藏红花 (saffron), so they stop 红花 (safflower) by
+  containment.
 
 The interaction rules name classes of medicines. A recorded medicine also counts as its
-class when the pack's mapping lists it. The mapping covers 35 medicines, by generic name
-(Chinese and English) and common brand names. Each one carries its WHO ATC code, and the
-pack refuses a mapping whose code is outside its class's ATC groups or inside another
-class's. A medicine in two classes is left out. For example, a beta blocker is both an
-antihypertensive and an antiarrhythmic. A medicine outside the mapping is matched by the
-class words alone.
+classes when the pack's mapping lists it. The mapping covers 35 medicines, by generic name
+(Chinese and English) and common brand names. Each one carries its WHO ATC code and is
+read as every class whose ATC groups hold that code. The pack refuses a mapping that
+names another class or leaves one out. A thiazide (hydrochlorothiazide, C03AA03) or
+indapamide (C03BA11) is both a diuretic (利尿剂) and an antihypertensive (降压药), so 麻黄
+with hydrochlorothiazide warns as 麻黄 with amlodipine does. A loop diuretic (furosemide,
+C03CA01) is a diuretic only. Beta blockers are not mapped, because no class lists their
+ATC group (C07). A medicine outside the mapping is matched by the class words alone. A
+recorded medication that neither recognises is listed in an info issue
+(`medications_unrecognised`), so "checked, no interaction" can be told from "not
+recognised, not checked".
 
 ### Follow-up
 
@@ -188,8 +217,12 @@ practitioner reviews it, every report repeats that status.
 - 安全核查：
   - 十八反、十九畏：须说明理由；
   - 妊娠禁用：停止；慎用：须说明理由；育龄期患者妊娠状态未知：须先确认；
-  - 过敏：停止。按药材判断，种子知识库所列别名也算（黄耆、北芪即黄芪，芍药即白芍，国老即甘草），炮制品即其药材（炙甘草即甘草）；按整条过敏记录识别药材，“对黄耆过敏”“黄耆过敏”也识别为黄耆，但不在记录中拆字找药名（花粉过敏指花粉，不是天花粉）；不采用药材名表（materia）的别名：该表按来源归并名称，鸡内金下列有鸡蛋，海藻下列有海带、昆布，若视为同一药材，鸡蛋过敏会误停鸡内金；知识库未收的药材只按名称本身匹配；
-  - 中西药相互作用：警示。西药按类别名（如利尿剂）识别，也按具体药名识别：知识包按 WHO ATC 分类把 35 种药（中英文通用名和常见商品名，如呋塞米、Lasix）对应到规则中的类别，每种附 ATC 编码；同属两类的药（如 β 受体阻滞剂）不列入；
+  - 过敏：按整条过敏记录识别，“对黄耆过敏”“黄耆过敏”也识别为黄耆，但不在记录中拆字找药名。
+    - 停止：记录与药名相同，或一名包含另一名（人参过敏史与人参，黄芪与炙黄芪）；或种子知识库认定为同一药材（黄耆、北芪即黄芪，芍药即白芍，国老、炙甘草即甘草），其名称前加炮制词的仍是该药（炙黄耆即黄芪）；
+    - 警示：药材名表（materia）把记录与该药归于同一来源，即记录是该表列在该药名下的另一名称（薯蓣与山药，双花与金银花），或二者来自同一物种（芍药与赤芍，都可来自 Paeonia lactiflora）。该表收录知识包中除首乌藤外的全部药材，但按来源而非按药归并名称（鸡内金下列有鸡蛋，海藻下列有海带、昆布），所以警示只说二者同源（同一物种/来源），请医师核实，不称为同一药材；
+    - 一名包含另一名、但名表认定为不同药材时不停止：名称相近的常是另一种药（白附子、香附子不是附子，核桃仁不是桃仁），改为警示，因为“茱萸”这类名称可能指其中任一种。炮制品仍停止：熟地黄是地黄的炮制品，虽然药材名表把二者分列；
+    - 仍有两类误停，命名规则无法区分：药材名表把“花粉”列为天花粉的名称（处方常用简称），所以只写“花粉”会停止天花粉，而“花粉过敏”按名称“花粉”识别，只警示；两个名表都未收西红花、藏红花（番红花），所以按包含关系停止红花；
+  - 中西药相互作用：警示。西药按类别名（如利尿剂）识别，也按具体药名识别：知识包按 WHO ATC 分类把 35 种药（中英文通用名和常见商品名，如呋塞米、Lasix）对应到规则中的类别，每种附 ATC 编码，并归入其编码所属的全部类别。噻嗪类（氢氯噻嗪，C03AA03）和吲达帕胺（C03BA11）既是利尿剂也是降压药，所以麻黄与氢氯噻嗪同用也会警示；袢利尿剂（呋塞米）只属利尿剂；β 受体阻滞剂（C07）不属于任何已列类别，未列入。类别名和药名都未识别的用药以“提示”列出，说明未核查其相互作用（未提示不等于无相互作用）；
   - 病证慎用：警示；
   - 毒性药材：警示，并附炮制与煎法；
   - 超量：有毒药材须说明理由，其他药材警示；
