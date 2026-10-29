@@ -242,7 +242,6 @@ def values_rnaseq(run: Path, truth: dict) -> list[dict]:
 
 def values_scrna(run: Path, truth: dict) -> list[dict]:
     import numpy as np
-    from bioagent.omics.scrna import _safe
     from sc_world import EXPECTED
     from test_pipeline_references import _ari
 
@@ -279,17 +278,22 @@ def values_scrna(run: Path, truth: dict) -> list[dict]:
           ari > want["cluster_ari_above"], f"{ari:.4f} over {int(keep.sum())} cells of the four types")
     types = sorted({r["cell_type"] for r in _rows(run / "clusters.tsv")})
     check(f"the cell types are {', '.join(want['cell_types'])}", types == want["cell_types"], ", ".join(types))
-    tests = ((record.get("pseudobulk") or {}).get("tests") or {})
+    pseudobulk = record.get("pseudobulk") or {}
+    tests = pseudobulk.get("tests") or {}
+    # each test's table as the run names it (two cell types can share a stem: Mono+ and Mono- are Mono_ and Mono__2)
+    files = pseudobulk.get("files") or {}
+    unnamed = sorted(set(tests) - set(files))
+    check("the run record names each pseudobulk test's table", not unnamed,
+          f"no table named for {', '.join(unnamed)}" if unnamed else f"{len(files)} tables")
     planted = set(truth["condition_genes"])
-    b = tests.get("B cell")
-    found = (set(_significant(run / "pseudobulk" / f"{_safe('B cell')}.tsv", b["alpha"]))
-             if b else set())
+    b = tests.get("B cell") if "B cell" in files else None
+    found = set(_significant(run / files["B cell"], b["alpha"])) if b else set()
     check(f"planted genes significant in the B-cell pseudobulk: at least "
           f"{want['pseudobulk_b_cell_planted_genes_at_least']}",
           len(found & planted) >= want["pseudobulk_b_cell_planted_genes_at_least"],
           f"{len(found & planted)} of {len(planted)} ({len(found)} significant)" if b else "no B-cell test")
-    others = {ct: len(_significant(run / "pseudobulk" / f"{_safe(ct)}.tsv", t["alpha"]))
-              for ct, t in tests.items() if ct != "B cell"}
+    others = {ct: len(_significant(run / files[ct], t["alpha"]))
+              for ct, t in tests.items() if ct != "B cell" and ct in files}
     check(f"significant genes in each other cell type: at most "
           f"{want['pseudobulk_other_cell_types_significant_at_most']}",
           others and max(others.values()) <= want["pseudobulk_other_cell_types_significant_at_most"], others)

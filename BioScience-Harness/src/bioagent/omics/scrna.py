@@ -621,8 +621,12 @@ def _write(run: ScRun, m: sc_io.CellMatrix, config: ScConfig, qmetrics: dict[str
     pseudobulk = None
     if run.pseudobulk is not None:
         pb = run.pseudobulk
+        # each test's table by name (pseudobulk_files): a reader takes it from here, and never
+        # re-derives it from the cell type's name, whose stem another cell type may have taken
         pseudobulk = {"backend": pb.backend, "version": pb.version,
                       "tests": {ct: res.record() for ct, res in pb.results.items()},
+                      "files": {ct: f"pseudobulk/{stem}.tsv"
+                                for ct, stem in pseudobulk_files(pb.results).items()},
                       "skipped": pb.skipped}
     manifest: dict[str, Any] = {}
     with rec.stage("verify", engine=PIPELINE, version=_VERSION) as st:
@@ -695,10 +699,14 @@ def _content_problems(out: Path, manifest: Mapping[str, Any]) -> list[str]:
             found.append(f"{name}: its columns are not {', '.join(header)}")
         if rows is not None and n != rows:
             found.append(f"{name}: {n} rows, where the run record has {rows}")
-    tests = ((manifest.get("pseudobulk") or {}).get("tests") or {})
-    for ct, stem in pseudobulk_files(tests).items():
-        if not (out / "pseudobulk" / f"{stem}.tsv").is_file():
-            found.append(f"pseudobulk/{stem}.tsv is missing for the {ct} test")
+    pb = manifest.get("pseudobulk") or {}
+    tests = pb.get("tests") or {}
+    files = {ct: f"pseudobulk/{stem}.tsv" for ct, stem in pseudobulk_files(tests).items()}
+    if pb.get("files") is not None and pb["files"] != files:   # a record from before has none
+        found.append("pseudobulk.files does not name each test's table as the pipeline writes it")
+    for ct, rel in files.items():
+        if not (out / rel).is_file():
+            found.append(f"{rel} is missing for the {ct} test")
     return found
 
 

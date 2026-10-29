@@ -264,7 +264,11 @@ later level in sorted order against the earlier), so a run that chose its contra
 among its warnings, with which way round a fold change reads.
 
 `run.json` records which implementation ran each stage. See
-[omics-backends.md](omics-backends.md).
+[omics-backends.md](omics-backends.md). It also names each pseudobulk test's table
+(`pseudobulk.files`): `pseudobulk/<stem>.tsv`, the stem being the cell type's name with
+every character that is not a letter or digit as `_`, then `_2`, `_3`... when another cell
+type took that stem (`Mono+` and `Mono-` are `Mono_` and `Mono__2`). A reader takes the
+name from there rather than deriving it from the cell type.
 
 ### How it is checked
 

@@ -349,8 +349,15 @@ function columns(text, names) {
   return idx.some((j) => j < 0) ? null : body.map((r) => idx.map((j) => r[j]));
 }
 
-/** A cell type's pseudobulk file name, as bioagent.omics.scrna._safe makes it. */
-const safeName = (name) => [...String(name)].map((ch) => (/[\p{L}\p{N}]/u.test(ch) ? ch : "_")).join("");
+/**
+ * A pseudobulk test's table as a run record names it (run.json pseudobulk.files, bioagent.omics.scrna.pseudobulk_files),
+ * or undefined. Never re-derived from the cell type's name: two names can come to one stem (Mono+ and Mono- are Mono_
+ * and Mono__2), and the second one's table has the suffix.
+ */
+const pseudobulkFile = (record, cellType) => {
+  const files = record?.pseudobulk?.files;
+  return files && Object.hasOwn(files, cellType) && typeof files[cellType] === "string" ? files[cellType] : undefined;
+};
 
 const fmt = (v) => (typeof v === "number" ? Number(v.toPrecision(4)) : v);
 
@@ -442,12 +449,15 @@ export function compareOmics(kind, browserFiles, nativeFiles) {
   }
 
   // the discrete results, exactly
+  // [the browser's file, the native file, alpha, the gene column, label]: each side's table as its own run record names it
   const tests = [];
-  if (kind === "pipeline.rnaseq") tests.push(["deseq2_results.tsv", rn?.differential_expression?.alpha ?? 0.05, "gene_id", "genes called (p_adjusted < alpha)"]);
-  else for (const [ct, t] of Object.entries(rn?.pseudobulk?.tests || {})) tests.push([`pseudobulk/${safeName(ct)}.tsv`, t?.alpha ?? 0.05, "gene", `${ct} pseudobulk: genes called (p_adjusted < alpha)`]);
-  for (const [file, alpha, gene, label] of tests) {
-    if (textB(file) === undefined || textN(file) === undefined) { row(label, "missing", `${file} is missing`); continue; }
-    const s = compareSignificant(textB(file), textN(file), alpha, gene);
+  if (kind === "pipeline.rnaseq") tests.push(["deseq2_results.tsv", "deseq2_results.tsv", rn?.differential_expression?.alpha ?? 0.05, "gene_id", "genes called (p_adjusted < alpha)"]);
+  else for (const [ct, t] of Object.entries(rn?.pseudobulk?.tests || {})) tests.push([pseudobulkFile(rb, ct), pseudobulkFile(rn, ct), t?.alpha ?? 0.05, "gene", `${ct} pseudobulk: genes called (p_adjusted < alpha)`]);
+  for (const [fileB, fileN, alpha, gene, label] of tests) {
+    if (fileB === undefined || fileN === undefined) { row(label, "missing", `the ${fileB === undefined ? "browser's" : "native"} run.json names no table for this test (pseudobulk.files)`); continue; }
+    const file = fileB === fileN ? fileB : `${fileB} (browser) / ${fileN} (native)`;
+    if (textB(fileB) === undefined || textN(fileN) === undefined) { row(label, "missing", `${file} is missing`); continue; }
+    const s = compareSignificant(textB(fileB), textN(fileN), alpha, gene);
     const flips = s.flips.map((f) => `${f.gene} (browser ${f.browser ?? "NA"}, native ${f.native ?? "NA"})`).join(", ");
     row(label, s.status, s.status === "same" ? `the same ${s.significant} gene${s.significant === 1 ? "" : "s"} at alpha ${alpha}`
       : s.status === "flips_near_alpha" ? `${s.flips.length} gene${s.flips.length === 1 ? "" : "s"} cross alpha ${alpha} with both values within the rule of it, named not failed: ${flips}`

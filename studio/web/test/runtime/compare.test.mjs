@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -220,7 +220,7 @@ test("a figure that is not the same bytes: its own reason, naming the table that
 function omicsRun(kind, { results = RESULTS, svg = "<svg><path d=\"M0 0\"/></svg>", cells = CELLS(LAYOUT) } = {}) {
   const run = kind === "pipeline.rnaseq"
     ? { stages: [{ name: "validate_counts", status: "succeeded", check: "PASS" }], complete: true, outputs: { "deseq2_results.tsv": "x", "report.html": "y" }, differential_expression: { alpha: 0.05 } }
-    : { stages: [{ name: "verify", status: "succeeded", check: "PASS" }], complete: true, outputs: { "cells.tsv": "x" }, pseudobulk: { tests: { "B cell": { alpha: 0.05 } } } };
+    : { stages: [{ name: "verify", status: "succeeded", check: "PASS" }], complete: true, outputs: { "cells.tsv": "x" }, pseudobulk: { tests: { "B cell": { alpha: 0.05 } }, files: { "B cell": "pseudobulk/B_cell.tsv" } } };
   const stages = { schema: "bioagent.stages/1", stages: run.stages.map((st) => ({ ...st, seconds: 0.5 })), complete: true, problems: [] };
   const files = { "run.json": JSON.stringify(run), "stages.json": JSON.stringify(stages), "report.html": `<h1>Report</h1>${svg}<p>90 genes</p>`, "plots/ma.svg": svg };
   if (kind === "pipeline.rnaseq") files["deseq2_results.tsv"] = results;
@@ -269,6 +269,37 @@ test("a single-cell run: each cell's cluster and type and the clusters table exa
   // a layout whose clusters run into each other has lost its structure, whatever its coordinates
   const smeared = browserFiles(omicsRun("pipeline.scrna", { cells: CELLS(LAYOUT.map(([x, y]) => [x % 10, y % 10])) }));
   assert.equal(compareOmics("pipeline.scrna", smeared, native).find((r) => r.name === "UMAP layout: its structure").ok, false);
+});
+
+test("a single-cell panel whose cell types come to one file name: each test is compared on the table its run record names", () => {
+  // Mono+ and Mono- are both Mono_ as a file name; the pipeline writes Mono_.tsv and Mono__2.tsv (pseudobulk_files) and
+  // names them in run.json. Re-deriving the name from the cell type read Mono_.tsv for both tests.
+  const table = (q) => "gene\tlog2_fold_change\tp_adjusted\n" + ["G1", "G2", "G3"].map((g, i) => `${g}\t1.5\t${q[i]}\n`).join("");
+  const run = (second) => {
+    const files = omicsRun("pipeline.scrna");
+    delete files["pseudobulk/B_cell.tsv"];
+    const record = JSON.parse(files["run.json"]);
+    record.pseudobulk = { tests: { "Mono+": { alpha: 0.05 }, "Mono-": { alpha: 0.05 } }, files: { "Mono+": "pseudobulk/Mono_.tsv", "Mono-": "pseudobulk/Mono__2.tsv" } };
+    return { ...files, "run.json": JSON.stringify(record), "pseudobulk/Mono_.tsv": table([0.001, 0.002, 0.003]), "pseudobulk/Mono__2.tsv": table(second) };
+  };
+  const native = run([0.9, 0.9, 0.9]);
+  const rows = (browser) => Object.fromEntries(compareOmics("pipeline.scrna", browserFiles(browser), native).map((r) => [r.name, r]));
+  const same = rows(run([0.9, 0.9, 0.9]));
+  assert.equal(same["Mono+ pseudobulk: genes called (p_adjusted < alpha)"].why, "the same 3 genes at alpha 0.05");
+  assert.equal(same["Mono- pseudobulk: genes called (p_adjusted < alpha)"].why, "the same 0 genes at alpha 0.05");
+  // Mono-'s own table differs (G2 called in the browser only): its row says so, and Mono+'s does not
+  const flipped = rows(run([0.9, 0.001, 0.9]));
+  assert.deepEqual([flipped["Mono- pseudobulk: genes called (p_adjusted < alpha)"].status, flipped["Mono- pseudobulk: genes called (p_adjusted < alpha)"].ok], ["different", false]);
+  assert.match(flipped["Mono- pseudobulk: genes called (p_adjusted < alpha)"].why, /G2 \(browser 0\.001, native 0\.9\)/);
+  assert.equal(flipped["Mono+ pseudobulk: genes called (p_adjusted < alpha)"].status, "same");
+  // a record that names no table for a test: missing, never a table guessed from the name
+  const unnamed = run([0.9, 0.9, 0.9]);
+  const record = JSON.parse(unnamed["run.json"]);
+  delete record.pseudobulk.files;
+  unnamed["run.json"] = JSON.stringify(record);
+  const none = rows(unnamed)["Mono+ pseudobulk: genes called (p_adjusted < alpha)"];
+  assert.deepEqual([none.status, none.ok], ["missing", false]);
+  assert.match(none.why, /the browser's run\.json names no table for this test \(pseudobulk\.files\)/);
 });
 
 test("omics run records: run.json and stages.json field by field, apart from the process's time, versions and paths", () => {
@@ -330,9 +361,11 @@ const KNOWN_ANSWER_PYTHON = [process.env.PYTHON, "python3"].filter(Boolean).find
 /**
  * A tiny pipeline.scrna output directory that meets sc_world's known answer, with its truth: two samples of five cells
  * of each of sc_world's four types, a path cell and a doublet each, clustered by type; `rename` changes the ids of one
- * sample's cells in cells.tsv only (as a table reader that dropped Cell Ranger's "-1" would) → {work, run}.
+ * sample's cells in cells.tsv only (as a table reader that dropped Cell Ranger's "-1" would); `collide` adds a cell
+ * type tested first whose name comes to B cell's file name, so B cell's table is B_cell_2.tsv, as the pipeline names
+ * it (pseudobulk_files) → {work, run}.
  */
-function scKnownAnswer(dir, { rename = false } = {}) {
+function scKnownAnswer(dir, { rename = false, collide = false } = {}) {
   const kinds = ["B", "Mono", "NK", "Plt"];
   const cells = ["ctrl1", "trt1"].flatMap((s) => [...kinds.flatMap((k) => Array.from({ length: 5 }, () => k)), "path", "doublet"]
     .map((kind, i) => ({ id: `${s}:CELL${String(i).padStart(5, "0")}-1`, sample: s, kind })));
@@ -348,11 +381,15 @@ function scKnownAnswer(dir, { rename = false } = {}) {
     + cells.map((c) => `${rename && c.sample === "ctrl1" ? c.id.replace(/-1$/, "") : c.id}\t${c.sample}\t${cluster[c.kind]}\n`).join(""));
   writeFileSync(path.join(run, "clusters.tsv"), "cluster\tcells\tcell_type\n0\t11\tB cell\n1\t10\tCD14+ monocyte\n2\t11\tNK cell\n3\t10\tPlatelet\n");
   const table = (q) => "gene\tlog2_fold_change\tp_adjusted\n" + genes.map((g) => `${g}\t1.5\t${q}\n`).join("");
-  writeFileSync(path.join(run, "pseudobulk", "B_cell.tsv"), table(0.001));
-  writeFileSync(path.join(run, "pseudobulk", "NK_cell.tsv"), table(0.9));
+  const tests = { ...(collide ? { "B-cell": { alpha: 0.05 } } : {}), "B cell": { alpha: 0.05 }, "NK cell": { alpha: 0.05 } };
+  const files = collide
+    ? { "B-cell": "pseudobulk/B_cell.tsv", "B cell": "pseudobulk/B_cell_2.tsv", "NK cell": "pseudobulk/NK_cell.tsv" }
+    : { "B cell": "pseudobulk/B_cell.tsv", "NK cell": "pseudobulk/NK_cell.tsv" };
+  const q = { "B cell": 0.001, "B-cell": 0.9, "NK cell": 0.9 };
+  for (const [ct, rel] of Object.entries(files)) writeFileSync(path.join(run, rel), table(q[ct]));
   writeFileSync(path.join(run, "run.json"), JSON.stringify({
     config: { analysis_backend: "builtin", integration_method: "harmony", de_backend: "builtin", n_top_genes: 600, seed: 0 },
-    integration: { mixing_after: 0.95 }, pseudobulk: { tests: { "B cell": { alpha: 0.05 }, "NK cell": { alpha: 0.05 } } }, complete: true,
+    integration: { mixing_after: 0.95 }, pseudobulk: { tests, files }, complete: true,
   }));
   return { work, run };
 }
@@ -369,6 +406,18 @@ test("the single-cell known answer: every cell of cells.tsv must be one of sc_wo
     const every = renamed.find((c) => /every cell of cells\.tsv is one of sc_world's/.test(c.label));
     assert.ok(every && !every.ok, JSON.stringify(renamed));
     assert.match(every.detail, /^22 of 44 are not: ctrl1:CELL00000, /);
+    // a cell type tested before B cell took its file name (B-cell → B_cell.tsv, B cell → B_cell_2.tsv): the planted
+    // genes are read from the table the run record names for B cell, not from B_cell.tsv
+    const collided = values(scKnownAnswer(path.join(dir, "collided"), { collide: true }));
+    assert.ok(collided.every((c) => c.ok), JSON.stringify(collided.filter((c) => !c.ok)));
+    assert.match(collided.find((c) => /planted genes significant in the B-cell pseudobulk/.test(c.label)).detail, /^12 of 12 /);
+    // a record that names no table for a test fails, rather than a table guessed from the name
+    const unnamed = scKnownAnswer(path.join(dir, "unnamed"));
+    const record = JSON.parse(readFileSync(path.join(unnamed.run, "run.json"), "utf8"));
+    delete record.pseudobulk.files;
+    writeFileSync(path.join(unnamed.run, "run.json"), JSON.stringify(record));
+    const named = values(unnamed).find((c) => c.label === "the run record names each pseudobulk test's table");
+    assert.ok(named && !named.ok && /no table named for B cell, NK cell/.test(named.detail), JSON.stringify(named));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
