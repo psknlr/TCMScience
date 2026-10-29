@@ -16,8 +16,9 @@ then made to fit the person:
 ``check`` then holds the prescription, drafted or the practitioner's own, to:
 十八反 / 十九畏 (the pack's rules and the seed knowledge base's records); pregnancy
 (禁用 stops, 慎用 needs the practitioner's reason, an unknown status in a woman of
-child-bearing age needs it asked first); allergies (a stop when the entry names the herb, a
-warning when the materia table only gives the two one source); drug interactions with the
+child-bearing age needs it asked first); allergies (a stop when the entry names the herb or
+another processed form of it, the practitioner's reason when it only may: the materia table
+gives the two one source, a near name, or 花粉); drug interactions with the
 recorded medications, and which of them the rules do not recognise (so an unchecked
 medicine is not mistaken for a safe one); cautions for recorded conditions; toxic herbs and
 their processing and decoction notes; doses outside the (age-scaled) range. Where the pack
@@ -31,7 +32,9 @@ a draft is a starting point for a licensed practitioner, who signs or rejects it
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Mapping, Sequence
 
 from .findings import TermMatcher, normalise
@@ -163,10 +166,65 @@ def _materia(name: str) -> Any:
 
 def _processed(longer: str, shorter: str) -> bool:
     """``longer`` is ``shorter`` with a processing word in front: 炙黄芪 of 黄芪, 熟地黄 of
-    地黄, 制附子 of 附子. Not a word of origin or colour (白附子 is not 附子)."""
+    地黄, 制附子 of 附子. Not a word of origin or colour (白附子 is not 附子), and not when the
+    materia table files ``longer`` under another drug, unless that drug is named ``longer``:
+    熟地黄 is the table's own entry for processed 地黄, but its 炮姜 is under 干姜, not 姜
+    (which it files with 生姜)."""
     from ..sources.materia import PROCESSING_WORDS
-    return (len(longer) > len(shorter) and longer.endswith(shorter)
-            and longer[:-len(shorter)] in PROCESSING_WORDS)
+    if not (len(longer) > len(shorter) and longer.endswith(shorter)
+            and longer[:-len(shorter)] in PROCESSING_WORDS):
+        return False
+    lm, sm = _materia(longer), _materia(shorter)
+    return lm is None or sm is None or lm.id == sm.id or lm.chinese == longer
+
+
+#: Words of quality or state that the materia table also strips before a name (鲜地黄,
+#: 干地黄). They are dropped only where the table files both names under one entry: 鲜生地 is
+#: 生地, but 干姜, which the table files apart, is not 姜.
+_STATE_WORDS = ("鲜", "干", "真", "好", "上", "嫩", "新", "陈", "细", "净")
+
+
+def _base(kb: Any, name: str) -> str:
+    """``name`` without the processing word, or the word of state, in front of a known name
+    (熟地黄 → 地黄, 炙黄耆 → 黄耆, 鲜生地 → 生地), or ``name`` itself."""
+    from ..sources.materia import PROCESSING_WORDS
+    for word in sorted(PROCESSING_WORDS, key=len, reverse=True):
+        rest = name[len(word):]
+        if (name.startswith(word) and rest and _processed(name, rest)
+                and (_materia(rest) is not None or _resolve(kb, rest) is not None)):
+            return rest
+    whole = _materia(name)
+    for word in _STATE_WORDS:
+        rest = name[len(word):]
+        if (whole is not None and name.startswith(word) and rest
+                and (part := _materia(rest)) is not None and part.id == whole.id):
+            return rest
+    return name
+
+
+@lru_cache(maxsize=1)
+def _materia_names() -> frozenset[str]:
+    from ..sources.materia import MATERIA
+    return frozenset(n for e in MATERIA.values() for n in (e.chinese, *e.aliases))
+
+
+def _forms(kb: Any, name: str) -> tuple[list[str], list[str]]:
+    """(``name`` and what it is a processed form of, those plus the drug's other processed
+    forms that the tables name). 熟地黄 gives ([熟地黄, 地黄], [熟地黄, 地黄, 生地黄, …]):
+    processing leaves the herb what it is, so 生地黄 and 熟地黄 are both 地黄, and 生地, the
+    short name of 生地黄, reaches 熟地黄 through it."""
+    from ..sources.materia import PROCESSING_WORDS
+    forms = [name]
+    while (b := _base(kb, forms[-1])) != forms[-1] and b not in forms:
+        forms.append(b)
+    wider = list(forms)
+    for b in forms:
+        for word in PROCESSING_WORDS:
+            s = word + b
+            if (s not in wider and _processed(s, b)
+                    and (s in _materia_names() or _resolve(kb, s) is not None)):
+                wider.append(s)
+    return forms, wider
 
 
 def _allergen(entry: str) -> str:
@@ -174,58 +232,113 @@ def _allergen(entry: str) -> str:
     return entry.removeprefix("对").removesuffix("过敏") or entry
 
 
+#: Names that an allergy record uses for something other than the drug the materia table
+#: files them under. In a prescription 花粉 is 天花粉's short name; in an allergy history 花粉
+#: (花粉过敏, 对花粉过敏) is pollen, the most common entry of all. Such an entry is checked
+#: against the drug it may name only, with a block that asks which was meant, and not
+#: carried to that drug's species-mates (瓜蒌, from the same Trichosanthes).
+_ALLERGY_HOMONYMS: Mapping[str, str] = {"花粉": "植物花粉"}
+
+
+_RANK = {"name": 3, "kb": 2, "near": 1, "": 0}
+
+
+def _one_drug(kb: Any, x: str, y: str, *, entry: str | None = None) -> str:
+    """How the names ``x`` (the allergy's) and ``y`` (the herb's) are one drug: ``"name"``
+    (the same name, or one inside the other where the name tables do not give them to
+    different drugs, or the longer is the shorter processed), ``"kb"`` (the seed knowledge
+    base gives both to one herb), ``"near"`` (one inside the other, but the tables give them
+    to different drugs and neither is the other processed) or ``""``.
+
+    With ``entry``, the allergy record as written is searched for ``y`` as a whole (人参过敏史
+    names 人参). Without it, two names are compared, and a name of one character is not
+    looked for inside another (the 姜 of 生姜 is not in 沙姜)."""
+    x_kb, y_kb = _identity(kb, x), _identity(kb, y)
+    same_kb = bool(x_kb & y_kb)
+    if entry is not None:
+        inside = bool(y) and (y in entry or (len(entry) >= 2 and entry in y))
+    else:
+        inside = x == y or (len(x) >= 2 and len(y) >= 2 and (x in y or y in x))
+    if inside and not same_kb:
+        x_m, y_m = _materia(x), _materia(y)
+        if (((x_m is not None and y_m is not None and x_m.id != y_m.id) or (x_kb and y_kb))
+                and not (_processed(x, y) or _processed(y, x))):
+            return "near"
+    if inside:
+        return "name"
+    return "kb" if same_kb else ""
+
+
 def _allergies(herbs: Sequence[str], allergies: Sequence[str], kb: Any) -> list[Issue]:
     """Each herb against each recorded allergy.
 
     ``stop`` (cannot be signed) when the entry names the herb: the same name, one inside the
     other (人参过敏史 and 人参, 黄芪 and 炙黄芪), or a name the seed knowledge base gives the
-    same herb (黄耆, 北芪 and 黄芪; 芍药 and 白芍; 国老 and 甘草).
+    same herb (黄耆, 北芪 and 黄芪; 芍药 and 白芍; 国老 and 甘草). Processing leaves the herb
+    what it is, so the processed forms of one drug stop each other: 生地黄 and 熟地黄 are both
+    地黄, and 生地 (生地黄) and 鲜生地 reach 熟地黄 the same way.
 
-    ``warn`` when the materia table puts the two under one source: the entry is another of
-    the names it files with the herb (薯蓣 and 山药, 双花 and 金银花, but also 鸡蛋 and 鸡内金,
-    海带 and 海藻), or the two drugs come from one species (芍药 and 赤芍, Paeonia
-    lactiflora). The table groups names by source, not by drug, so the message says they
-    share a source and asks the practitioner to check; it never says they are one herb.
+    ``block`` (can be signed only with the practitioner's recorded reason) when the entry
+    may be the herb but the names cannot tell:
 
-    One name inside the other is not taken for the herb when both name known drugs that
-    differ, unless the longer is the shorter processed (熟地黄 of 地黄): a near name is often
-    another drug (白附子 and 附子, 香附子 and 附子, 核桃仁 and 桃仁, 川牛膝 and 牛膝). It is
-    then a ``warn``, because a name such as 茱萸 may mean either drug.
+    * ``allergy_source``: the materia table puts the two under one source. The entry is
+      another of the names it files with the herb (薯蓣 and 山药, 双花 and 金银花, but also
+      鸡蛋 and 鸡内金, 海带 and 海藻), or the two drugs come from one species (芍药 and 赤芍,
+      Paeonia lactiflora). The table groups names by source, not by drug, so the message
+      says they share a source and asks which was meant; it never says they are one herb.
+    * ``allergy_near_name``: one name inside the other, where the name tables give the two
+      to different drugs and neither is the other processed: a near name is often another
+      drug (白附子 and 附子, 核桃仁 and 桃仁, 川牛膝 and 牛膝), but 茱萸 may mean either.
+    * ``allergy_homonym``: an entry an allergy record uses for something else (花粉 is
+      pollen), against the drug the table files it under (天花粉) only.
     """
-    entries = [(a, name, _identity(kb, name), _materia(name))
+    entries = [(a, name, _forms(kb, name), _materia(name))
                for a in allergies for name in (_allergen(a),)]
     out: list[Issue] = []
     for h in herbs:
-        h_kb, h_m, h_n = _identity(kb, h), _materia(h), normalise(h)
-        for a, name, a_kb, a_m in entries:
+        h_m, h_n = _materia(h), normalise(h)
+        h_forms, h_wider = _forms(kb, h_n)
+        for a, name, (a_forms, a_wider), a_m in entries:
             recorded = f"过敏史记录“{a}”：处方含{h}"
-            same_kb = bool(h_kb & a_kb)
             both = a_m is not None and h_m is not None
-            inside = bool(h_n) and (h_n in a or (len(a) >= 2 and a in h_n))
-            # the name tables give the two names to different drugs (白附子 and 附子)
-            other = not same_kb and ((both and a_m.id != h_m.id) or (bool(a_kb) and bool(h_kb)))
-            if inside and other:
-                other = not (_processed(name, h_n) or _processed(h_n, name))
-            if inside and not other:
+            if name in _ALLERGY_HOMONYMS:
+                if (both and a_m.id == h_m.id) or name in h_n:
+                    out.append(Issue(f"allergy_homonym:{h}", "block", "allergy_homonym",
+                                     f"{recorded}。过敏史中的“{name}”通常指"
+                                     f"{_ALLERGY_HOMONYMS[name]}，但处方中{h}也简称“{name}”，"
+                                     f"请核实所记过敏是否为{h}", (h,), "药材名表（materia）"))
+                continue
+            # the record as written (人参过敏史), and the name in it (地黄 of 地黄过敏)
+            direct = max(_one_drug(kb, name, h_n, entry=a), _one_drug(kb, name, h_n),
+                         key=_RANK.__getitem__)
+            processed = direct not in ("name", "kb") and any(
+                _one_drug(kb, x, y) in ("name", "kb")
+                for xs, ys in ((a_forms, h_wider), (a_wider, h_forms))
+                for x in xs for y in ys)
+            if direct == "name":
                 out.append(Issue(f"allergy:{h}", "stop", "allergy", recorded, (h,)))
-            elif same_kb:
+            elif direct == "kb":
                 out.append(Issue(f"allergy:{h}", "stop", "allergy",
                                  f"{recorded}（{name}与{h}为同一药材）", (h,), "种子知识库"))
+            elif processed:
+                base = h_forms[-1] if len(h_forms) > 1 or len(a_forms) == 1 else a_forms[-1]
+                out.append(Issue(f"allergy:{h}", "stop", "allergy",
+                                 f"{recorded}（{name}与{h}同为{base}或其炮制品）", (h,)))
             elif both and a_m.id == h_m.id:
-                out.append(Issue(f"allergy_source:{h}", "warn", "allergy_source",
+                out.append(Issue(f"allergy_source:{h}", "block", "allergy_source",
                                  f"{recorded}。药材名表将{name}与{h}同列于“{h_m.chinese}”条下，"
                                  "按该表二者同源（同一物种/来源），未必是同一种药，请核实", (h,),
                                  "药材名表（materia）"))
             elif both and (shared := [s for s in a_m.species_names if s in h_m.species_names]):
-                out.append(Issue(f"allergy_source:{h}", "warn", "allergy_source",
+                out.append(Issue(f"allergy_source:{h}", "block", "allergy_source",
                                  f"{recorded}。{name}与{h}同源（同一物种：{'、'.join(shared)}），"
                                  "未必是同一种药，请核实", (h,), "药材名表（materia）"))
-            elif inside:
+            elif direct == "near":
                 which = (f"药材名表将{name}"
                          + ("" if a_m.chinese == name else f"（{a_m.chinese}）")
                          + f"与{h}列为不同药材" if both
                          else f"种子知识库将{name}与{h}列为不同药材")
-                out.append(Issue(f"allergy_near_name:{h}", "warn", "allergy_near_name",
+                out.append(Issue(f"allergy_near_name:{h}", "block", "allergy_near_name",
                                  f"{recorded}。二者名称相近，但{which}，请核实所记过敏为何药",
                                  (h,)))
     return out
@@ -531,13 +644,24 @@ def _named_medicines(pack: ClinicPack, meds: Sequence[str]
     return out
 
 
+#: A medications entry that records there are none: 无, 否认, 无特殊用药, 未服药, none. The
+#: template asks for [] then, but 无 is how it is usually written, and it is no medicine.
+_NO_MEDICATION = re.compile(
+    r"(无|否认|没有|暂无|未|不|none|no|nil|na|n/a|nkda)+"
+    r"(特殊|其他|其它|长期|规律|规则|常规|任何|服用|使用|口服|服|用|吃|西药|中药|药物|药|史"
+    r"|medications?|medicines?|meds?|drugs?)*")
+
+
 def _unrecognised(pack: ClinicPack, medications: Sequence[str]) -> list[str]:
     """The recorded medications that no interaction rule's class word and no name in the
-    ATC mapping is found in: nothing was checked for them."""
+    ATC mapping is found in: nothing was checked for them. An entry that says there are
+    none (无, 否认用药史) is not a medication."""
     known = {normalise(str(d)) for r in pack.drug_interactions for d in r.get("drugs") or ()}
     known |= {normalise(n) for n in pack.drug_classes}
     known.discard("")
-    return [m for m in medications if not any(k in normalise(m) for k in known)]
+    return [m for m in medications
+            if not _NO_MEDICATION.fullmatch(normalise(m))
+            and not any(k in normalise(m) for k in known)]
 
 
 def _pregnancy(issues: list[Issue], herb: str, pack_note: str, entity: Any, kb: Any,

@@ -18,9 +18,11 @@ The skill takes a 四诊 intake (`bioagent clinic template`) and, in order:
   - doses fitted to age, and capped at the Pharmacopoeia's limits;
   - textbook 加减 suggested;
 - checks the draft against 十八反 / 十九畏, pregnancy, allergies, medications and recorded
-  conditions. An allergy matches a herb by the seed knowledge base's names for it (a herb
-  outside the knowledge base by its name alone), and a medicine recorded by name is read as
-  its interaction class by its WHO ATC code (docs/tcm-clinic.md).
+  conditions. An allergy stops a herb it names, under the seed knowledge base's names for
+  it or as another processed form of it; one that only may be the herb (a name the materia
+  table files with its source, a near name, 花粉) needs the practitioner's reason. A
+  medicine recorded by name is read as its interaction classes by its WHO ATC code
+  (docs/tcm-clinic.md).
 
 The draft is not a prescription. A practitioner signs it with `bioagent clinic sign`, and
 the skill never does. Its one claim is the textbooks' own, a `traditional_use`: the
@@ -33,6 +35,6 @@ findings meet a syndrome's criteria, and 《方剂学》 gives this formula for 
 - 对符合诊断标准的证候，以基础方生成处方草案：
   - 按年龄折算剂量，超过《药典》上限的剂量按上限起草；
   - 提示教材加减；
-- 核查十八反/十九畏、妊娠、过敏、合用西药及既往病史。过敏按种子知识库中该药的名称匹配药材（知识库之外的药材只按名称本身匹配）；按名称记录的西药按其 WHO ATC 编码归入相互作用类别（见 docs/tcm-clinic.md）。
+- 核查十八反/十九畏、妊娠、过敏、合用西药及既往病史。过敏记录指明该药（含种子知识库所列名称及该药的其他炮制品）时停止，只是可能指该药（药材名表同列于其来源下的名称、相近名称、“花粉”）时须医师说明理由；按名称记录的西药按其 WHO ATC 编码归入相互作用类别（见 docs/tcm-clinic.md）。
 
 草案不是处方，须由执业中医师用 `bioagent clinic sign` 签署；本 Skill 从不签署。它唯一的结论是教材本身的说法（`traditional_use`）：所记录的症状符合某证的诊断标准，而《方剂学》为该证给出此方。
