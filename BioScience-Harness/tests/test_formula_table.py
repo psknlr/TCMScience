@@ -113,6 +113,43 @@ def test_the_workbooks_encoding_artefacts_are_read_as_the_text_they_stand_for(tm
     assert (table.records[0].composition, table.records[0].usage) == (rec.composition, rec.usage)
 
 
+def _gb18030_of_gbk_private_use(code_point: int) -> str:
+    """The character GB 18030 assigns the code that the GBK code page writes as ``code_point``:
+    the code page numbers the codes of GB 18030's 0xFE50-0xFEA0 block from U+E815, in code
+    order (0xFE7F is no code)."""
+    trail = 0x50 + code_point - 0xE815
+    return bytes([0xFE, trail + (trail >= 0x7F)]).decode("gb18030")
+
+
+def test_the_other_private_use_code_points_of_the_block_are_read_as_their_characters(tmp_path):
+    """U+E836 (3 cells), U+E81F (401) and U+E848 (4) are written through the same code page
+    as U+E840, and were left as code points no font draws: (U+E836堇)竹沥. By the sequence
+    that gives 0xFE7B, 䓖, for U+E840, they are 0xFE71 ⺮ (bamboo), 0xFE5A 㖞 and 0xFE84 ⻊
+    (foot), as their contexts say: 口眼㖞斜, and the two radicals open the workbook's
+    spellings of characters it cannot write, like its (犭屯): (⺮堇)竹沥, 登高（⻊俞）垣."""
+    from bioagent.sources.formulas import _PRIVATE_USE
+    assert _gb18030_of_gbk_private_use(0xE840) == "䓖"                     # the anchor
+    assert {chr(k): v for k, v in _PRIVATE_USE.items()} == {
+        chr(c): _gb18030_of_gbk_private_use(c) for c in (0xE81F, 0xE836, 0xE840, 0xE848)}
+    rows = [("秫米散", "秫米、竹（\ue836条）各等分。", "《圣惠》卷九十。", "上烧灰，为细散。",
+             "小儿烂疮及恶疮。", "以田中禾下水调涂之。", ""),
+            ("石膏饮子", "石膏4两（捣碎），茯神1两。", "《圣惠》卷二十六。", "", "心劳实。",
+             "去滓，加(\ue836堇)竹沥半合，更煎1沸。", ""),
+            ("虎睛汤", "虎睛1对，茯苓1两。", "《某书》", "", "登高（\ue848俞）垣，中风口眼\ue81f斜。",
+             "", "")]
+    shumi, shigao, hujing = records_from_rows(rows)
+    assert shumi.composition == "秫米、竹（⺮条）各等分。"
+    assert shigao.usage == "去滓，加(⺮堇)竹沥半合，更煎1沸。"
+    assert hujing.actions == "登高（⻊俞）垣，中风口眼㖞斜。"
+    assert shumi.id == records_from_rows([(rows[0][0], "秫米、竹（⺮条）各等分。", *rows[0][2:])]
+                                         )[0].id, "the id is of the text read"
+    table = load_formula_table(_xlsx(tmp_path / "t.xlsx", rows))
+    assert [(r.composition, r.actions, r.usage) for r in table.records] == [
+        (r.composition, r.actions, r.usage) for r in (shumi, shigao, hujing)]
+    from bioagent.sources.formulas import CELL_READING
+    assert all(f"U+{c:04X}" in CELL_READING for c in (0xE81F, 0xE836, 0xE840, 0xE848))
+
+
 def _xlsx(path: Path, rows) -> Path:
     import openpyxl
     wb = openpyxl.Workbook()

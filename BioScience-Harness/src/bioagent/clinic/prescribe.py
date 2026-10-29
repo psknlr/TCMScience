@@ -227,9 +227,35 @@ def _forms(kb: Any, name: str) -> tuple[list[str], list[str]]:
     return forms, wider
 
 
+#: The label an allergy history writes before the name: 过敏：黄耆, 过敏史：黄耆, 药物过敏史：
+#: 黄耆, 过敏原：黄耆 (the intake drops the colon, so 过敏黄耆). 过敏性 is the adjective of a
+#: condition (过敏性鼻炎), not a label.
+_ALLERGY_LABEL = re.compile(r"(?:药物|食物)?过敏(?:史|原)?(?!性)")
+#: 过敏 or 过敏史 after the name, with 对 or 有 before it: 黄耆过敏, 黄耆过敏史, 对黄耆过敏,
+#: 有黄耆过敏史.
+_ALLERGY_SUFFIX = re.compile(r"(?:对|有)?(?P<name>.*?)过敏史?")
+#: What is left of a record that there is none: 无, 否认 (否认过敏史), 过敏史：无, 无药物过敏史,
+#: 否认食物及药物过敏史, NKDA. The whole remainder must be such words, so a drug whose name
+#: starts with one (没药, 无食子, 无灰酒) is still that drug.
+_NO_ALLERGY = re.compile(
+    r"(?:无|否认|没有|暂无|未|不|none|no|nil|nka|nkda)+"
+    r"(?:明显|已知|特殊|任何|发现|药物|食物|药|及|和|与)*")
+
+
 def _allergen(entry: str) -> str:
-    """The name in an allergy entry written as 对黄耆过敏 or 黄耆过敏."""
-    return entry.removeprefix("对").removesuffix("过敏") or entry
+    """The name an allergy record names, or "" when it names none.
+
+    The words a history writes around the name are dropped: a label before it (过敏：黄耆,
+    过敏:黄耆, 过敏史：黄耆, 药物过敏史：黄耆), or 过敏 / 过敏史 after it (黄耆过敏, 黄耆过敏史,
+    对黄耆过敏), with either colon and any whitespace. A record of no allergy (无, 否认过敏史,
+    过敏史：无) names none. Traditional characters are not folded (黃耆 stays 黃耆): the
+    repository has no conversion table."""
+    text = normalise(entry)                     # NFKC, no whitespace or punctuation
+    if label := _ALLERGY_LABEL.match(text):
+        text = text[label.end():]
+    if named := _ALLERGY_SUFFIX.fullmatch(text):
+        text = named["name"]
+    return "" if not text or _NO_ALLERGY.fullmatch(text) else text
 
 
 #: Names that an allergy record uses for something other than the drug the materia table
@@ -292,8 +318,10 @@ def _allergies(herbs: Sequence[str], allergies: Sequence[str], kb: Any) -> list[
     * ``allergy_homonym``: an entry an allergy record uses for something else (花粉 is
       pollen), against the drug the table files it under (天花粉) only.
     """
+    # a record that names nothing (无, 否认过敏史, 过敏史：无) is no allergy, and is not
+    # searched for herb names either
     entries = [(a, name, _forms(kb, name), _materia(name))
-               for a in allergies for name in (_allergen(a),)]
+               for a in allergies for name in (_allergen(a),) if name]
     out: list[Issue] = []
     for h in herbs:
         h_m, h_n = _materia(h), normalise(h)

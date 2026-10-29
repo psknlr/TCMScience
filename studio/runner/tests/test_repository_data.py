@@ -45,6 +45,15 @@ def test_the_stores_text_carries_no_workbook_encoding_artefacts():
         pua = " OR ".join(f"instr({c}, char(59456)) > 0" for c in columns)       # U+E840
         escaped = " OR ".join(f"instr({c}, '_x000D_') > 0" for c in columns)
         assert conn.execute(f"SELECT count(*) FROM formulas WHERE {pua}").fetchone()[0] == 0
+        # the code page's other private-use code points of the block: U+E81F 㖞 (401 cells),
+        # U+E836 ⺮ (3) and U+E848 ⻊ (4)
+        for code_point in (0xE81F, 0xE836, 0xE848):
+            left = " OR ".join(f"instr({c}, char({code_point})) > 0" for c in columns)
+            assert conn.execute(f"SELECT count(*) FROM formulas WHERE {left}").fetchone()[0] == 0
+        composition, = conn.execute("SELECT composition FROM formulas WHERE row = 60511").fetchone()
+        assert composition == "秫米、竹（⺮条）各等分。"
+        assert conn.execute("SELECT count(*) FROM formulas WHERE instr(actions, '口眼㖞斜') > 0"
+                            ).fetchone()[0] > 200
         assert conn.execute(f"SELECT count(*) FROM formulas WHERE {escaped}").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM formulas WHERE instr(composition, '芎䓖') > 0"
                             ).fetchone()[0] > 2000

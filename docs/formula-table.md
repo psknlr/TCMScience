@@ -23,21 +23,48 @@ someone should establish where the table came from and what it permits.
 
 Each cell is read as the text it stands for (`formulas.read_cell`). Both readers do this:
 `sources/formulas.py` (openpyxl) and Studio's `repository_data.workbook_rows`, which
-builds the indexed store and the web formula asset. Two encoding artefacts are read, and
-the workbook itself is not edited:
+builds the indexed store and the web formula asset. Two kinds of encoding artefact are
+read, and the workbook itself is not edited:
 
 - **U+E840 is read as 䓖 (U+44D6).** The workbook was written through the GBK code page,
   which has no 䓖. It gives GB 18030's 0xFE7B a private-use code point that no font draws.
   The character occurs 2,409 times in compositions, 160 times in names and 12 times in the
   other columns. Almost all are 芎䓖. The names also have 鞠䓖 twice (an old name of
   芎䓖), and the compositions have 穹䓖 three times and 芍䓖, 川䓖 and 萆䓖 once each.
+- **The code page's other private-use code points of that block are read the same way.**
+  For GB 18030's block 0xFE50–0xFEA0 the code page gives private-use code points from
+  U+E815, in code order (0xFE7F is not a code), so U+E840 is 0xFE7B. Each is read as the
+  character GB 18030 gives the code. Three more of them occur, and the context of each
+  agrees with that character:
+
+  | Written | Code | Read as | Where | Context |
+  |---|---|---|---|---|
+  | U+E81F | 0xFE5A | 㖞 (U+359E) | 413 times in 401 cells: 功效 375, 使用方法 26 | 口眼㖞斜, 口面㖞斜, 口面㖞僻 |
+  | U+E836 | 0xFE71 | ⺮ (U+2EAE, the bamboo radical) | rows 60511 (配方), 59674 and 77200 (使用方法) | 秫米、竹（⺮条）各等分; 加(⺮堇)竹沥; 入(⺮菫)竹沥 |
+  | U+E848 | 0xFE84 | ⻊ (U+2ECA, the foot radical) | rows 17904, 35990 and 46365 (使用方法), 25667 (功效) | (⻊非)跖; 大（⻊母）趾; 擦(⻊盍); 登高（⻊俞）垣 |
+
+  ⺮ and ⻊ are radicals. Each opens one of the workbook's spellings of a character that it
+  cannot write: two components in brackets, as in (犭屯) and (疒丂). Such spellings occur
+  hundreds of times in the workbook ((疒丂) alone 344 times), and the spelled character is
+  left as it is spelled.
 - **Excel's escaped carriage return `_x000D_` is removed.** It occurs in 5 cells, before a
   line break, which is kept.
+
+Two private-use code points are unresolved and left as written, because nothing
+establishes what they stand for. Both are in GBK's user-defined areas, which have no
+standard character:
+
+| Written | Code | Where |
+|---|---|---|
+| U+E005 | 0xAAA6 | three times at the end of row 24029's 使用方法 (和胃汤), after 15丸。 |
+| U+E54B | 0xA265 | once at the end of row 37196's name: 栝楼散 + U+E54B |
 
 The store records this reading as `cell_reading` in its provenance. A record's id is the
 digest of its name, source and composition as read. The 2,422 records with an artefact in
 one of those fields got new ids in October 2026. Seven of them also resolve now: their
-川芎䓖 had been written 川芎 + U+E840.
+川芎䓖 had been written 川芎 + U+E840. Reading U+E836 later in October gave one more record
+a new id: row 60511, 秫米散, whose composition holds it. U+E81F and U+E848 occur in no name,
+source or composition, so they changed no id. No record resolves differently.
 
 The 配方 column is free text, for example
 `附子1枚（去皮，破八片，炮），甘草2两（炙）`. The parser works as follows:
