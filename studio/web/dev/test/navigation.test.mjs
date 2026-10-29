@@ -41,22 +41,42 @@ async function makeApp(hash = "#/about") {
   return { app, routes };
 }
 
-/** `fn` of the store answers `ms` later for the ids `slow` names. */
+/** Wait until `fn()` is true (polled), at most `ms`. */
+async function until(fn, what, ms = 10000) {
+  const end = Date.now() + ms;
+  while (!fn()) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await delay(5);
+  }
+}
+
+/**
+ * `fn` of the store answers `ms` later for the ids `slow` names → a promise that the slow answer has been given and its
+ * caller has had the time to go on with it (the store's next steps, as a navigation that is not dropped would take).
+ */
 function slowDown(obj, fn, slow, ms) {
   const real = obj[fn];
-  obj[fn] = async (id, ...rest) => { const v = await real(id, ...rest); if (slow.includes(id)) await delay(ms); return v; };
+  let given;
+  const answered = new Promise((resolve) => { given = resolve; });
+  obj[fn] = async (id, ...rest) => {
+    const v = await real(id, ...rest);
+    if (slow.includes(id)) { await delay(ms); setTimeout(() => delay(50).then(given), 0); }
+    return v;
+  };
+  return answered;
 }
 
 test("a project still being read when About is opened does not take the page back: About stays, its route set", async () => {
   const { app, routes } = await makeApp("#/settings/models");
   const slow = await app.store.projects.create({ name: "慢的项目" });
-  slowDown(app.store.projects, "get", [slow.id], 60);
+  const answered = slowDown(app.store.projects, "get", [slow.id], 60);
   await app.startRouting();
   try {
     app.navigate({ name: "project", projectId: slow.id });
     await delay(10); // its hashchange has fired: the project route is waiting on the store
     app.navigate({ name: "about" });
-    await delay(150);
+    await until(() => routes.includes("about"), "About");
+    await answered; // and the project's record has come back since
     assert.equal(location.hash, "#/about");
     assert.equal(app.state.route.name, "about", "the route the address says");
     assert.deepEqual(routes, ["settings", "about"], "the project's route was never shown");
@@ -72,8 +92,7 @@ for (const slow of ["its project's conversations", "its messages"]) test(`a conv
   const [c1, c2] = [await s.conversations.create({ projectId: p1.id, title: "一" }), await s.conversations.create({ projectId: p2.id, title: "二" })];
   await s.messages.put({ conversationId: c1.id, role: "user", content: "甲的问题" });
   await s.messages.put({ conversationId: c2.id, role: "user", content: "乙的问题" });
-  if (slow === "its messages") slowDown(s.messages, "list", [c1.id], 60);
-  else slowDown(s.conversations, "list", [p1.id], 60);
+  const answered = slow === "its messages" ? slowDown(s.messages, "list", [c1.id], 60) : slowDown(s.conversations, "list", [p1.id], 60);
   const lists = [];
   const threads = [];
   app.on("conversations", (list) => lists.push([...new Set(list.map((c) => c.projectId))]));
@@ -83,7 +102,8 @@ for (const slow of ["its project's conversations", "its messages"]) test(`a conv
     app.navigate({ name: "conversation", projectId: p1.id, convId: c1.id });
     await delay(10);
     app.navigate({ name: "conversation", projectId: p2.id, convId: c2.id });
-    await delay(200);
+    await until(() => routes.includes(`conversation:${c2.id}`), "the second conversation");
+    await answered;
     assert.equal(app.state.route.convId, c2.id);
     assert.equal(app.state.project.id, p2.id);
     assert.equal(app.state.conversation.id, c2.id);
@@ -104,9 +124,11 @@ test("the shell: a page whose module arrives after a later route was mounted is 
   const { app } = await makeApp("#/about");
   const mounted = [];
   const destroyed = [];
+  const arrived = [];
   // the project page's module is slow to arrive (its first load); About's is at hand
   const page = (name, ms) => async () => {
     await delay(ms);
+    setTimeout(() => arrived.push(name), 20); // a moment after the shell had it, as it would mount it at once
     return (_app, main) => {
       const el = document.createElement("div");
       el.className = `page page--${name}`;
@@ -122,7 +144,7 @@ test("the shell: a page whose module arrives after a later route was mounted is 
   await delay(10);
   app.state.route = { name: "about" };
   app.emit("route", app.state.route);
-  await delay(150);
+  await until(() => arrived.includes("about") && arrived.includes("project"), "both pages' modules");
   assert.deepEqual(mounted, ["about"], "the project page was dropped, not mounted after About");
   assert.deepEqual(destroyed, []);
   assert.equal(main.children.length, 1);
@@ -132,7 +154,7 @@ test("the shell: a page whose module arrives after a later route was mounted is 
   // the next route replaces it, and the page it replaces is destroyed
   app.state.route = { name: "project", projectId: "p1" };
   app.emit("route", app.state.route);
-  await delay(100);
+  await until(() => mounted.length === 2, "the project page");
   assert.deepEqual([mounted, destroyed], [["about", "project"], ["about"]]);
   assert.equal(main.firstElementChild.getAttribute("data-route-href"), "#/p/p1");
 });
