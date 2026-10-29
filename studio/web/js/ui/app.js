@@ -193,8 +193,7 @@ export class App {
     this.views.shell = mountShell(this, root);
     root.removeAttribute("aria-busy");
 
-    this.router = new HashRouter((route, prev) => this.#onRoute(route, prev));
-    await this.#onRoute(this.router.current, null);
+    await this.startRouting();
 
     if (pairing) this.#afterPairing(pairing);
     else if (!this.state.settings.onboarded) import("./onboarding.js").then((m) => m.openOnboarding(this));
@@ -511,14 +510,21 @@ export class App {
 
   async refreshConversations() {
     const pid = this.state.project?.id;
-    this.state.conversations = pid ? await this.store.conversations.list(pid) : [];
-    this.state.recent = await this.store.conversations.recent(30);
+    const conversations = pid ? await this.store.conversations.list(pid) : [];
+    const recent = await this.store.conversations.recent(30);
+    // another project was opened while the store answered (a newer navigation): this list is not its, and its own
+    // refresh is on the way
+    if (this.state.project?.id !== pid) return;
+    this.state.conversations = conversations;
+    this.state.recent = recent;
     this.emit("conversations", this.state.conversations);
   }
 
   async loadMessages() {
     const conv = this.state.conversation;
-    this.state.messages = conv ? await this.store.messages.list(conv.id) : [];
+    const messages = conv ? await this.store.messages.list(conv.id) : [];
+    if (this.state.conversation?.id !== conv?.id) return; // another conversation was opened meanwhile: not its messages
+    this.state.messages = messages;
     this.emit("messages", this.state.messages);
   }
 
@@ -539,7 +545,21 @@ export class App {
     this.router.navigate(route, opts);
   }
 
+  /** Follow the address (boot): the hash router, and the route the page opened on. */
+  async startRouting() {
+    this.router = new HashRouter((route, prev) => this.#onRoute(route, prev));
+    await this.#onRoute(this.router.current, null);
+  }
+
+  /** The number of the latest navigation (#onRoute): an earlier one still waiting on the store is dropped. */
+  #navigation = 0;
+
   async #onRoute(route) {
+    // A project or conversation route waits on the store; a later navigation may start and finish meanwhile (a click
+    // on About while a project opens). The earlier one then stops at its next step: it sets no state, and its route is
+    // neither set nor shown over the later one's.
+    const nav = ++this.#navigation;
+    const stale = () => nav !== this.#navigation;
     this.state.sidebarOpen = false;
     if (route.name === "home") {
       const last = this.state.recent[0];
@@ -550,6 +570,7 @@ export class App {
       this.state.messages = [];
     } else if (route.name === "project" || route.name === "conversation") {
       const project = await this.store.projects.get(route.projectId);
+      if (stale()) return;
       if (!project) {
         toast(t("ui.project.missing"), { tone: "warn" });
         return this.navigate({ name: "home" }, { replace: true });
@@ -558,8 +579,10 @@ export class App {
       this.state.project = project;
       this.toolRouter?.setSettings(this.effectiveSettings());
       if (changedProject || !this.state.conversations.length) await this.refreshConversations();
+      if (stale()) return;
       if (route.name === "conversation") {
         const conv = await this.store.conversations.get(route.convId);
+        if (stale()) return;
         if (!conv || conv.projectId !== project.id) {
           toast(t("ui.conv.missing"), { tone: "warn" });
           return this.navigate({ name: "project", projectId: project.id }, { replace: true });
@@ -569,6 +592,7 @@ export class App {
         if (switched) {
           this.state.inspector = { ...this.state.inspector, messageId: null, selection: null };
           await this.loadMessages();
+          if (stale()) return;
         }
       } else {
         this.state.conversation = null;
