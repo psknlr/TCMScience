@@ -18,11 +18,12 @@ then made to fit the person:
 (禁用 stops, 慎用 needs the practitioner's reason, an unknown status in a woman of
 child-bearing age needs it asked first); allergies (the whole history, and an allergy
 written among the conditions, is scanned for every name the tables hold, see ``allergy``: a
-stop when a drug-level table says it names the herb or another processed form of it, the
-practitioner's reason when it only may — the materia table gives the two one source, a
-species or English name of the source, a formula that holds the herb, one name inside the
-other, the name inside a longer word, unconfirmed pinyin, a denied, tolerated or taken herb,
-or 花粉); drug
+stop when a drug-level table says it names the herb or another processed form of it and the
+record states an allergy to it (just names, or a reaction word or allergy statement no
+negator stands right before), the practitioner's reason when it only may — the record only
+mentions the herb (other words around it and no un-negated reaction word), the materia
+table gives the two one source, a species or English name of the source, a formula that
+holds the herb, one name inside the other, the name inside a longer word, or 花粉); drug
 interactions with the recorded medications, and which of them the rules do not recognise
 (so an unchecked medicine is not mistaken for a safe one); cautions for recorded
 conditions; toxic herbs and

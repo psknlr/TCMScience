@@ -13,12 +13,15 @@ collector can see what the differentiation will look for. ``None`` and ``[]`` di
 when the medications were asked. A blank field ("", ["  "], ["。。。"]) records neither and
 is read as not asked; so is an allergy field that holds only its label or a form's labels,
 or says it was not asked or is not known (过敏史：, Allergies:, Allergy hx:, Drug allergies:,
-过敏史：____, 药物：____ 食物：____, 过敏史：□无 □有, 待询问, 患者不能配合, 不详, 暂不详, 未详, 不太清楚,
-记不清楚, 不记得, 患者过敏史不详, 拒答, unknown, unknown to patient, not obtained), though what
-it holds is still scanned. A not-asked remark after an answer leaves the answer (无药物过敏史，
-未查过敏原; NKDA (see chart)). A negative in brackets is an answer, with or without a label
-(过敏史：（-）, 过敏史（-）, （-）). Medications, allergies and conditions are text: a number or an
-object there is refused, not turned into text.
+过敏史：____, 药物：____ 食物：____, 过敏史：□无 □有, 未询问, 没有询问, 没问, 漏问, 未询及, 待询问,
+患者不能配合, 不详, 不清楚, 未知, 暂不详, 记不清楚, 拒答, unknown, not asked, deferred), unless it
+also holds a name the tables know or a none word (无, 否认, none, NKDA …) outside that phrase
+(过敏史不详 人参过敏; 无药物过敏史，未查过敏原; NKDA (see chart)); a word of allergy (过敏, 过敏史,
+allergy) never answers by itself. The field is read whole, not entry by entry: ["青霉素过敏",
+"其他未询问"] is not asked, as ["青霉素过敏，其他未询问"] is. What a not-asked field holds is still
+scanned. A negative in
+brackets is an answer, with or without a label (过敏史：（-）, 过敏史（-）, （-）). Medications,
+allergies and conditions are text: a number or an object there is refused, not turned into text.
 """
 
 from __future__ import annotations
@@ -179,18 +182,19 @@ _UNKNOWN = re.compile(
 _SPEAKERS = re.compile(
     r"患者|病人|本人|家属|自诉|代诉|诉|述|尚|具体|暂时|暂|目前|现|亦|也|均|都|仍"
     r"|\b(?:patient|family|pt|to|the|by|per|is|are)\b", re.IGNORECASE)
-#: Words that say they were not asked or could not be: 未询问, 待询问, 患者昏迷，未能询问, 患者不能
-#: 配合. Written after an answer, they are a remark on it, and the answer stands (无药物过敏史，未查
-#: 过敏原; NKDA (see chart); 否认药物过敏，食物过敏未提及).
-_NOT_ASKED = re.compile(r"未询问|未能询问|无法询问|待询问|未及询问|未问|待问|未采集|不能配合|无法配合|不能沟通"
-                        r"|无法沟通|未查(?![到出见])|未提及|未涉及|详见病历|见病历"
+#: Words that say they were not asked or could not be: 未询问, 没有询问, 没问, 漏问, 未询及, 待询问,
+#: 患者昏迷，未能询问, 患者不能配合, not asked, deferred. (没问题 is not one.)
+_NOT_ASKED = re.compile(r"没有询问|未询问|未能询问|无法询问|待询问|未及询问|未询及|未问|没问(?!题)|漏问|待问"
+                        r"|未采集|不能配合|无法配合|不能沟通|无法沟通|未查(?![到出见])|未提及|未涉及|详见病历|见病历"
                         r"|\b(?:not\s+asked|deferred|see\s+(?:chart|notes|ehr|record))\b",
                         re.IGNORECASE)
-#: What makes an entry an answer beside a not-asked remark: a none (无, 否认, 没有, 阴性, NKDA,
-#: none, no, nil, denies) or an allergy recorded (青霉素过敏，其他未询问).
-_ANSWER_WORDS = re.compile(r"无|否认|没有|阴性|未发现|未见|过敏|反应|皮疹"
-                           r"|\b(?:nkda|nka|nkfa|none|no|nil|negative|denies|denied|allerg[a-z]*"
-                           r"|reactions?|rash)\b", re.IGNORECASE)
+#: The none words that answer the question beside a not-asked or not-known phrase (R6): 无, 否认,
+#: 没有, 阴性, none, NKDA … and a negative in brackets. They are read once the phrases, the
+#: labels and a form's unticked options are taken out, so 没有询问, 无法获取, 有无 and □无 are
+#: none of them. A word of allergy (过敏, allergy, 皮疹) is not an answer here: it is a label's.
+_NONE_WORDS = re.compile(r"无|否认|没有|阴性|未发现|未见|[(（]\s*[-－−]\s*[)）]"
+                         r"|\b(?:nkda|nka|nkfa|none|no|nil|negative|denies|denied|n/a)\b",
+                         re.IGNORECASE)
 #: A form's options left unticked (□无 □有, ○无 ○有) or printed with no choice made (无/有),
 #: and placeholders (XX, ___). No branch starts with an optional part before a run of
 #: whitespace, so a long run is read once (linear time).
@@ -206,27 +210,38 @@ _LABELLED_NEGATIVE = re.compile(
     re.IGNORECASE)
 
 
-def _answers(entry: str) -> bool:
-    """An allergy entry that answers the question, with a name or a none: not one that holds
-    only its label or a form's labels (过敏史：, 过敏史：____, Allergies:, Drug allergies:,
-    过敏史（药物/食物）：, 药物：____ 食物：____, 过敏史：□无 □有), says it was not asked (待询问,
-    未能询问, 患者不能配合) or that the allergies are not known (不详, 暂不详, 未详, 不明确,
-    患者过敏史不详, 记不清楚, 不太清楚, 不记得, 拒答, unknown, unsure, unknown to patient, not
-    recorded, not obtained). A negative mark after a label (过敏史：（-）, 过敏史：-, 过敏史（-）) or
-    in brackets alone (（-）) is an answer; a dash that starts a line of a form (- Drug:) is not.
-    A not-asked remark after an answer leaves the answer (无药物过敏史，未查过敏原; 过敏史：无，详见
-    病历; NKDA (see chart)): such an entry answers when, without the remark, it still holds a none
-    or an allergy (``_ANSWER_WORDS``) and reads as an answer; 患者昏迷，未能询问 does not.
-    Every pattern here reads a run of whitespace once, so a long field takes linear time."""
+def _names_a_herb(text: str, pack: ClinicPack | None) -> bool:
+    """``text`` holds a name the tables know, standing as a word (``allergy.mentions``)."""
+    from .allergy import mentions
+    return any(not m.word for m in mentions(text, pack=pack))
+
+
+def _answers(entry: str, pack: ClinicPack | None = None) -> bool:
+    """An allergy field (its entries joined, one per line) that answers the question (R6).
+
+    A blank entry, one that holds only its label or a form's labels (过敏史：, 过敏史：____,
+    Allergies:, Drug allergies:, 过敏史（药物/食物）：, 药物：____ 食物：____, 过敏史：□无 □有), and
+    one that says it was not asked (未询问, 没有询问, 没问, 漏问, 未询及, 未问, 待询问, 未能询问, 患者
+    不能配合, not asked, deferred) or that the allergies are not known (不详, 不清楚, 未知, 暂不详,
+    未详, 不明确, 记不清楚, 不记得, 拒答, unknown, unsure, not recorded, not obtained) do not
+    answer, unless the entry also holds a name the tables know or a none word (``_NONE_WORDS``:
+    无, 否认, none, NKDA …) outside the not-asked or not-known phrase: 过敏史不详 人参过敏, 无药物
+    过敏史，未查过敏原, NKDA (see chart) answer; 不详，可能对青霉素过敏 and 青霉素过敏，其他未询问 do
+    not (青霉素 is no name of the tables), and the record is still read. A word of allergy (过敏,
+    过敏史, allergy) never answers by itself. A negative mark after a label (过敏史：（-）,
+    过敏史：-, 过敏史（-）) or in brackets alone (（-）) is a none; a dash that starts a line of a
+    form (- Drug:) is not. Every pattern here reads a run of whitespace once, so a long field
+    takes linear time."""
     text = unicodedata.normalize("NFKC", entry)
-    if _NOT_ASKED.search(text):
-        text = _NOT_ASKED.sub(" ", text)
-        if not _ANSWER_WORDS.search(_UNKNOWN.sub(" ", text)):
-            return False
+    if _NOT_ASKED.search(text) or _UNKNOWN.search(text):
+        rest = _UNKNOWN.sub(" ", _NOT_ASKED.sub(" ", _UNFILLED.sub(" ", text)))
+        rest = _ALLERGY_LABELS.sub(" ", rest)
+        return (_NONE_WORDS.search(rest) is not None or _LABELLED_NEGATIVE.search(rest.strip()) is not None
+                or _names_a_herb(rest, pack))
     if _LABELLED_NEGATIVE.search(text.strip()):
         return True
     rest = _UNFILLED.sub("", text)
-    rest = _SPEAKERS.sub("", _UNKNOWN.sub("", _ALLERGY_LABELS.sub("", _UNKNOWN.sub("", rest))))
+    rest = _SPEAKERS.sub("", _ALLERGY_LABELS.sub("", rest))
     return any(unicodedata.category(c)[0] in "LN" for c in rest)
 
 
@@ -292,8 +307,10 @@ def parse_intake(doc: Mapping[str, Any], pack: ClinicPack) -> Intake:
     meds = _list(doc.get("medications"), "medications")
     allergy_records = _items(doc.get("allergies"), "allergies")
     allergies = None
+    # R6 reads the field, not each entry: ["青霉素过敏", "其他未询问"] says not asked as
+    # ["青霉素过敏，其他未询问"] does, and ["无", "其他未询问"] answers as ["无，其他未询问"] does
     if allergy_records is not None and (not allergy_records
-                                        or any(_answers(a) for a in allergy_records)):
+                                        or _answers("\n".join(allergy_records), pack)):
         allergies = tuple(split_entries(allergy_records))
     conditions = _list(doc.get("conditions"), "conditions")
     if meds is None:
