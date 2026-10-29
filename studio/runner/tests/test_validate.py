@@ -176,6 +176,29 @@ def test_a_probe_that_answers_not_found_fails(tmp_path, monkeypatch):
         assert recs[rid].status == FAIL
 
 
+def test_a_probe_that_succeeds_with_an_empty_result_fails(tmp_path, monkeypatch):
+    """A name outside a governed run's corpus 'succeeds' with nothing analysed (葛根芩连汤 is
+    not among the seed corpus's six formulas: no network is built, "an empty result, not a
+    null finding"): a not_found by other means, which fails its probe as not_found does. The
+    shipped probe names a seed formula, so the call exercises the tool."""
+    from bioagent.tcm.knowledge import default_knowledge
+    seed = {f.chinese for f in default_knowledge().formulas.values()}
+    assert validate.PROBES["tcm_network_hypothesis"]["formula_name"] in seed
+    inv = _run(tmp_path, "tcm_network_hypothesis")["tcm_network_hypothesis"].check("invocation")
+    assert inv.status == PASS and inv.detail.startswith("succeeded"), inv.detail
+    monkeypatch.setitem(validate.PROBES, "tcm_network_hypothesis", {"formula_name": "葛根芩连汤"})
+    monkeypatch.setitem(validate.PROBES, "tcm_safety_report", {"subject": "不存在的药"})
+    recs = _run(tmp_path, "tcm_network_hypothesis", "tcm_safety_report")
+    for rid in ("tcm_network_hypothesis", "tcm_safety_report"):
+        inv = recs[rid].check("invocation")
+        assert inv.status == FAIL and "empty result" in inv.detail, (rid, inv.detail)
+        assert "did not resolve" in inv.detail and recs[rid].status == FAIL, rid
+    # a call that ran on what it was given and found no record is not an unresolved name
+    assert validate._unresolved({"governance": {"limitations": [
+        "No dataset is built on this runner, so nothing could be found: an empty result here "
+        "says nothing about the relation."]}}) is None
+
+
 def test_the_command_writes_every_report(tmp_path):
     from tcmstudio.cli import main
     out = tmp_path / "reports"

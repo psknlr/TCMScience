@@ -40,6 +40,32 @@ def test_ligands_are_read_from_tables_and_lines(tmp_path):
         prep.read_ligands(dup)
 
 
+def test_ligands_are_read_from_an_sdf_plain_or_gzipped(tmp_path):
+    """An .sdf.gz is the SDF it compresses: RDKit's SDMolSupplier reads only plain text, so
+    the reader opens it with gzip. The ADMET job reads its molecules with the same reader."""
+    import gzip
+
+    from bioagent.admet.pipeline import read_molecules
+    Chem = need_module("rdkit.Chem")
+    sdf = ""
+    for name, smiles in (("bza", BENZAMIDINE), ("eth", "CCO")):
+        mol = Chem.MolFromSmiles(smiles)
+        mol.SetProp("_Name", name)
+        sdf += Chem.MolToMolBlock(mol) + "$$$$\n"
+    (tmp_path / "l.sdf").write_text(sdf)
+    with gzip.open(tmp_path / "L.SDF.GZ", "wt") as fh:
+        fh.write(sdf)
+    want = [("bza", Chem.CanonSmiles(BENZAMIDINE)), ("eth", "CCO")]
+    assert prep.read_ligands(tmp_path / "l.sdf") == want
+    assert prep.read_ligands(tmp_path / "L.SDF.GZ") == want
+    assert read_molecules(tmp_path / "L.SDF.GZ") == want
+    bad = tmp_path / "bad.sdf.gz"
+    with gzip.open(bad, "wt") as fh:
+        fh.write("not a molecule\n$$$$\n")
+    with pytest.raises(prep.DockingError, match="record 1 could not be read"):
+        prep.read_ligands(bad)
+
+
 def test_a_box_around_coordinates_has_padding_and_a_minimum():
     box = Box.around(np.array([[0.0, 0.0, 0.0], [4.0, 2.0, 30.0]]))
     assert box.center == (2.0, 1.0, 15.0)

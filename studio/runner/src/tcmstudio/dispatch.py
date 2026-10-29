@@ -4267,13 +4267,17 @@ def _routes(args: Mapping[str, Any], ctx: Context, g: dict[str, Any]) -> Outcome
                 "dependency", f"{entry_id} in this runtime's catalog (its section did not load)",
                 "capabilities_status and the catalog document's errors say which section failed "
                 "and why.")]
-        # the entry as such, except the dataset a data hub query names, and for a browser job
-        # the arguments its runner_only rules read (a '<…>' by the kind of value it stands
-        # for): the call the route names goes where those rules send it
+        # the entry as such, except the dataset a data hub query names, the argument that
+        # decides whether it reaches the web (network_if: the allow_remote that fetches a
+        # structure or sends a sequence out), and for a browser job the arguments its
+        # runner_only rules read (a '<…>' by the kind of value it stands for): the call the
+        # route names goes where those rules send it, and needs what the runner asks of it
         source = entry.get("data_from")
         fixed = rt.fixed_args(args)
         call = ({source["param"]: fixed[source["param"]]}
                 if isinstance(source, Mapping) and source.get("param") in fixed else {})
+        if entry.get("network_if") in fixed:
+            call[entry["network_if"]] = fixed[entry["network_if"]]
         rules = ((entry.get("execution") or {}).get("browser_job") or {}).get("runner_only") or ()
         call.update((r["arg"], args[r["arg"]]) for r in rules if r.get("arg") in args)
         return [r for _, r in capability.requirements(

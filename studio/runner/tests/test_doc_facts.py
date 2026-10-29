@@ -119,6 +119,27 @@ def test_the_files_with_no_reviewed_size_are_the_registrys(facts):
     assert doc_facts.check_text("studio/docs/NEW.md", "十二个没有审核大小的文件", facts) == []
 
 
+def test_the_files_without_a_reviewed_checksum_are_the_registrys(facts):
+    """docs/validation.md named STRING's aliases file among the files without a reviewed
+    checksum after it was pinned: the count is the registry's, and the sentence that names
+    them is anchored, so a pin (or a new unpinned file) is noticed in the doc."""
+    from tcmstudio.datasets import registry_document
+    files = registry_document()["groups"]["research"]["files"]
+    unchecked = sorted(f["name"] for f in files if not f["checksum"])
+    assert unchecked == ["UniProt2Reactome.txt", "uniprot_human_reviewed_accessions.txt"]
+    assert facts["unchecked_files"] == 2
+    assert next(f for f in files if f["name"].startswith("9606.protein.aliases"))["checksum"]
+    stale = "a stage that reads either of the three files without a reviewed checksum (Reactome's\n"
+    problems = doc_facts.check_text("docs/NEW.md", stale + "UniProt mapping and the UniProt accession list,", facts)
+    assert len(problems) == 1 and "says 3;" in problems[0] and "unchecked_files = 2" in problems[0], problems
+    # the doc says two, and still names them where the anchor looks
+    text = (doc_facts.REPO / "docs" / "validation.md").read_text(encoding="utf-8")
+    assert doc_facts.check_text("docs/validation.md", text, facts) == []
+    reworded = text.replace("either of the two files without a reviewed checksum", "one without a checksum")
+    assert any("no longer there" in p for p in doc_facts.check_text("docs/validation.md", reworded, facts))
+    assert "STRING's\nalias file, Reactome's UniProt mapping" not in text
+
+
 def test_the_usage_example_names_the_released_versions():
     known = doc_facts.versions()
     # USAGE.md and INSTALL.md both print the example artifact's version line

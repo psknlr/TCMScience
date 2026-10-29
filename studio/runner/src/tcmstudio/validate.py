@@ -168,7 +168,9 @@ PROBES: dict[str, dict[str, Any] | Callable[[Mapping[str, Any]], dict[str, Any]]
     "tcm_compatibility": {"herbs": ["甘草", "甘遂"]}, "tcm_normalize": {"names": ["黄芪", "桂枝汤"]},
     "tcm_evidence": {"subject": "黄芪"}, "tcm_safety_report": {"subject": "附子"},
     "tcm_applicability": {"subject": "桂枝汤", "object": "太阳中风"},
-    "tcm_network_hypothesis": {"formula_name": "葛根芩连汤"}, "tcmdb_catalog": {"query": "NPASS"},
+    # a formula of the seed corpus (its six: 桂枝汤 麻黄汤 四逆汤 四君子汤 四物汤 补中益气汤); one
+    # outside it builds nothing (an empty result, which _unresolved fails)
+    "tcm_network_hypothesis": {"formula_name": "桂枝汤"}, "tcmdb_catalog": {"query": "NPASS"},
     "tcmdb_consensus": {"kind": "organism_compound", "subject": "甘草"},
     "tcmdb_relations": {"kind": "organism_compound", "subject": "甘草"},
     "clinic_assess": {"intake": _INTAKE},
@@ -191,6 +193,20 @@ _OWN_HUB = frozenset({"tcmdb.import_store", "tcmdb.tables", "tcmdb.query", "tcmd
 #: Probes that name what does not exist, on purpose: not_found is the answer that shows they
 #: ran. Any other probe names what the corpus or the runtime holds, and not_found fails it.
 _ABSENT_ON_PURPOSE = frozenset({"job_status", "system.job_status"})
+
+#: How a governed run says the name it was given resolved to nothing in its corpus, so it
+#: analysed nothing and succeeded with an empty result (netpharm's formula outside the seed,
+#: assess_safety's unresolved subject): a not_found by other means, which fails a probe as
+#: not_found does.
+_UNRESOLVED = ("did not resolve", "could not be resolved")
+
+
+def _unresolved(env: Mapping[str, Any]) -> str | None:
+    """The limitation of a succeeded call that says its input resolved to nothing, or None."""
+    for text in ((env or {}).get("governance") or {}).get("limitations") or ():
+        if any(m in str(text) for m in _UNRESOLVED):
+            return str(text)
+    return None
 
 #: what classical texts and pharmacopoeias say, for the TCM core tools
 TCM_REFERENCES: list[tuple[str, dict[str, Any], Callable[[Any], tuple[bool, str]], str]] = []
@@ -452,7 +468,12 @@ def validate_entries(items: Sequence[tuple[str, str, Mapping[str, Any]]], *, ctx
             elapsed = time.perf_counter() - t0
             status = env["status"]
             err = env.get("error") or {}
-            if status in ("succeeded", "job_submitted"):
+            empty = (_unresolved(env) if status == "succeeded" and probed
+                     and rid not in _ABSENT_ON_PURPOSE else None)
+            if empty:
+                rec.add("invocation", FAIL, "its probe names what the corpus or this runtime "
+                        f"holds, and it answered with an empty result: {empty[:200]}")
+            elif status in ("succeeded", "job_submitted"):
                 rec.add("invocation", PASS, f"{status} in {elapsed * 1000:.0f} ms",
                         duration_ms=round(elapsed * 1000), output_sha256=_digest(env))
             elif err.get("type") in ("unavailable", "network_off"):

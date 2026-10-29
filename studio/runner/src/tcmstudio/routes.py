@@ -108,7 +108,8 @@ class Use:
     fill in from the question or an earlier result; a file ends with its suffix outside it,
     '<…>.pdbqt', so its kind can be judged before it is named), the kind of evidence it
     gives, what it adds when its title does not say, and, for a job a step runs on two kinds
-    of input, which of them this call is (``mode``, in its label)."""
+    of input, which of them this call is (``mode``, in its label: the inputs, named as what
+    the job runs on, 'a PDB file', so that 'the same job on <mode>' reads)."""
     entry: str
     evidence: str
     args: Mapping[str, Any] = field(default_factory=dict)
@@ -137,6 +138,10 @@ class Route:
     then: tuple[str, ...] = ()
     cautions: tuple[str, ...] = ()
     ids: tuple[str, ...] = ()                   # patterns of identifiers that point here
+    #: words that name what a question is about, not what it asks (a 伤寒论 syndrome, a
+    #: six-channel disease, the classics): they place a question no keyword places, below
+    #: every route a keyword places (see :func:`match`)
+    subjects: tuple[str, ...] = ()
 
 
 def _c(source: str, op: str, evidence: str, note: str = "", /, **args: Any) -> Use:
@@ -170,18 +175,36 @@ _PINYIN = "<pinyin, upper case, e.g. HUANG QI>"
 _GENES = "<gene symbols, space-separated>"
 _CENTER = ["<x>", "<y>", "<z>"]
 _SIZE = ["<x, Å>", "<y, Å>", "<z, Å>"]
-#: Docking, from a structure (prepared on the runner) and from prepared inputs (either runtime).
+_LIGANDS = "<SMILES, or a CSV, SDF or .smi file>"
+#: Docking from a structure the runner fetches (allow_remote: a PDB:<id> or UniProt:<acc>
+#: receptor is refused without it) or one in the project's files, each prepared on the
+#: runner; and from prepared inputs (either runtime).
 _DOCK = (
-    _job("job.pipeline.dock", "from a structure", "predicted", "receptor and ligands prepared "
-         "on the runner (meeko, RDKit); a PDB:<id> or UniProt:<acc> receptor is fetched with "
-         "allow_remote: true; the site as center and size, or as site_ligand",
-         receptor="<PDB:id, UniProt:accession or a PDB file>",
-         ligands="<SMILES, or a CSV, SDF or .smi file>", center=_CENTER, size=_SIZE),
+    _job("job.pipeline.dock", "a PDB or UniProt id", "predicted", "the structure fetched "
+         "from RCSB or AlphaFold DB (allow_remote) and prepared on the runner with the ligands "
+         "(meeko, RDKit); the site as center and size, or as site_ligand (a co-crystal ligand's "
+         "residue name)",
+         receptor="<PDB:id or UniProt:accession>", ligands=_LIGANDS, allow_remote=True,
+         center=_CENTER, size=_SIZE),
+    _job("job.pipeline.dock", "a PDB file", "predicted", "a PDB file from the project's "
+         "files, prepared on the runner with the ligands (meeko, RDKit); nothing is fetched, so "
+         "the site is center and size (site_ligand reads the RCSB Chemical Component "
+         "Dictionary, which needs allow_remote)",
+         receptor="<receptor>.pdb", ligands=_LIGANDS, center=_CENTER, size=_SIZE),
     _job("job.pipeline.dock", "prepared inputs", "predicted", "a prepared rigid receptor and "
          "prepared ligands: docks in the browser too; the site as center and size, or as "
          "reference_ligand (the co-crystal ligand prepared in its crystal pose, .pdbqt)",
          receptor="<prepared receptor>.pdbqt", ligands="<prepared ligands>.pdbqt",
          center=_CENTER, size=_SIZE))
+#: ADMET on SMILES or a table of them (either runtime) and on an SDF or .mol file (the
+#: runner: the browser's RDKit.js has no SDMolSupplier).
+_ADMET = (
+    _job("job.pipeline.admet", "SMILES or CSV/TSV/.smi", "predicted", "ADMET models (a job): "
+         "runs in the browser too, with the models built there (job.admet.models)",
+         molecules="<SMILES, or a CSV, TSV or .smi file>"),
+    _job("job.pipeline.admet", "SDF or .mol", "predicted", "ADMET models (a job) on an SDF "
+         "(.sdf, .sdf.gz) or .mol file, read with RDKit's SDMolSupplier: on the runner",
+         molecules="<molecules>.sdf"))
 
 ROUTES: tuple[Route, ...] = (
     Route(
@@ -349,6 +372,12 @@ ROUTES: tuple[Route, ...] = (
         then=("efficacy_evidence", "formula_mechanism"),
         cautions=("A recorded use is tradition: it licenses a traditional_use claim, never "
                   "efficacy.",),
+        # a 伤寒论 syndrome named without its closing 证, a six-channel disease, the classics
+        # that record them, a formula's pattern and a formula asked for one: what a question
+        # is about, so a question of a herb's safety in one, or of a trial, goes to safety or
+        # efficacy_evidence, and one that asks nothing else comes here
+        subjects=("伤寒论", "金匮要略", "太阳中风", "太阳伤寒", "太阳病", "阳明病", "少阳病",
+                  "太阴病", "少阴病", "厥阴病", "方证", "用什么方"),
     ),
     Route(
         "compound_identity", ("化合物身份、结构与来源", "Compound identity, structure and origin"),
@@ -742,8 +771,7 @@ ROUTES: tuple[Route, ...] = (
              _c("aopwiki", "aop_xml", "curated", aop_id="<AOP id>"),
              _c("aopwiki", "event", "curated", event_id="<key event id>"),
              _c("aopwiki", "relationship", "curated", relationship_id="<relationship id>"),
-             _e("job.pipeline.admet", "predicted", "ADMET models (a job)",
-                molecules="<SMILES or file>"),
+             *_ADMET,
              _e("skill.predict-admet", "predicted", "the governed ADMET skill (a job)",
                 molecules="<SMILES or file>"))),
          Step("reports", "adverse-event reports and signals", (
@@ -857,8 +885,7 @@ ROUTES: tuple[Route, ...] = (
                 half_life_h="<t½>"),
              _e("native.half_life_from_levels", "analysis", c1="<C1>", t1_h="<t1>", c2="<C2>",
                 t2_h="<t2>"),
-             _e("job.pipeline.admet", "predicted", "ADMET models (a job)",
-                molecules="<SMILES or file>")))),
+             *_ADMET))),
         "Compare the concentration reached (with its unit, species and the dose that gave it) "
         "with the concentration at which each activity was measured; say when either is "
         "missing.",
@@ -872,7 +899,8 @@ ROUTES: tuple[Route, ...] = (
         "Which structures exist for a target (experimental or predicted), where ligands bind, "
         "and whether a compound could fit, as a hypothesis.",
         ("结构", "晶体结构", "对接", "分子对接", "结合位点", "口袋", "alphafold", "pdb",
-         "structure", "docking", "binding site", "pocket", "crystal", "cryo-em"),
+         "structure", "dock", "docked", "docking", "binding site", "pocket", "crystal",
+         "cryo-em"),
         (Step("experimental", "experimental structures and their ligands", (
             _c("pdbe", "best_structures", "measured", accession="<UniProt accession>"),
             _c("pdbe", "entry_summary", "measured", pdb_id="<PDB id>"),
@@ -894,10 +922,14 @@ ROUTES: tuple[Route, ...] = (
          Step("predicted", "predicted structures", (
              _c("alphafold", "prediction", "predicted", accession="<UniProt accession>"),
              _c("alphafold", "uniprot_summary", "predicted", accession="<UniProt accession>"),
-             _e("job.pipeline.fold", "predicted", "a fold on the runner (a job)",
-                source="<sequence or FASTA>"),
+             _e("job.pipeline.fold", "predicted", "a fold on the runner (a job): its default "
+                "method, esmatlas, sends the sequence to the ESM Atlas API, which allow_remote "
+                "allows; method esmfold folds on the runner without it",
+                source="<sequence or FASTA>", allow_remote=True),
              _e("skill.predict-protein-structure", "predicted", "the governed structure "
-                "prediction skill (a job)", sequences="<sequences>"))),
+                "prediction skill (a job): esmatlas by default, as the fold job, so it is "
+                "refused without allow_remote; method esmfold folds on the runner without it",
+                sequences="<sequences>", allow_remote=True))),
          Step("docking", "whether a compound could fit (a job)", (
              *_DOCK,
              _e("skill.dock-ligands", "predicted", "the governed docking skill (a job)",
@@ -1031,8 +1063,10 @@ ROUTES: tuple[Route, ...] = (
                   "from a count table: runs in the browser too",
                   counts="<gene × sample count table>", samples="<sample table>"),
              _job("job.pipeline.rnaseq", "FASTQ", "analysis", "QC, trimming and quantification, "
-                  "then differential expression: on the runner",
-                  samples="<sample sheet of FASTQ files>"),
+                  "then differential expression: on the runner; quantified against a "
+                  "transcriptome, or, in its place, a genome FASTA (genome) and a GTF "
+                  "(annotation) with engine hisat2",
+                  samples="<sample sheet of FASTQ files>", transcripts="<transcriptome FASTA>"),
              _e("skill.rnaseq-differential-expression", "analysis", "the governed FASTQ-to-DESeq2 "
                 "skill (a job)", sample_sheet="<sample sheet>"),
              _e("native.cpm", "analysis", counts=["<count>"]),
@@ -1658,6 +1692,24 @@ def listing() -> dict[str, Any]:
 
 
 _ASCII = re.compile(r"^[\x00-\x7f]+$")
+#: A Chinese word whose characters begin longer words that mean something else, and the
+#: characters that make them: the word is not counted where one of them follows it
+#: (用什么方 asks for a formula, 用什么方法 for a method; 方证 is a formula's pattern, 处方证据
+#: a prescription's evidence and 官方证实 an official confirmation).
+_NOT_BEFORE = {"用什么方": "法式面案向便", "方证": "据实明书券件"}
+
+
+def _uses(word: str, text: str) -> bool:
+    """Whether ``text`` (lower case) uses ``word``: an English word as a word, its plural
+    included; a Chinese one as a substring, except where it begins a longer word
+    (``_NOT_BEFORE``)."""
+    k = word.lower()
+    if _ASCII.match(k):
+        return re.search(rf"(?<![a-z0-9]){re.escape(k)}s?(?![a-z0-9])", text) is not None
+    stop = _NOT_BEFORE.get(k)
+    if stop:
+        return re.search(rf"{re.escape(k)}(?![{re.escape(stop)}])", text) is not None
+    return k in text
 
 
 def match(question: str, limit: int = 3) -> list[tuple[Route, float]]:
@@ -1666,19 +1718,20 @@ def match(question: str, limit: int = 3) -> list[tuple[Route, float]]:
     identifier a route's ``ids`` recognise, an rsID or an NCT number, as a keyword of eight).
     Identifiers are matched as written: an HGVS c. or p. and an ontology prefix are
     case-significant (p.05 is a p-value, 'go' is not GO); a pattern that is not says so
-    with ``(?i:…)``."""
+    with ``(?i:…)``. A route's ``subjects`` (what a question is about, not what it asks)
+    count 1, however many it names, and only for a route none of whose keywords or
+    identifiers the question uses: less than any keyword, they place a question that no
+    keyword places, after every route its keywords place, and change neither the order nor
+    the scores of those (少阴病 … 安全吗 is a safety question)."""
     raw = str(question or "")
     text = raw.lower()
     scored = []
     for order, route in enumerate(ROUTES):
         score = 8.0 * sum(1 for p in route.ids if re.search(p, raw))
-        for kw in route.keywords:
-            k = kw.lower()
-            if _ASCII.match(k):
-                if re.search(rf"(?<![a-z0-9]){re.escape(k)}s?(?![a-z0-9])", text):
-                    score += len(k)
-            elif k in text:
-                score += 2 * len(k)
+        score += sum(len(k) * (1 if _ASCII.match(k) else 2)
+                     for k in route.keywords if _uses(k, text))
+        if not score and any(_uses(s, text) for s in route.subjects):
+            score = 1.0
         if score:
             scored.append((score, order, route))
     scored.sort(key=lambda t: (-t[0], t[1]))
