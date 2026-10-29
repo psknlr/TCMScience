@@ -477,6 +477,19 @@ def test_cell_types_whose_names_come_to_one_file_name_keep_their_own_tables(worl
         called = sum(r[col] != "NA" and float(r[col]) < res.alpha for r in rows[1:])
         assert called == len(res.significant()), ct
     assert S.verify_run(out) == (True, [])
+    # the run record names each test's table, so a reader takes the name from it (the browser
+    # parity harness, studio/web/test/runtime/compare.mjs and omics_native.py) and never
+    # re-derives Mono_ for both
+    record = json.loads((out / "run.json").read_text())
+    assert record["pseudobulk"]["files"] == {ct: f"pseudobulk/{stem}.tsv" for ct, stem in files.items()}
+    assert record["pseudobulk"]["files"]["Mono-"] == "pseudobulk/Mono__2.tsv"
+    assert list(record["pseudobulk"]["files"]) == list(record["pseudobulk"]["tests"])
+    wrong = json.loads(json.dumps(record))
+    wrong["pseudobulk"]["files"]["Mono-"] = "pseudobulk/Mono_.tsv"
+    (out / "run.json").write_text(json.dumps(wrong))
+    ok, problems = S.verify_run(out)
+    assert not ok and any("pseudobulk.files does not name each test's table" in p for p in problems)
+    (out / "run.json").write_text(json.dumps(record))
     (out / "pseudobulk" / "Mono__2.tsv").unlink()
     ok, problems = S.verify_run(out)
     assert not ok and "pseudobulk/Mono__2.tsv is missing for the Mono- test" in problems

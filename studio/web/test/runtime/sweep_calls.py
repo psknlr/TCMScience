@@ -31,6 +31,12 @@ In the main sequence the calls the Worker loads the complete formula workbook fo
 (FORMULA_TOOLS in pyodide.worker.js) come after every other call, so any other call that needs the
 workbook meets a Worker that has not loaded it, as it would on a fresh page. Deterministic: the
 same tree gives the same list.
+
+The probes that write before they give an input (validate.PROBES: the probe store imported for
+tcmdb.tables, query and unresolved; a clinic session for clinic.verify) write into a throwaway
+state root and hub of this script's own, removed once the list is made: never the default hub
+($BIOAGENT_TCMDB, else <repository>/data/biomni_lake/tcmdb), whose DDID store the probe store
+would replace. Neither side of the sweep reads what they wrote (each has its own state).
 """
 
 from __future__ import annotations
@@ -41,6 +47,7 @@ import json
 import random
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -131,6 +138,15 @@ def kernel_cases() -> list[tuple[str, str, dict]]:
 def build(catalog: dict, matrix_rows: list[dict], formula_tools: set[str], inputs: dict,
           groups: set[str]) -> dict:
     """The sequences of calls → {sequences: [{name, calls, no_input}], counts}."""
+    with tempfile.TemporaryDirectory(prefix="sweep-calls-") as tmp:
+        # where the probes that write first write (module docstring): a throwaway state and hub
+        probe_ctx = {"where": "runner", "network": False, "project_id": "sweep-calls",
+                     "state_root": str(Path(tmp) / "state"), "tcmdb_root": str(Path(tmp) / "tcmdb")}
+        return _build(catalog, matrix_rows, formula_tools, inputs, groups, probe_ctx)
+
+
+def _build(catalog: dict, matrix_rows: list[dict], formula_tools: set[str], inputs: dict,
+           groups: set[str], probe_ctx: dict) -> dict:
     from tcmstudio.validate import _example, _invalid
 
     by_id = {e["id"]: e for e in catalog["entries"]}
@@ -150,7 +166,7 @@ def build(catalog: dict, matrix_rows: list[dict], formula_tools: set[str], input
         by_group[rec["group"]].append(rec)
 
     def add(group: str, rid: str, cls: str, kind: str, item: dict, core: bool) -> None:
-        args = _example(item, rid)
+        args = _example(item, rid, probe_ctx)
         rec = {"key": f"{group}:{rid}", "group": group, "id": rid, "class": cls, "kind": kind,
                "input": "example" if isinstance(item.get("example"), dict) else "probe"}
         if args is None:

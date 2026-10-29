@@ -134,6 +134,100 @@ def test_the_probes_run_what_ships_no_example_and_write_into_no_hub_they_were_gi
     assert list((tmp_path / "state" / "probe-tcmdb").rglob("*.sqlite"))
 
 
+def _sentinel_hub(root):
+    """A data hub holding a DDID store of a person's own (not the probe's), and its bytes."""
+    import sqlite3
+
+    from bioagent.tcmdb.rowkit import COLUMNS
+    store = root / "db" / "ddid.sqlite"
+    store.parent.mkdir(parents=True)
+    with sqlite3.connect(store) as conn:
+        conn.execute("CREATE TABLE _tcmdb_files (tbl TEXT, rows INTEGER, license TEXT, sha256 TEXT)")
+        conn.execute("INSERT INTO _tcmdb_files VALUES ('built_by_a_person', 1, 'CC BY 4.0', 'mine')")
+        conn.execute("CREATE TABLE built_by_a_person (note TEXT)")
+        conn.execute("INSERT INTO built_by_a_person VALUES ('the real DDID store')")
+        conn.execute("CREATE TABLE relations (" + ",".join(f'"{c}" TEXT' for c in COLUMNS) + ")")
+    conn.close()
+    return store, store.read_bytes()
+
+
+def _tree(root):
+    return sorted(str(p.relative_to(root)) for p in root.rglob("*"))
+
+
+@pytest.fixture
+def default_hub(tmp_path, monkeypatch):
+    """The default data hub ($BIOAGENT_TCMDB, as a developer's real one would be) holding a
+    sentinel DDID store; the data lake moved into tmp_path too, so nothing reaches the repo."""
+    root = tmp_path / "default-hub"
+    store, before = _sentinel_hub(root)
+    monkeypatch.setenv("BIOAGENT_TCMDB", str(root))
+    monkeypatch.setenv("BIOAGENT_DATA_LAKE", str(tmp_path / "lake"))
+    return root, store, before, _tree(root)
+
+
+def test_a_probe_made_without_a_context_writes_into_no_default_hub(default_hub):
+    """sweep_calls.py asked validate._example for its inputs with no context: the probe of
+    tcmdb.tables/query/unresolved then imported the probe store into the default hub,
+    replacing a person's real DDID store with alpha and beta. A probe that writes runs in
+    throwaway roots of its own when its context names none."""
+    root, store, before, tree = default_hub
+    for rid in ("tcmdb.tables", "tcmdb.query", "tcmdb.unresolved", "tcmdb.import_store",
+                "clinic.verify"):
+        args = validate._example({}, rid)
+        assert isinstance(args, dict) and args, rid
+        assert store.read_bytes() == before, f"{rid}'s probe rewrote the default hub's store"
+    assert validate._example({}, "clinic.verify")["session_id"]
+    # a context that names no hub of its own gets a throwaway one too (a runner context would
+    # otherwise resolve to the default hub)
+    validate._example({}, "tcmdb.tables", {"where": "runner", "network": False})
+    assert store.read_bytes() == before and _tree(root) == tree
+
+
+def test_the_sweep_call_listing_leaves_the_default_hub_byte_identical(tmp_path, default_hub):
+    """sweep.mjs runs sweep_calls.py before anything else, in CI and on a developer's machine:
+    listing the calls must not touch the default hub (it created <repo>/data/ and replaced the
+    DDID store a developer had built there)."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from tcmstudio.webbuild import catalog_bytes
+    root, store, before, tree = default_hub
+    site = tmp_path / "site"
+    (site / "runtime").mkdir(parents=True)
+    (site / "runtime" / "catalog.json").write_bytes(catalog_bytes(strict=False)[0])
+    script = Path(__file__).resolve().parents[2] / "web" / "test" / "runtime" / "sweep_calls.py"
+    out = tmp_path / "calls.json"
+    done = subprocess.run([sys.executable, str(script), "--site", str(site), "--groups",
+                           "entry,core", "--out", str(out)], env=dict(os.environ),
+                          capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, done.stderr[-2000:]
+    calls = {c["key"]: c for s in json.loads(out.read_text())["sequences"] for c in s["calls"]}
+    assert calls["entry:tcmdb.tables"]["args"] == {"tool": "tcmdb.tables",
+                                                   "arguments": {"dataset": "ddid"}}
+    assert store.read_bytes() == before, "listing the calls rewrote the default hub's DDID store"
+    assert _tree(root) == tree
+
+
+@pytest.mark.parametrize("given", [False, True])
+def test_the_command_leaves_the_default_and_the_given_hub_alone(tmp_path, default_hub, given):
+    """tcmstudio validate's probes import into a hub of the validator's own: neither the
+    default hub nor one given with --tcmdb-root has its store replaced."""
+    from tcmstudio.cli import main
+    root, store, before, tree = default_hub
+    argv = ["validate", "--out", str(tmp_path / "reports"), "--kinds", "tcmdb"]
+    assert main(argv + (["--tcmdb-root", str(root)] if given else [])) == 0
+    assert store.read_bytes() == before
+    assert _tree(root) == tree
+    report = json.loads((tmp_path / "reports" / "tool_validation_report.json").read_text())
+    ran = {r["component"]: r for r in report["records"]}
+    for rid in ("tcmdb.import_store", "tcmdb.tables", "tcmdb.query", "tcmdb.unresolved"):
+        inv = next(c for c in ran[rid]["checks"] if c["name"] == "invocation")
+        assert inv["status"] == PASS, (rid, inv)
+
+
 def test_live_a_network_tool_is_called_for_real_not_through_the_offline_watch(tmp_path,
                                                                               monkeypatch):
     """live-data 33: in the live tier the network core tools' probes ran inside the watch that

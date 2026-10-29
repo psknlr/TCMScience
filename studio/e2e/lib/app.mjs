@@ -137,8 +137,16 @@ export async function approve(page, decision) {
   return text;
 }
 
-/** A new project, opened (the composer is its first conversation). */
+/**
+ * A new project, opened (the composer is its first conversation): its own page, mounted for its route. The page shown
+ * before (home's project page, or another project's) also has a composer, and is drawn again for the new project when
+ * its conversations are read, before the route's page is mounted: a file chosen then went to that page's input, and its
+ * row to a list no longer shown (runner.spec's Chinese file name, once in a full run).
+ */
 export async function newProject(page, name) {
-  await page.evaluate((n) => globalThis.__studio.createProject({ name: n }), name);
-  await expect(page.locator("#composer-input")).toBeVisible();
+  const id = await page.evaluate(async (n) => (await globalThis.__studio.createProject({ name: n })).id, name);
+  const view = page.locator(`#main > .page--project[data-route-href="#/p/${encodeURIComponent(id)}"]`);
+  await expect(view).toBeVisible();
+  await expect(view.locator("#composer-input")).toBeVisible();
+  return id;
 }

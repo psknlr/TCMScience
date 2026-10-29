@@ -113,10 +113,13 @@ def _store() -> str:
 
 
 def _imported(args: dict[str, Any]) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
-    """A probe of a dataset's store: the probe store imported first, then ``args``."""
+    """A probe of a dataset's store: the probe store imported first, then ``args``. It is
+    imported into the hub ``ctx`` names, or a throwaway one (``_probe_roots``), never the
+    default hub, whose DDID store it would replace."""
     def probe(ctx: Mapping[str, Any]) -> dict[str, Any]:
         from .dispatch import call
-        call("tcmdb.import_store", {"dataset": "ddid", "content_base64": _store()}, ctx)
+        with _probe_roots(ctx) as here:
+            call("tcmdb.import_store", {"dataset": "ddid", "content_base64": _store()}, here)
         return dict(args)
     return probe
 
@@ -329,14 +332,38 @@ def _invalid(schema: Mapping[str, Any]) -> dict[str, Any] | None:
     return {name: wrong}
 
 
+@contextlib.contextmanager
+def _probe_roots(ctx: Mapping[str, Any] | None) -> Iterator[dict[str, Any]]:
+    """The context a probe makes its input in. A probe writes (the probe store imported into a
+    hub, a clinic session), so it writes only into the state and hub its context names: what
+    the context leaves out is a throwaway directory, removed afterwards. Without this a context
+    that names no hub resolves to the default one ($BIOAGENT_TCMDB, else the data lake's
+    tcmdb under the repository), where the probe store would replace a person's own DDID
+    store (the browser sweep's call listing did, sweep_calls.py)."""
+    here = dict(ctx or {})
+    if here.get("state_root") and here.get("tcmdb_root"):
+        yield here
+        return
+    with tempfile.TemporaryDirectory(prefix="tcmstudio-probe-") as tmp:
+        here.setdefault("network", False)
+        for key in ("state_root", "tcmdb_root"):
+            if not here.get(key):
+                here[key] = str(Path(tmp) / key.split("_")[0])
+        yield here
+
+
 def _example(entry_or_core: Mapping[str, Any], key: str,
              ctx: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+    """The input an entry or core tool is called with: its example, else its probe. A probe
+    that is a function writes what it needs first (``PROBES``), in ``ctx``'s state and hub, or
+    in throwaway ones where ``ctx`` names none (``_probe_roots``): never the default hub."""
     ex = entry_or_core.get("example")
     if isinstance(ex, Mapping):
         return dict(ex)
     probe = PROBES.get(key)
     if callable(probe):
-        return probe(ctx or {})
+        with _probe_roots(ctx) as here:
+            return probe(here)
     return copy.deepcopy(probe) if probe is not None else None
 
 
