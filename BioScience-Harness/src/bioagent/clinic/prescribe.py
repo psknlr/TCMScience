@@ -17,11 +17,12 @@ then made to fit the person:
 十八反 / 十九畏 (the pack's rules and the seed knowledge base's records); pregnancy
 (禁用 stops, 慎用 needs the practitioner's reason, an unknown status in a woman of
 child-bearing age needs it asked first); allergies (the whole history, and an allergy
-written among the conditions, is scanned for every name the tables know, see ``allergy``: a
-stop when it names the herb or another processed form of it, the practitioner's reason when
-it only may — the materia table gives the two one source, a species or English name of the
-source, a formula that holds the herb, a near name, a part of the name, the name inside a
-longer word, a denied or tolerated herb, or 花粉); drug
+written among the conditions, is scanned for every name the tables hold, see ``allergy``: a
+stop when a drug-level table says it names the herb or another processed form of it, the
+practitioner's reason when it only may — the materia table gives the two one source, a
+species or English name of the source, a formula that holds the herb, one name inside the
+other, the name inside a longer word, unconfirmed pinyin, a denied, tolerated or taken herb,
+or 花粉); drug
 interactions with the recorded medications, and which of them the rules do not recognise
 (so an unchecked medicine is not mistaken for a safe one); cautions for recorded
 conditions; toxic herbs and
@@ -377,8 +378,13 @@ def check(lines: Sequence[Line], intake: Intake, pack: ClinicPack, *, kb: Any = 
     _incompatibility(issues, herbs, entities, kb, pack)
     records = list(intake.allergy_records if intake.allergy_records is not None
                    else intake.allergies or ())
-    # an allergy recorded among the conditions (黄芪过敏 there) is read as well
-    records += allergy_records_in(intake.conditions or ())
+    # an allergy recorded among the conditions (黄芪过敏 there) is read as well, as written:
+    # the intake splits conditions at 、 and ，, which would cut 对黄芪、人参过敏 in two
+    raw = (intake.raw or {}).get("conditions")
+    written = [raw] if isinstance(raw, str) else raw
+    if not (isinstance(written, (list, tuple)) and all(isinstance(c, str) for c in written)):
+        written = intake.conditions or ()
+    records += allergy_records_in(written)
     if records:
         issues += _allergies(herbs, records, kb, pack)
     if intake.medications is not None:

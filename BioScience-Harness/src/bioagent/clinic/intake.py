@@ -11,9 +11,10 @@ grouped by the 十问 order, with the tongue and pulse terms as references, so t
 collector can see what the differentiation will look for. ``None`` and ``[]`` differ:
 ``"medications": null`` is *not asked* and ``[]`` is *none*; interactions are checked only
 when the medications were asked. A blank field ("", ["  "], ["。。。"]) records neither and
-is read as not asked; so is an allergy field that holds only its label or says it was not
-asked or is not known (过敏史：, Allergies:, 过敏史：____, 待询问, 不详, unknown), though what it
-holds is still scanned. Medications, allergies and conditions are text: a number or an object
+is read as not asked; so is an allergy field that holds only its label or a form's labels,
+or says it was not asked or is not known (过敏史：, Allergies:, Drug allergies:, 过敏史：____,
+药物：____ 食物：____, 过敏史：□无 □有, 待询问, 不详, 患者过敏史不详, 拒答, unknown), though what
+it holds is still scanned. Medications, allergies and conditions are text: a number or an object
 there is refused, not turned into text.
 """
 
@@ -138,31 +139,55 @@ def _items(v: Any, name: str) -> list[str] | None:
     return written or None
 
 
-#: The labels of an allergy field, which answer nothing on their own: 过敏史：, 药物过敏史：,
-#: 过敏原：, Allergies:.
+#: The labels of an allergy field, and the words of a form around them, which answer nothing
+#: on their own: 过敏史：, 药物过敏史：, 过敏原：, 过敏史（药物/食物）：, 过敏史及不良反应史：, 药物：
+#: 食物：, Allergies:, Drug allergies:, Known allergies:, Allergies (drug/food):, Allergies &
+#: ADRs:.
 _ALLERGY_LABELS = re.compile(
-    r"(?:既往|药物|食物|中药|西药|其他|其它)?(?:过敏史|过敏原|过敏源|过敏物|过敏药物|过敏药品|过敏情况"
-    r"|过敏|药敏史|药敏)|allerg(?:ies|y|ens?|ic)?", re.IGNORECASE)
-#: Words that say the allergies are not known: 不详, 待查, unknown, TBD, null.
-_UNKNOWN = re.compile(r"不详|不明|未知|不清楚|不知道|待查|待补充|待补"
-                      r"|\b(?:unknown|unk|tbd|tba|null|n/k)\b", re.IGNORECASE)
+    r"(?:既往|已知|药物|食物|中药|西药|接触物|其他|其它)?(?:过敏史|过敏原|过敏源|过敏物质|过敏物|过敏药物"
+    r"|过敏药品|过敏食物|过敏情况|过敏反应|过敏及不良反应|过敏|药敏史|药敏|致敏原|变应原)"
+    r"|(?:药物)?不良反应史?|既往史|药物|食物|中药|西药|接触物|其他|其它|有无|及|和|与"
+    r"|\b(?:allerg(?:ies|y|ens?|ic)?|known|drugs?|foods?|medications?|medicines?|meds?"
+    r"|environmental|other|history|intolerances?|reactions?|adrs?|and|or|list)\b",
+    re.IGNORECASE)
+#: Words that say the allergies are not known, or that the answer was not given: 不详, 待查,
+#: 记不清, 拒答, unknown, TBD, null, not known, not recorded.
+_UNKNOWN = re.compile(
+    r"不详|不明|未知|不清楚|不清|不知道|不知|记不清|说不清|不确定|待查|待补充|待补|待完善|待追问|需追问|追问|待定"
+    r"|拒答|拒绝回答|拒绝提供|不能提供|无法提供|未提供|未记录|无记录"
+    r"|\b(?:unknown|unk|tbd|tba|null|n/k|nk|not\s+known|not\s+sure|not\s+recorded"
+    r"|not\s+documented|unable\s+to\s+obtain)\b", re.IGNORECASE)
+#: Who speaks, or what an unknown is said of, which answers nothing either: 患者过敏史不详,
+#: 家属诉过敏史不详, 过敏史：患者不清楚, 尚不清楚, 具体不详.
+_SPEAKERS = re.compile(r"患者|病人|本人|家属|自诉|代诉|诉|述|尚|具体|\b(?:patient|family|pt)\b",
+                       re.IGNORECASE)
 #: Words that say they were not asked: 未询问, 待询问, 患者昏迷，未能询问.
 _NOT_ASKED = re.compile(r"未询问|未能询问|无法询问|待询问|未及询问|未问|待问|未采集|not asked",
                         re.IGNORECASE)
+#: A form's options left unticked (□无 □有, ○无 ○有) or printed with no choice made (无/有),
+#: and placeholders (XX, ___).
+_UNFILLED = re.compile(
+    r"[□☐○◯]\s*(?:无|有|是|否|yes|no)|(?:无|有|是|否|yes|no)\s*[□☐○◯]"
+    r"|[(（]?\s*(?:无\s*[/／]\s*有|有\s*[/／]\s*无)\s*[)）]?|\b[xX]{2,}\b", re.IGNORECASE)
+#: A negative written after a label, or alone: 过敏史：（-）, 过敏史：-, -.
+_LABELLED_NEGATIVE = re.compile(r"(?:^|[:：∶])\s*[(（]?\s*[-－−]\s*[)）]?\s*(?:$|[,，;；。\n])")
 
 
 def _answers(entry: str) -> bool:
     """An allergy entry that answers the question, with a name or a none: not one that holds
-    only its label (过敏史：, 过敏史：____, Allergies:), says it was not asked (待询问, 未能询问)
-    or that the allergies are not known (不详, unknown). A negative mark after a label
-    (过敏史：（-）) is an answer."""
+    only its label or a form's labels (过敏史：, 过敏史：____, Allergies:, Drug allergies:,
+    过敏史（药物/食物）：, 药物：____ 食物：____, 过敏史：□无 □有), says it was not asked (待询问,
+    未能询问) or that the allergies are not known (不详, 患者过敏史不详, 记不清, 拒答, unknown,
+    not recorded). A negative mark after a label (过敏史：（-）, 过敏史：-) is an answer; a dash
+    that starts a line of a form (- Drug:) is not."""
     text = unicodedata.normalize("NFKC", entry)
     if _NOT_ASKED.search(text):
         return False
-    rest = _UNKNOWN.sub("", _ALLERGY_LABELS.sub("", text))
-    if any(unicodedata.category(c)[0] in "LN" for c in rest):
+    if _LABELLED_NEGATIVE.search(text.strip()):
         return True
-    return any(c in "-－−" for c in rest)
+    rest = _UNFILLED.sub("", text)
+    rest = _SPEAKERS.sub("", _UNKNOWN.sub("", _ALLERGY_LABELS.sub("", _UNKNOWN.sub("", rest))))
+    return any(unicodedata.category(c)[0] in "LN" for c in rest)
 
 
 def _list(v: Any, name: str) -> tuple[str, ...] | None:
