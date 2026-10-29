@@ -303,8 +303,8 @@ def test_a_browser_job_is_judged_by_the_inputs_its_call_names(browser_ctx, runne
     tables or SMILES covers each, and says so."""
     ctx = {**browser_ctx, "network": True, "browser_jobs": True}
     dock = _rows(call("research_routes", {"route": "structure_binding"}, ctx)["result"], "docking")
-    by_id = dock["job.pipeline.dock (from a PDB or UniProt id)"]
-    by_file = dock["job.pipeline.dock (from a PDB file)"]
+    by_id = dock["job.pipeline.dock (a PDB or UniProt id)"]
+    by_file = dock["job.pipeline.dock (a PDB file)"]
     prepared = dock["job.pipeline.dock (prepared inputs)"]
     assert prepared["runnable_now"] is True
     assert prepared["call"]["arguments"]["arguments"]["receptor"].endswith(".pdbqt")
@@ -359,11 +359,72 @@ def test_a_browser_job_is_judged_by_the_inputs_its_call_names(browser_ctx, runne
         on_runner = _rows(call("research_routes", {"route": "structure_binding"},
                                {**runner_ctx, "network": network})["result"], "docking")
         here = on_runner["job.pipeline.dock (prepared inputs)"]["runnable_now"]
-        assert on_runner["job.pipeline.dock (from a PDB file)"]["runnable_now"] == here
-        fetch = on_runner["job.pipeline.dock (from a PDB or UniProt id)"]
+        assert on_runner["job.pipeline.dock (a PDB file)"]["runnable_now"] == here
+        fetch = on_runner["job.pipeline.dock (a PDB or UniProt id)"]
         assert ("web access for this project" in fetch.get("needs", [])) is not network
         if network:
             assert fetch["runnable_now"] == here
+
+
+def test_the_same_job_on_other_inputs_is_named_by_those_inputs():
+    """A job's mode names the inputs a call runs on, so the sentence that says what covering
+    one call by another changes reads as one: 'the same job on a PDB file', never 'on from a
+    PDB file'."""
+    def judge(entry_id, args):                  # a runner with web access off
+        return ([{"detail": "web access for this project", "remedy": "Turn web access on."}]
+                if args.get("allow_remote") else [])
+    for route_, step in (("structure_binding", "docking"), ("compound_targets", "binding")):
+        fetch = _rows(rt.view(rt.ROUTE_BY_ID[route_], judge), step)[
+            "job.pipeline.dock (a PDB or UniProt id)"]
+        assert fetch["covered_by"] == "job.pipeline.dock (a PDB file)"
+        assert fetch["changes"] == ("the same job on a PDB file, the inputs it runs on here: "
+                                    "give it those, and say which inputs it ran on")
+    modes = {u.mode for _, _, u in _uses() if u.mode}
+    assert modes and not [m for m in modes if m.split()[0] in {"from", "on", "with", "by", "in"}]
+
+
+def test_a_call_that_reaches_the_web_by_its_arguments_is_judged_by_them(runner_ctx, catalog):
+    """An entry that reaches the web only when one of its arguments says so (``network_if``:
+    the allow_remote that fetches a structure, or sends a sequence to the ESM Atlas API) is
+    judged by the call the route names: with web access off, a call that sets it is not
+    runnable and needs web access, as the runner refuses it (network_off), whether or not the
+    entry's browser rules read that argument (the fold job and the structure skill have
+    none). A fold by the default method, esmatlas, is refused without it, so the route sets
+    it on both."""
+    judged = []
+    for network in (False, True):
+        ctx = {**runner_ctx, "network": network}
+        for r in rt.ROUTES:
+            shown = call("research_routes", {"route": r.id}, ctx)["result"]["steps"]
+            for step, view in zip(r.steps, shown):
+                for use, item in zip(step.uses, view["sources"]):
+                    key = catalog[use.entry].get("network_if")
+                    if not key:
+                        continue
+                    sets_it = bool(rt.fixed_args(use).get(key))
+                    needs_web = "web access for this project" in item.get("needs", [])
+                    assert needs_web is (sets_it and not network), (
+                        r.id, step.id, rt.label(use), network, item.get("needs"))
+                    judged.append((rt.label(use), sets_it))
+    assert {("job.pipeline.fold", True), ("skill.predict-protein-structure", True),
+            ("job.pipeline.dock (a PDB or UniProt id)", True),
+            ("job.pipeline.dock (a PDB file)", False)} <= set(judged)
+
+    # and the fold the route names is refused offline as the route now says, taken online;
+    # nothing else predicts a structure offline as the route gives it (esmatlas is the skill's
+    # default too, refused without allow_remote), so the step says what would answer it
+    view = call("research_routes", {"route": "structure_binding"}, runner_ctx)["result"]
+    fold = _rows(view, "predicted")["job.pipeline.fold"]
+    assert fold["runnable_now"] is False and fold["needs"] == ["web access for this project"]
+    predicted = next(s for s in view["steps"] if s["step"] == "predicted")
+    assert predicted["unanswered_here"]["needs"] == ["web access for this project"]
+    given = fold["call"]["arguments"]
+    given = {**given, "arguments": {**given["arguments"],
+                                    "source": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ"}}
+    off = call(fold["call"]["tool"], given, runner_ctx)
+    assert off["status"] == "failed" and off["error"]["type"] == "network_off"
+    on = call(fold["call"]["tool"], given, {**runner_ctx, "network": True})
+    assert on["status"] == "job_submitted", on
 
 
 def test_a_job_template_is_judged_as_the_call_it_stands_for():
@@ -453,7 +514,7 @@ def test_every_pipeline_a_route_names_is_taken_by_its_job_kind_once_filled_in(tm
         taken.append(rt.label(u))
     assert not refused, "the runner refuses these calls as the routes give them:\n" + "\n".join(
         refused)
-    assert {"job.pipeline.dock (from a PDB or UniProt id)", "job.pipeline.dock (from a PDB file)",
+    assert {"job.pipeline.dock (a PDB or UniProt id)", "job.pipeline.dock (a PDB file)",
             "job.pipeline.dock (prepared inputs)", "job.pipeline.rnaseq (FASTQ)",
             "job.pipeline.rnaseq (count matrix)", "job.pipeline.admet (SDF or .mol)",
             "job.pipeline.admet (SMILES or CSV/TSV/.smi)", "job.pipeline.fold",
@@ -519,10 +580,62 @@ def test_a_built_dataset_makes_its_relation_kind_runnable(runner_ctx, monkeypatc
     ("桂枝汤治疗太阳中风的证据", "traditional_use"),
     ("太阳中风用什么方？", "traditional_use"),
     ("少阴病四逆汤的条文", "traditional_use"),
+    ("桂枝汤的方证", "traditional_use"),
     ("Dock quercetin into EGFR", "structure_binding"),
+    # a 伤寒论 syndrome or six-channel disease says what a question is about, not what it
+    # asks: a question of safety or efficacy that names one goes to safety or efficacy
+    ("少阴病用附子安全吗？", "safety"),
+    ("附子在伤寒论中的用量安全吗？", "safety"),
+    ("伤寒论附子的毒性", "safety"),
+    ("伤寒论中少阴病、太阳伤寒用附子安全吗？", "safety"),
+    ("麻黄汤治疗太阳伤寒的随机对照试验", "efficacy_evidence"),
+    ("四逆汤治疗少阴病的临床证据", "efficacy_evidence"),
+    # 用什么方法 asks for a method, not for a formula (用什么方)
+    ("用什么方法评估附子的毒性？", "safety"),
+    ("用什么方法预测槲皮素的靶点？", "compound_targets"),
+    ("用什么方法分析单细胞数据？", "omics_datasets"),
+    ("用什么方法研究黄芪的药代动力学？", "exposure_metabolism"),
+    ("用什么方法鉴别人参和西洋参？", "herb_identity"),
 ])
 def test_a_question_finds_its_route(question, expected):
     assert rt.match(question)[0][0].id == expected
+
+
+@pytest.mark.parametrize("question", [
+    "用什么方法测定黄芪中黄芪甲苷的含量？",      # 用什么方法: what method
+    "黄芪甲苷用什么方式检测",                    # 用什么方式: what way
+    "桂枝汤处方证据等级如何？",                  # 处方证据: a prescription's evidence
+    "这张处方证据充分吗？",
+    "官方证实了吗？",                            # 官方证实: officially confirmed
+])
+def test_a_word_inside_another_word_is_not_that_word(question):
+    """A Chinese word is matched inside the question's text, so a word whose characters begin
+    a longer word that means something else is not counted there: 用什么方 (which formula) in
+    用什么方法 (which method), 方证 (a formula's pattern) in 处方证据 or 官方证实."""
+    assert "traditional_use" not in [r.id for r, _ in rt.match(question)]
+
+
+def test_a_subject_word_places_only_a_question_no_keyword_places():
+    """A route's subject words name what a question is about (a 伤寒论 syndrome, a six-channel
+    disease, the classics), not what it asks: together they count less than any one keyword
+    of any route, so they place a question that names nothing else and never outrank what
+    a question asks (少阴病 … 安全吗 is a safety question), and they add nothing to a route
+    a keyword places, so the order of those is the keywords' own."""
+    def scores(question):
+        return {x.id: score for x, score in rt.match(question, limit=len(rt.ROUTES))}
+    least = min(scores(k)[r.id] for r in rt.ROUTES for k in r.keywords)
+    subjects = [(r, s) for r in rt.ROUTES for s in r.subjects]
+    assert subjects and least >= 2
+    for r, s in subjects:
+        assert not [k for k in r.keywords if k.lower() in s.lower()], (r.id, s)
+        top, score = rt.match(s)[0]
+        assert top is r and score < least, (s, top.id, score)
+        for k in r.keywords:
+            assert scores(f"{s} {k}") == scores(k), (s, k)
+    # however many of them a question names
+    for r in {r.id: r for r, _ in subjects}.values():
+        top, score = rt.match("，".join(r.subjects))[0]
+        assert top is r and score < least, (r.id, score)
 
 
 @pytest.mark.parametrize("question,not_expected", [

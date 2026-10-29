@@ -108,7 +108,8 @@ class Use:
     fill in from the question or an earlier result; a file ends with its suffix outside it,
     '<…>.pdbqt', so its kind can be judged before it is named), the kind of evidence it
     gives, what it adds when its title does not say, and, for a job a step runs on two kinds
-    of input, which of them this call is (``mode``, in its label)."""
+    of input, which of them this call is (``mode``, in its label: the inputs, named as what
+    the job runs on, 'a PDB file', so that 'the same job on <mode>' reads)."""
     entry: str
     evidence: str
     args: Mapping[str, Any] = field(default_factory=dict)
@@ -137,6 +138,10 @@ class Route:
     then: tuple[str, ...] = ()
     cautions: tuple[str, ...] = ()
     ids: tuple[str, ...] = ()                   # patterns of identifiers that point here
+    #: words that name what a question is about, not what it asks (a 伤寒论 syndrome, a
+    #: six-channel disease, the classics): they place a question no keyword places, below
+    #: every route a keyword places (see :func:`match`)
+    subjects: tuple[str, ...] = ()
 
 
 def _c(source: str, op: str, evidence: str, note: str = "", /, **args: Any) -> Use:
@@ -175,13 +180,13 @@ _LIGANDS = "<SMILES, or a CSV, SDF or .smi file>"
 #: receptor is refused without it) or one in the project's files, each prepared on the
 #: runner; and from prepared inputs (either runtime).
 _DOCK = (
-    _job("job.pipeline.dock", "from a PDB or UniProt id", "predicted", "the structure fetched "
+    _job("job.pipeline.dock", "a PDB or UniProt id", "predicted", "the structure fetched "
          "from RCSB or AlphaFold DB (allow_remote) and prepared on the runner with the ligands "
          "(meeko, RDKit); the site as center and size, or as site_ligand (a co-crystal ligand's "
          "residue name)",
          receptor="<PDB:id or UniProt:accession>", ligands=_LIGANDS, allow_remote=True,
          center=_CENTER, size=_SIZE),
-    _job("job.pipeline.dock", "from a PDB file", "predicted", "a PDB file from the project's "
+    _job("job.pipeline.dock", "a PDB file", "predicted", "a PDB file from the project's "
          "files, prepared on the runner with the ligands (meeko, RDKit); nothing is fetched, so "
          "the site is center and size (site_ligand reads the RCSB Chemical Component "
          "Dictionary, which needs allow_remote)",
@@ -336,9 +341,7 @@ ROUTES: tuple[Route, ...] = (
         "What a herb or formula is recorded to treat in TCM terms (actions, syndromes, "
         "symptoms), how those map to modern names, and what the record licenses.",
         ("功效", "主治", "证候", "证型", "辨证", "症状", "归经", "性味", "古籍", "传统", "治什么",
-         "用什么方", "方证", "伤寒论", "金匮要略", "太阳中风", "太阳伤寒", "太阳病", "阳明病",
-         "少阳病", "太阴病", "少阴病", "厥阴病", "traditional use", "indication", "syndrome",
-         "symptom", "classical", "used for"),
+         "traditional use", "indication", "syndrome", "symptom", "classical", "used for"),
         (Step("recorded", "actions, indications and passages as recorded", (
             _e("native.tcm_herb", "recorded", name="<herb>"),
             _e("native.tcm_syndrome", "recorded", name="<syndrome>"),
@@ -369,6 +372,12 @@ ROUTES: tuple[Route, ...] = (
         then=("efficacy_evidence", "formula_mechanism"),
         cautions=("A recorded use is tradition: it licenses a traditional_use claim, never "
                   "efficacy.",),
+        # a 伤寒论 syndrome named without its closing 证, a six-channel disease, the classics
+        # that record them, a formula's pattern and a formula asked for one: what a question
+        # is about, so a question of a herb's safety in one, or of a trial, goes to safety or
+        # efficacy_evidence, and one that asks nothing else comes here
+        subjects=("伤寒论", "金匮要略", "太阳中风", "太阳伤寒", "太阳病", "阳明病", "少阳病",
+                  "太阴病", "少阴病", "厥阴病", "方证", "用什么方"),
     ),
     Route(
         "compound_identity", ("化合物身份、结构与来源", "Compound identity, structure and origin"),
@@ -918,7 +927,9 @@ ROUTES: tuple[Route, ...] = (
                 "allows; method esmfold folds on the runner without it",
                 source="<sequence or FASTA>", allow_remote=True),
              _e("skill.predict-protein-structure", "predicted", "the governed structure "
-                "prediction skill (a job)", sequences="<sequences>"))),
+                "prediction skill (a job): esmatlas by default, as the fold job, so it is "
+                "refused without allow_remote; method esmfold folds on the runner without it",
+                sequences="<sequences>", allow_remote=True))),
          Step("docking", "whether a compound could fit (a job)", (
              *_DOCK,
              _e("skill.dock-ligands", "predicted", "the governed docking skill (a job)",
@@ -1681,6 +1692,24 @@ def listing() -> dict[str, Any]:
 
 
 _ASCII = re.compile(r"^[\x00-\x7f]+$")
+#: A Chinese word whose characters begin longer words that mean something else, and the
+#: characters that make them: the word is not counted where one of them follows it
+#: (用什么方 asks for a formula, 用什么方法 for a method; 方证 is a formula's pattern, 处方证据
+#: a prescription's evidence and 官方证实 an official confirmation).
+_NOT_BEFORE = {"用什么方": "法式面案向便", "方证": "据实明书券件"}
+
+
+def _uses(word: str, text: str) -> bool:
+    """Whether ``text`` (lower case) uses ``word``: an English word as a word, its plural
+    included; a Chinese one as a substring, except where it begins a longer word
+    (``_NOT_BEFORE``)."""
+    k = word.lower()
+    if _ASCII.match(k):
+        return re.search(rf"(?<![a-z0-9]){re.escape(k)}s?(?![a-z0-9])", text) is not None
+    stop = _NOT_BEFORE.get(k)
+    if stop:
+        return re.search(rf"{re.escape(k)}(?![{re.escape(stop)}])", text) is not None
+    return k in text
 
 
 def match(question: str, limit: int = 3) -> list[tuple[Route, float]]:
@@ -1689,19 +1718,20 @@ def match(question: str, limit: int = 3) -> list[tuple[Route, float]]:
     identifier a route's ``ids`` recognise, an rsID or an NCT number, as a keyword of eight).
     Identifiers are matched as written: an HGVS c. or p. and an ontology prefix are
     case-significant (p.05 is a p-value, 'go' is not GO); a pattern that is not says so
-    with ``(?i:…)``."""
+    with ``(?i:…)``. A route's ``subjects`` (what a question is about, not what it asks)
+    count 1, however many it names, and only for a route none of whose keywords or
+    identifiers the question uses: less than any keyword, they place a question that no
+    keyword places, after every route its keywords place, and change neither the order nor
+    the scores of those (少阴病 … 安全吗 is a safety question)."""
     raw = str(question or "")
     text = raw.lower()
     scored = []
     for order, route in enumerate(ROUTES):
         score = 8.0 * sum(1 for p in route.ids if re.search(p, raw))
-        for kw in route.keywords:
-            k = kw.lower()
-            if _ASCII.match(k):
-                if re.search(rf"(?<![a-z0-9]){re.escape(k)}s?(?![a-z0-9])", text):
-                    score += len(k)
-            elif k in text:
-                score += 2 * len(k)
+        score += sum(len(k) * (1 if _ASCII.match(k) else 2)
+                     for k in route.keywords if _uses(k, text))
+        if not score and any(_uses(s, text) for s in route.subjects):
+            score = 1.0
         if score:
             scored.append((score, order, route))
     scored.sort(key=lambda t: (-t[0], t[1]))

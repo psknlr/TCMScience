@@ -23,6 +23,8 @@ skill's manifest and records them.
 
 from __future__ import annotations
 
+import contextlib
+import gzip
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
@@ -175,7 +177,8 @@ def prepare_ligand(name: str, smiles: str, *, seed: int = 7) -> Ligand:
 
 
 def read_ligands(source: str | Path) -> list[tuple[str, str]]:
-    """(name, SMILES) from a CSV/TSV (name,smiles), an SDF, a .smi file or one SMILES."""
+    """(name, SMILES) from a CSV/TSV (name,smiles), an SDF (.sdf.gz too), a .mol, a .smi
+    file or one SMILES."""
     p = Path(str(source))
     if not p.is_file():
         return [("ligand1", str(source).strip())]
@@ -183,12 +186,16 @@ def read_ligands(source: str | Path) -> list[tuple[str, str]]:
     if name.endswith((".sdf", ".sdf.gz", ".mol")):
         Chem = _need("rdkit.Chem")
         out = []
-        for k, mol in enumerate(Chem.SDMolSupplier(str(p))):
-            if mol is None:
-                raise DockingError(f"{p}: record {k + 1} could not be read")
-            title = mol.GetProp("_Name") if mol.HasProp("_Name") and mol.GetProp("_Name") \
-                else f"ligand{k + 1}"
-            out.append((title, Chem.MolToSmiles(mol)))
+        with contextlib.ExitStack() as stack:
+            # SDMolSupplier reads plain text only: a gzipped SDF is read from its stream
+            supplier = (Chem.ForwardSDMolSupplier(stack.enter_context(gzip.open(p, "rb")))
+                        if name.endswith(".gz") else Chem.SDMolSupplier(str(p)))
+            for k, mol in enumerate(supplier):
+                if mol is None:
+                    raise DockingError(f"{p}: record {k + 1} could not be read")
+                title = mol.GetProp("_Name") if mol.HasProp("_Name") and mol.GetProp("_Name") \
+                    else f"ligand{k + 1}"
+                out.append((title, Chem.MolToSmiles(mol)))
         return out
     import csv
     text = p.read_text(encoding="utf-8")
