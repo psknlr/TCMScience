@@ -57,19 +57,30 @@ The rule (R1, R2: ``_Rule``)
     at drug level (``_tier`` 3: the same herb, or a processed form by a table), the entry
     *states an allergy* to it (R1, ``allergy``, a stop) when any of these holds:
 
-    a. the entry is just names: a list of names, with or without allergy labels (过敏史：,
-       Allergy:, 药物：), list marks (、，,；;/ 和 及 与 或 and or, line breaks, tabs, a space
-       next to a Chinese character or next to a name: 黄芪 青霉素, penicillin huang qi), list
-       numbers (1. 2. #1) and 等. An item that holds a name holds nothing else, so any other
+    a. the entry is just names: a list of names, with or without allergy and class labels
+       (过敏史：, Allergy:, 药物：, 中药：, 草药：), list marks (、，,；;/ + 和 及 与 或 and or, line
+       breaks, tabs, a space next to a Chinese character or next to a name: 黄芪 青霉素,
+       penicillin huang qi; an ASCII full stop with a space after it: huang qi. penicillin; a
+       dash or a middle dot between two words: 黄芪-青霉素, 黄芪·青霉素), list numbers (1. 2. #1,
+       ① ②, (1), 一、 二、, （一）) and 等. An item that holds a name holds nothing else, so any other
        word next to a name (对黄芪, 黄芪（-）) is context. The tables hold no other allergen's
        name, so an item that holds none of theirs is another entry of the list (青霉素,
-       penicillin) unless it is words (``_words``: 黄芪；无, 黄芪，服用中, 黄芪，家里有, Dr. Huang
-       Jing); any other item is read as another name, the fail-safe side;
+       penicillin, 对乙酰氨基酚, 无花果, Tylenol with codeine) unless it is words: it holds one of
+       the context words of R2 and R6 as a whole word (``_words``: a negator or none word, not
+       asked or not known, use and keeping, tolerance, improvement and treatment, a person:
+       黄芪；无, 黄芪，服用中, 黄芪，家里有, 黄芪，医生开的, Dr. Huang Jing). A Chinese word of one
+       character counts only standing as a word of its own (无, 不吃; not the 无 of 无花果), an
+       English one only as a whole token, and no item is words by its first or last character
+       or by a small word of English (with, in, a). Any other item is read as another name, the
+       fail-safe side;
     b. an allergy noun that no negator stands immediately before stands in the name's
        statement (``_ALLERGY_NOUN``, ``_ALLERGY_NOUNS_CJK``: X allergy, allergy to X, Allergies:
        X, Allergies include X, X severe allergy, 致敏原：X); a statement ends at a full stop, a
-       semicolon, a question or exclamation mark, a line break or a tab. The statements a
-       reaction word makes (对X过敏, X过敏史, X不耐受, allergic to X) are c's;
+       semicolon, a question or exclamation mark, a line break or a tab. Or the name is what an
+       exception excepts (``_Rule.excepted``: No allergies except X, NKDA except X, no allergy
+       except to X, 除X外无过敏, 无，除了X, 无过敏史，X除外, 无过敏（X除外）), which states an allergy
+       to it. The statements a reaction word makes (对X过敏, X过敏史, X不耐受, allergic to X) are
+       c's;
     c. the entry holds a reaction word anywhere (``_REACTION_CJK``, ``_REACTION_ASCII``:
        过敏, 过敏反应, 不良反应, 皮疹, 红疹, 疹子, 起疹, 荨麻疹, 风团, 瘙痒, 痒, 红肿, 肿胀, 水肿,
        喉头水肿, 呼吸困难, 哮喘发作, 休克, 不耐受, rash, hives, urticaria, itch, swelling,
@@ -316,11 +327,11 @@ _OTHER_WORDS: Mapping[str, str] = {
 #: s2tw for every character of the scan's names (``test_every_traditional_form_is_folded``).
 _WORD_T2S = str.maketrans(
     "過對認確歷應嚴異體質詳從後現癢腫難訴經類劑種與陰錄記變顯狀嘔臨診檢驗試蕁暈氣熱屬僅雖卻並還"
-    "稱為係個這來時間週歲幾樣麼說話請際況們嗎報導誘數較極頻復敘"
+    "稱為係個這來時間週歲幾樣麼說話請際況們嗎報導誘數較極頻復敘脹"
     "順銜帰薬竜艸蔴実呉沢黒亀剤経続歯斉"
     "爲買親衝則剛別匱醫喫聽團塊處爾師態換據湯潔漿濃塗滿燉燒愛著終給櫱慮見觸計讓講許論證該説諸適長悶聞靜顆飲餅鱖",
     "过对认确历应严异体质详从后现痒肿难诉经类剂种与阴录记变显状呕临诊检验试荨晕气热属仅虽却并还"
-    "称为系个这来时间周岁几样么说话请际况们吗报导诱数较极频复叙"
+    "称为系个这来时间周岁几样么说话请际况们吗报导诱数较极频复叙胀"
     "顺衔归药龙草麻实吴泽黑龟剂经续齿齐"
     "为买亲冲则刚别匮医吃听团块处尔师态换据汤洁浆浓涂满炖烧爱着终给蘖虑见触计让讲许论证该说诸适长闷闻静颗饮饼鳜")
 
@@ -543,11 +554,23 @@ _LABEL_COLONS = (":", "：", "∶", "︰")
 #: huang qi - allergy), and neither does the full stop of an item's number (Allergies: 1. huang
 #: qi).
 _STATEMENT_ENDS = frozenset("。；;！!？?")
+#: R1b: the characters that make a verb of a 除 after them (排除, 解除, 去除, 消除, 切除 …), which
+#: excepts nothing: 已排除黄芪 is no exception.
+_NOT_EXCEPTING = frozenset("排解去清消切免祛剔删根拆废扣摘割铲破驱革戒开撤")
 
 #: R1a: what ends a list item. A space next to a Chinese character or next to a name, a line
 #: break and a tab end one too (黄芪 青霉素, penicillin huang qi); a space between two other
-#: Latin words does not.
-_ITEM_MARKS = frozenset("、，,；;/／|｜。？?！!&")
+#: Latin words does not. So do an ASCII full stop with whitespace after it (huang qi. penicillin,
+#: Dr. Huang Jing; not an item's number, 1. huang qi), a dash or a middle dot between two words
+#: (黄芪-青霉素, 黄芪·青霉素; not 黄芪（-）), an item's number in brackets or after # ((1)黄芪(2)人参,
+#: （一）黄芪（二）人参, 黄芪-#2 青霉素) and a circled or other enclosed number (①黄芪②人参, ⑴黄芪), which
+#: NFKC writes as a digit.
+_ITEM_MARKS = frozenset("、，,；;/／|｜。？?！!&+")
+_ITEM_DASHES = frozenset("-–—−·")
+_ITEM_NUMBER = re.compile(r"[(（](?:[0-9]{1,3}|[一二三四五六七八九十]{1,3})[)）]|#[0-9]{1,3}(?![0-9])")
+_ENCLOSED_NUMBER = re.compile(
+    "[①-⒛⓪-⓿❶-➓㈠-㈩㉈-㉏㉑-㉟㊀-㊉"
+    "㊱-㊿\U0001f100-\U0001f10c]")
 _ITEM_WORDS_CJK = ("以及", "和", "及", "与", "或", "跟")
 _ITEM_WORDS_ASCII = frozenset({"and", "or", "plus"})
 #: R1a: words that are not context in an item that holds a name: allergy labels, the words
@@ -556,36 +579,51 @@ _ITEM_WORDS_ASCII = frozenset({"and", "or", "plus"})
 _TRANSPARENT = re.compile(
     r"(?:既往|已知|明确|药物|食物|中药|西药|其他|其它){0,3}(?:过敏史|过敏原|过敏源|过敏物质|过敏物|过敏药物|过敏药品"
     r"|过敏食物|过敏情况|过敏反应|过敏|药敏史|药敏|致敏药物|致敏原|致敏物|变应原|变态反应)"
-    r"|中成药|药物|药品|食物|食品|中药|西药|名称|等等|之类|一类|等|类|均|都|也|皆"
+    r"|中成药|中草药|草药|药物|药品|食物|食品|中药|西药|名称|等等|之类|一类|等|类|均|都|也|皆"
     r"|" + _REACTION_CJK.pattern +
     r"|(?<![a-z0-9])(?:allerg[a-z]*|known|drugs?|foods?|medications?|meds?|medicines?|hx|history"
     r"|list|status|names?|substances?|etc|intoleran[a-z]*|reactions?|rash[a-z]*|hives?|urticari[a-z]*|itch[a-z]*"
     r"|swell[a-z]*|swollen|angioedem[a-z]*|anaphyla[a-z]*)(?![a-z0-9])")
 _NUMBERING = re.compile(r"^\s*\d{1,3}(?![0-9])|(?<![0-9a-z.])\d{1,3}\s*[.．)）](?![0-9])"
-                        r"|[(（]\d{1,3}[)）]|#\s*\d{1,3}(?![0-9])")
+                        r"|[(（]\d{1,3}[)）]|#\s*\d{1,3}(?![0-9])"
+                        # a Chinese ordinal: 一、黄芪 二、人参, 一）黄芪, （一）黄芪
+                        r"|^\s*[一二三四五六七八九十]{1,3}\s*(?:[.．)）]|$)|[(（][一二三四五六七八九十]{1,3}[)）]")
 #: R1a: a negative mark is a word: 黄芪（-）, 黄芪(-), 黄芪：-.
 _NEGATIVE_MARK = re.compile(r"[(（\[【]\s*[-－−]\s*[)）\]】]|[:：∶]\s*[-－−]\s*$")
 #: R1a: an item of a list that holds no name the tables know is another entry of the list (青霉素,
-#: penicillin), unless it holds words, not a name. The tables hold no other allergen's name, so
-#: words are told by what R2 and R6 name as context, and by the words the scanner (R0) reads
-#: around a name: a negator or none word, not asked or not known, tolerance, use, improvement
-#: and treatment (``_ANSWER_MARKERS``: 黄芪；无, 黄芪，服用中, 黄芪，好转, huang qi, takes daily),
-#: the small words of English and its words for a person, as R0's ``_BEFORE`` has 我, 医生 and 母亲
-#: (Dr. Huang Jing, huang qi from the doctor), and an item that starts with a word the scanner
-#: reads before a name or ends with one it reads after one (``_BEFORE``, ``_AFTER``: 黄芪，家里有,
-#: 黄芪，医生开的, 黄芪，平时煲汤). Any other item is read as another name: fail-safe, since the
-#: herb's name in a list stops it.
-_ANSWER_MARKERS = re.compile(
-    r"无|未|没|不|否|排除|除外|阴性|正常|询问|未问|没问|漏问|待查|拒|服|吃|喝|使用|食用|饮用|外用|可用|用过|用后|用药"
-    r"|在用|正在|目前|现在|平素|平时|长期|每日|每天|经常|常年|泡|炖|煲|煮|熬|耐受|可以|可吃|可服|能吃|能用|能服|良好"
-    r"|问题|安全|好转|缓解|改善|减轻|减少|消退|消失|痊愈|有效|效佳|见效|见好|治疗|主治|调理|保健|进补"
-    r"|(?<![a-z0-9])(?:no|not|none|nil|nkda|nka|nkfa|n/?a|negative|neg|denies|denied|deny|without"
-    r"|never|unknown|unsure|deferred|asked|see|chart|notes?|takes?|taking|took|taken|using|uses?"
-    r"|used|on|currently|daily|toleran[a-z]*|tolerat[a-z]*|ok|okay|fine|improved|better|resolved"
-    r"|treat[a-z]*|can'?t|cannot|except|but|with|after|before|since|from|by|for|at|in|of|to|is|are"
-    r"|was|were|be|been|has|have|had|do|does|did|it|its|the|a|an|he|she|they|we|i|my|his|her|their"
-    r"|said|says|reports?|reported|recorded|per|patient|pt|family|mother|father|mom|dad|son"
-    r"|daughter|wife|husband|doctor|dr|nurse)(?![a-z0-9])")
+#: penicillin, 对乙酰氨基酚, 无花果, Tylenol with codeine), unless it is words, not a name: it holds
+#: one of the context words of R2 and R6 (``_CONTEXT_CJK``, ``_CONTEXT_ONE``, ``_CONTEXT_ASCII``)
+#: as a whole word. The tables hold no other allergen's name, so nothing else tells words from a
+#: name, and no part of an item is read as a word by its first or last character. The words are
+#: of the kinds R2 and R6 name: a negator or none word, not asked or not known, use and keeping
+#: (who gave it, where it is kept), tolerance, improvement and treatment, and the words for a
+#: person (黄芪；无, 黄芪，服用中, 黄芪，家里有, 黄芪，医生开的, 黄芪，平时煲汤, 黄芪，好转, huang qi,
+#: takes daily, Dr. Huang Jing). A Chinese word of two characters or more is read where the item
+#: holds it; one of one character (无, 不, 吃 …) only as a word of its own: between the item's ends,
+#: marks, spaces or Latin letters, or next to another context word (无, 不吃, 未用), never inside
+#: another word (无花果, 不锈钢). An English one is a whole token (no, takes, dr), never a part of
+#: one, and the small words of English (with, in, a, an, the, for) are none of them. Any other
+#: item is read as another name: fail-safe, since the herb's name in a list stops it.
+_CONTEXT_CJK = re.compile(
+    # none and negation (R1c's negators, R6's none words), not asked or not known (R6)
+    r"未再出现|未出现|无明显|未见|没有|否认|阴性|未发现|排除|除外|正常|询问|未问|没问|漏问|不详|不清楚|不知道"
+    r"|未知|待查|拒答|拒绝"
+    # use and keeping (R2: 服用X, 目前在吃X, X，家里有, X，平时煲汤)
+    r"|服用|服药|使用|用过|吃过|服过|喝过|用了|吃了|服了|喝了|用后|在用|在吃|在服|正在|目前|现在|平时|平素|长期|每日"
+    r"|每天|经常|常年|常备|家里|家中"
+    r"|煲汤|炖汤|熬汤|泡水|泡茶|煮水"
+    # a person who says it or gave it (X，医生开的, X，妈妈说的; R2's Dr. Huang Jing)
+    r"|患者|病人|本人|家属|家人|母亲|父亲|妈妈|爸爸|医生|医师|大夫|护士|自诉|自述|代诉"
+    # tolerance, improvement and treatment (R2: 无不适, 耐受良好, 好转, 治疗)
+    r"|耐受|可以|可用|可吃|可服|能吃|能用|能服|良好|不适|问题|好转|缓解|改善|减轻|消退|消失|痊愈|有效|见效|见好"
+    r"|治疗|主治|调理|进补")
+_CONTEXT_ONE = frozenset("无未没不否拒服用吃喝泡炖煲煮熬")
+_CONTEXT_ASCII = re.compile(
+    r"(?<![a-z0-9])(?:no|not|none|nil|nkda|nka|nkfa|n/?a|negative|neg|denies|denied|deny|without|never"
+    r"|except|unknown|unsure|deferred|asked|see|chart|notes?|takes?|taking|took|taken|using|uses?|used"
+    r"|on|currently|daily|tolera[a-z]*|ok|okay|fine|improved|better|resolved|treat[a-z]*"
+    r"|can'?t|cannot|reports?|reported|recorded|patient|pt|family|mother|father|mom|dad|son|daughter"
+    r"|wife|husband|doctor|dr|nurse)(?![a-z0-9])")
 
 
 # ============================================================== the scan vocabulary
@@ -1269,6 +1307,7 @@ class _Rule:
 
     def __init__(self, reader: _Reader, toks: Sequence[tuple[int, int]],
                  own: Sequence[tuple[int, int]], words: Sequence[tuple[int, int]]):
+        self.reader = reader
         self.t, self.n = reader.t, reader.n
         self.gaps, self.breaks = reader.gaps, reader.breaks
         self.toks = toks
@@ -1298,7 +1337,7 @@ class _Rule:
             return "list"
         if self.reaction():
             return "reaction"
-        return "statement" if self.statement(s, e) else ""
+        return "statement" if self.statement(s, e) or self.excepted(s, e) else ""
 
     # ---------------------------------------------------------------- negation (R1c)
     def _boundary(self, q: int) -> bool:
@@ -1434,6 +1473,24 @@ class _Rule:
         starts, stated = self._statements()
         return stated[bisect_right(starts, s) - 1]
 
+    def excepted(self, s: int, e: int) -> bool:
+        """R1b: the name is what an exception excepts, which states an allergy to it: No
+        allergies except X, NKDA except X, no allergy except to X, 除X外无过敏, 无，除了X, 无过敏史，
+        X除外, 无过敏（X除外）. The exception word stands right before the name (except, except to,
+        except for, 除, 除了; not the 除 of 排除 or 解除) or right after it (除外, 以外, 之外, 例外),
+        with only the names it excepts, joined as a list, between."""
+        t = self.t
+        b = self._backward(s)
+        if (b >= 2 and t.startswith("除了", b - 2)) or (
+                b >= 1 and t[b - 1] == "除" and not (b >= 2 and t[b - 2] in _NOT_EXCEPTING)):
+            return True
+        a = self.tok_end.get(b)
+        if a is not None and t[a:b] in ("to", "for"):
+            a, b = self.tok_end.get(a), a
+        if a is not None and t[a:b] == "except":
+            return True
+        return t.startswith(("除外", "以外", "之外", "例外"), self._forward(e))
+
     # ---------------------------------------------------------------- the 花粉 denial
     def _forward(self, q: int) -> int:
         """Past the names joined to the one that ends at ``q``."""
@@ -1518,6 +1575,7 @@ class _Rule:
         reaction words R1c reads), or holds no name and is not words (``_words``)."""
         t, n, gaps = self.t, self.n, self.gaps
         covered, inner = self.covered, self.inner
+        enclosed = self._enclosed()
         any_name = False
         named, residue = False, []
 
@@ -1550,6 +1608,12 @@ class _Rule:
                 (len(x) for x in _ITEM_WORDS_CJK if t.startswith(x, p)), 0)
             if not w and p in self.tok_at and t[p:self.tok_at[p]] in _ITEM_WORDS_ASCII:
                 w = self.tok_at[p] - p
+            if not w and (p in enclosed or (c == "." and p + 1 in gaps and p > 0 and not t[p - 1].isdigit())
+                          or (c in _ITEM_DASHES and 0 < p < n - 1 and _wordy(t[p - 1]) and _wordy(t[p + 1]))):
+                # huang qi. penicillin; 黄芪-青霉素, 黄芪·青霉素; ①黄芪②人参
+                w = 1
+            if not w and c in "(（#" and (m := _ITEM_NUMBER.match(t, p)):
+                w = m.end() - p                 # (1)黄芪(2)人参, #1 黄芪 #2 人参
             if w:
                 if (named or residue) and not item_ok():
                     return False
@@ -1565,6 +1629,19 @@ class _Rule:
             return False
         return any_name or named
 
+    def _enclosed(self) -> frozenset[int]:
+        """Where the record writes a circled or other enclosed number (①, ⑴, ⒈, ❶, ㊀), which
+        numbers an item: NFKC writes most of them as digits, so ①黄芪②人参 would read 1黄芪2人参."""
+        if not _ENCLOSED_NUMBER.search(str(self.reader.record or "")):
+            return frozenset()
+        raw, at = self.reader.raw()
+        keep = self.reader.keep
+        return frozenset(p for p in range(self.n) if _ENCLOSED_NUMBER.match(raw[at[keep[p]]]))
+
+
+def _wordy(c: str) -> bool:
+    return c.isalnum() or _cjk(c)
+
 
 #: The 花粉 denial (``_Rule.denied``): a negative mark or a negative test right after the name.
 _DENIED_MARK = re.compile(r"[(（\[【][-－−][)）\]】]|[:：∶][-－−](?![0-9a-z])|皮试阴性|阴性|皮试[(（][-－−][)）]"
@@ -1572,26 +1649,20 @@ _DENIED_MARK = re.compile(r"[(（\[【][-－−][)）\]】]|[:：∶][-－−](?
 
 
 def _words(item: str) -> bool:
-    """A list item that holds no name the tables know is words, not another allergen's name:
-    it holds a word of a kind R2 and R6 name (``_ANSWER_MARKERS``), or it starts with a word the
-    scanner reads before a name or ends with one it reads after a name (R0's ``_BEFORE`` and
-    ``_AFTER``), labels and class words aside: 家里有, 医生开的, 平时煲汤, 服用中, 好转, none."""
-    if _ANSWER_MARKERS.search(item):
-        return True
+    """A list item that holds no name the tables know is words, not another allergen's name,
+    when it holds a context word of R2 and R6 as a whole word, labels, class words and its number
+    aside (``_CONTEXT_CJK``, ``_CONTEXT_ONE``, ``_CONTEXT_ASCII``): 家里有, 医生开的, 平时煲汤, 服用中,
+    好转, 无, 不吃, none, takes daily, Dr. Not 无花果, 对乙酰氨基酚, 香水, Tylenol with codeine or
+    vitamin A, which name another allergen."""
     core = _NUMBERING.sub(" ", _TRANSPARENT.sub(" ", item))
-    a, b = 0, len(core)
-    while a < b and not (core[a].isalnum() or _cjk(core[a])):
-        a += 1
-    while b > a and not (core[b - 1].isalnum() or _cjk(core[b - 1])):
-        b -= 1
-    if b - a >= 2 and core[b - 1] == "药":
-        b -= 1                         # a kind of drug (消炎药, 头孢类药), as 药物 names one
-    if a == b:
-        return False
-    if _cjk(core[a]) and any(core[a:a + k] in _BEFORE for k in range(1, min(_BEFORE_MAX, b - a) + 1)):
+    if _CONTEXT_CJK.search(core) or _CONTEXT_ASCII.search(core):
         return True
-    return _cjk(core[b - 1]) and any(core[b - k:b] in _AFTER
-                                     for k in range(1, min(_AFTER_MAX, b - a) + 1))
+    last = len(core) - 1
+    for i, c in enumerate(core):
+        if c in _CONTEXT_ONE and all(not _cjk(core[j]) or core[j] in _CONTEXT_ONE
+                                     for j in (i - 1, i + 1) if 0 <= j <= last):
+            return True
+    return False
 
 
 class _Cover:
@@ -1944,10 +2015,13 @@ def allergy_issues(herbs: Sequence[str], records: Sequence[Any], kb: Any, pack: 
             continue
         whole = _WS.sub(" ", _visible(str(record or ""))).strip()
         short = len(whole) <= _QUOTE_WHOLE
-        # each distinct reading once: its first places are quoted, the rest counted
+        # each distinct reading once: its first places are quoted, the rest counted. A denied
+        # 花粉 and one that is not are two readings (否认花粉过敏；花粉皮试阳性), so the key holds
+        # ``denied``, and a place that gives a herb nothing never hides one that gives it an
+        # issue: each place is matched, none is skipped for another's sake
         groups: dict[tuple, list[Any]] = {}
         for m in ms:
-            key = (m.name, m.kind, m.how, m.of, m.species, bool(m.word), m.allergy,
+            key = (m.name, m.kind, m.how, m.of, m.species, bool(m.word), m.allergy, m.denied,
                    _ascii_key(m.written)[0] if m.written else "")
             g = groups.setdefault(key, [[], 0])
             if len(g[0]) < _SHOWN:
@@ -1961,7 +2035,7 @@ def allergy_issues(herbs: Sequence[str], records: Sequence[Any], kb: Any, pack: 
                     quote = whole if short else reader.snippet(m.start, m.end)
                     issue = _issue(m, h, hk, quote, matcher)
                     if issue is None:
-                        break
+                        continue
                     sev, code, msg, source = issue
                     slot = found[h].setdefault(code, [sev, {}, 0, {}])
                     if msg not in slot[1]:
