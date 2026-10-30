@@ -399,6 +399,26 @@ def test_an_allergy_that_is_not_text_is_refused_alike_here_and_by_the_library(ru
                for i in e["result"]["issues"]), e["result"]["issues"]
 
 
+def test_exceptions_and_list_items_of_words_read_alike_through_the_studio(runner_ctx, intake):
+    # the r9 review's repros, through clinic.check: an exception excepts every entry joined to it,
+    # another allergen's name among them and in either order (a stop), and a list item that holds
+    # a context word (无反应, 一直吃, 中医开的, by herbalist) only mentions the herb (a block)
+    herbs = [{"herb": "黄芪", "grams": 9}]
+    for record, stop in (("No allergies except penicillin and huang qi", True),
+                         ("No allergies except huang qi and penicillin", True),
+                         ("NKDA except penicillin, huang qi", True), ("除青霉素、黄芪外无过敏", True),
+                         ("无过敏史，黄芪、青霉素除外", True), ("No allergies except: huang qi", True),
+                         ("黄芪，无反应", False), ("黄芪，一直吃", False), ("黄芪，已停用", False),
+                         ("黄芪，中医开的", False), ("huang qi, by herbalist", False)):
+        e = call("clinic_check_prescription", {"intake": {**intake, "allergies": [record]},
+                                               "herbs": herbs}, runner_ctx)
+        assert e["status"] == "succeeded", e["error"]
+        mine = {(i["id"], i["severity"]) for i in e["result"]["issues"] if i["id"].startswith("allergy")}
+        assert mine == ({("allergy:黄芪", "stop")} if stop else {("allergy_mentioned:黄芪", "block")}), \
+            (record, mine)
+        assert bool(e["result"]["stop"]) == stop, record
+
+
 def test_draft_prescription_skill_is_a_development_run(runner_ctx, intake):
     e = call("call_tool", {"tool": "skill.draft-tcm-prescription",
                            "arguments": {"intake": intake}}, runner_ctx)
