@@ -1166,30 +1166,44 @@ _O_NEGATIVE = re.compile(r"[(（]\s*[-－−]\s*[)）]|[:：∶]\s*[-－−]")
 #: it holds one of the rule's context words as a whole word: a negator (R1c), a none word or a
 #: not-asked phrase (R6, a negative mark among them), or a word of use, keeping, tolerance,
 #: improvement or treatment, or one for a person (R2's 服用, 目前在吃, 家里有, 无不适, 耐受良好, 好转,
-#: 治疗, Dr. Huang Jing), in Chinese or English. A Chinese word of one character counts only as a
-#: word of its own (无, 不吃; not the 无 of 无花果), an English one only as a whole token.
+#: 治疗, Dr. Huang Jing; 无反应, 没事, 一直吃, 中医开的, by herbalist, in tea), in Chinese or English. A
+#: Chinese word of one character counts only as a word of its own (无, 不吃; not the 无 of 无花果), or,
+#: for 吃, 喝 and 用, at the end of the item (常吃, 天天喝, 已停用); an English one only as a whole token.
 _O_CONTEXT_CJK = re.compile("|".join(sorted("""
     未再出现 未出现 无明显 未见 没有 否认 阴性 未发现 排除 除外 正常 询问 未问 没问 漏问 不详 不清楚 不知道 未知 待查 拒答 拒绝
     服用 服药 使用 用过 吃过 服过 喝过 用了 吃了 服了 喝了 用后 在用 在吃 在服 正在 目前 现在 平时 平素 长期 每日 每天 经常 常年
     常备 家里 家中 煲汤 炖汤 熬汤 泡水
     泡茶 煮水 患者 病人 本人 家属 家人 母亲 父亲 妈妈 爸爸 医生 医师 大夫 护士 自诉 自述 代诉 耐受 可以 可用 可吃 可服 能吃 能用
-    能服 良好 不适 问题 好转 缓解 改善 减轻 消退 消失 痊愈 有效 见效 见好 治疗 主治 调理 进补""".split(), key=len, reverse=True)))
+    能服 良好 不适 问题 好转 缓解 改善 减轻 消退 消失 痊愈 有效 见效 见好 治疗 主治 调理 进补
+    无反应 没反应 无异常 没异常 无异样 没异样 无事 没事 无碍 没碍 无大碍 没大碍 无感觉 没感觉 无副作用 没副作用 无副反应
+    没副反应 无影响 没影响 无变化 没变化 无症状 没症状 不碍事 不影响
+    在喝 一直 天天 每次 偶尔 有时 常常 多次 常服 曾服 久服 冲服 煎服 吞服 停服 停用 停药 慎服 慎用 禁服 禁用 忌服 忌用
+    开的 开药 买的 给的 送的 购买 网购 药店 药房 中医 西医 郎中 药师""".split(), key=len, reverse=True)))
 _O_ONE = "无未没不否拒服用吃喝泡炖煲煮熬"
+#: 吃, 喝 and 用 at the end of an item say how the herb is taken (常吃, 天天喝, 曾用, 慎用).
+_O_LAST = re.compile(r"(?:吃|喝|用)\s*$")
 _O_CONTEXT_ONE = re.compile(rf"(?:(?<=[{_O_ONE}])|(?<![{_O_CJK}]))[{_O_ONE}](?:(?=[{_O_ONE}])|(?![{_O_CJK}]))")
 _O_CONTEXT_EN = re.compile(
     r"(?<![a-z0-9])(?:no|not|none|nil|nkda|nka|nkfa|n/?a|negative|neg|denies|denied|deny|without|never|except"
     r"|unknown|unsure|deferred|asked|see|chart|notes?|takes?|taking|took|taken|uses?|using|used|on|currently|daily"
     r"|tolera[a-z]*|ok|okay|fine|improved|better|resolved|treat[a-z]*|can'?t|cannot|reports?|reported|recorded"
-    r"|patient|pt|family|mother|father|mom|dad|son|daughter|wife|husband|doctor|dr|nurse)(?![a-z0-9])")
+    r"|patient|pt|family|mother|father|mom|dad|son|daughter|wife|husband|doctor|dr|nurse|herbalists?"
+    r"|practitioners?|pharmacists?|physicians?|stopped|drinking|drank|eating|eats|ate|brewed|boiled|bought"
+    r"|purchased|prescribed|in\s+tea|as\s+tea|in\s+soup|as\s+soup)(?![a-z0-9])")
 #: What a word of one character may stand next to and still be one: the reaction words, the
 #: allergy labels and the class words (无过敏史, 无药物过敏).
 _O_AROUND = re.compile(_O_REACTION.pattern + r"|allerg[a-z]*|过敏史|史|中草药|草药|中药|中成药|西药|药物|药品"
                        r"|食物|食品|等|类")
-#: R1b: an exception states an allergy to what it excepts: except X, except to X, 除X外, 除了X, X除外,
-#: X以外 (not the 除 of 排除, 解除 and their like, which except nothing).
-_O_EXCEPT_BEFORE = re.compile(rf"(?:(?<![排解去清消切免祛剔删根拆废扣摘割铲破驱革戒开撤])除了?"
-                              rf"|(?<![a-z0-9])except(?:\s+(?:to|for))?)\s*(?:{_O_NAME}\s*{_O_JOIN}\s*)*$")
-_O_EXCEPT_AFTER = re.compile(rf"^(?:\s*{_O_JOIN}\s*{_O_NAME})*\s*(?:除外|以外|之外|例外)")
+#: R1b: an exception states an allergy to what it excepts. Written before it: except, except to,
+#: except for, 除X外, 除了X (not the 除 of 排除, 解除 and their like, which except nothing, nor of 除外),
+#: with a colon or an opening bracket after it or not; written after it: X除外, X以外, X之外, X例外, with
+#: a closing bracket before it or not. Between, only the other entries it excepts, joined as a list
+#: (the joins of a negated list, and a comma): names, or items that hold none and are not words,
+#: which R1a reads as other allergens. An entry holds no 外, which closes a 除.
+_O_EXCEPT_WORD = re.compile(r"(?:(?<![排解去清消切免祛剔删根拆废扣摘割铲破驱革戒开撤])除(?:了|(?!外))"
+                            r"|(?<![a-z0-9])except(?:\s+(?:to|for)(?![a-z0-9]))?(?![a-z0-9]))\s*[:：∶(（\[【]?")
+_O_EXCEPT_WORD_AFTER = re.compile(r"[)）\]】]?\s*(?:除外|以外|之外|例外)")
+_O_EXCEPT_JOIN = re.compile(r"以及|[、/／和及与或跟,，]|(?<![a-z0-9])(?:and|or)(?![a-z0-9])")
 
 
 def _o_enclosed(c):
@@ -1203,7 +1217,8 @@ def _o_words(item):
     """R1a: an item with no name holds one of the rule's context words as a whole word."""
     if _O_NEGATIVE.search(item) or _O_CONTEXT_CJK.search(item) or _O_CONTEXT_EN.search(item):
         return True
-    return _O_CONTEXT_ONE.search(_O_AROUND.sub(" ", item)) is not None
+    rest = _O_AROUND.sub(" ", item)
+    return _O_CONTEXT_ONE.search(rest) is not None or _O_LAST.search(rest) is not None
 #: 花粉's explicit denials (R0, R2): 否认X过敏, 无X过敏史, 对X不过敏, X（-）, X皮试阴性, no X allergy,
 #: no allergy to X.
 _O_DENIED_BEFORE = re.compile(rf"(?:{_O_NEGATOR}\s*(?:{_O_NAME}\s*{_O_JOIN}\s*)*"
@@ -1313,15 +1328,40 @@ def _o_rule(record, pack):
     for m in ms:
         p = _o_place(at, m.start)
         sentence = max(s for s in starts if s <= p)
-        excepted = (_O_EXCEPT_BEFORE.search(own[:p]) is not None
-                    or _O_EXCEPT_AFTER.search(own[p + 1:]) is not None)
-        why = "R1a" if r1a else "R1c" if r1c else "R1b" if sentence in stated or excepted else ""
+        excepted = _o_excepted(own, p)
+        why ="R1a" if r1a else "R1c" if r1c else "R1b" if sentence in stated or excepted else ""
         denied = not why and (_O_DENIED_ITSELF.search(own[p + 1:]) is not None
                               or (_O_DENIED_BEFORE.search(own[:p]) is not None
                                   and _O_DENIED_AFTER.search(own[p + 1:]) is not None)
                               or _o_denied_after_noun(own, p))
         out.append((m, why, denied))
     return out
+
+
+def _o_entry(entry):
+    """R1b: an entry an exception may except: a name, or an item of words and digits that holds no
+    name, is not words (R1a's other allergen) and holds no 外, which closes a 除."""
+    e = entry.strip()
+    if e == _O_NAME:
+        return True
+    return (any(c.isalnum() for c in e) and all(c.isalnum() or c.isspace() for c in e)
+            and "外" not in e and not _o_words(e))
+
+
+def _o_excepted(own, p):
+    """R1b: the name at ``p`` is what an exception excepts, the nearest exception word before or
+    after it, with only the entries it excepts between."""
+    before = list(_O_EXCEPT_WORD.finditer(own[:p]))
+    if before:
+        entries = _O_EXCEPT_JOIN.split(own[before[-1].end():p])
+        if not entries[-1].strip() and all(map(_o_entry, entries[:-1])):
+            return True
+    after = _O_EXCEPT_WORD_AFTER.search(own, p + 1)
+    if after:
+        entries = _O_EXCEPT_JOIN.split(own[p + 1:after.start()])
+        if not entries[0].strip() and all(map(_o_entry, entries[1:])):
+            return True
+    return False
 
 
 def _o_denied_after_noun(own, p):
@@ -1435,7 +1475,7 @@ def test_the_oracle_is_written_apart_from_the_reading():
     # from the reading it takes only R0's names (mentions, fold) and the name tables' tiers
     allowed = {"mentions", "fold", "_herb_key", "_materia", "_Matcher", "_vocab"}
     for f in (_oracle, _o_code, _o_rule, _o_masked, _o_folded, _o_just_names, _o_words, _o_negated,
-              _o_stated):
+              _o_stated, _o_excepted, _o_entry):
         source = inspect.getsource(f)
         taken = {n.strip() for m in re.finditer(r"from bioagent\.clinic\.allergy import ([\w, ]+)", source)
                  for n in m.group(1).split(",")}
@@ -1503,7 +1543,7 @@ def test_the_corpus_holds_every_repro_and_each_criterion():
     for source in ("r6 review round 1 (d087468)", "r6 review round 2 (f8cf0eb)", "review6 scripts",
                    "C1 common form", "C3 common corpus", "r7 review round 1 (03a822b)",
                    "r7 review round 2 (b989f7d)", "r8 rule (fix/r8-allergy)", "r8 review (bfd2467)",
-                   "r8 review round 2 (6970293)"):
+                   "r8 review round 2 (6970293)", "r9 review (9a30b31)"):
         assert any(s.startswith(source) for s in sources), source
         assert source in doc["sources"], source
     # every outcome the review of the rule changed says why and what it was; every case the
@@ -1558,6 +1598,11 @@ _RULE_STOP_TEMPLATES = (
     "否认对{}过敏", "无药物过敏史，目前在吃{}", "无任何皮疹，服用{}", "服用{}后无任何皮疹", "无明确过敏史，服{}",
     "无其他药物过敏史，服用{}", "否认其他过敏，{}", "无食物过敏，正在服用{}", "无已知过敏，在吃{}",
     "{}皮试阳性，否认其他过敏", "曾用{}，无明确过敏史",
+    # an exception excepts every entry joined to it, in any order (r9 review)
+    "No allergies except penicillin and {}", "NKDA except penicillin, {}", "除青霉素、{}外无过敏",
+    "无过敏史，{}、青霉素除外", "无，除了青霉素和{}", "NKDA except ({})", "（青霉素、{}）除外",
+    # an item of other words is another allergen's name (r9 review)
+    "{}，口服避孕药", "{}，水泡", "{}，有反应",
     # a reaction word before a name inside a longer word is still a reaction word (r8 review)
     "目前在吃{}，皮疹黄芪", "皮疹黄芪所致，{}无不适")
 #: R2: other words next to the name and no un-negated reaction word: a negator right before every
@@ -1572,7 +1617,10 @@ _RULE_MENTION_TEMPLATES = (
     "服用{}后，皮肤未见皮疹", "{}\t服用中\t无不适", "服用{}后咳嗽缓解", "因咳嗽服用{}", "服用{}后，头晕好转",
     "服用{}，次日青霉素皮试阳性", "服用{}治疗咳嗽，有效", "无过敏史，目前在吃{}", "{}；无", "对{}",
     "未见皮疹，未见瘙痒，服用{}", "无明显皮疹，服用{}", "{}耐受差", "对{}耐受性差", "{}耐受不良",
-    "吃{}后，嘴唇肿了", "服用{}后起疙瘩", "服用{}后，自觉胸闷")
+    "吃{}后，嘴唇肿了", "服用{}后起疙瘩", "服用{}后，自觉胸闷",
+    # an item that holds a context word is words (r9 review)
+    "{}，无反应", "{}，没事", "{}，无副作用", "{}，一直吃", "{}，常吃", "{}，常服", "{}，已停用", "{}，慎用",
+    "{}，天天喝", "{}，在喝", "{}，中医开的", "{}，药店买的", "除青霉素外，{}可以服用")
 
 
 def test_the_rule_stops_or_mentions_every_herb_of_the_pack_as_the_oracle_does(pack):
@@ -2329,12 +2377,41 @@ def test_every_reaction_word_and_negator_of_the_rule_is_read_in_traditional_char
                                     "除黄芪外无过敏", "无过敏史，黄芪除外", "无，除了黄芪", "无过敏（黄芪除外）",
                                     "无过敏史，黄芪以外", "除人参、黄芪外无过敏", "NKDA except ren shen and huang qi",
                                     # the near-identical wordings that already stopped
-                                    "No known allergies except huang qi", "除黄芪外无其他过敏", "无药物过敏，黄芪除外"])
+                                    "No known allergies except huang qi", "除黄芪外无其他过敏", "无药物过敏，黄芪除外",
+                                    # r9 review: another allergen's name among the entries, in either
+                                    # order, and a colon or a bracket after the exception word
+                                    "No allergies except penicillin and huang qi", "No allergies except huang qi and penicillin",
+                                    "NKDA except penicillin, huang qi", "NKDA except huang qi, penicillin",
+                                    "No allergies except to penicillin and huang qi",
+                                    "No allergies except to huang qi and penicillin", "除青霉素、黄芪外无过敏",
+                                    "除黄芪、青霉素外无过敏", "无过敏史，黄芪、青霉素除外", "无过敏史，青霉素、黄芪除外",
+                                    "无，除了青霉素和黄芪", "无，除了黄芪和青霉素", "No allergies except: huang qi",
+                                    "NKDA except (huang qi)", "No known allergies except: huang qi",
+                                    "NKDA except (penicillin, huang qi)", "No allergies except: penicillin, huang qi",
+                                    "No allergies except amoxicillin clavulanate and huang qi", "（青霉素、黄芪）除外",
+                                    "无过敏（青霉素、黄芪除外）", "No allergies except penicillin and sulfa and huang qi"])
 def test_an_exception_states_an_allergy_to_what_it_excepts(pack, record):
-    # R1b (r8 review round 2): No allergies except X blocked, No known allergies except X stopped
+    # R1b (r8 review round 2): No allergies except X blocked, No known allergies except X stopped.
+    # r9 review: the walk from the name to the exception word passed only names of the tables, so
+    # an allergen they do not hold (penicillin, 青霉素) stopped it, and except X and Y stopped X only
+    # when X came first; a colon or a bracket after the exception word stopped it too
     assert _found(pack, record, "黄芪") == [("stop", "allergy")], record
     assert _oracle(record, ["黄芪"], pack)["黄芪"][:2] == ("stop", ["allergy"]), record
     assert not _found(pack, record, "当归"), record
+
+
+@pytest.mark.parametrize("record", ["除青霉素外，黄芪可以服用", "除青霉素外，目前服用黄芪", "除青霉素、头孢外，黄芪可以吃",
+                                    "No allergies except penicillin, takes huang qi",
+                                    "No allergies except penicillin; huang qi daily",
+                                    "NKDA except penicillin, no reaction to huang qi", "No allergies except, huang qi",
+                                    "No allergies except penicillin, 每天吃黄芪", "已排除青霉素、黄芪",
+                                    "除青霉素外其他药物均可，黄芪，目前在吃"])
+def test_an_exception_excepts_only_the_entries_joined_to_it(pack, record):
+    # r9 review: an exception excepts what is joined to it as a list; a 除 closed by its 外, a
+    # word that is not an entry (takes, 目前服用) or a mark that ends the clause leaves the name
+    # only mentioned (R2)
+    assert _found(pack, record, "黄芪") == [("block", "allergy_mentioned")], record
+    assert _oracle(record, ["黄芪"], pack)["黄芪"][:2] == ("block", ["allergy_mentioned"]), record
 
 
 @pytest.mark.parametrize("record", ["已排除黄芪", "排除黄芪", "解除黄芪"])
@@ -2350,7 +2427,10 @@ def test_the_chu_of_a_verb_excepts_nothing(pack, record):
                           "黄芪，凉水", "黄芪，冷水", "黄芪，热水", "黄芪，绿茶", "黄芪，浓茶", "黄芪，不锈钢",
                           "huang qi, Tylenol with codeine", "huang qi, sulfa (in Bactrim)", "huang qi, vitamin A",
                           "Astragali Radix, vitamin A", "huang qi, an antibiotic", "huang qi, drugs ending in -cillin",
-                          "黄芪，可待因", "huang qi, codeine")),
+                          "黄芪，可待因", "huang qi, codeine",
+                          # r9 review: words that end in 服 or 泡, or hold 口服, 医院 or 外用, stay names
+                          "黄芪，口服避孕药", "黄芪，水泡", "黄芪，起泡", "黄芪，衣服", "黄芪，有反应", "黄芪，副作用大",
+                          "黄芪，医院消毒水", "黄芪，外用药膏", "黄芪，食用色素", "huang qi, green tea")),
     *((r, "人参") for r in ("人参、维生素A", "人参、对乙酰氨基酚", "人参、无花果", "人参、含碘造影剂", "ren shen, Vitamin A",
                           "ren shen, an antibiotic"))])
 def test_a_common_allergen_in_a_list_is_another_name_not_words(pack, record, herb):
@@ -2365,11 +2445,20 @@ def test_a_common_allergen_in_a_list_is_another_name_not_words(pack, record, her
 @pytest.mark.parametrize("record", ["黄芪，家里有", "黄芪，医生开的", "黄芪，平时煲汤", "黄芪，妈妈说的", "黄芪；无",
                                     "黄芪，无", "黄芪，服用中", "黄芪，好转", "黄芪，不吃", "黄芪，未用", "黄芪，未再出现皮疹",
                                     "黄芪，无过敏", "huang qi, takes daily", "huang qi, none", "Dr. Huang Qi",
-                                    "huang qi, per patient"])
+                                    "huang qi, per patient",
+                                    # r9 review: a negator with what there was none of, 吃 喝 用 ending
+                                    # the item, and the common words of use, source and outcome
+                                    "黄芪，无反应", "黄芪，没反应", "黄芪，无异常", "黄芪，没事", "黄芪，无副作用",
+                                    "黄芪，无副反应", "黄芪，没感觉", "黄芪，无大碍", "黄芪，不影响", "黄芪，一直吃",
+                                    "黄芪，常吃", "黄芪，常服", "黄芪，曾服", "黄芪，曾用", "黄芪，已停用", "黄芪，慎用",
+                                    "黄芪，天天喝", "黄芪，在喝", "黄芪，偶尔吃", "黄芪，禁用", "黄芪，中医开的",
+                                    "黄芪，药店买的", "黄芪，朋友送的", "黄芪，自己买的", "huang qi, by herbalist",
+                                    "huang qi, in tea", "huang qi, prescribed by a practitioner", "huang qi, stopped"])
 def test_a_list_item_holding_a_context_word_is_words(pack, record):
     # R1a: these items hold a context word of R2 or R6 as a whole word (家里, 医生, 平时, 妈妈, 无
     # standing alone, 服用, 好转, 不吃, 未用, 未再出现, takes, none, Dr., patient): the name is only
-    # mentioned (R2)
+    # mentioned (R2). r9 review: 无反应, 一直吃, 已停用, 中医开的, by herbalist and in tea stopped, as
+    # another allergen's name, where they blocked before; they hold a context word too
     assert _found(pack, record, "黄芪") == [("block", "allergy_mentioned")], record
     assert _oracle(record, ["黄芪"], pack)["黄芪"][:2] == ("block", ["allergy_mentioned"]), record
 

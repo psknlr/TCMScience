@@ -68,19 +68,24 @@ The rule (R1, R2: ``_Rule``)
        penicillin, 对乙酰氨基酚, 无花果, Tylenol with codeine) unless it is words: it holds one of
        the context words of R2 and R6 as a whole word (``_words``: a negator or none word, not
        asked or not known, use and keeping, tolerance, improvement and treatment, a person:
-       黄芪；无, 黄芪，服用中, 黄芪，家里有, 黄芪，医生开的, Dr. Huang Jing). A Chinese word of one
-       character counts only standing as a word of its own (无, 不吃; not the 无 of 无花果), an
-       English one only as a whole token, and no item is words by its first or last character
-       or by a small word of English (with, in, a). Any other item is read as another name, the
-       fail-safe side;
+       黄芪；无, 黄芪，无反应, 黄芪，服用中, 黄芪，一直吃, 黄芪，家里有, 黄芪，中医开的, 黄芪，药店买的,
+       Dr. Huang Jing, huang qi, by herbalist). A Chinese word of one character counts only
+       standing as a word of its own (无, 不吃; not the 无 of 无花果), or, for 吃, 喝 and 用, at
+       the end of the item (常吃, 天天喝, 已停用); an English one only as a whole token. No item
+       is words by its first character, by its last but for those three, or by a small word of
+       English (with, in, a). Any other item is read as another name, the fail-safe side;
     b. an allergy noun that no negator stands immediately before stands in the name's
        statement (``_ALLERGY_NOUN``, ``_ALLERGY_NOUNS_CJK``: X allergy, allergy to X, Allergies:
        X, Allergies include X, X severe allergy, 致敏原：X); a statement ends at a full stop, a
        semicolon, a question or exclamation mark, a line break or a tab. Or the name is what an
        exception excepts (``_Rule.excepted``: No allergies except X, NKDA except X, no allergy
-       except to X, 除X外无过敏, 无，除了X, 无过敏史，X除外, 无过敏（X除外）), which states an allergy
-       to it. The statements a reaction word makes (对X过敏, X过敏史, X不耐受, allergic to X) are
-       c's;
+       except to X, No allergies except: X, NKDA except (X), 除X外无过敏, 无，除了X, 无过敏史，X除外,
+       无过敏（X除外）), which states an allergy to it. Between the exception word and the name
+       stand only the other entries it excepts, joined as a list (、 / 和 及 与 或 跟 以及 and or,
+       or a comma): names, or items that a reads as another allergen's name (No allergies except
+       penicillin and X, 除青霉素、X外无过敏), in any order. An entry holds no 外, which closes a 除
+       (除青霉素外，X可以服用 excepts no X). The statements a reaction word makes (对X过敏,
+       X过敏史, X不耐受, allergic to X) are c's;
     c. the entry holds a reaction word anywhere (``_REACTION_CJK``, ``_REACTION_ASCII``:
        过敏, 过敏反应, 不良反应, 皮疹, 红疹, 疹子, 起疹, 荨麻疹, 风团, 瘙痒, 痒, 红肿, 肿胀, 水肿,
        喉头水肿, 呼吸困难, 哮喘发作, 休克, 不耐受, rash, hives, urticaria, itch, swelling,
@@ -557,6 +562,15 @@ _STATEMENT_ENDS = frozenset("。；;！!？?")
 #: R1b: the characters that make a verb of a 除 after them (排除, 解除, 去除, 消除, 切除 …), which
 #: excepts nothing: 已排除黄芪 is no exception.
 _NOT_EXCEPTING = frozenset("排解去清消切免祛剔删根拆废扣摘割铲破驱革戒开撤")
+#: R1b: what joins the entries an exception excepts: the joiners of the names a negator negates,
+#: and a comma (except penicillin, huang qi; 除青霉素，黄芪外).
+_EXCEPT_JOINERS_CJK = _NAME_JOINERS_CJK + (",", "，")
+#: R1b: a colon or an opening bracket may stand after an exception word written before what it
+#: excepts (No allergies except: huang qi, NKDA except (huang qi)), a closing bracket before one
+#: written after it (（黄芪、青霉素）除外).
+_EXCEPT_OPEN = frozenset(":：∶︰([（【")
+_EXCEPT_CLOSE = frozenset(")]）】")
+_EXCEPT_AFTER = ("除外", "以外", "之外", "例外")
 
 #: R1a: what ends a list item. A space next to a Chinese character or next to a name, a line
 #: break and a tab end one too (黄芪 青霉素, penicillin huang qi); a space between two other
@@ -592,38 +606,51 @@ _NUMBERING = re.compile(r"^\s*\d{1,3}(?![0-9])|(?<![0-9a-z.])\d{1,3}\s*[.．)）
 _NEGATIVE_MARK = re.compile(r"[(（\[【]\s*[-－−]\s*[)）\]】]|[:：∶]\s*[-－−]\s*$")
 #: R1a: an item of a list that holds no name the tables know is another entry of the list (青霉素,
 #: penicillin, 对乙酰氨基酚, 无花果, Tylenol with codeine), unless it is words, not a name: it holds
-#: one of the context words of R2 and R6 (``_CONTEXT_CJK``, ``_CONTEXT_ONE``, ``_CONTEXT_ASCII``)
-#: as a whole word. The tables hold no other allergen's name, so nothing else tells words from a
-#: name, and no part of an item is read as a word by its first or last character. The words are
-#: of the kinds R2 and R6 name: a negator or none word, not asked or not known, use and keeping
-#: (who gave it, where it is kept), tolerance, improvement and treatment, and the words for a
-#: person (黄芪；无, 黄芪，服用中, 黄芪，家里有, 黄芪，医生开的, 黄芪，平时煲汤, 黄芪，好转, huang qi,
-#: takes daily, Dr. Huang Jing). A Chinese word of two characters or more is read where the item
-#: holds it; one of one character (无, 不, 吃 …) only as a word of its own: between the item's ends,
-#: marks, spaces or Latin letters, or next to another context word (无, 不吃, 未用), never inside
-#: another word (无花果, 不锈钢). An English one is a whole token (no, takes, dr), never a part of
-#: one, and the small words of English (with, in, a, an, the, for) are none of them. Any other
-#: item is read as another name: fail-safe, since the herb's name in a list stops it.
+#: one of the context words of R2 and R6 (``_CONTEXT_CJK``, ``_CONTEXT_ONE``, ``_CONTEXT_LAST``,
+#: ``_CONTEXT_ASCII``) as a whole word. The tables hold no other allergen's name, so nothing else
+#: tells words from a name, and no part of an item is read as a word by its first character, nor
+#: by its last but for 吃, 喝 and 用. The words are of the kinds R2 and R6 name: a negator or none
+#: word (with what it says there was none of: 无反应, 没事, 无副作用), not asked or not known, use and
+#: keeping (how often, who gave it, where it was bought or is kept), tolerance, improvement and
+#: treatment, and the words for a person (黄芪；无, 黄芪，无反应, 黄芪，服用中, 黄芪，常服, 黄芪，已停用,
+#: 黄芪，家里有, 黄芪，医生开的, 黄芪，中医开的, 黄芪，药店买的, 黄芪，平时煲汤, 黄芪，好转, huang qi,
+#: takes daily, huang qi, by herbalist, huang qi, in tea, Dr. Huang Jing). A Chinese word of two
+#: characters or more is read where the item holds it; one of one character (无, 不, 吃 …) only as
+#: a word of its own: between the item's ends, marks, spaces or Latin letters, or next to another
+#: context word (无, 不吃, 未用), never inside another word (无花果, 不锈钢); and 吃, 喝 or 用 at the
+#: end of the item, which then says how the herb is taken (常吃, 一直吃, 天天喝, 曾用, 慎用). An
+#: English one is a whole token (no, takes, dr), never a part of one, and the small words of
+#: English (with, in, a, an, the, for) are none of them. Any other item is read as another name:
+#: fail-safe, since the herb's name in a list stops it.
 _CONTEXT_CJK = re.compile(
     # none and negation (R1c's negators, R6's none words), not asked or not known (R6)
     r"未再出现|未出现|无明显|未见|没有|否认|阴性|未发现|排除|除外|正常|询问|未问|没问|漏问|不详|不清楚|不知道"
     r"|未知|待查|拒答|拒绝"
-    # use and keeping (R2: 服用X, 目前在吃X, X，家里有, X，平时煲汤)
-    r"|服用|服药|使用|用过|吃过|服过|喝过|用了|吃了|服了|喝了|用后|在用|在吃|在服|正在|目前|现在|平时|平素|长期|每日"
-    r"|每天|经常|常年|常备|家里|家中"
-    r"|煲汤|炖汤|熬汤|泡水|泡茶|煮水"
-    # a person who says it or gave it (X，医生开的, X，妈妈说的; R2's Dr. Huang Jing)
-    r"|患者|病人|本人|家属|家人|母亲|父亲|妈妈|爸爸|医生|医师|大夫|护士|自诉|自述|代诉"
+    # a negator with what it says there was none of (X，无反应, X，没事, X，无副作用)
+    r"|(?:无|没)(?:反应|异常|异样|事|碍|大碍|感觉|副作用|副反应|影响|变化|症状)|不碍事|不影响"
+    # use and keeping (R2: 服用X, 目前在吃X, X，家里有, X，平时煲汤, X，常服, X，已停用, X，一直吃,
+    # X，药店买的)
+    r"|服用|服药|使用|用过|吃过|服过|喝过|用了|吃了|服了|喝了|用后|在用|在吃|在服|在喝|正在|目前|现在|平时|平素|长期"
+    r"|每日|每天|经常|常年|常备|家里|家中|一直|天天|每次|偶尔|有时|常常|多次"
+    r"|常服|曾服|久服|冲服|煎服|吞服|停服|停用|停药|慎服|慎用|禁服|禁用|忌服|忌用"
+    r"|煲汤|炖汤|熬汤|泡水|泡茶|煮水|开的|开药|买的|给的|送的|购买|网购|药店|药房"
+    # a person who says it or gave it (X，医生开的, X，中医开的, X，妈妈说的; R2's Dr. Huang Jing)
+    r"|患者|病人|本人|家属|家人|母亲|父亲|妈妈|爸爸|医生|医师|大夫|护士|中医|西医|郎中|药师|自诉|自述|代诉"
     # tolerance, improvement and treatment (R2: 无不适, 耐受良好, 好转, 治疗)
     r"|耐受|可以|可用|可吃|可服|能吃|能用|能服|良好|不适|问题|好转|缓解|改善|减轻|消退|消失|痊愈|有效|见效|见好"
     r"|治疗|主治|调理|进补")
 _CONTEXT_ONE = frozenset("无未没不否拒服用吃喝泡炖煲煮熬")
+#: The words of use of one character that are a word of their own at the end of an item, which
+#: then says how the herb is taken (X，常吃, X，天天喝, X，曾用, X，慎用): no other allergen's name
+#: ends in one. Not 服 (衣服), and not 泡 (水泡 and 起泡 are reactions).
+_CONTEXT_LAST = frozenset("吃喝用")
 _CONTEXT_ASCII = re.compile(
     r"(?<![a-z0-9])(?:no|not|none|nil|nkda|nka|nkfa|n/?a|negative|neg|denies|denied|deny|without|never"
     r"|except|unknown|unsure|deferred|asked|see|chart|notes?|takes?|taking|took|taken|using|uses?|used"
-    r"|on|currently|daily|tolera[a-z]*|ok|okay|fine|improved|better|resolved|treat[a-z]*"
+    r"|on|currently|daily|stopped|drinking|drank|eating|eats|ate|brewed|boiled|bought|purchased"
+    r"|prescribed|(?:in|as)\s+(?:tea|soup)|tolera[a-z]*|ok|okay|fine|improved|better|resolved|treat[a-z]*"
     r"|can'?t|cannot|reports?|reported|recorded|patient|pt|family|mother|father|mom|dad|son|daughter"
-    r"|wife|husband|doctor|dr|nurse)(?![a-z0-9])")
+    r"|wife|husband|doctor|dr|nurse|herbalists?|practitioners?|pharmacists?|physicians?)(?![a-z0-9])")
 
 
 # ============================================================== the scan vocabulary
@@ -1327,6 +1354,8 @@ class _Rule:
         self._past: dict[int, bool] = {}
         self._fwd: dict[int, int] = {}
         self._back: dict[int, int] = {}
+        self._exb: dict[int, bool] = {}
+        self._exf: dict[int, bool] = {}
         self._list: bool | None = None
         self._reaction: bool | None = None
         self._stated: tuple[list[int], list[bool]] | None = None
@@ -1476,20 +1505,150 @@ class _Rule:
     def excepted(self, s: int, e: int) -> bool:
         """R1b: the name is what an exception excepts, which states an allergy to it: No
         allergies except X, NKDA except X, no allergy except to X, 除X外无过敏, 无，除了X, 无过敏史，
-        X除外, 无过敏（X除外）. The exception word stands right before the name (except, except to,
-        except for, 除, 除了; not the 除 of 排除 or 解除) or right after it (除外, 以外, 之外, 例外),
-        with only the names it excepts, joined as a list, between."""
+        X除外, 无过敏（X除外）. The exception word stands before the name (except, except to, except
+        for, 除, 除了; not the 除 of 排除, 解除 or 除外), a colon or an opening bracket maybe after it,
+        or after the name (除外, 以外, 之外, 例外), a closing bracket maybe before it. Between stand
+        only the other entries it excepts, joined as a list (、 / 和 及 与 或 跟 以及 and or and a
+        comma): names of the tables, or items that hold none and are not words, which R1a reads as
+        another allergen's name (No allergies except penicillin and huang qi, 除青霉素、黄芪外无过敏,
+        无过敏史，黄芪、青霉素除外). The order of the entries never matters. A 除 is closed by its 外, so
+        an entry that holds one ends the exception: 除青霉素外，黄芪可以服用 does not except 黄芪."""
+        return self._excepted_before(s) or self._excepted_after(e)
+
+    def _exception_before(self, q: int) -> bool:
+        """An exception word written before what it excepts ends at ``q``, or a colon or an
+        opening bracket after one does (except, except to, except for, 除, 除了; except:,
+        except (). Not the 除 of a verb (排除, 解除) or of 除外."""
         t = self.t
-        b = self._backward(s)
-        if (b >= 2 and t.startswith("除了", b - 2)) or (
-                b >= 1 and t[b - 1] == "除" and not (b >= 2 and t[b - 2] in _NOT_EXCEPTING)):
-            return True
-        a = self.tok_end.get(b)
-        if a is not None and t[a:b] in ("to", "for"):
-            a, b = self.tok_end.get(a), a
-        if a is not None and t[a:b] == "except":
-            return True
-        return t.startswith(("除外", "以外", "之外", "例外"), self._forward(e))
+        for p in ((q, q - 1) if q > 0 and t[q - 1] in _EXCEPT_OPEN else (q,)):
+            c = p - 2 if p >= 2 and t.startswith("除了", p - 2) else (
+                p - 1 if p >= 1 and t[p - 1] == "除" and not t.startswith("外", p) else -1)
+            if c >= 0 and not (c >= 1 and t[c - 1] in _NOT_EXCEPTING):
+                return True
+            a = self.tok_end.get(p)
+            if a is not None and t[a:p] in ("to", "for"):
+                a, p = self.tok_end.get(a), a
+            if a is not None and t[a:p] == "except":
+                return True
+        return False
+
+    def _exception_after(self, q: int) -> bool:
+        """An exception word written after what it excepts starts at ``q`` (除外, 以外, 之外,
+        例外), or a closing bracket before one does."""
+        t = self.t
+        return (t.startswith(_EXCEPT_AFTER, q)
+                or (q < self.n and t[q] in _EXCEPT_CLOSE and t.startswith(_EXCEPT_AFTER, q + 1)))
+
+    def _except_join_before(self, q: int) -> int:
+        t = self.t
+        for w in _EXCEPT_JOINERS_CJK:
+            if q >= len(w) and t.startswith(w, q - len(w)):
+                return len(w)
+        s = self.tok_end.get(q)
+        return q - s if s is not None and t[s:q] in _NAME_JOINERS_ASCII else 0
+
+    def _except_join_after(self, q: int) -> int:
+        t = self.t
+        for w in _EXCEPT_JOINERS_CJK:
+            if t.startswith(w, q):
+                return len(w)
+        e = self.tok_at.get(q)
+        return e - q if e is not None and t[q:e] in _NAME_JOINERS_ASCII else 0
+
+    def _other_entry(self, a: int, b: int) -> bool:
+        """``a``–``b`` is an entry an exception may except besides the names of the tables: it
+        holds none of them and is not words (R1a's other allergen: penicillin, 青霉素), and it holds
+        no 外, which closes a 除 (除青霉素外，黄芪 and 除青霉素外都可以，黄芪 except no 黄芪)."""
+        if a >= b or self.covered.any(a, b):
+            return False
+        t = self.t
+        item = "".join((" " if p in self.gaps and p > a else "") + t[p] for p in range(a, b))
+        return any(c.isalnum() for c in item) and "外" not in item and not _words(item)
+
+    def _excepted_before(self, s: int) -> bool:
+        """From the name that starts at ``s`` back over the entries joined to it to an exception
+        word written before them."""
+        t = self.t
+        path: list[int] = []
+        out, q = False, s
+        while True:
+            if q in self._exb:
+                out = self._exb[q]
+                break
+            path.append(q)
+            if self._exception_before(q):
+                out = True
+                break
+            j = self._except_join_before(q)
+            if not j:
+                break
+            q2 = q - j
+            a = self.name_end.get(q2)
+            if a is not None and a < q2:
+                q = a                                   # a name of the tables
+                continue
+            # an entry that holds no name: back to where it starts, or to an exception word in it
+            p, found = q2, False
+            while p > 0:
+                if self._exception_before(p):
+                    found = True
+                    break
+                c = t[p - 1]
+                if (not (c.isalnum() or _cjk(c)) or self.covered.any(p - 1, p)
+                        or self._except_join_before(p)):
+                    break
+                p -= 1
+            if not self._other_entry(p, q2):
+                break
+            if found:
+                out = True
+                break
+            q = p
+        for x in path:
+            self._exb[x] = out
+        return out
+
+    def _excepted_after(self, e: int) -> bool:
+        """From the name that ends at ``e`` on over the entries joined to it to an exception word
+        written after them."""
+        t, n = self.t, self.n
+        path: list[int] = []
+        out, q = False, e
+        while True:
+            if q in self._exf:
+                out = self._exf[q]
+                break
+            path.append(q)
+            if self._exception_after(q):
+                out = True
+                break
+            j = self._except_join_after(q)
+            if not j:
+                break
+            q2 = q + j
+            b = self.name_start.get(q2)
+            if b is not None and b > q2:
+                q = b                                   # a name of the tables
+                continue
+            p, found = q2, False
+            while p < n:
+                if self._exception_after(p):
+                    found = True
+                    break
+                c = t[p]
+                if (not (c.isalnum() or _cjk(c)) or self.covered.any(p, p + 1)
+                        or self._except_join_after(p)):
+                    break
+                p += 1
+            if not self._other_entry(q2, p):
+                break
+            if found:
+                out = True
+                break
+            q = p
+        for x in path:
+            self._exf[x] = out
+        return out
 
     # ---------------------------------------------------------------- the 花粉 denial
     def _forward(self, q: int) -> int:
@@ -1651,12 +1810,15 @@ _DENIED_MARK = re.compile(r"[(（\[【][-－−][)）\]】]|[:：∶][-－−](?
 def _words(item: str) -> bool:
     """A list item that holds no name the tables know is words, not another allergen's name,
     when it holds a context word of R2 and R6 as a whole word, labels, class words and its number
-    aside (``_CONTEXT_CJK``, ``_CONTEXT_ONE``, ``_CONTEXT_ASCII``): 家里有, 医生开的, 平时煲汤, 服用中,
-    好转, 无, 不吃, none, takes daily, Dr. Not 无花果, 对乙酰氨基酚, 香水, Tylenol with codeine or
-    vitamin A, which name another allergen."""
+    aside (``_CONTEXT_CJK``, ``_CONTEXT_ONE``, ``_CONTEXT_LAST``, ``_CONTEXT_ASCII``): 家里有,
+    医生开的, 中医开的, 药店买的, 平时煲汤, 服用中, 好转, 无, 无反应, 不吃, 常吃, 已停用, none, takes daily,
+    by herbalist, in tea, Dr. Not 无花果, 对乙酰氨基酚, 香水, 水泡, 口服避孕药, Tylenol with codeine
+    or vitamin A, which name another allergen."""
     core = _NUMBERING.sub(" ", _TRANSPARENT.sub(" ", item))
     if _CONTEXT_CJK.search(core) or _CONTEXT_ASCII.search(core):
         return True
+    if core.rstrip()[-1:] in _CONTEXT_LAST:
+        return True                                    # 常吃, 天天喝, 已停用
     last = len(core) - 1
     for i, c in enumerate(core):
         if c in _CONTEXT_ONE and all(not _cjk(core[j]) or core[j] in _CONTEXT_ONE

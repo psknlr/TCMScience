@@ -167,29 +167,41 @@ condition's name included. The 过敏 of 过敏性鼻炎 is a reaction word like
     (青霉素, 头孢, 对乙酰氨基酚, 无花果, 含碘造影剂, 香水, penicillin, codeine, Tylenol with codeine,
     vitamin A) unless it is words: it holds one of the context words of R2 and R6 as a whole
     word. They are of five kinds: a negator or none word (无, 未, 没, 不, 否, 否认, 没有, 未见, 未出现,
-    未再出现, 无明显, 阴性, 未发现, 排除, 除外, 正常; no, not, none, nil, NKDA, NKA, NKFA, N/A, negative,
-    neg, denies, denied, deny, without, never, except), not asked or not known (询问, 未问, 没问, 漏问,
+    未再出现, 无明显, 阴性, 未发现, 排除, 除外, 正常, and 无 or 没 with what it says there was none of:
+    反应, 异常, 异样, 事, 碍, 大碍, 感觉, 副作用, 副反应, 影响, 变化, 症状, as in 无反应, 没事, 无副作用;
+    不碍事, 不影响; no, not, none, nil, NKDA, NKA, NKFA, N/A, negative, neg, denies, denied, deny,
+    without, never, except), not asked or not known (询问, 未问, 没问, 漏问,
     不详, 不清楚, 不知道, 未知, 待查, 拒, 拒答, 拒绝; unknown, unsure, deferred, asked, see, chart,
     notes), use and keeping (服, 用,
     吃, 喝, 泡, 炖, 煲, 煮, 熬, 服用, 服药, 使用, 用过, 吃过, 服过, 喝过, 用了, 吃了, 服了, 喝了, 用后, 在用,
-    在吃, 在服, 正在, 目前, 现在, 平时, 平素, 长期, 每日, 每天, 经常, 常年, 常备, 家里, 家中, 煲汤, 炖汤, 熬汤,
-    泡水, 泡茶, 煮水; take, takes, taking, took, taken, use, uses, using, used, on, currently,
-    daily), tolerance, improvement and treatment (耐受, 可以, 可用, 可吃, 可服, 能吃, 能用, 能服, 良好,
+    在吃, 在服, 在喝, 正在, 目前, 现在, 平时, 平素, 长期, 每日, 每天, 经常, 常年, 常备, 一直, 天天, 每次, 偶尔,
+    有时, 常常, 多次, 常服, 曾服, 久服, 冲服, 煎服, 吞服, 停服, 停用, 停药, 慎服, 慎用, 禁服, 禁用, 忌服, 忌用,
+    家里, 家中, 煲汤, 炖汤, 熬汤, 泡水, 泡茶, 煮水, 开的, 开药, 买的, 给的, 送的, 购买, 网购, 药店, 药房;
+    take, takes, taking, took, taken, use, uses, using, used, on, currently, daily, stopped,
+    drinking, drank, eating, eats, ate, brewed, boiled, bought, purchased, prescribed, in tea, as
+    tea, in soup, as soup), tolerance, improvement and treatment (耐受, 可以, 可用, 可吃, 可服, 能吃,
+    能用, 能服, 良好,
     不适, 问题, 好转, 缓解, 改善, 减轻, 消退, 消失, 痊愈, 有效, 见效, 见好, 治疗, 主治, 调理, 进补;
     tolerated and the other words in tolera-, ok, okay, fine, improved, better, resolved, treated
     and the other words in treat-, can't, cannot), and a person (患者, 病人, 本人, 家属, 家人, 母亲,
-    父亲, 妈妈, 爸爸, 医生, 医师, 大夫, 护士, 自诉, 自述, 代诉; patient, pt, family, mother, father,
-    mom, dad, son, daughter, wife, husband, doctor, Dr., nurse, report, reports, reported,
-    recorded). A Chinese word of one character counts only as a word of its own, with
+    父亲, 妈妈, 爸爸, 医生, 医师, 大夫, 护士, 中医, 西医, 郎中, 药师, 自诉, 自述, 代诉; patient, pt,
+    family, mother, father, mom, dad, son, daughter, wife, husband, doctor, Dr., nurse, herbalist,
+    practitioner, pharmacist, physician, report, reports, reported, recorded). A Chinese word of
+    one character counts only as a word of its own, with
     nothing but a mark, a space, a Latin letter or digit, an
     allergy word, a class word or another context word beside it (无, 无过敏, 不吃, 未用; not the 无
-    of 无花果 or the 不 of 不锈钢); an English one only as a whole token. No item is words by its
-    first or last character, or by a small word of English (with, in, a, an, the, for). 黄芪,
+    of 无花果 or the 不 of 不锈钢), or, for the words of use 吃, 喝 and 用, at the end of the item,
+    which then says how the herb is taken (常吃, 一直吃, 天天喝, 曾用, 已停用, 慎用; not 服, which ends
+    衣服, nor 泡, which ends 水泡 and 起泡); an English one only as a whole token. No item is words
+    by its first character, by its last but for those three, or by a small word of English (with,
+    in, a, an, the, for). 黄芪,
     过敏史：黄芪, 青霉素，黄芪, 青霉素 黄芪, 黄芪，对乙酰氨基酚, 草药：黄芪、人参, ①黄芪②人参, 一、黄芪
     二、人参, 黄芪+青霉素, penicillin huang qi, Huang Qi penicillin, huang qi. penicillin,
-    penicillin/huang qi, huang qi, vitamin A and Allergy: huang qi stop; 黄芪，家里有, 黄芪，医生开的,
-    黄芪，好转, 黄芪，平时煲汤, takes huang qi daily and Dr. Huang Jing are mentioned (R2). An item
-    of other words is read as another allergen's name: the fail-safe side.
+    penicillin/huang qi, huang qi, vitamin A, 黄芪，水泡, 黄芪，口服避孕药 and Allergy: huang qi stop;
+    黄芪，家里有, 黄芪，医生开的, 黄芪，中医开的, 黄芪，药店买的, 黄芪，好转, 黄芪，无反应, 黄芪，没事,
+    黄芪，一直吃, 黄芪，常服, 黄芪，已停用, 黄芪，平时煲汤, takes huang qi daily, huang qi, by
+    herbalist, huang qi, in tea and Dr. Huang Jing are mentioned (R2). An item of other words is
+    read as another allergen's name: the fail-safe side.
   - **R1b, an allergy statement** about the name: an allergy noun that no negator stands
     immediately before, in the name's statement. The nouns are the English one (allergy,
     allergies, allergen) and the labels without 过敏 (致敏原, 变应原, 药敏); a statement ends at
@@ -200,11 +212,18 @@ condition's name included. The 过敏 of 过敏性鼻炎 is a reaction word like
     and Allergies: #1 huang qi stop; no huang qi allergy, denies 黄芪 allergy and No allergies,
     takes huang qi are negated, and Allergies: none. Takes huang qi. holds the noun in another
     statement (R2). An exception states an allergy to what it excepts, so the name is stated
-    when an exception word stands right before it (except, except to, except for, 除, 除了; not
-    the 除 of 排除 or 解除, which except nothing) or right after it (除外, 以外, 之外, 例外), with only
-    the names it excepts, joined as a list, between: No allergies except huang qi, NKDA except
-    huang qi, no allergy except to huang qi, 除黄芪外无过敏, 无，除了黄芪, 无过敏史，黄芪除外 and
-    无过敏（黄芪除外）stop, as No known allergies except huang qi and 除黄芪外无其他过敏 do. The
+    when an exception word stands before it (except, except to, except for, 除, 除了; not the 除
+    of 排除 or 解除, which except nothing, nor that of 除外), a colon or an opening bracket after it
+    or not, or after it (除外, 以外, 之外, 例外), a closing bracket before it or not, with only the
+    other entries it excepts between, joined as a list (、 / 和 及 与 或 跟 以及 and or, or a comma). Those
+    entries are names of the tables, or items that hold none and are not words, which R1a reads
+    as another allergen's name; their order does not matter. A 除 is closed by its 外, so an
+    entry that holds one ends the exception: 除青霉素外，黄芪可以服用 does not except 黄芪. No
+    allergies except huang qi, NKDA except huang qi, no allergy except to huang qi, No allergies
+    except: huang qi, NKDA except (huang qi), No allergies except penicillin and huang qi, NKDA
+    except penicillin, huang qi,
+    除黄芪外无过敏, 除青霉素、黄芪外无过敏, 无，除了青霉素和黄芪, 无过敏史，黄芪除外, 无过敏史，黄芪、青霉素除外
+    and 无过敏（黄芪除外）stop, as No known allergies except huang qi and 除黄芪外无其他过敏 do. The
     statements a reaction word makes (对黄芪过敏, 黄芪过敏史, 黄芪不耐受, allergic to huang qi) are
     R1c's.
   - **R1c, an un-negated reaction word** anywhere in the entry. The reaction words are the
@@ -590,8 +609,8 @@ practitioner reviews it, every report repeats that status.
       - 在独立成词的较长药名或方名之中的药名归该长名（苦杏仁中的杏仁、六味地黄丸中的地黄、天麻钩藤颗粒中的天麻），改按长名比对。少数含药名字样的日常用词单独成词，不指任何药（胡萝卜、桂花、桂鱼、舌头）；
       - 不独立成词的两字以上药名“在更长的词中”：郁金香中的郁金、知柏地黄丸中的地黄、双黄连中的黄连、预防风疹疫苗中的防风、桂枝茯苓丸中的桂枝和茯苓、蛋白之后的白及、对于之后的于术（但“对”本身独立成词、于术右侧也独立成词、且其“术”在那里不构成日常用词时除外：对于术过敏、对于术及青霉素过敏、对于术等药物过敏、对于术有过敏史都是“对 + 于术”，知识库把于术归为白术，所以停止白术；对于术后、对于术中、由于术前仍是“对于 + 术后”）。用于的“用”是服用、使用等服用字样的末字时，不构成日常用词：服用于术后出现皮疹是“服用 + 于术 + 后”，停止白术。长词是该药名前加炮制词、或后加制品字（片、粉、末等）时，即为该药的炮制品（炙北芪、炒夜交藤、甘草片、山药粉）。以否认用字开头、又接着否认所指对象的药名，按否认读：没药物过敏史是“没 + 药物过敏史”，不是没药；
     - 规则：记录是否写明对某个药名过敏，按一条固定规则判定，不读药名前后的叙述（此前五轮按“服用过、可耐受、好转、用于治疗”读叙述，始终没有收敛：每一轮的规则都牵动其他写法，部分消息还把真实的反应记录称为“不是过敏记录”，可能使医师签过一次过敏）。一条记录按原文整条读：其中任一处的反应字样对其中每个药名都算，两条记录分开读。对在记录中独立成词、且有药物一级名表说即处方药（见下）的药名，下列任一条成立时，记录“写明过敏”（R1，`allergy`，停止）：
-      - R1a，只有药名：记录是药名的列举，可带过敏标签与类别标签（过敏史：、Allergy:、药物：、中药：、草药：、Allergen name:）、列举分隔（、，,；;/ + 和 及 与 或、and、or、换行、制表符、汉字旁或药名旁的空格、后跟空格的英文句点、两个词之间的连字符或间隔号）、序号（1. 2. #1、(1)、带不带空格的① ②、一、二、、（一））和“等”——过敏史栏中的药名默认就是过敏。有药名的一项不能再有别的字词，药名旁的任何其他字词都是上下文（对黄芪、黄芪（-））。名表不收其他过敏原的名称，所以列举中没有名表所载药名的一项，是列举中的另一项（青霉素、头孢、对乙酰氨基酚、无花果、含碘造影剂、香水、penicillin、codeine、Tylenol with codeine、vitamin A），除非它是字词而非名称：其中有 R2、R6 的上下文字词，且作为整词。这些字词分五类：否定词与表示“无”的字词（无、未、没、不、否、否认、没有、未见、未出现、未再出现、无明显、阴性、未发现、排除、除外、正常；no、not、none、nil、NKDA、NKA、NKFA、N/A、negative、neg、denies、denied、deny、without、never、except），未询问或不详（询问、未问、没问、漏问、不详、不清楚、不知道、未知、待查、拒、拒答、拒绝；unknown、unsure、deferred、asked、see、chart、notes），在用与存放（服、用、吃、喝、泡、炖、煲、煮、熬、服用、服药、使用、用过、吃过、服过、喝过、用了、吃了、服了、喝了、用后、在用、在吃、在服、正在、目前、现在、平时、平素、长期、每日、每天、经常、常年、常备、家里、家中、煲汤、炖汤、熬汤、泡水、泡茶、煮水；take、takes、taking、took、taken、use、uses、using、used、on、currently、daily），耐受、好转与治疗（耐受、可以、可用、可吃、可服、能吃、能用、能服、良好、不适、问题、好转、缓解、改善、减轻、消退、消失、痊愈、有效、见效、见好、治疗、主治、调理、进补；tolerated 及其他以 tolera- 开头的词、ok、okay、fine、improved、better、resolved、treated 及其他以 treat- 开头的词、can't、cannot），以及称呼人的词（患者、病人、本人、家属、家人、母亲、父亲、妈妈、爸爸、医生、医师、大夫、护士、自诉、自述、代诉；patient、pt、family、mother、father、mom、dad、son、daughter、wife、husband、doctor、Dr.、nurse、report、reports、reported、recorded）。单字的中文字词只有独立成词时才算：旁边只有标点、空格、拉丁字母或数字、过敏字样、类别词或其他上下文字词（无、无过敏、不吃、未用；无花果的“无”、不锈钢的“不”不算）；英文字词须是整词。任何一项都不因首字或末字、也不因英文虚词（with、in、a、an、the、for）而算作字词。黄芪、过敏史：黄芪、青霉素，黄芪、青霉素 黄芪、黄芪，对乙酰氨基酚、草药：黄芪、人参、①黄芪②人参、一、黄芪 二、人参、黄芪+青霉素、penicillin huang qi、Huang Qi penicillin、huang qi. penicillin、penicillin/huang qi、huang qi, vitamin A、Allergy: huang qi 都停止；黄芪，家里有、黄芪，医生开的、黄芪，好转、黄芪，平时煲汤、takes huang qi daily、Dr. Huang Jing 只是写到（R2）。其他字词构成的一项按另一过敏原读，这是偏向安全的一侧；
-      - R1b，关于该药名的过敏陈述：在药名所在的陈述中，有前面没有紧挨着否定词的过敏名词。过敏名词即英文名词（allergy、allergies、allergen）和不含“过敏”的标签（致敏原、变应原、药敏）；陈述在句号（序号的点除外）、分号、问号、叹号、换行或制表符处结束，逗号、冒号、破折号不结束陈述。所以 huang qi allergy、allergy to huang qi、allergy to the herb huang qi、huang qi severe allergy、Allergies: huang qi、Allergies include huang qi and penicillin、Known allergies are huang qi、Allergies reviewed: huang qi、Allergies: #1 huang qi 都停止；no huang qi allergy、denies 黄芪 allergy、No allergies, takes huang qi 是被否定的；Allergies: none. Takes huang qi. 中的名词在另一陈述中（R2）。例外即写明对所除外者过敏，所以例外词紧挨在药名之前（except、except to、except for、除、除了；排除、解除等动词中的“除”不除外任何东西）或紧挨在药名之后（除外、以外、之外、例外），中间只有它所除外的药名（可连成列举）时，该药名也算写明过敏：No allergies except huang qi、NKDA except huang qi、no allergy except to huang qi、除黄芪外无过敏、无，除了黄芪、无过敏史，黄芪除外、无过敏（黄芪除外）都停止，与 No known allergies except huang qi、除黄芪外无其他过敏一样。由反应字样构成的陈述（对黄芪过敏、黄芪过敏史、黄芪不耐受、allergic to huang qi）由 R1c 读；
+      - R1a，只有药名：记录是药名的列举，可带过敏标签与类别标签（过敏史：、Allergy:、药物：、中药：、草药：、Allergen name:）、列举分隔（、，,；;/ + 和 及 与 或、and、or、换行、制表符、汉字旁或药名旁的空格、后跟空格的英文句点、两个词之间的连字符或间隔号）、序号（1. 2. #1、(1)、带不带空格的① ②、一、二、、（一））和“等”——过敏史栏中的药名默认就是过敏。有药名的一项不能再有别的字词，药名旁的任何其他字词都是上下文（对黄芪、黄芪（-））。名表不收其他过敏原的名称，所以列举中没有名表所载药名的一项，是列举中的另一项（青霉素、头孢、对乙酰氨基酚、无花果、含碘造影剂、香水、penicillin、codeine、Tylenol with codeine、vitamin A），除非它是字词而非名称：其中有 R2、R6 的上下文字词，且作为整词。这些字词分五类：否定词与表示“无”的字词（无、未、没、不、否、否认、没有、未见、未出现、未再出现、无明显、阴性、未发现、排除、除外、正常，以及“无”或“没”加上所说没有的东西：反应、异常、异样、事、碍、大碍、感觉、副作用、副反应、影响、变化、症状，如无反应、没事、无副作用；不碍事、不影响；no、not、none、nil、NKDA、NKA、NKFA、N/A、negative、neg、denies、denied、deny、without、never、except），未询问或不详（询问、未问、没问、漏问、不详、不清楚、不知道、未知、待查、拒、拒答、拒绝；unknown、unsure、deferred、asked、see、chart、notes），在用与存放（服、用、吃、喝、泡、炖、煲、煮、熬、服用、服药、使用、用过、吃过、服过、喝过、用了、吃了、服了、喝了、用后、在用、在吃、在服、在喝、正在、目前、现在、平时、平素、长期、每日、每天、经常、常年、常备、一直、天天、每次、偶尔、有时、常常、多次、常服、曾服、久服、冲服、煎服、吞服、停服、停用、停药、慎服、慎用、禁服、禁用、忌服、忌用、家里、家中、煲汤、炖汤、熬汤、泡水、泡茶、煮水、开的、开药、买的、给的、送的、购买、网购、药店、药房；take、takes、taking、took、taken、use、uses、using、used、on、currently、daily、stopped、drinking、drank、eating、eats、ate、brewed、boiled、bought、purchased、prescribed、in tea、as tea、in soup、as soup），耐受、好转与治疗（耐受、可以、可用、可吃、可服、能吃、能用、能服、良好、不适、问题、好转、缓解、改善、减轻、消退、消失、痊愈、有效、见效、见好、治疗、主治、调理、进补；tolerated 及其他以 tolera- 开头的词、ok、okay、fine、improved、better、resolved、treated 及其他以 treat- 开头的词、can't、cannot），以及称呼人的词（患者、病人、本人、家属、家人、母亲、父亲、妈妈、爸爸、医生、医师、大夫、护士、中医、西医、郎中、药师、自诉、自述、代诉；patient、pt、family、mother、father、mom、dad、son、daughter、wife、husband、doctor、Dr.、nurse、herbalist、practitioner、pharmacist、physician、report、reports、reported、recorded）。单字的中文字词只有独立成词时才算：旁边只有标点、空格、拉丁字母或数字、过敏字样、类别词或其他上下文字词（无、无过敏、不吃、未用；无花果的“无”、不锈钢的“不”不算）；服用字“吃”“喝”“用”在一项末尾时也独立成词，这一项说的是怎么服用（常吃、一直吃、天天喝、曾用、已停用、慎用；“服”不算，衣服以它结尾；“泡”也不算，水泡、起泡以它结尾）；英文字词须是整词。任何一项都不因首字、不因“吃”“喝”“用”以外的末字、也不因英文虚词（with、in、a、an、the、for）而算作字词。黄芪、过敏史：黄芪、青霉素，黄芪、青霉素 黄芪、黄芪，对乙酰氨基酚、草药：黄芪、人参、①黄芪②人参、一、黄芪 二、人参、黄芪+青霉素、penicillin huang qi、Huang Qi penicillin、huang qi. penicillin、penicillin/huang qi、huang qi, vitamin A、黄芪，水泡、黄芪，口服避孕药、Allergy: huang qi 都停止；黄芪，家里有、黄芪，医生开的、黄芪，中医开的、黄芪，药店买的、黄芪，好转、黄芪，无反应、黄芪，没事、黄芪，一直吃、黄芪，常服、黄芪，已停用、黄芪，平时煲汤、takes huang qi daily、huang qi, by herbalist、huang qi, in tea、Dr. Huang Jing 只是写到（R2）。其他字词构成的一项按另一过敏原读，这是偏向安全的一侧；
+      - R1b，关于该药名的过敏陈述：在药名所在的陈述中，有前面没有紧挨着否定词的过敏名词。过敏名词即英文名词（allergy、allergies、allergen）和不含“过敏”的标签（致敏原、变应原、药敏）；陈述在句号（序号的点除外）、分号、问号、叹号、换行或制表符处结束，逗号、冒号、破折号不结束陈述。所以 huang qi allergy、allergy to huang qi、allergy to the herb huang qi、huang qi severe allergy、Allergies: huang qi、Allergies include huang qi and penicillin、Known allergies are huang qi、Allergies reviewed: huang qi、Allergies: #1 huang qi 都停止；no huang qi allergy、denies 黄芪 allergy、No allergies, takes huang qi 是被否定的；Allergies: none. Takes huang qi. 中的名词在另一陈述中（R2）。例外即写明对所除外者过敏，所以例外词在药名之前（except、except to、except for、除、除了，其后可有冒号或左括号；排除、解除等动词中的“除”不除外任何东西，“除外”的“除”也不是）或在药名之后（除外、以外、之外、例外，其前可有右括号），中间只有它所除外的其他各项、以列举相连（、 / , 和 及 与 或 跟 以及 and or）时，该药名也算写明过敏。这些项是名表所载药名，或不含名表药名、又不是字词的一项（R1a 按另一过敏原的名称读），先后次序不影响结果。“除……外”由“外”结束，含“外”的一项结束例外，所以除青霉素外，黄芪可以服用不把黄芪除外。No allergies except huang qi、NKDA except huang qi、no allergy except to huang qi、No allergies except: huang qi、NKDA except (huang qi)、No allergies except penicillin and huang qi、NKDA except penicillin, huang qi、除黄芪外无过敏、除青霉素、黄芪外无过敏、无，除了青霉素和黄芪、无过敏史，黄芪除外、无过敏史，黄芪、青霉素除外、无过敏（黄芪除外）都停止，与 No known allergies except huang qi、除黄芪外无其他过敏一样。由反应字样构成的陈述（对黄芪过敏、黄芪过敏史、黄芪不耐受、allergic to huang qi）由 R1c 读；
       - R1c，记录中任一处未被否定的反应字样。反应字样即规则所列：过敏、过敏反应、不良反应、皮疹、红疹、疹子、起疹、荨麻疹、风团、瘙痒、痒、红肿、肿胀、水肿、喉头水肿、呼吸困难、哮喘发作、休克、不耐受、rash、hives、urticaria、itch、swelling、angioedema、anaphylaxis、reaction、allergic、intolerance（含词形变化：rashes、itching）。只有当否定词（无、未、未见、未出现、未再出现、没有、没、不、否认、无明显、no、without、denies、denied、never）在同一分句中紧挨在反应字样之前时，该反应字样才算被否定，而且只否定这一处。二者之间只能有否定词所否定的药名（几个药名可用 、 / 和 及 与 或 跟 以及 and or 连成列举）：否认黄芪过敏、无黄芪过敏史、否认黄芪、人参过敏、no huang qi allergy 都是被否定的。其他任何字词都不能在中间，“对”、表示类别的词、别的字词都不行：所以否认对黄芪过敏、无药物过敏史，目前在吃黄芪、无任何皮疹，服用黄芪、无已知过敏，在吃黄芪、黄芪皮试阳性，否认其他过敏、no known drug reaction, takes huang qi、no skin rash with huang qi、no allergic reaction to huang qi（no 只否定 allergic，不否定 reaction）都停止。分句在“、”“/”和词内符号以外的任何标点、换行、制表符以及两个汉字之间的空格处结束。所以服用黄芪后无不适，次日出现皮疹停止黄芪（“皮疹”未被否定），服用黄芪未见皮疹、黄芪，未再出现皮疹不停止；服用黄芪后未见明显皮疹停止（中间隔着“明显”），否认青霉素、黄芪过敏（青霉素不是名表所载药名）和否认中药（黄芪）过敏（括号结束分句）也停止。按名表所给范围的药名之内的反应字样属于该药名；写在不独立成词的药名之前的则不属于（目前在吃人参，皮疹黄芪停止人参，其中的黄芪在长词“皮疹黄芪”之内）。标签（过敏史：无）和病名（过敏性鼻炎）中的“过敏”同样是反应字样。
       否则，记录只是“写到”该药（R2，`allergy_mentioned`，须说明理由）：药名旁有其他字词、且没有未被否定的反应字样，无论这些字词是否认过敏（否认黄芪过敏、无黄芪过敏史、黄芪（-）、黄芪皮试阴性、对黄芪不过敏）、说可耐受（服用黄芪无不适、黄芪耐受良好）、说在用（目前在吃黄芪、正在服用黄芪、服用黄芪治疗咳嗽）、说好转（服用黄芪后咳嗽好转），还是别的（对黄芪、黄芪禁用、黄芪，家里有、Dr. Huang Jing、Can't take huang qi）。消息措辞中性，对这些情形都一样：过敏史记录中写到黄芪（上下文未写明是否过敏）。请核实是否对黄芪过敏后再签署。任何消息都不说、也不暗示记录不是过敏记录、否认了过敏或该药可耐受，这些情形也不给出其他代码。按整词独立的拼音或拉丁名与中文药名同样按规则读，不查常见过敏原表；人的称谓只作为 R1a 的上下文字词。
       规则的代价是已知的，也是出于安全的选择：记录中有任何未被否定的反应字样，其中写到的药名都停止，无论反应是对什么、结果如何（目前在吃人参，青霉素过敏；过敏史：无，目前在吃人参——标签中的“过敏”是反应字样；过敏性鼻炎，服用黄芪后好转；服用黄芪后皮疹好转；否认黄芪过敏，对人参过敏对黄芪也停止；Penicillin (rash). Recorded by Sheng Jiang 停止生姜）；否定词只在中间只有药名时才否定，所以带有类别词或“对”的否认，其中写到的药名都停止（无药物过敏史，目前在吃人参；否认对黄芪过敏；No known allergies, takes huang qi）；写在反应字样之后的否认不否定它（黄芪过敏史：否、黄芪过敏-否、已排除黄芪过敏：停止）；列举中不含 R1a 上下文字词的一项按另一过敏原读（黄芪，挺贵、黄芪 positive、Contact Huang Qi for details 停止）；药名旁有其他字词、又没有规则所列反应字样的，即使记录指的是过敏，也只须说明理由（对黄芪、黄芪耐受差、黄芪接触性皮炎、Can't take huang qi）。停止须更正记录后解除；须说明理由的，由医师记录理由后签署；
