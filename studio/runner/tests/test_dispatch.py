@@ -9,10 +9,10 @@ from tcmstudio.catalog import get_entry
 from tcmstudio.dispatch import Context, call, call_json, validate
 
 LOCK_HASHES = {
-    "normalize-tcm-entities": "4bdb9f7bf49b55f4e8ae4e4ccfffe313a705d7cd7b3dc880ea3b0b386eef66c6",
-    "retrieve-tcm-evidence": "94a6671b7225e4b7df320e89082a076db23aa75c19da5ad3ce3763ceaca238df",
-    "assess-tcm-safety": "5a12df2abe348b70547efb3529853cc6cb40c0495bce4eb5db9c732cf306a87e",
-    "analyze-tcm-network-pharmacology": "3acaee4fdb5f1bd6de4f6ee65644e634a6ff1e8e4484ffe276674568935e1760",
+    "normalize-tcm-entities": "b613d287d3bc57e63d2867f0470b2e5eb59ce3199992c6c5d1a86db514f28267",
+    "retrieve-tcm-evidence": "3b4281d416f5414b62f6c07b4e386825e1f3f8c19e06e373367741fa54cebc21",
+    "assess-tcm-safety": "f505c3bfde0c2ac49f1871e27edf67cca8c283d6d8680fb885a5458b29d079e3",
+    "analyze-tcm-network-pharmacology": "89034d920b1d9ff6d86b4ef1a2307c44315513913f30f1689b412f53bcf64e69",
 }
 
 
@@ -45,9 +45,11 @@ def core_cases(intake, visits):
          "succeeded"),
         ("clinic_followup", visits, "succeeded"),
         ("tcmdb_catalog", {"query": "HERB"}, "succeeded"),
+        # an empty hub searches nothing: dataset_not_built, never a zero-hit success (audit
+        # of 2026-11-04, P0)
         ("tcmdb_relations", {"kind": "herb_drug_interaction", "subject": "Ginkgo",
-                             "contains": True}, "succeeded"),
-        ("tcmdb_consensus", {"kind": "herb_ingredient", "subject": "黄芪"}, "succeeded"),
+                             "contains": True}, "failed"),
+        ("tcmdb_consensus", {"kind": "herb_ingredient", "subject": "黄芪"}, "failed"),
         ("connector_call", {"connector": "uniprot", "operation": "entry",
                             "arguments": {"accession": "P04637"}}, "failed"),
         ("literature_search", {"query": "Astragalus membranaceus"}, "failed"),
@@ -100,7 +102,8 @@ def check_envelope(e):
                                    "fixture", "system")
     if e["error"]:
         assert e["error"]["type"] in ("bad_arguments", "unavailable", "not_found", "refused",
-                                      "runtime_error", "timeout", "network_off")
+                                      "runtime_error", "timeout", "network_off",
+                                      "invalid_response", "dataset_not_built")
     for i, c in enumerate(e["citations"], 1):
         assert c["id"] == f"E{i}" and c["kind"] in ("pmid", "doi", "nct", "classical", "source")
     json.dumps(e, ensure_ascii=False, allow_nan=False)
@@ -377,9 +380,11 @@ def test_draft_prescription_skill_is_a_development_run(runner_ctx, intake):
 
 
 def test_data_hub_without_built_data(runner_ctx):
+    # nothing built: nothing searched, so no zero-hit result either (audit of 2026-11-04, P0)
     e = call("tcmdb_relations", {"kind": "herb_ingredient", "subject": "黄芪"}, runner_ctx)
-    assert e["status"] == "succeeded" and e["result"]["count"] == 0
-    assert any("No dataset is built" in x for x in e["governance"]["limitations"])
+    assert e["status"] == "failed" and e["error"]["type"] == "dataset_not_built"
+    assert e["result"] is None and e["error"]["coverage"]["searched"] == []
+    assert any("not searched" in x for x in e["governance"]["limitations"])
     t = call("call_tool", {"tool": "tcmdb.tables", "arguments": {"dataset": "ddid"}}, runner_ctx)
     assert t["status"] == "failed" and t["error"]["type"] == "unavailable"
     assert "fetch" in t["error"]["hint"]
@@ -794,8 +799,8 @@ def test_result_kinds(runner_ctx, intake):
         ("tcm_safety_report", {"query": "甘草"}, None, "not_executed", "none"),   # wrong arguments
         ("clinic_sign", {}, None, "not_executed", "none"),
         ("catalog_search", {"query": "十八反"}, "system", "succeeded", "none"),
-        ("tcmdb_relations", {"kind": "herb_ingredient", "subject": "黄芪"}, "record",
-         "succeeded", "none"),
+        ("tcmdb_relations", {"kind": "herb_ingredient", "subject": "黄芪"}, None,
+         "failed", "none"),                         # nothing built here
         ("run_pipeline", {"pipeline": "rnaseq", "arguments": {"samples": "u"}}, None, "queued",
          "none"),
     ]

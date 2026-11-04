@@ -12,7 +12,13 @@ record and a status (``bioagent.validation``'s six):
                  downloaded from its reviewed URL through ``acquisition.transfer`` (a resume
                  only onto the same file, the downloader's pacing and size gate, archives
                  read through before a file is kept); a host the network policy refuses is
-                 learnt from its first refusal and not asked again
+                 learnt from its first refusal and not asked again. A file whose spec names
+                 a ``fallback`` gets a second route when the first fails for any other
+                 reason: the UniProt accession list is paged through UniProt's ``search``
+                 and checked as one release (``acquisition.uniprot``), and the first
+                 failure stays in the record
+    (all)        ``discovery`` and a stopped ``acquisition`` name, for each missing file,
+                 the analyses it blocks (``blocks``)
     integrity    every file hashed again and compared with its reviewed checksum; a file
                  with none (two files the acquisition table does not list yet) is verified
                  by its size, and its SHA-256 recorded for review
@@ -43,7 +49,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from ..acquisition.sources import ACQUIRABLE, AcquisitionSpec
 from ..validation import BLOCKED, FAIL, PASS, SKIPPED, UNVERIFIED, aggregate, utc_now
 
-__all__ = ["SCHEMA", "RESEARCH_SOURCES", "UNREVIEWED", "required_files", "plan",
+__all__ = ["SCHEMA", "RESEARCH_SOURCES", "UNREVIEWED", "required_files", "plan", "blocks",
            "build_research_snapshots", "import_files", "formulas_named", "summary"]
 
 SCHEMA = "tcmscience.snapshots/1"
@@ -73,6 +79,40 @@ UNREVIEWED: tuple[AcquisitionSpec, ...] = (
 )
 
 _SPECS: dict[str, AcquisitionSpec] = {a.filename: a for a in ACQUIRABLE + UNREVIEWED}
+
+#: What each raw file is for: the analyses a run cannot do while it is missing. Named before
+#: anything is built, so a file that cannot be obtained says what it blocks rather than only
+#: that the run stopped (audit of 2026-11-04: the UniProt list stopped the build at the
+#: acquisition step with no word of what depended on it).
+_BLOCKS_BY_PROJECT = {
+    "NPASS": "NPASS compound identities, source organisms and measured activities (compound "
+             "and target records)",
+    "CMAUP": "CMAUP plant–ingredient links and measured ingredient–target activities "
+             "(compound and target records)",
+    "LOTUS": "LOTUS organism–compound occurrences (compound records)",
+}
+_BLOCKS_BY_FILE = {
+    "9606.protein.info.v12.0.txt.gz": "STRING protein identities (the network's nodes)",
+    "9606.protein.links.v12.0.txt.gz": "STRING interactions (the network's edges and the "
+                                       "degree-matched permutation null)",
+    "9606.protein.aliases.v12.0.txt.gz": "mapping measured targets and PubChem genes onto "
+                                         "STRING proteins (network edges, PubChem BioAssay "
+                                         "targets)",
+    "UniProt2Reactome.txt": "Reactome pathway enrichment (pathway membership and the "
+                            "enrichment background)",
+    "uniprot_human_reviewed_accessions.txt":
+        "PubChem BioAssay targets and tested negatives (gene → Swiss-Prot primary accession; "
+        "the build refuses without it), STRING's primary-accession choice, and the enrichment "
+        "tables that join targets to Reactome",
+}
+
+
+def blocks(filename: str) -> str:
+    """The analyses ``filename`` is needed for (empty for a file this table does not know)."""
+    if filename in _BLOCKS_BY_FILE:
+        return _BLOCKS_BY_FILE[filename]
+    spec = _SPECS.get(filename)
+    return _BLOCKS_BY_PROJECT.get(spec.source_project, "") if spec else ""
 #: the least seconds between two requests to a host (NPASS's and CMAUP's server)
 _MIN_INTERVAL = {"bidd.group": 1.0}
 
@@ -109,18 +149,29 @@ def plan(raw_dir: str | Path, sources: Iterable[str] = RESEARCH_SOURCES, *,
     """Which files are needed, and which are here and how they were verified."""
     from ..tcmdb.acquire import verification
 
+    from ..acquisition.uniprot import read_sidecar
+
     raw = Path(raw_dir)
     rows = []
     for a in required_files(sources, network=network):
         present = (raw / a.filename).is_file()
-        rows.append({"file": a.filename, "project": a.source_project, "url": a.url,
-                     "host": a.host, "expected_bytes": a.expected_bytes,
-                     "reviewed_checksum": a.checksum,
-                     "reviewed": a in ACQUIRABLE, "present": present,
-                     "verified": verification(raw, a.filename, a.checksum) if present else None})
+        row = {"file": a.filename, "project": a.source_project, "url": a.url,
+               "host": a.host, "expected_bytes": a.expected_bytes,
+               "reviewed_checksum": a.checksum,
+               "reviewed": a in ACQUIRABLE, "present": present,
+               "verified": verification(raw, a.filename, a.checksum) if present else None,
+               "blocks": blocks(a.filename)}
+        if a.fallback:
+            row["fallback"] = a.fallback
+        pages = read_sidecar(raw / a.filename) if present else None
+        if pages:
+            row["assembled"] = {k: pages.get(k) for k in ("route", "release", "pages", "total",
+                                                          "unique", "duplicates", "checksum")}
+        rows.append(row)
     need = [r for r in rows if not r["present"]]
     known = [r["expected_bytes"] for r in need]
     return {"files": rows, "missing": [r["file"] for r in need],
+            "blocked": {r["file"]: r["blocks"] for r in need if r["blocks"]},
             "download_bytes": sum(b for b in known if b) if all(known) else None,
             "hosts": sorted({r["host"] for r in need})}
 
@@ -175,17 +226,52 @@ def _acquire(raw: Path, specs: Sequence[AcquisitionSpec], *, confirm: bool, offl
                            **{k: v for k, v in r.record().items()
                               if k in ("resumed", "resumed_from", "etag", "last_modified",
                                        "retrieved_at", "release", "decompression")})
+                if not r.from_cache:
+                    # a file the stream delivered is not the one any earlier pages assembled
+                    from ..acquisition.uniprot import sidecar_path
+                    sidecar_path(raw / a.filename).unlink(missing_ok=True)
             except Exception as exc:                                # noqa: BLE001
                 status, reason = acquire.outcome_of_error(exc, host)
                 if status == BLOCKED and ("policy" in reason or "resolve" in reason):
                     refused[host] = reason
+                elif a.fallback:
+                    status, reason = _fallback(raw, a, row, first=reason, log=log)
         row.update(status=status, reason=reason, duration_s=round(time.perf_counter() - t0, 3))
         log(f"{a.filename}: {status} — {reason}")
         out.append(row)
     return out
 
 
+def _fallback(raw: Path, a: AcquisitionSpec, row: dict[str, Any], *, first: str,
+              log: Callable[[str], None]) -> tuple[str, str]:
+    """The spec's second route after its first failed (``AcquisitionSpec.fallback``):
+    ``(status, reason)``, with what the route did in ``row``. PASS only when every check of
+    the route passed; the first failure is kept in the row either way."""
+    row["primary"] = {"route": "download", "reason": first}
+    if a.fallback != "uniprot_paginated":
+        return FAIL, f"{first}; no fallback route {a.fallback!r} is known"
+    from ..acquisition.uniprot import PaginationError, paginated_accessions
+    log(f"{a.filename}: the stream failed ({first[:120]}); paging the equivalent search query")
+    try:
+        r = paginated_accessions(a.url, raw, a.filename, log=log)
+    except PaginationError as exc:
+        row.update(route="paginated", check=exc.check)
+        return exc.outcome, f"{first}; the paginated fallback failed its {exc.check} check: {exc}"
+    except Exception as exc:                                        # noqa: BLE001
+        row["route"] = "paginated"
+        return BLOCKED, f"{first}; the paginated fallback failed: {type(exc).__name__}: {exc}"
+    row.update(route="paginated", bytes=r.bytes, checksum=f"sha256:{r.sha256}",
+               verified="completeness", release=r.release, pages=r.pages, total=r.total,
+               unique=r.unique, duplicates=r.duplicates, checks=r.checks,
+               retrieved_at=r.retrieved_at)
+    return PASS, (f"the stream failed ({first[:120]}); assembled from {r.pages} pages of the "
+                  f"equivalent search query: {r.unique} unique accessions = UniProt release "
+                  f"{r.release}'s total, {r.duplicates} duplicate(s) dropped, one release "
+                  "throughout, known accessions present")
+
+
 def _integrity(raw: Path, specs: Sequence[AcquisitionSpec]) -> list[dict[str, Any]]:
+    from ..acquisition.uniprot import check_sidecar
     from ..tcmdb.acquire import digest
 
     out = []
@@ -210,6 +296,13 @@ def _integrity(raw: Path, specs: Sequence[AcquisitionSpec]) -> list[dict[str, An
             row.update(status=PASS if ok else FAIL,
                        reason="the reviewed size" if ok else
                        f"{size} bytes, not the reviewed {a.expected_bytes}")
+        elif (assembled := check_sidecar(path)) is not None:
+            # assembled from pages: held to the digest recorded then, and still no reviewed
+            # digest of its own (a release a person has pinned would make it PASS)
+            ok, why = assembled
+            row.update(status=FAIL if ok == FAIL else UNVERIFIED,
+                       reason=why if ok == FAIL else
+                       f"{why}; no reviewed checksum: pin this release to review it")
         else:
             row.update(status=UNVERIFIED,
                        reason="no reviewed checksum or size: verified against the server's "
@@ -300,8 +393,12 @@ def build_research_snapshots(raw_dir: str | Path, snapshot_root: str | Path,
         return finish("name research sources among " + ", ".join(RESEARCH_SOURCES))
     found = plan(raw, sources, network=network)
     stages.append(_stage("discovery", PASS,
-                         f"{len(specs)} files needed, {len(found['missing'])} not here",
-                         files=found["files"], download_bytes=found["download_bytes"]))
+                         f"{len(specs)} files needed, {len(found['missing'])} not here"
+                         + ("; until they are here, these analyses cannot run: " + "; ".join(
+                             f"{f} → {b}" for f, b in found["blocked"].items())
+                            if found["blocked"] else ""),
+                         files=found["files"], download_bytes=found["download_bytes"],
+                         blocked=found["blocked"]))
 
     rows = _acquire(raw, specs, confirm=confirm, offline=offline, log=log, mirrors=mirrors)
     acquired = aggregate(r["status"] for r in rows)
@@ -311,9 +408,13 @@ def build_research_snapshots(raw_dir: str | Path, snapshot_root: str | Path,
     if acquired not in (PASS, UNVERIFIED):
         missing = [r for r in rows if r["status"] not in (PASS, UNVERIFIED)]
         hosts = sorted({r["host"] for r in missing})
+        blocked = {r["file"]: blocks(r["file"]) for r in missing if blocks(r["file"])}
+        stages[-1]["blocked"] = blocked
         return finish(
             f"{len(missing)} file(s) could not be obtained here ({missing[0]['reason']}). "
-            f"Download them where {', '.join(hosts)} can be reached, then add them with "
+            + ("Until they are here these analyses cannot run: " + "; ".join(
+                f"{f} → {b}" for f, b in blocked.items()) + ". " if blocked else "")
+            + f"Download them where {', '.join(hosts)} can be reached, then add them with "
             f"`bioagent snapshots import --raw {raw} FILE...` (held to the same checksums) "
             "and run again; the verified files are kept.")
 

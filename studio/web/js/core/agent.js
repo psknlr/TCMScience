@@ -42,7 +42,7 @@ export const formatOf = (provider) => (provider?.format === "anthropic" ? "anthr
 const REUSABLE_KINDS = new Set(["native", "connector", "skill"]);
 const REUSABLE_ENTRIES = new Set(["tcmdb.formulas", "tcmdb.materia"]);
 const STATEFUL_KINDS = new Set(["job", "clinic", "tcmdb", "study"]);
-const SETTLED_ERRORS = new Set(["bad_arguments", "not_found", "network_off", "declined", "refused"]);
+const SETTLED_ERRORS = new Set(["bad_arguments", "not_found", "network_off", "declined", "refused", "dataset_not_built"]);
 
 /** How a call may be reused: {key} when a repeat of it is answered from the first, {stateful} when it starts over. */
 export function reusePolicy(router, c) {
@@ -120,6 +120,13 @@ export function outcomeOf(envelope) {
         ? ["data_unavailable", OUTCOME_TEXT.data_unavailable] : ["tool_unavailable", OUTCOME_TEXT.tool_unavailable];
     }
     if (err.type === "network_off") return ["data_unavailable", "the source cannot be reached with web access off; that says nothing about the question"];
+    // Nothing was searched: the stores asked for are not built here (never a zero-hit result).
+    if (err.type === "dataset_not_built") {
+      const names = (err.coverage?.missing || []).map((m) => m?.dataset).filter(Boolean).join(", ");
+      return ["data_unavailable", `the data store${names ? `s (${names})` : "s"} this needs are not built here, so nothing was searched; that says nothing about the question: name the missing store and how to build it`];
+    }
+    // The source answered with an error report, a page or malformed data: nothing from it is evidence.
+    if (err.type === "invalid_response") return ["tool_failed", "the source answered, but not with data (an error report, a page or a malformed answer); nothing from it is evidence and it says nothing about the question"];
     if (err.type === "not_found") return ["no_record", OUTCOME_TEXT.no_record];
     if (err.type === "bad_arguments") return ["input_error", OUTCOME_TEXT.input_error];
     if (err.type === "refused" || err.type === "declined") return ["not_permitted", OUTCOME_TEXT.not_permitted];
@@ -129,7 +136,12 @@ export function outcomeOf(envelope) {
   const found = outcomesIn(envelope.result);
   if (found.has("negative")) return found.has("positive") ? ["mixed_findings", OUTCOME_TEXT.mixed_findings] : ["negative_finding", OUTCOME_TEXT.negative_finding];
   if (found.has("inconclusive") && !found.has("positive")) return ["inconclusive", OUTCOME_TEXT.inconclusive];
-  if (emptyResult(envelope.result)) return ["no_record", "the query ran and matched nothing; that is not evidence that none exists"];
+  if (emptyResult(envelope.result)) {
+    const missing = (envelope.result?.coverage?.missing || []).map((m) => m?.dataset).filter(Boolean);
+    return ["no_record", missing.length
+      ? `the stores searched matched nothing, and ${missing.join(", ")} ${missing.length > 1 ? "are not built here and were" : "is not built here and was"} not searched; that is not evidence that none exists`
+      : "the query ran and matched nothing; that is not evidence that none exists"];
+  }
   return null;
 }
 

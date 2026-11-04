@@ -537,6 +537,23 @@ test("a result says what it means: a missing tool or data, nothing matched, a te
   assert.equal(outcomeOf(envelopeFor("tcm_herb")), null);
 });
 
+test("audit 2026-11-04: a store not built is missing data, an invalid upstream answer is not evidence", () => {
+  const notBuilt = failed("tcmdb_relations", "dataset_not_built", "the requested store(s) lotus are not built here");
+  notBuilt.error.coverage = { requested: ["lotus"], searched: [], missing: [{ dataset: "lotus" }] };
+  const [code, advice] = outcomeOf(notBuilt);
+  assert.equal(code, "data_unavailable");
+  assert.match(advice, /lotus/);
+  assert.match(advice, /nothing was searched/);
+  const [bad, why] = outcomeOf(failed("connector_call", "invalid_response", "signor answered HTTP 200 with a server error report"));
+  assert.equal(bad, "tool_failed");
+  assert.match(why, /nothing from it is evidence/);
+  // a partial search that matched nothing names the store it did not search
+  const partial = envelopeFor("tcmdb_relations", "browser", { result: { rows: [], coverage: { searched: ["cmaup"], missing: [{ dataset: "lotus" }] } } });
+  const [none, line] = outcomeOf(partial);
+  assert.equal(none, "no_record");
+  assert.match(line, /lotus is not built here and was not searched/);
+});
+
 // what the model reads: the tool results of the turn's wire (OpenAI format), by call id
 const readByModel = (res) => Object.fromEntries(res.assistant.wire.filter((m) => m.role === "tool").map((m) => [m.tool_call_id, m.content]));
 

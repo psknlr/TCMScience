@@ -32,8 +32,12 @@ __all__ = ["TEXT_LIMIT", "STATUSES", "ERROR_TYPES", "KINDS", "RECEIPT_SCHEMA", "
 
 TEXT_LIMIT = 16_000
 STATUSES = ("succeeded", "failed", "refused", "needs_approval", "job_submitted", "cancelled")
+#: ``invalid_response``: the upstream answered, but with an error report, a page or an
+#: answer that does not fit the operation's declared shape (never evidence).
+#: ``dataset_not_built``: every data-hub store the call asked for is absent here, so nothing
+#: was searched (never a zero-hit result).
 ERROR_TYPES = ("bad_arguments", "unavailable", "not_found", "refused", "runtime_error",
-               "timeout", "network_off")
+               "timeout", "network_off", "invalid_response", "dataset_not_built")
 KINDS = ("native", "skill", "connector", "clinic", "tcmdb", "study", "job", "system")
 
 #: The receipt version every envelope built here carries (CONTRACTS §3). A receipt without
@@ -644,6 +648,10 @@ def _error_extras(error: Mapping[str, Any]) -> dict[str, Any]:
         reason = error.get("reason")
         if isinstance(reason, str) and re.fullmatch(r"[a-z_]{1,64}", reason):
             out["reason"] = reason
+        # dataset_not_built: which data-hub stores were requested, searched and missing
+        coverage = error.get("coverage")
+        if isinstance(coverage, Mapping) and isinstance(coverage.get("missing"), (list, tuple)):
+            out["coverage"] = jsonable(dict(coverage))
     except Exception:                                           # noqa: BLE001
         return {}
     return out

@@ -43,3 +43,27 @@ test("worker XHR deadline keeps a timeout classification", () => {
   const send = createSourceTransport("https://science.impf.ai/", { XMLHttpRequest: XHR });
   assert.equal(JSON.parse(send("{}")).error.type, "timeout");
 });
+
+test("a gateway refusal carries the gateway's own status and Retry-After to Python", () => {
+  class XHR {
+    status = 429;
+    responseText = '{"error":{"type":"rate_limited","message":"数据库服务查询队列已满，请稍后重试"}}';
+    open() {} setRequestHeader() {} send() {}
+    getResponseHeader(name) { return name === "Retry-After" ? "10" : null; }
+  }
+  const out = JSON.parse(createSourceTransport("https://science.impf.ai/", { XMLHttpRequest: XHR })("{}"));
+  assert.equal(out.error.type, "rate_limited");
+  assert.deepEqual(out.gateway, { status: 429, retry_after_s: 10 });
+});
+
+test("an upstream answer relayed by the gateway is not marked as a gateway refusal", () => {
+  class XHR {
+    status = 200;
+    responseText = '{"status":403,"body_base64":"","headers":{}}';
+    open() {} setRequestHeader() {} send() {}
+    getResponseHeader() { return null; }
+  }
+  const out = JSON.parse(createSourceTransport("https://science.impf.ai/", { XMLHttpRequest: XHR })("{}"));
+  assert.equal(out.status, 403);
+  assert.equal(out.gateway, undefined);
+});

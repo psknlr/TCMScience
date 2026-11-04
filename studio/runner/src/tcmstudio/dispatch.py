@@ -462,10 +462,13 @@ _EXPOSURE_ZH = {"plausible": "可能达到", "implausible": "难以达到",
 
 _FAIL_ZH = {"bad_arguments": "参数有误", "unavailable": "此处不可运行", "not_found": "未找到",
             "refused": "已拒绝", "runtime_error": "运行出错", "timeout": "超时",
-            "network_off": "未联网"}
+            "network_off": "未联网", "invalid_response": "上游返回的不是有效数据",
+            "dataset_not_built": "所请求的数据集尚未构建"}
 _FAIL_EN = {"bad_arguments": "bad arguments", "unavailable": "cannot run here",
             "not_found": "not found", "refused": "refused", "runtime_error": "runtime error",
-            "timeout": "timed out", "network_off": "web access is off"}
+            "timeout": "timed out", "network_off": "web access is off",
+            "invalid_response": "the upstream did not return valid data",
+            "dataset_not_built": "the requested dataset is not built"}
 
 #: English for the summaries (DESIGN §7.5: the same rules, sentence case).
 _CLAIM_EN = {"attribution": "attribution", "traditional_use": "traditional use",
@@ -1421,10 +1424,28 @@ def _call_result(res: Any, entry: Mapping[str, Any], ctx: Context, *, kind: str,
     meta = dict(getattr(res, "metadata", None) or {})
     receipt = {"kernel": "bioagent.policy", "adapter": getattr(res, "adapter", "")}
     request = {k: meta[k] for k in ("url", "method", "host", "http_status", "cached",
-                                    "attempts", "fetched_at") if k in meta}
+                                    "attempts", "fetched_at", "failure_layer", "gateway",
+                                    "retry_after_s", "content_check") if k in meta}
     if request:
         receipt["request"] = request
     error = str(getattr(res, "error", "") or "")
+    check = meta.get("content_check") if isinstance(meta.get("content_check"), Mapping) else {}
+    if status in ("FAILED", "UNAVAILABLE") and check and check.get("ok") is False:
+        # The upstream answered, but not with data: an error report served with 200, a page
+        # in place of the record, or an answer that does not fit the operation's declared
+        # shape. Its own type, so nothing downstream reads it as a transport hiccup to
+        # retry blindly, and it never becomes evidence.
+        what = {"server_error_report": "an error report", "html_page": "an HTML page",
+                "response_contract": "an answer that does not fit the operation's shape"
+                }.get(str(check.get("check")), "an invalid answer")
+        o = _failure(kind, "invalid_response", error or f"the upstream returned {what}",
+                     "The source answered, but not with data; nothing from this answer may be "
+                     "used as evidence. Retry later or use another source for this step.",
+                     limitations=limits + ["An invalid upstream answer is not evidence of "
+                                           "absence: nothing was learnt about the subject."])
+        o.governance.update({k: g[k] for k in ("licences", "policy") if k in g})
+        o.receipt = receipt
+        return o
     if status in ("SUCCEEDED", "DEGRADED"):
         o = Outcome(result=getattr(res, "value", None), governance=g, receipt=receipt)
         if status == "DEGRADED":
@@ -2109,9 +2130,29 @@ def _exec_connector(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -
         rt = _runtime()
     except RuntimeError as exc:
         return _failure("connector", "unavailable", str(exc), "")
+    from . import opstatus
+    before = opstatus.view(entry["id"], ctx.state_root)
     res = rt.invoke(f"public.connector.{key}", spec=_spec(ctx), **kwargs)
     o = _call_result(res, entry, ctx, kind="connector", licences=licences,
                      limits=[gv.LIMIT_LIVE])
+    # This call is an observation of the operation (when it reached the network): kept in
+    # this runtime's record, with the committed production record, and the operation's
+    # current status goes on the receipt. A success after a failure is a recovery; the
+    # failure stays in the record (audit of 2026-11-04, P1).
+    ob = opstatus.observation_from({"status": o.status, "receipt": o.receipt, "error": o.error},
+                                   where=ctx.where)
+    if ob is not None:
+        opstatus.record_local(ctx.state_root, entry["id"], ob)
+    after = opstatus.view(entry["id"], ctx.state_root, extra=[ob] if ob is not None and
+                          not ctx.state_root else ())
+    o.receipt["operational"] = opstatus.brief(after)
+    zh, en = opstatus.describe(after)
+    if o.status != "succeeded" and o.error is not None and before["state"] == "failing" and en:
+        o.error["hint"] = (f"This operation was already failing before this call ({en}). "
+                           + (o.error.get("hint") or "Use another source for this step."))
+    if o.status == "succeeded" and before["state"] == "failing":
+        o.notes.append(f"recovered: this call succeeded; the earlier failure "
+                       f"({(before.get('last_failure') or {}).get('at')}) is kept in the record")
     if o.status == "succeeded":
         n = _count_records(o.result)
         http = o.receipt.get("request", {}).get("http_status")
@@ -2904,8 +2945,31 @@ def _hub(ctx: Context) -> Any:
 def _exec_tcmdb(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Outcome:
     op = entry["id"].split(".", 1)[1]
     from bioagent.tcmdb import HubError
+    from bioagent.tcmdb.hub import DatasetNotBuilt
     try:
         return _tcmdb_op(op, args, ctx)
+    except DatasetNotBuilt as exc:
+        # Nothing was searched: never a zero-hit result, never negative evidence, never a
+        # result a release can rest on (audit of 2026-11-04, P0).
+        cov = exc.coverage
+        missing = [m["dataset"] for m in cov.get("missing") or ()]
+        from .capability import requirement
+        o = _failure("tcmdb", "dataset_not_built", str(exc),
+                     "Build the store first (job.tcmdb.fetch, then job.tcmdb.build) or import a "
+                     "built store (tcmdb.import_store); tcmdb.status lists what is built here.",
+                     limitations=[gv.LIMIT_HUB, _NOT_SEARCHED],
+                     requires=[requirement("dataset", f"the TCM data store(s) {', '.join(missing)}"
+                                           if missing else "a built TCM data store",
+                                           "job.tcmdb.fetch then job.tcmdb.build, or tcmdb.import_store",
+                                           missing)],
+                     reason="needs_dataset",
+                     summary=("未检索：所请求的数据集尚未构建（" + "、".join(missing) + "）"
+                              if missing else "未检索：本环境尚未构建任何中医药数据集"),
+                     summary_en=("Not searched: the requested store(s) are not built here ("
+                                 + ", ".join(missing) + ")" if missing else
+                                 "Not searched: no TCM data store is built here"))
+        o.error["coverage"] = cov
+        return o
     except HubError as exc:
         text = str(exc)
         if "not built" in text or "no store" in text:
@@ -2919,6 +2983,29 @@ def _exec_tcmdb(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
         return _failure("tcmdb", "bad_arguments", str(exc))
     except FileNotFoundError as exc:
         return _failure("tcmdb", "unavailable", str(exc), "Load the repository formula asset first.")
+
+
+_NOT_SEARCHED = ("A store that is not built here was not searched: it supplies no rows and no "
+                 "zero, and its absence is never evidence that a relation does not exist.")
+
+
+def _coverage_note(cov: Mapping[str, Any], by_source: Mapping[str, int]) -> tuple[str, str, list[str]]:
+    """The summary tails (zh, en) and limitations that say what a hub query searched."""
+    missing = [m["dataset"] for m in cov.get("missing") or ()]
+    zero = [k for k, n in by_source.items() if not n]
+    limits: list[str] = []
+    zh = en = ""
+    if missing:
+        zh += f"；部分覆盖：未构建 {'、'.join(missing)}，未检索"
+        en += f"; partial coverage: {', '.join(missing)} not built here, not searched"
+        limits.append(f"Partial coverage: only {', '.join(cov.get('searched') or ())} were searched; "
+                      f"{', '.join(missing)} are not built here. " + _NOT_SEARCHED)
+    if zero:
+        zh += f"；已检索但无匹配：{'、'.join(zero)}"
+        en += f"; searched with no match: {', '.join(zero)}"
+        limits.append(f"{', '.join(zero)} were searched and matched nothing: no record there is "
+                      "not evidence that none exists.")
+    return zh, en, limits
 
 
 #: How far a data source is from answering a query, in order. A card in the catalogue is
@@ -3121,18 +3208,22 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                        summary=f"{args['dataset']}.{args['table']}：{len(rows)} 行",
                        summary_en=f"{args['dataset']}.{args['table']}: {len(rows)} row(s)")
     if op in ("relations", "evidence_for"):
+        # Which stores were asked for, searched and missing: a store that is not built is
+        # never reported as a zero (audit of 2026-11-04, P0). All missing: DatasetNotBuilt.
         if op == "relations":
-            rows = hub.relations(args.get("kind"), subject=args.get("subject"),
-                                 object=args.get("object"), sources=args.get("sources"),
-                                 evidence=args.get("evidence"),
-                                 contains=bool(args.get("contains", False)),
-                                 outcomes=args.get("outcomes"),
-                                 commercial=bool(args.get("commercial", False)),
-                                 limit=int(args.get("limit", 50)))
+            found = hub.search_relations(args.get("kind"), subject=args.get("subject"),
+                                         object=args.get("object"), sources=args.get("sources"),
+                                         evidence=args.get("evidence"),
+                                         contains=bool(args.get("contains", False)),
+                                         outcomes=args.get("outcomes"),
+                                         commercial=bool(args.get("commercial", False)),
+                                         limit=int(args.get("limit", 50)))
+            rows, cov = found["rows"], found["coverage"]
         else:
+            cov = hub.require(None)
             rows = hub.evidence_for(args["subject"], limit=int(args.get("limit", 50)),
                                     contains=bool(args.get("contains", False)))
-        by_source: dict[str, int] = {}
+        by_source: dict[str, int] = dict.fromkeys(cov["searched"], 0)
         by_evidence: dict[str, int] = {}
         for r in rows:
             by_source[str(r.get("source"))] = by_source.get(str(r.get("source")), 0) + 1
@@ -3140,25 +3231,39 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
         g["licences"] = _row_licences(rows)
         if any(e in by_evidence for e in ("predicted", "aggregated", "signal")):
             g["limitations"].insert(0, gv.LIMIT_PREDICTED)
-        built = hub.built()
-        if not built:
-            g["limitations"].insert(0, "No dataset is built on this runner, so nothing could "
-                                       "be found: an empty result here says nothing about the "
-                                       "relation.")
+        zh_cov, en_cov, cov_limits = _coverage_note(cov, by_source)
+        for line in reversed(cov_limits):
+            g["limitations"].insert(0, line)
         ranked = sorted(by_evidence.items(), key=lambda x: -x[1])
         ev = "、".join(f"{k} {v}" for k, v in ranked)
         ev_en = ", ".join(f"{k} {v}" for k, v in ranked)
-        return Outcome(result={"count": len(rows), "by_source": by_source,
-                               "by_evidence": by_evidence, "rows": rows, "built": built},
-                       governance=g,
-                       summary=f"关系查询：{len(rows)} 行，来自 {len(by_source)} 个数据源"
-                               + (f"（证据类型：{ev}）" if ev else "（无记录不等于不存在）"),
-                       summary_en=f"Relations: {len(rows)} row(s) from {len(by_source)} "
-                                  "source(s)" + (f" (evidence kinds: {ev_en})" if ev_en
-                                                 else " (no record is not absence)"))
+        with_rows = sum(1 for n in by_source.values() if n)
+        o = Outcome(result={"count": len(rows), "by_source": by_source,
+                            "by_evidence": by_evidence, "rows": rows, "built": cov["built"],
+                            "coverage": {k: cov[k] for k in ("requested", "searched", "missing",
+                                                             "complete", "partial")
+                                         if k in cov}},
+                    governance=g,
+                    summary=f"关系查询：{len(rows)} 行，来自 {with_rows} 个数据源"
+                            f"（检索 {len(cov['searched'])} 个）"
+                            + (f"（证据类型：{ev}）" if ev else "（无记录不等于不存在）") + zh_cov,
+                    summary_en=f"Relations: {len(rows)} row(s) from {with_rows} source(s) "
+                               f"({len(cov['searched'])} searched)"
+                               + (f" (evidence kinds: {ev_en})" if ev_en
+                                  else " (no record is not absence)") + en_cov)
+        if cov.get("partial"):
+            # a success with a documented shortfall (receipt.result.fallbacks' vocabulary)
+            o.result_info["fallbacks"] = [{"what": "degraded",
+                                           "reason": "partial coverage: not built here, not "
+                                                     "searched: " + ", ".join(
+                                               m["dataset"] for m in cov["missing"])}]
+        return o
     if op == "consensus":
         kw = {k: args[k] for k in ("sources", "contains", "merge_processed", "min_support")
               if k in args}
+        cov = hub.require(kw.get("sources"), kind=args.get("kind"))
+        if cov["missing"]:
+            kw["sources"] = cov["searched"]
         doc = hub.consensus(args["kind"], subject=args.get("subject"), object=args.get("object"),
                             **kw)
         items = list(doc.get("items") or [])
@@ -3170,15 +3275,28 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                                    "that is silent did not test the relation.")
         s = "、".join(f"{k} {v}" for k, v in support.items())
         s_en = ", ".join(f"{k} {v}" for k, v in support.items())
+        zh_cov, en_cov, cov_limits = _coverage_note(cov, {})
+        for line in reversed(cov_limits):
+            g["limitations"].insert(0, line)
+        doc = {**doc, "coverage": {k: cov[k] for k in ("requested", "searched", "missing",
+                                                         "complete", "partial")}}
         return Outcome(result=doc, governance=g,
-                       summary=f"多源一致性：{len(items)} 项" + (f"（{s}）" if s else ""),
+                       summary=f"多源一致性：{len(items)} 项" + (f"（{s}）" if s else "") + zh_cov,
                        summary_en=f"Cross-source consensus: {len(items)} item(s)"
-                                  + (f" ({s_en})" if s_en else ""))
+                                  + (f" ({s_en})" if s_en else "") + en_cov)
     if op == "compare":
         kw = {k: args[k] for k in ("sources", "merge_processed") if k in args}
+        cov = hub.require(kw.get("sources"), kind=args.get("kind"))
+        if cov["missing"]:
+            kw["sources"] = cov["searched"]
         doc = hub.compare(args["kind"], args["subject"], **kw)
-        return Outcome(result=doc, governance=g, summary=f"来源比较：{args['subject']}",
-                       summary_en=f"Source comparison: {args['subject']}")
+        zh_cov, en_cov, cov_limits = _coverage_note(cov, {})
+        for line in reversed(cov_limits):
+            g["limitations"].insert(0, line)
+        doc = {**doc, "coverage": {k: cov[k] for k in ("requested", "searched", "missing",
+                                                         "complete", "partial")}}
+        return Outcome(result=doc, governance=g, summary=f"来源比较：{args['subject']}{zh_cov}",
+                       summary_en=f"Source comparison: {args['subject']}{en_cov}")
     if op == "licences":
         rows = hub.licences()
         g["licences"] = [gv.licence_entry(f"{r['dataset']}:{r['kind']}", r.get("license"),
@@ -3902,19 +4020,38 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
                            browser_admet_models=ctx.browser_admet_models,
                            items=_searchable(ctx.where), built=_built(ctx),
                            kind_missing=_kind_missing(ctx))
+        # Each live operation's current status (tcmstudio.opstatus): the latest production
+        # result, the last success and the failure layer, kept apart from its historical
+        # verification (audit of 2026-11-04, P1), with this runtime's own calls merged in.
+        from . import opstatus
+        failing = []
+        for m in r["matched"]:
+            if m.get("kind") == "connector":
+                v = opstatus.view(m["id"], ctx.state_root)
+                m["operational"] = opstatus.brief(v)
+                if v["state"] == "failing":
+                    failing.append(m["id"])
         view = {"matched": [{k: m[k] for k in ("id", "title", "summary", "parameters",
-                                               "runnable_now", "needs", "confirm", "network")
+                                               "runnable_now", "needs", "confirm", "network",
+                                               "operational")
                              if k in m and (k != "needs" or m[k])}
                             for m in r["matched"]], "how": r["how"]}
         if not r["matched"]:
             view["note"] = ("No entry matched. Try other words (Chinese or English), a "
                             "category, or no filters.")
+        if failing:
+            view["operational_note"] = (
+                f"{', '.join(failing)} failed at the latest check (operational.failure says "
+                "where and when); prefer another source for the same step, or say it is "
+                "unavailable now. A failing source says nothing about the question.")
         more = r["total"] > len(r["matched"])
         return Outcome(result=r, model_view=view, governance=g,
                        summary=f"能力检索「{r['query']}」：{len(r['matched'])} 项"
-                               + (f"（共 {r['total']} 项相关）" if more else ""),
+                               + (f"（共 {r['total']} 项相关）" if more else "")
+                               + (f"；{len(failing)} 项当前故障" if failing else ""),
                        summary_en=f"Catalog search “{r['query']}”: {len(r['matched'])} match(es)"
-                                  + (f" ({r['total']} related in all)" if more else ""))
+                                  + (f" ({r['total']} related in all)" if more else "")
+                                  + (f"; {len(failing)} currently failing" if failing else ""))
     if op == "capabilities":
         return _capabilities(ctx, g)
     if op == "capability_audit":

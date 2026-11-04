@@ -14,7 +14,13 @@ sent live with its example arguments and answered.
   pathway's relations and description. ``API/getHumanData.php`` (the whole human set)
   fails intermittently with a PHP memory error answered as HTTP 200, and is a bulk dump
   besides, so it is not wrapped; the quarterly release file is the snapshot
-  (``tcmdb`` dataset ``signor``).
+  (``tcmdb`` dataset ``signor``). ``getData.php`` fails the same way: on 2026-11-04 the
+  ``connect`` example answered HTTP 200 ``text/plain`` with a PHP ``TypeError``, which
+  the dispatcher reported as a succeeded "XML" result. Both relation operations now
+  declare their table (``_SIGNOR_RELATIONS``): the 28 columns by name, both endpoint
+  entities (name, type, id) and the effect filled in every row, a SIGNOR id of the form
+  ``SIGNOR-<n>``, and at least one row. An error report, a challenge page, a misaligned
+  or an empty answer is ``FAILED`` and contributes no evidence.
 * **JASPAR** 2026: the REST API (matrix by id, matrices of a factor, search, versions,
   releases). The API allows 25 requests per second; the harness keeps to 1.
 
@@ -25,9 +31,9 @@ web services (an API key since September 2026, and paid access for commercial us
 
 from __future__ import annotations
 
-from ..public_apis import Operation, PublicSource
+from ..public_apis import Operation, PublicSource, table_contract
 
-__all__ = ["SOURCES", "PENDING"]
+__all__ = ["SOURCES", "PENDING", "SIGNOR_COLUMNS"]
 
 _PSICQUIC = "Tools/webservices/psicquic/intact/webservices/current/search/query/{query}"
 _MITAB25 = ("PSI-MITAB 2.5, 15 tab-separated columns and no header row (so the generic "
@@ -39,6 +45,14 @@ _SIGNOR_COLUMNS = ("ENTITYA TYPEA IDA DATABASEA ENTITYB TYPEB IDB DATABASEB EFFE
                    "RESIDUE SEQUENCE TAX_ID CELL_DATA TISSUE_DATA MODULATOR_COMPLEX "
                    "TARGET_COMPLEX MODIFICATIONA MODASEQ MODIFICATIONB MODBSEQ PMID DIRECT "
                    "NOTES ANNOTATOR SENTENCE SIGNOR_ID SCORE")
+SIGNOR_COLUMNS: tuple[str, ...] = tuple(_SIGNOR_COLUMNS.split())
+#: A SIGNOR relation row: both endpoint entities (name, type, id), the effect and the
+#: relation's SIGNOR id. The id's form catches a row shifted by a missing or extra tab.
+_SIGNOR_RELATIONS = table_contract(
+    SIGNOR_COLUMNS,
+    required=("ENTITYA", "TYPEA", "IDA", "ENTITYB", "TYPEB", "IDB", "EFFECT", "SIGNOR_ID"),
+    patterns={"SIGNOR_ID": r"SIGNOR-\d+(?#e.g. SIGNOR-1)"},
+    what="SIGNOR causal relations")
 
 SOURCES: tuple[PublicSource, ...] = (
     PublicSource(
@@ -95,19 +109,26 @@ SOURCES: tuple[PublicSource, ...] = (
         "mechanism", (
             Operation("entity_relations", "Every causal relation involving one entity "
                       "(UniProt accession, PubChem CID, or a SIGNOR id such as "
-                      "SIGNOR-C1) in one organism (9606, 10090, 10116). Tab-separated with "
-                      "no header row (the generic parser reads the first relation as the "
-                      "column names); the columns are " + _SIGNOR_COLUMNS,
+                      "SIGNOR-C1) in one organism (9606, 10090, 10116). SIGNOR sends no "
+                      "header row; each row is returned keyed by these columns: "
+                      + _SIGNOR_COLUMNS + ". Every row must name both endpoint entities, "
+                      "the effect and a SIGNOR id: an error report, a malformed row or an "
+                      "empty answer is a failed call, not a result (an entity with no "
+                      "relation is reported the same way: absence is not evidence)",
                       "getData.php", params={"organism": "{organism}", "id": "{id}"},
                       accept="text/plain", args=("id",),
-                      example={"id": "P62258", "organism": "9606"}),
+                      example={"id": "P62258", "organism": "9606"},
+                      contract=_SIGNOR_RELATIONS),
             Operation("relations_among", "SIGNOR's 'connect' search for a list of proteins "
                       "(comma-separated UniProt accessions): the relations that connect "
                       "them, including those of the entities linking them (287 rows for the "
-                      "4-protein example); headerless like entity_relations", "getData.php",
+                      "4-protein example); rows keyed and checked like entity_relations. On "
+                      "2026-11-04 this example answered a PHP fatal error with HTTP 200; "
+                      "such an answer is now a failed call", "getData.php",
                       params={"type": "connect", "proteins": "{proteins}"},
                       accept="text/plain", args=("proteins",),
-                      example={"proteins": "P29317,Q06124,P04049,P15056"}),
+                      example={"proteins": "P29317,Q06124,P04049,P15056"},
+                      contract=_SIGNOR_RELATIONS),
             Operation("pathway_relations", "The causal relations of one SIGNOR pathway, "
                       "with a header: pathway, regulator and target with their cellular "
                       "location, effect, mechanism, residue, PubMed id, SIGNOR id, score",

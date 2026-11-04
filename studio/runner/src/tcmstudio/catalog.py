@@ -945,8 +945,35 @@ def _connector_entries() -> list[dict[str, Any]]:
                                          "record": _RECORDS["live_upstream"]}} if row else {})
             _evidence(e, f"bioagent.providers.public_apis:{s.key}.{op.name}", _version("bioagent"),
                       resolved=True, levels=levels)
+            # The current operational status, apart from verification: a verification says
+            # the operation once answered; this says how its latest calls went, by route,
+            # with the last success and the failing layer (tcmstudio.opstatus; audit of
+            # 2026-11-04, P1). From the committed record only, so catalog.json stays
+            # deterministic; a runtime merges in its own calls where it reads entries.
+            # Only a view with something to say is carried (failing, recovered, unrecorded);
+            # the rest are stated once, as the document's "operational" default.
+            op = _operational(e["id"])
+            if op is not None:
+                e["operational"] = op
             out.append(e)
     return out
+
+
+def _operational(entry_id: str) -> dict[str, Any] | None:
+    try:
+        from .opstatus import catalog_view, plain, view
+        v = view(entry_id)
+        return None if plain(v) else catalog_view(v)
+    except Exception:                                           # noqa: BLE001
+        return {"state": "unknown"}
+
+
+def _operational_default() -> dict[str, Any] | None:
+    try:
+        from .opstatus import catalog_default
+        return catalog_default()
+    except Exception:                                           # noqa: BLE001
+        return None
 
 
 # ------------------------------------------------------------------------- clinic
@@ -1880,6 +1907,10 @@ def build_catalog(where: str = "runner", probe: bool = True, *, network: bool | 
                    "by_kind": {k: sum(1 for e in items if e["kind"] == k) for k in ENTRY_KINDS}},
         # acts reserved for a person ({name: message}): never entries; the page refuses them by name
         "never_offered": dict(NEVER_OFFERED)}
+    # what a connector entry without "operational" means (tcmstudio.opstatus): stated once
+    default = _operational_default()
+    if default is not None:
+        doc["operational"] = default
     if _FAILED:
         doc["problems"] = [{"section": k, "error": v} for k, v in sorted(_FAILED.items())]
     return doc

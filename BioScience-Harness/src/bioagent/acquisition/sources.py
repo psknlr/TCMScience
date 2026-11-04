@@ -32,6 +32,11 @@ class AcquisitionSpec:
     source_project: str = "public-data"
     version: str = "current"
     notes: str = ""
+    #: A second route to the same file when the first fails for a reason a retry may not
+    #: cure (a 5xx, a timeout): ``uniprot_paginated`` pages the equivalent UniProt
+    #: ``search`` query and checks the pages as one release (``acquisition.uniprot``).
+    #: Never used to get around a refusal: a host the policy here denies stays BLOCKED.
+    fallback: str = ""
 
 
 #: Open bulk datasets with stable URLs. Sizes were read from the servers when
@@ -45,7 +50,10 @@ ACQUIRABLE: tuple[AcquisitionSpec, ...] = (
         "namespace NPASS, CMAUP, BindingDB, Reactome and Open Targets share. STRING's alias "
         "file lists secondary and TrEMBL accessions beside the primary without marking it, "
         "so mapping PubChem's gene ids through STRING needs this list to pick the primary.",
-        "proteomics", fmt="tsv", source_project="UniProt"),
+        "proteomics", fmt="tsv", source_project="UniProt",
+        # the stream answered HTTP 503 twice on 2026-11-04 while the paged search served the
+        # same 20,431 accessions of release 2026_03 in 41 pages (audit, repair P1)
+        fallback="uniprot_paginated"),
     AcquisitionSpec(
         "https://public-download-files.storage.googleapis.com/hgnc/tsv/tsv/hgnc_complete_set.txt",
         "hgnc_complete_set.txt", "public-download-files.storage.googleapis.com", "CC0-1.0",

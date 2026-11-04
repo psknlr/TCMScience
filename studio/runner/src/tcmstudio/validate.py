@@ -336,7 +336,9 @@ def validate_entries(items: Sequence[tuple[str, str, Mapping[str, Any]]], *, ctx
             if status in ("succeeded", "job_submitted"):
                 rec.add("invocation", PASS, f"{status} in {elapsed * 1000:.0f} ms",
                         duration_ms=round(elapsed * 1000), output_sha256=_digest(env))
-            elif err.get("type") in ("unavailable", "network_off"):
+            elif err.get("type") in ("unavailable", "network_off", "dataset_not_built"):
+                # dataset_not_built: the hub has no store to search here (never a zero-hit
+                # pass, audit of 2026-11-04): blocked on data, not a defect of the tool
                 rec.add("invocation", BLOCKED, err.get("message", "")[:300])
             elif status == "needs_approval" or err.get("type") == "refused":
                 rec.add("invocation", SKIPPED, "needs a person's confirmation, which the "

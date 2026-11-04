@@ -6,7 +6,7 @@ Operations: 444, from 117 sources. Each level is reported on its own. A mock res
 
 | Level | What it shows | Where it comes from | Operations |
 |---|---|---|---|
-| `mock_transport` | the operation, called through Studio's dispatcher as the browser calls it, sends exactly one request to its declared host, the same method, URL and body as `verify_connectors.py`, and a stand-in transport's HTTP 200 comes back as a succeeded envelope. Nothing about the upstream service | this script, offline, on every `--check` | PASS 444 |
+| `mock_transport` | the operation, called through Studio's dispatcher as the browser calls it, sends exactly one request to its declared host, the same method, URL and body as `verify_connectors.py`, and a stand-in transport's HTTP 200 (an empty body, or one row that fits the operation's declared shape) comes back as a succeeded envelope. Nothing about the upstream service | this script, offline, on every `--check` | PASS 444 |
 | `offline_refusal` | with web access off, the call is refused (`network_off`) before any request | this script, offline | PASS 444 |
 | `live_upstream` | the real upstream answered the operation's example through `HTTPBackend`, on the date recorded | [`BioScience-Harness/data/connector_live_verification.csv`](../../../BioScience-Harness/data/connector_live_verification.csv), written by `scripts/verify_connectors.py` and changed only by a reviewed commit | PASS 444; dated 2026-09-17 to 2026-10-07 |
 | `live_gateway` | the operation called from a browser through the deployed gateway to the real upstream | no committed record exists | not verified 444 |

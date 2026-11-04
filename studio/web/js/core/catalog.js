@@ -36,6 +36,8 @@ export class Catalog {
     this.limits = isPlainObject(doc.limits) ? structuredClone(doc.limits) : null;
     // the committed file each verification level rests on ({level: path}), for the catalog page (CONTRACTS §2)
     this.verificationRecords = isPlainObject(doc.verification_records) ? { ...doc.verification_records } : {};
+    // what a connector entry without its own "operational" view means (tcmstudio.opstatus): stated once (CONTRACTS §2)
+    this.operational = isPlainObject(doc.operational) ? { ...doc.operational } : null;
     this._index = null;
   }
 
@@ -119,6 +121,7 @@ export class Catalog {
       ...(Object.keys(this.neverOffered).length ? { never_offered: this.neverOffered } : {}),
       ...(this.limits ? { limits: this.limits } : {}),
       ...(Object.keys(this.verificationRecords).length ? { verification_records: this.verificationRecords } : {}),
+      ...(this.operational ? { operational: this.operational } : {}),
     };
   }
 }
@@ -202,6 +205,8 @@ export function mergeCatalogs(built, runner) {
     ...(isPlainObject(built.limits) || isPlainObject(runner.limits) ? { limits: mergeLimits(built.limits, runner.limits) } : {}),
     ...(isPlainObject(built.verification_records) || isPlainObject(runner.verification_records)
       ? { verification_records: { ...(runner.verification_records || {}), ...(built.verification_records || {}) } } : {}),
+    ...(isPlainObject(built.operational) || isPlainObject(runner.operational)
+      ? { operational: { ...(runner.operational || {}), ...(built.operational || {}) } } : {}),
     sources: ["built", "runner"],
   };
 }

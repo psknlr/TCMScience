@@ -10,7 +10,9 @@ apart because they show different things, and a lower one is never counted as a 
   mock_transport    run by this script, offline: the operation is called through Studio's dispatcher the way the
                     browser calls it (its Python policy, request rendering and parsing in this interpreter; the
                     transport is ``tcmstudio.browser_http.GatewayOpener``, whose ``send`` is a stand-in that answers
-                    HTTP 200 with an empty body of the requested type). PASS means exactly one request reached the
+                    HTTP 200 with an empty body of the requested type, or, for an operation that declares the
+                    shape of its answer (``Operation.contract``), one row that fits it, since an empty answer is
+                    refused there by design). PASS means exactly one request reached the
                     transport, on the operation's declared host, with the method, URL and body that
                     ``BioScience-Harness/scripts/verify_connectors.py`` sends for the same example, and the answer
                     came back as a succeeded envelope. It says nothing about the upstream service, nor about the
@@ -110,8 +112,9 @@ def mock_transport(answer: Callable[[dict], dict] | None = None) -> Iterator[lis
     def send(packet: str, timeout_ms: int) -> str:
         p = json.loads(packet)
         packets.append(p)
-        if answer is not None:
-            return json.dumps(answer(p))
+        given = answer(p) if answer is not None else None
+        if given is not None:
+            return json.dumps(given)
         headers = {k.lower(): v for k, v in (p.get("headers") or {}).items()}
         raw, kind = _body_for(headers.get("accept", ""))
         return json.dumps({"status": 200, "headers": {"Content-Type": kind},
@@ -137,9 +140,23 @@ def check_operations(entries: list[dict], answer: Callable[[dict], dict] | None 
     from bioagent.providers.public_apis import PublicAPIProvider, render_call
     from tcmstudio import dispatch
 
+    from bioagent.providers.public_apis import BY_KEY, contract_sample
+
     manifests = {m.id.rsplit(".", 1)[-1]: m for m in PublicAPIProvider().discover()}
     out: dict[str, dict[str, str]] = {}
-    with tempfile.TemporaryDirectory(prefix="tcmstudio-coverage-") as state, mock_transport(answer) as packets:
+    shape: dict[str, Any] = {}
+
+    def stand_in(p: dict) -> dict | None:
+        # an operation that declares its answer's shape refuses an empty one by design: the
+        # stand-in answers one row that fits, so the check still exercises request and parse
+        if not shape.get("contract"):
+            return None
+        raw = contract_sample(shape["contract"])
+        return {"status": 200, "headers": {"Content-Type": "text/plain"},
+                "body_base64": base64.b64encode(raw).decode(), "url": p["url"]}
+
+    with tempfile.TemporaryDirectory(prefix="tcmstudio-coverage-") as state, \
+            mock_transport(answer or stand_in) as packets:
         backend = HTTPBackend(cache_dir=None, max_retries=1)       # one attempt: the stand-in answers at once
         on = {"where": "browser", "network": True, "state_root": state, "project_id": "coverage"}
         off = {**on, "network": False}
@@ -150,6 +167,7 @@ def check_operations(entries: list[dict], answer: Callable[[dict], dict] | None 
             out[e["id"]] = row
             if e.get("example") is None:
                 continue
+            shape["contract"] = BY_KEY[c["key"]].op(c["operation"]).contract
             # what verify_connectors.py sends for this example (its own rendering through HTTPBackend)
             n = len(packets)
             backend.invoke(manifests[c["key"]], use_cache=False, **render_call(c["key"], c["operation"]))
@@ -252,7 +270,8 @@ def summary(table: list[dict[str, str]], scheduled: list[dict[str, str]] | None 
         "| Level | What it shows | Where it comes from | Operations |", "|---|---|---|---|",
         "| `mock_transport` | the operation, called through Studio's dispatcher as the browser calls it, sends exactly "
         "one request to its declared host, the same method, URL and body as `verify_connectors.py`, and a stand-in "
-        "transport's HTTP 200 comes back as a succeeded envelope. Nothing about the upstream service | this script, "
+        "transport's HTTP 200 (an empty body, or one row that fits the operation's declared shape) comes back as a "
+        "succeeded envelope. Nothing about the upstream service | this script, "
         f"offline, on every `--check` | {_count([r['mock_transport'] for r in table])} |",
         "| `offline_refusal` | with web access off, the call is refused (`network_off`) before any request | this "
         f"script, offline | {_count([r['offline_refusal'] for r in table])} |",

@@ -15,6 +15,45 @@ import urllib.parse
 from email.message import Message
 
 
+class GatewayRefusal(urllib.error.URLError):
+    """The source gateway itself refused or failed the request (not the upstream).
+
+    ``gateway`` keeps what the gateway said apart from any upstream status: its HTTP status,
+    its error type (``rate_limited``, ``timeout``, ``source_not_allowed`` …) and the
+    ``Retry-After`` it asked for. ``HTTPBackend`` reads ``layer`` and ``gateway`` to record
+    the failure layer, back off on ``rate_limited`` and stop on a refusal a retry would meet
+    again. A URLError subclass, so any caller that caught URLError still does.
+    """
+
+    layer = "gateway"
+
+    def __init__(self, message: str, gateway: dict):
+        super().__init__(message)
+        self.gateway = gateway
+
+
+class GatewayTimeout(TimeoutError):
+    """The source gateway gave up waiting for the upstream (its own ``timeout``, HTTP 504)."""
+
+    layer = "gateway"
+
+    def __init__(self, message: str, gateway: dict):
+        super().__init__(message)
+        self.gateway = gateway
+
+
+def _gateway_info(result: dict) -> dict:
+    err = result.get("error") or {}
+    gw = result.get("gateway") if isinstance(result.get("gateway"), dict) else {}
+    info = {"error_type": str(err.get("type") or "refused"),
+            "message": str(err.get("message") or "")[:300]}
+    if gw.get("status") is not None:
+        info["status"] = int(gw["status"])
+    if gw.get("retry_after_s") is not None:
+        info["retry_after_s"] = float(gw["retry_after_s"])
+    return info
+
+
 class GatewayOpener:
     def __init__(self, allowed_hosts, send):
         self.allowed_hosts = sorted(allowed_hosts)
@@ -33,9 +72,12 @@ class GatewayOpener:
         except Exception as exc:
             raise urllib.error.URLError(f"source gateway network error: {exc}") from exc
         if result.get("error"):
-            if result["error"].get("type") == "timeout":
-                raise TimeoutError("source gateway timed out")
-            raise urllib.error.URLError(result["error"].get("message", "source gateway refused request"))
+            info = _gateway_info(result)
+            if info["error_type"] == "timeout":
+                raise GatewayTimeout("source gateway timed out", info)
+            raise GatewayRefusal(f"source gateway {info['error_type']}"
+                                 + (f" (HTTP {info['status']})" if "status" in info else "")
+                                 + f": {info['message'] or 'source gateway refused request'}", info)
         status = int(result["status"])
         headers = Message()
         for key, value in result.get("headers", {}).items():

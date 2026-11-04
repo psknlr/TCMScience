@@ -51,6 +51,24 @@ function dataOf(e) {
   return { keys, param };
 }
 
+/**
+ * An operation's current status (catalog entry.operational, tcmstudio.opstatus), normalized: never throws on a missing
+ * field. A connector entry without its own view takes the catalog's default (`defaults`, the document's "operational":
+ * it succeeded at its latest production check); a production check's route is the production gateway.
+ */
+export function operationalOf(e, defaults = null) {
+  const obj = (x) => (x && typeof x === "object" ? x : null);
+  let o = obj(e?.operational);
+  if (!o && e?.kind === "connector" && defaults?.absent === "operational") {
+    o = { state: "operational", latest_production: { at: defaults.checked || "", outcome: "succeeded" } };
+  }
+  o = o || {};
+  const state = ["operational", "failing", "recovered", "unknown"].includes(o.state) ? o.state : "unknown";
+  const lp = obj(o.latest_production) ? { route: "production_gateway", ...o.latest_production } : null;
+  return { state, latest: obj(o.latest) || lp, latest_production: lp, last_success: obj(o.last_success),
+    last_failure: obj(o.last_failure), record: typeof o.record === "string" ? o.record : (defaults?.record || "") };
+}
+
 /** The verification an entry carries, normalized: {status, best: {level, status, at, record}|null, levels: [...]}. */
 export function verificationOf(e, records = {}) {
   const v = e?.verification && typeof e.verification === "object" ? e.verification : {};
@@ -455,7 +473,8 @@ export function mountCatalog(app, main) {
         h("span.entry-row__kind", t(`ui.catalog.kind.${e.kind}`) !== `ui.catalog.kind.${e.kind}` ? t(`ui.catalog.kind.${e.kind}`) : e.kind)),
       h("code.entry-row__id", e.id),
       e.summary ? h("p.entry-row__summary", { lang: guessLang(e.summary) || null }, inlineLiterals(e.summary)) : null,
-      h("div.entry-row__badges.state-row", stateRow(fieldsOf(e), { compact: true, remoteRunner: runnerIsRemote(app) }))));
+      h("div.entry-row__badges.state-row", stateRow(fieldsOf(e), { compact: true, remoteRunner: runnerIsRemote(app) }),
+        operationalOf(e, app.catalog?.operational).state === "failing" ? chip({ label: t("ui.catalog.op.state.failing"), tone: "vermilion", icon: "alert", attrs: { "data-field": "operational" } }) : null)));
   }
 
   function renderDetail() {
@@ -480,6 +499,7 @@ export function mountCatalog(app, main) {
       stateSection(f),
       readinessSection(e, f),
       verificationSection(f),
+      e.kind === "connector" ? operationalSection(e) : null,
       implementationSection(e, f),
       backendsSection(e),
       limitsSection(e),
@@ -571,6 +591,34 @@ export function mountCatalog(app, main) {
         l.record ? h("span.muted", " · ", h("code", l.record)) : null)))
         : h("p.muted.small", t("ui.catalog.verify.none")),
       h("p.inspector__note", t("ui.catalog.verify_note")));
+  }
+
+  /**
+   * 当前运行状态: how the operation's latest calls went (tcmstudio.opstatus), apart from verification, which says only
+   * that it once answered: the state, the latest check and its route, where a failing one failed (gateway, transport,
+   * upstream HTTP or the upstream's answer, with the gateway's and the upstream's HTTP statuses apart) and when it last
+   * worked. A recovery keeps the failure it recovered from.
+   */
+  function operationalSection(e) {
+    const o = operationalOf(e, app.catalog?.operational);
+    const route = (r) => (r ? t(`ui.catalog.op.route.${r}`) !== `ui.catalog.op.route.${r}` ? t(`ui.catalog.op.route.${r}`) : r : "—");
+    const http = (x) => [x?.gateway_http != null ? t("ui.catalog.op.gateway_http", { n: x.gateway_http }) : null,
+      x?.upstream_http != null ? t("ui.catalog.op.upstream_http", { n: x.upstream_http }) : null].filter(Boolean).join(" · ");
+    const when = (x) => (x?.at ? `${x.at} · ${route(x.route)}` : "—");
+    const lf = o.last_failure;
+    return h("section.entry__sec", { "data-operational": o.state }, h("h3", t("ui.catalog.sec.operational")),
+      h("p.entry__operational", icon(o.state === "failing" ? "alert" : o.state === "unknown" ? "circleDashed" : "check", { size: 14 }),
+        h("span", t(`ui.catalog.op.state.${o.state}`))),
+      o.state === "unknown" ? h("p.muted.small", t("ui.catalog.op.none")) : keyValue([
+        [t("ui.catalog.op.latest"), h("span", when(o.latest), o.latest?.outcome ? h("span.muted", ` · ${t(`ui.catalog.op.outcome.${o.latest.outcome}`)}`) : null)],
+        o.latest_production ? [t("ui.catalog.op.latest_production"), h("span", when(o.latest_production), h("span.muted", ` · ${t(`ui.catalog.op.outcome.${o.latest_production.outcome}`)}`), http(o.latest_production) ? h("span.muted", ` · ${http(o.latest_production)}`) : null)] : null,
+        lf ? [t("ui.catalog.op.last_failure"), h("span", when(lf), h("span.muted", ` · ${t(`ui.catalog.op.layer.${lf.layer}`) !== `ui.catalog.op.layer.${lf.layer}` ? t(`ui.catalog.op.layer.${lf.layer}`) : lf.layer}`),
+          lf.error_type ? h("span.muted", " · ", h("code", lf.error_type)) : null, http(lf) ? h("span.muted", ` · ${http(lf)}`) : null)] : null,
+        lf?.detail ? [t("ui.catalog.op.detail"), h("span.mono.small", { lang: guessLang(lf.detail) || null }, String(lf.detail))] : null,
+        [t("ui.catalog.op.last_success"), o.last_success ? when(o.last_success) : t("ui.catalog.op.never")],
+        [t("ui.catalog.op.record"), h("code.kv__code", o.record || "—")],
+      ]),
+      h("p.inspector__note", t("ui.catalog.op.note")));
   }
 
   function implementationSection(e, f) {

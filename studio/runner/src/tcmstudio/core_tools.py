@@ -379,7 +379,10 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         aggregated, listed, reported, mentioned, signal, associated), reference and licence;
         limit applies per source. Predicted, aggregated and signal rows support hypotheses
         only, and a missing row is not evidence of absence. Needs dataset stores built on
-        the runner or imported into this browser.""",
+        the runner or imported into this browser. The result's coverage names the stores
+        requested, searched and missing (by_source counts a searched store's zero); a store
+        that is not built is never searched and never a zero, and when every requested
+        store is missing the call fails with dataset_not_built.""",
           obj({"kind": S("relation kind, e.g. herb_drug_interaction"),
                "subject": S("id or exact name (e.g. 黄芪, pubchem:5280343)"),
                "object": S("id or exact name"),
@@ -395,7 +398,9 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         unified, copies counted once (independent lineages), evidence kinds kept apart,
         contradictions and silent sources reported, with a support level per item
         (independently_replicated … predicted). Support counts sources, not truth. Needs
-        dataset stores built on the runner or imported into this browser.""",
+        dataset stores built on the runner or imported into this browser; a requested store
+        that is not built is listed in coverage.missing, never counted as a silent source
+        (all missing: dataset_not_built).""",
           obj({"kind": S("relation kind, e.g. herb_ingredient"), "subject": S(), "object": S(),
                "min_support": S(enum=_SUPPORT),
                "merge_processed": B("count 炙黄芪 with 黄芪", default=False),
@@ -406,8 +411,11 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         Ensembl, ChEMBL, PubChem, Open Targets, STRING, ClinicalTrials.gov, openFDA herbal
         events, DCABM-TCM, TCMBank, ITCM, SymMap, HERB, COCONUT …) in this runtime,
         under the project's network permission profile and each host's rate limit. Find
-        connector and operation names with catalog_search(kind='connector'). Live
-        third-party data, unreviewed; the source's licence applies.""",
+        connector and operation names with catalog_search(kind='connector'), whose results
+        carry each operation's current status (operational, failing, recovered; the latest
+        check, the failing layer, the last success): prefer another source for a failing
+        one. An error report, page or malformed answer is a failed call (invalid_response),
+        never evidence. Live third-party data, unreviewed; the source's licence applies.""",
           obj({"connector": S("connector key, e.g. uniprot"),
                "operation": S("operation name, e.g. entry"),
                "arguments": obj({}, description="the operation's arguments", additional=True)},
@@ -513,7 +521,9 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         tools — clinical calculators, statistics, sequences, phylogenetics …; 444 API
         operations; governed skills; TCM data hub, clinic, study-design and job operations)
         with Chinese or English keywords (十八反, eGFR, 生存分析). Returns ids with their full
-        parameter schemas; run one with call_tool.""",
+        parameter schemas, and for an API operation its current status (operational.state:
+        operational, failing, recovered or unknown, with the latest check and, for a failing
+        one, where it failed and when it last worked); run one with call_tool.""",
           obj({"query": S("keywords, Chinese or English"),
                "category": S(enum=list(CATEGORY_IDS)),
                "kind": S(enum=list(ENTRY_KINDS)),
