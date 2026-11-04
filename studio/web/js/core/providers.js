@@ -224,35 +224,50 @@ export function localFix(provider, origin = pageOrigin() || RELAY_ORIGIN) {
 }
 
 /**
- * GET {relay}/health → {ok, model, limits, max_output_tokens, error?, error_type?, error_lang?}; never throws. An error
- * of a known type is told in the page's language (relayError); `error_lang` is "zh" when the relay's own Chinese
- * message is shown on a page in another language.
+ * GET {relay}/health → {ok, model, limits, max_output_tokens, error?, error_type?, error_lang?, said?}; never throws.
+ * An error of a known type is told in the page's language (relayError); `error_lang` is "zh" when the relay's own
+ * Chinese message is shown on a page in another language. `said` keeps what the relay answered, so that the error can
+ * be told again in another language after a switch (relayHealthError).
  */
 export async function relayHealth({ fetch: fetchImpl = globalThis.fetch, baseUrl = relayBaseUrl(), timeoutMs = 10000 } = {}) {
   try {
     const r = await fetchWithTimeout(fetchImpl, `${trimSlash(baseUrl)}/health`, { headers: { Accept: "application/json" } }, timeoutMs);
     const j = await r.json().catch(() => ({}));
-    const type = typeof j.error?.type === "string" ? j.error.type : "";
-    // the runner's not_relay error carries message_en beside its Chinese message: the page's language picks
-    const said = (lang() !== "zh" && typeof j.error?.message_en === "string" && j.error.message_en.trim())
-      || (typeof j.error?.message === "string" ? j.error.message : "");
-    const told = (fallback) => {
-      if (!type && !said) return { error: fallback };
-      const shown = relayError(type, said || "");
-      return { error: shown.text, ...(type ? { error_type: type } : {}), ...(shown.lang ? { error_lang: shown.lang } : {}) };
-    };
+    const said = (fallback) => ({
+      type: typeof j.error?.type === "string" ? j.error.type : "",
+      message: typeof j.error?.message === "string" ? j.error.message : "",
+      message_en: typeof j.error?.message_en === "string" ? j.error.message_en : "",
+      fallback,
+    });
+    const told = (s) => ({ ...relayHealthError({ said: s }), said: s });
     return {
       ok: Boolean(r.ok && j.ok), model: j.model || "Tao-S1", models: j.models || ["Tao-S1"], limits: j.limits || null,
       max_output_tokens: Number(j.max_output_tokens) || null, version: j.version || null,
       // what the site records (src/telemetry/config.js telemetryPublic); a server that says nothing records nothing
       ...(j.telemetry && typeof j.telemetry === "object" && !Array.isArray(j.telemetry) ? { telemetry: j.telemetry } : {}),
-      ...(r.ok ? {} : { status: r.status, ...told(`HTTP ${r.status}`) }),
-      ...(r.ok && !j.ok ? told(t("core.relay.off")) : {}),
+      ...(r.ok ? {} : { status: r.status, ...told(said({ text: `HTTP ${r.status}` })) }),
+      ...(r.ok && !j.ok ? told(said({ key: "core.relay.off" })) : {}),
     };
   } catch (err) {
     // no answer at all (offline, a timeout): `unreachable`, so that nothing is concluded from it (core/telemetry.js)
     return { ok: false, unreachable: true, model: "Tao-S1", limits: null, max_output_tokens: null, error: err?.message || String(err) };
   }
+}
+
+/**
+ * A relay health's error told in language `l` → {error, error_type?, error_lang?}: from what the relay said (relayHealth's
+ * `said`), so a check made before a language switch reads in the new language; without it, the error as it was.
+ */
+export function relayHealthError(relay, l = lang()) {
+  const s = relay?.said;
+  if (!s) {
+    return { error: relay?.error, ...(relay?.error_type ? { error_type: relay.error_type } : {}), ...(relay?.error_lang ? { error_lang: relay.error_lang } : {}) };
+  }
+  // the runner's not_relay error carries message_en beside its Chinese message: the page's language picks
+  const message = (l !== "zh" && s.message_en.trim()) || s.message;
+  if (!s.type && !message) return { error: s.fallback.key ? t(s.fallback.key, null, l) : s.fallback.text };
+  const shown = relayError(s.type, message || "", {}, l);
+  return { error: shown.text, ...(s.type ? { error_type: s.type } : {}), ...(shown.lang ? { error_lang: shown.lang } : {}) };
 }
 
 /**

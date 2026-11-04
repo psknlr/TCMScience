@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -118,6 +119,8 @@ class BioScienceBridge:
                       "data_lake": lake, "tcmdb": tcmdb}
         self._components: dict[str, BridgedComponent] = {}
         self._by_bio_id: dict[str, str] = {}
+        #: bio id -> SHA-256 of the manifest file written for its isolated child
+        self._manifest_digests: dict[str, str] = {}
         self._harnesses: dict[str, PSHManifest] = {}
         self.refusals: list[tuple[str, str]] = []
 
@@ -210,6 +213,9 @@ class BioScienceBridge:
                   "isolated": self.isolate,
                   "profile": self.profile.name if self.profile else "",
                   "description_sensitivity": labelled.label.sensitivity.name}
+        if self.isolate:
+            # Which manifest the child was handed, so the chain names what it may run.
+            detail.update(manifest_digest=self._manifest_digests.get(bio.id, ""))
         if bio.runtime.backend == "mcp":
             # The audit chain records which reviewed entry the component was admitted
             # against, so "what could this call reach" has an answer after the fact.
@@ -322,10 +328,12 @@ class BioScienceBridge:
         return registry if isinstance(registry, MCPServerRegistry) else MCPServerRegistry()
 
     def _isolated_entrypoint(self, bio: BioManifest, *, jobs: Any = None) -> str:
-        """``python exec.py --manifest <file> ...``: the child runs exactly the admitted manifest.
+        """``python exec.py --manifest <file> --manifest-digest <sha256> ...``: the child
+        runs exactly the admitted manifest.
 
         Written under the kernel's state directory, owner-only, so the child needs no
-        catalogue and no environment variable to find its component. An MCP component's
+        catalogue and no environment variable to find its component; the child refuses the
+        file unless it still has the digest it was written with. An MCP component's
         servers travel the same way: a registry holding only the server it calls, written
         beside the manifest, with the digest it was admitted under on the command line —
         the child refuses the file if the two disagree. A job tool's configuration
@@ -336,7 +344,15 @@ class BioScienceBridge:
                                 "(the kernel's state_dir or manifest_dir=)")
         self.manifest_dir.mkdir(parents=True, exist_ok=True)
         target = self.manifest_dir / f"{psh_id_for(bio.id)}.yaml"
-        bio.save(target)
+        # The manifest is checked like the MCP registry and the job configuration: its
+        # digest goes on the command line, and the child refuses a file that no longer
+        # has it. Without it an edited file — or another process admitting the same id
+        # into a shared state_dir — ran an entrypoint nobody admitted, under an audit
+        # record of this one. Bytes, so newline translation cannot change the digest.
+        written = bio.to_yaml().encode("utf-8")
+        target.write_bytes(written)
+        manifest_digest = hashlib.sha256(written).hexdigest()
+        self._manifest_digests[bio.id] = manifest_digest
         try:
             import os
             os.chmod(target, 0o600)
@@ -348,6 +364,7 @@ class BioScienceBridge:
         # subprocess.
         argv: list[Any] = [
             sys.executable, EXEC_PATH, "--manifest", target,
+            "--manifest-digest", manifest_digest,
             "--profile", self.spec.permission_profile,
             "--workspace", self.roots["workspace"], "--data-lake", self.roots["data_lake"],
             "--tcmdb", self.roots["tcmdb"]]

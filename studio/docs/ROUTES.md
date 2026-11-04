@@ -367,7 +367,9 @@ Next: [What a compound acts on](#compound_targets), [Exposure and metabolism: ab
 
 | Source | Evidence | Arguments | Note |
 | --- | --- | --- | --- |
-| `job.pipeline.dock` | predicted | `receptor: <PDB:id, UniProt:accession or file>; ligands: <SMILES or file>` |  |
+| `job.pipeline.dock (a PDB or UniProt id)` | predicted | `receptor: <PDB:id or UniProt:accession>; ligands: <SMILES, or a CSV, SDF or .smi file>; allow_remote: true; center: ["<x>", "<y>", "<z>"]; size: ["<x, Å>", "<y, Å>", "<z, Å>"]` | the structure fetched from RCSB or AlphaFold DB (allow_remote) and prepared on the runner with the ligands (meeko, RDKit); the site as center and size, or as site_ligand (a co-crystal ligand's residue name) |
+| `job.pipeline.dock (a PDB file)` | predicted | `receptor: <receptor>.pdb; ligands: <SMILES, or a CSV, SDF or .smi file>; center: ["<x>", "<y>", "<z>"]; size: ["<x, Å>", "<y, Å>", "<z, Å>"]` | a PDB file from the project's files, prepared on the runner with the ligands (meeko, RDKit); nothing is fetched, so the site is center and size (site_ligand reads the RCSB Chemical Component Dictionary, which needs allow_remote) |
+| `job.pipeline.dock (prepared inputs)` | predicted | `receptor: <prepared receptor>.pdbqt; ligands: <prepared ligands>.pdbqt; center: ["<x>", "<y>", "<z>"]; size: ["<x, Å>", "<y, Å>", "<z, Å>"]` | a prepared rigid receptor and prepared ligands: docks in the browser too; the site as center and size, or as reference_ligand (the co-crystal ligand prepared in its crystal pose, .pdbqt) |
 
 Reconcile: List measured targets first with their values and assays, then curated links, then predictions; tcmdb_consensus counts independent lineages once.
 
@@ -734,7 +736,8 @@ Next: [Safety: toxicity, adverse events and contraindications](#safety)
 | `connector.aopwiki.aop_xml` | curated | `aop_id: <AOP id>` |  |
 | `connector.aopwiki.event` | curated | `event_id: <key event id>` |  |
 | `connector.aopwiki.relationship` | curated | `relationship_id: <relationship id>` |  |
-| `job.pipeline.admet` | predicted | `molecules: <SMILES or file>` | ADMET models (a job) |
+| `job.pipeline.admet (SMILES or CSV/TSV/.smi)` | predicted | `molecules: <SMILES, or a CSV, TSV or .smi file>` | ADMET models (a job): runs in the browser too, with the models built there (job.admet.models) |
+| `job.pipeline.admet (SDF or .mol)` | predicted | `molecules: <molecules>.sdf` | ADMET models (a job) on an SDF (.sdf, .sdf.gz) or .mol file, read with RDKit's SDMolSupplier: on the runner |
 | `skill.predict-admet` | predicted | `molecules: <SMILES or file>` | the governed ADMET skill (a job) |
 
 **Adverse-event reports and signals** (`reports`)
@@ -865,7 +868,8 @@ Next: [Variants and pharmacogenomics](#variants_pharmacogenomics), [Exposure and
 | `study.exposure_screen` | analysis | `exposures: [{"molecule": "<compound>", "species": "<species>", "site": "plasma", "concentration": {"qualifier": "measured", "value": "<value>", "unit": "<unit>"}}]; assays: [{"molecule": "<compound>", "target": "<target>", "endpoint": "<IC50>", "result": {"qualifier": "measured", "value": "<value>", "unit": "<unit>"}}]; site: plasma` | concentrations reached against those at which each activity was measured |
 | `native.pk_one_compartment` | analysis | `dose_mg: <dose>; volume_l: <V>; half_life_h: <t½>` |  |
 | `native.half_life_from_levels` | analysis | `c1: <C1>; t1_h: <t1>; c2: <C2>; t2_h: <t2>` |  |
-| `job.pipeline.admet` | predicted | `molecules: <SMILES or file>` | ADMET models (a job) |
+| `job.pipeline.admet (SMILES or CSV/TSV/.smi)` | predicted | `molecules: <SMILES, or a CSV, TSV or .smi file>` | ADMET models (a job): runs in the browser too, with the models built there (job.admet.models) |
+| `job.pipeline.admet (SDF or .mol)` | predicted | `molecules: <molecules>.sdf` | ADMET models (a job) on an SDF (.sdf, .sdf.gz) or .mol file, read with RDKit's SDMolSupplier: on the runner |
 
 Reconcile: Compare the concentration reached (with its unit, species and the dose that gave it) with the concentration at which each activity was measured; say when either is missing.
 
@@ -908,14 +912,16 @@ Next: [What a compound acts on](#compound_targets), [Herb–drug interactions](#
 | --- | --- | --- | --- |
 | `connector.alphafold.prediction` | predicted | `accession: <UniProt accession>` |  |
 | `connector.alphafold.uniprot_summary` | predicted | `accession: <UniProt accession>` |  |
-| `job.pipeline.fold` | predicted | `source: <sequence or FASTA>` | a fold on the runner (a job) |
-| `skill.predict-protein-structure` | predicted | `sequences: <sequences>` | the governed structure prediction skill (a job) |
+| `job.pipeline.fold` | predicted | `source: <sequence or FASTA>; allow_remote: true` | a fold on the runner (a job): its default method, esmatlas, sends the sequence to the ESM Atlas API, which allow_remote allows; method esmfold folds on the runner without it |
+| `skill.predict-protein-structure` | predicted | `sequences: <sequences>; allow_remote: true` | the governed structure prediction skill (a job): esmatlas by default, as the fold job, so it is refused without allow_remote; method esmfold folds on the runner without it |
 
 **Whether a compound could fit (a job)** (`docking`)
 
 | Source | Evidence | Arguments | Note |
 | --- | --- | --- | --- |
-| `job.pipeline.dock` | predicted | `receptor: <PDB:id, UniProt:accession or file>; ligands: <SMILES or file>` |  |
+| `job.pipeline.dock (a PDB or UniProt id)` | predicted | `receptor: <PDB:id or UniProt:accession>; ligands: <SMILES, or a CSV, SDF or .smi file>; allow_remote: true; center: ["<x>", "<y>", "<z>"]; size: ["<x, Å>", "<y, Å>", "<z, Å>"]` | the structure fetched from RCSB or AlphaFold DB (allow_remote) and prepared on the runner with the ligands (meeko, RDKit); the site as center and size, or as site_ligand (a co-crystal ligand's residue name) |
+| `job.pipeline.dock (a PDB file)` | predicted | `receptor: <receptor>.pdb; ligands: <SMILES, or a CSV, SDF or .smi file>; center: ["<x>", "<y>", "<z>"]; size: ["<x, Å>", "<y, Å>", "<z, Å>"]` | a PDB file from the project's files, prepared on the runner with the ligands (meeko, RDKit); nothing is fetched, so the site is center and size (site_ligand reads the RCSB Chemical Component Dictionary, which needs allow_remote) |
+| `job.pipeline.dock (prepared inputs)` | predicted | `receptor: <prepared receptor>.pdbqt; ligands: <prepared ligands>.pdbqt; center: ["<x>", "<y>", "<z>"]; size: ["<x, Å>", "<y, Å>", "<z, Å>"]` | a prepared rigid receptor and prepared ligands: docks in the browser too; the site as center and size, or as reference_ligand (the co-crystal ligand prepared in its crystal pose, .pdbqt) |
 | `skill.dock-ligands` | predicted | `receptor: <receptor>; ligands: <SMILES or file>` | the governed docking skill (a job) |
 
 Reconcile: Prefer an experimental structure with a ligand bound at the site docked into; a docking score ranks poses against one receptor, it is not an affinity.
@@ -1060,19 +1066,26 @@ Next: [Herb–drug interactions](#herb_drug_interaction), [Genes, targets and di
 | `connector.ebi_search.search` | data | `domain: <EBI Search domain>; query: <text>` |  |
 | `connector.ebi_search.domains` | reference |  |  |
 
-**Analyse a dataset here (jobs, with approval)** (`analysis`)
+**Analyse a bulk expression dataset here (jobs, with approval), or values you have** (`analysis`)
 
 | Source | Evidence | Arguments | Note |
 | --- | --- | --- | --- |
-| `job.pipeline.rnaseq` | analysis | `samples: <sample sheet>` |  |
-| `job.pipeline.scrna` | analysis | `source: <h5ad or 10x matrix>` |  |
+| `job.pipeline.rnaseq (count matrix)` | analysis | `counts: <gene × sample count table>; samples: <sample table>` | differential expression from a count table: runs in the browser too |
+| `job.pipeline.rnaseq (FASTQ)` | analysis | `samples: <sample sheet of FASTQ files>; transcripts: <transcriptome FASTA>` | QC, trimming and quantification, then differential expression: on the runner; quantified against a transcriptome, or, in its place, a genome FASTA (genome) and a GTF (annotation) with engine hisat2 |
 | `skill.rnaseq-differential-expression` | analysis | `sample_sheet: <sample sheet>` | the governed FASTQ-to-DESeq2 skill (a job) |
-| `skill.scrna-cell-atlas` | analysis | `source: <count matrices>` | the governed single-cell atlas skill (a job) |
 | `native.cpm` | analysis | `counts: ["<count>"]` |  |
 | `native.tpm` | analysis | `counts: ["<count>"]; lengths_bp: ["<length>"]` |  |
 | `native.log2_fold_change` | analysis | `treated: ["<value>"]; control: ["<value>"]` |  |
 | `native.welch_t_test` | analysis | `x: ["<value>"]; y: ["<value>"]` |  |
 | `native.correlation` | analysis | `x: ["<value>"]; y: ["<value>"]` |  |
+
+**Analyse a single-cell dataset here (jobs, with approval)** (`single_cell_analysis`)
+
+| Source | Evidence | Arguments | Note |
+| --- | --- | --- | --- |
+| `job.pipeline.scrna (count tables)` | analysis | `source: <count tables (CSV/TSV), or a sample sheet of them>` | the built-in analysis of count tables: runs in the browser too |
+| `job.pipeline.scrna (AnnData or 10x HDF5)` | analysis | `source: <AnnData file>.h5ad` | an .h5ad, or a 10x .h5: on the runner |
+| `skill.scrna-cell-atlas` | analysis | `source: <count matrices>` | the governed single-cell atlas skill (a job) |
 
 Reconcile: Cite each dataset by accession with its organism, tissue, design and licence; a reanalysis inherits the dataset's design.
 

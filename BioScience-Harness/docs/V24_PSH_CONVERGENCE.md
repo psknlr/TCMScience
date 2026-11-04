@@ -71,17 +71,19 @@ narrowing to genomics, proteomics and literature and ranking UniProt first.
 
 **Isolation, when the policy demands it.** `BioScienceBridge(isolate=True)` declares each
 component with PSH's `subprocess` backend and an entrypoint of `python exec.py --manifest
-<file>`, the admitted manifest written owner-only under the kernel's state directory.
-PSH's `IsolatedExecutor` then runs it in a child with a clean environment — no
-`PYTHONPATH`, no inherited secrets, the kernel's egress proxy as the only route out — and
-BioScience executes inside it. A policy with `require_isolated_tools=True` refuses the
-in-process bridge and admits this one, which is the point. This is also why
+<file> --manifest-digest <sha256>`, the admitted manifest written owner-only under the
+kernel's state directory. The child refuses a manifest file whose SHA-256 is not the one on
+its command line, which the admission event also records, so an edit after admission cannot
+run another entrypoint. PSH's `IsolatedExecutor` then runs it in a child with a clean
+environment — no `PYTHONPATH`, no inherited secrets, the kernel's egress proxy as the only
+route out — and BioScience executes inside it. A policy with `require_isolated_tools=True`
+refuses the in-process bridge and admits this one, which is the point. This is also why
 `bioagent/__init__.py` now loads its v1 surface lazily: the child imports the package
 without pandas, and the bridge's PSH-facing names load on first use so the assembly, the
 argument mapping and the kernel boundary work in a process that has BioScience alone.
 
 <!-- zh -->
-**隔离，当策略如此要求时。** `BioScienceBridge(isolate=True)` 用 PSH 的 `subprocess` 后端声明每一个组件，entrypoint 为 `python exec.py --manifest <file>`，被准入的清单以仅所有者可写的方式写在内核的状态目录之下。随后 PSH 的 `IsolatedExecutor` 在一个环境干净的子进程中运行它 —— 没有 `PYTHONPATH`，没有继承来的机密，内核的出网代理（egress proxy）是唯一的出口路径 —— BioScience 就在其中执行。一个带 `require_isolated_tools=True` 的策略会拒绝进程内桥接，而准入这一个，这正是要点所在。这也是 `bioagent/__init__.py` 现在惰性加载其 v1 接口的原因：子进程在不含 pandas 的情况下导入该软件包，桥接层面向 PSH 的那些名字在首次使用时才加载，从而让装配、参数映射与内核边界都能在一个只有 BioScience 的进程中工作。
+**隔离，当策略如此要求时。** `BioScienceBridge(isolate=True)` 用 PSH 的 `subprocess` 后端声明每一个组件，entrypoint 为 `python exec.py --manifest <file> --manifest-digest <sha256>`，被准入的清单以仅所有者可写的方式写在内核的状态目录之下。子进程拒绝 SHA-256 与其命令行上所给值不同的清单文件（准入事件也记录了这个值），因此准入之后对文件的修改无法运行另一个 entrypoint。随后 PSH 的 `IsolatedExecutor` 在一个环境干净的子进程中运行它 —— 没有 `PYTHONPATH`，没有继承来的机密，内核的出网代理（egress proxy）是唯一的出口路径 —— BioScience 就在其中执行。一个带 `require_isolated_tools=True` 的策略会拒绝进程内桥接，而准入这一个，这正是要点所在。这也是 `bioagent/__init__.py` 现在惰性加载其 v1 接口的原因：子进程在不含 pandas 的情况下导入该软件包，桥接层面向 PSH 的那些名字在首次使用时才加载，从而让装配、参数映射与内核边界都能在一个只有 BioScience 的进程中工作。
 
 ## 2. The kernel boundary (`bioagent.evolution.boundary`) · 2. 内核边界（`bioagent.evolution.boundary`）
 

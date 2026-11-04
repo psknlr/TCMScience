@@ -8,7 +8,7 @@ import { createHash, webcrypto } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
-import { registerServiceWorker, removeServiceWorker } from "../js/core/offline.js";
+import { IDLE_CHECK_MS, registerServiceWorker, removeServiceWorker } from "../js/core/offline.js";
 
 const SOURCE = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 const MARKER = "const PRECACHE = null; // filled by the build: {version, index_url, files: [{path, sha256}]}";
@@ -35,10 +35,21 @@ class FakeCaches {
   }
 }
 
-/** Load sw.js with a manifest of `files` ({path: body}); `net` answers fetches. → the worker's handlers and state. */
-function load({ files = {}, served = files, manifest = true, version = "v1", extra = {} } = {}) {
+/** The pages and workers of the site a worker sees (self.clients): each {id, type}. */
+class FakeClients {
+  constructor(ids = []) { this.open = new Map(ids.map((id) => [id, { id, type: "window" }])); }
+  async matchAll() { return [...this.open.values()]; }
+  async get(id) { return this.open.get(id); }
+  add(id, type = "window") { this.open.set(id, { id, type }); }
+  close(id) { this.open.delete(id); }
+}
+
+/**
+ * Load sw.js with a manifest of `files` ({path: body}); `net` answers fetches. `caches` and `clients` may be shared
+ * with another load (another version of the worker, or the same one started again). → the worker's handlers and state.
+ */
+function load({ files = {}, served = files, manifest = true, version = "v1", extra = {}, caches = new FakeCaches(), clients } = {}) {
   const handlers = {};
-  const caches = new FakeCaches();
   const fetched = [];
   const net = async (input) => {
     const url = typeof input === "string" ? new URL(input, ORIGIN).href : input.url;
@@ -63,6 +74,7 @@ function load({ files = {}, served = files, manifest = true, version = "v1", ext
     location: new URL(`${ORIGIN}/sw.js`),
     addEventListener: (type, fn) => { handlers[type] = fn; },
     skipWaiting: () => { self.skipped = true; },
+    clients,
   };
   vm.runInNewContext(code, { self, caches, fetch: net, crypto: webcrypto, Response, Request, URL, Headers, TextEncoder });
   return { handlers, caches, fetched, self };
@@ -73,7 +85,7 @@ function event(type, props = {}) {
   let responded = null;
   return {
     type, ...props,
-    waitUntil(p) { waited = p; },
+    waitUntil(p) { waited = Promise.all([waited, p]); },
     respondWith(p) { responded = p; },
     get waited() { return waited; },
     get responded() { return responded; },
@@ -214,6 +226,86 @@ test("activation deletes older versions of its own caches and nothing else", asy
   assert.deepEqual((await sw.caches.keys()).sort(), ["someone-else", "tcmstudio-runtime-v1", "tcmstudio-shell-v2"]);
 });
 
+/** A request of the page or worker `clientId` (a navigation creates `resultingClientId`) → the body answered, or null. */
+async function fetchFrom(sw, url, { clientId = "", resultingClientId = "", mode = "cors" } = {}) {
+  const e = event("fetch", { request: request(url, { mode }), clientId, resultingClientId });
+  sw.handlers.fetch(e);
+  const res = e.responded ? await e.responded : null;
+  await e.waited;
+  return res ? await res.text() : null;
+}
+
+async function installAndActivate(sw) {
+  for (const type of ["install", "activate"]) {
+    const e = event(type);
+    sw.handlers[type](e);
+    await e.waited;
+  }
+}
+
+test("a page another tab switched to the new version keeps its own build: what it loads later, and the workers it starts, come from its shell", async () => {
+  // v2 gives primitives.js a new export that about.js imports: about.js of v2 in a page running v1's primitives.js
+  // fails to import, and the page was left on a destroyed view
+  const V1 = { "/": "<html>v1</html>", "/js/ui/primitives.js": "p1", "/js/ui/pages/about.js": "about v1", "/js/only-v1.js": "gone in v2",
+    "/js/job.worker.js": "worker v1", "/js/data/digest.js": "digest v1" };
+  const V2 = { "/": "<html>v2</html>", "/js/ui/primitives.js": "p1 + BUILD_TAG", "/js/ui/pages/about.js": "about v2 (BUILD_TAG)",
+    "/js/job.worker.js": "worker v2", "/js/data/digest.js": "digest v2" };
+  const clients = new FakeClients(["tab-a", "tab-b"]);
+  const v1 = load({ files: V1, version: "v1", clients });
+  await installAndActivate(v1);
+  // v2 is deployed and installs; tab A applies it: it takes over both tabs at once
+  const v2 = load({ files: V2, version: "v2", clients, caches: v1.caches });
+  await installAndActivate(v2);
+  assert.ok((await v1.caches.keys()).includes("tcmstudio-shell-v1"), "the old shell is kept while tab B runs it");
+  // tab A reloads into v2 (a new page); tab B holds unsent text and stays
+  assert.equal(await fetchFrom(v2, "/", { clientId: "tab-a", resultingClientId: "tab-a2", mode: "navigate" }), "<html>v2</html>");
+  clients.close("tab-a");
+  clients.add("tab-a2");
+  assert.equal(await fetchFrom(v2, "/js/ui/pages/about.js", { clientId: "tab-a2" }), "about v2 (BUILD_TAG)");
+  assert.equal(await fetchFrom(v2, "/js/ui/pages/about.js", { clientId: "tab-b" }), "about v1", "B's lazy import is B's build");
+  assert.equal(await fetchFrom(v2, "/js/only-v1.js", { clientId: "tab-b" }), "gone in v2");
+  // a worker B starts runs B's build, and so does what that worker loads
+  assert.equal(await fetchFrom(v2, "/js/job.worker.js", { clientId: "tab-b", resultingClientId: "worker-b" }), "worker v1");
+  clients.add("worker-b", "worker");
+  assert.equal(await fetchFrom(v2, "/js/data/digest.js", { clientId: "worker-b" }), "digest v1");
+  assert.equal(await fetchFrom(v2, "/js/data/digest.js", { clientId: "tab-a2" }), "digest v2");
+  // the worker stopped and started again (its variables gone) still knows
+  const restarted = load({ files: V2, version: "v2", clients, caches: v1.caches });
+  assert.equal(await fetchFrom(restarted, "/js/ui/pages/about.js", { clientId: "tab-b" }), "about v1");
+  assert.equal(await fetchFrom(restarted, "/js/data/digest.js", { clientId: "worker-b" }), "digest v1");
+  assert.equal(await fetchFrom(restarted, "/js/ui/primitives.js", { clientId: "tab-a2" }), "p1 + BUILD_TAG");
+  // what is never answered here stays so, for B too
+  assert.equal(await fetchFrom(restarted, "/v1/chat/completions", { clientId: "tab-b" }), null);
+  // B's text is sent: it reloads into v2; once B's old page and its worker are gone, the next page load deletes v1
+  assert.equal(await fetchFrom(restarted, "/", { clientId: "tab-b", resultingClientId: "tab-b2", mode: "navigate" }), "<html>v2</html>");
+  for (const id of ["tab-b", "worker-b"]) clients.close(id);
+  clients.add("tab-b2");
+  assert.ok((await v1.caches.keys()).includes("tcmstudio-shell-v1"));
+  await fetchFrom(restarted, "/", { clientId: "tab-a2", resultingClientId: "tab-a3", mode: "navigate" });
+  assert.deepEqual((await v1.caches.keys()).filter((n) => n.startsWith("tcmstudio-shell-")), ["tcmstudio-shell-v2"]);
+  assert.equal(await fetchFrom(restarted, "/js/ui/pages/about.js", { clientId: "tab-b2" }), "about v2 (BUILD_TAG)");
+});
+
+test("a page that survives two updates keeps the build it loaded; the next activation counts the others under the one before", async () => {
+  const build = (v) => ({ "/": `<html>${v}</html>`, "/js/m.js": `m ${v}` });
+  const clients = new FakeClients(["tab-1"]);
+  const caches = new FakeCaches();
+  const v1 = load({ files: build("v1"), version: "v1", clients, caches });
+  await installAndActivate(v1);
+  await installAndActivate(load({ files: build("v2"), version: "v2", clients, caches }));
+  clients.add("tab-2"); // opened under v2
+  const v3 = load({ files: build("v3"), version: "v3", clients, caches });
+  await installAndActivate(v3);
+  assert.equal(await fetchFrom(v3, "/js/m.js", { clientId: "tab-1" }), "m v1");
+  assert.equal(await fetchFrom(v3, "/js/m.js", { clientId: "tab-2" }), "m v2");
+  clients.add("tab-3");
+  assert.equal(await fetchFrom(v3, "/js/m.js", { clientId: "tab-3" }), "m v3");
+  // all of them close: the next activation keeps only its own shell
+  for (const id of ["tab-1", "tab-2", "tab-3"]) clients.close(id);
+  await installAndActivate(load({ files: build("v4"), version: "v4", clients, caches }));
+  assert.deepEqual((await caches.keys()).filter((n) => n.startsWith("tcmstudio-shell-")), ["tcmstudio-shell-v4"]);
+});
+
 test("asked to stand down, it answers nothing more, deletes its caches and does not refill them", async () => {
   const sw = load({ files: SHELL });
   const i = event("install");
@@ -290,10 +382,87 @@ test("an update is offered only when it would replace a running version, and app
   f.swListeners.controllerchange();
   f.swListeners.controllerchange();
   assert.equal(reloads.length, 1, "one reload");
+  // the version offered is already the one in charge (another tab switched to it): pressing reload reloads at once
+  const already = { postMessage: (m) => posted.push(m) };
+  const late = fakeNav({ controller: {}, waiting: already });
+  let applyLate = null;
+  const lateReloads = [];
+  await registerServiceWorker({ nav: late.nav, location: { search: "", reload: () => lateReloads.push(1) }, onUpdate: (fn) => { applyLate = fn; } });
+  late.nav.serviceWorker.controller = already;
+  late.registration.waiting = null;
+  applyLate();
+  assert.equal(lateReloads.length, 1);
   // the first install of all: no controller, nothing to replace
   let offered = false;
   await registerServiceWorker({ nav: fakeNav({ controller: null, waiting: { postMessage() {} } }).nav, location: { search: "" }, onUpdate: () => { offered = true; } });
   assert.equal(offered, false);
+});
+
+test("another tab applied the update: this page reloads into it too, without being asked (one build at a time)", async () => {
+  // the new version activates for every page of the site: each follows it, to run the version the person chose (until
+  // then the worker answers a page that still runs the old build from that build's shell, tested above)
+  const f = fakeNav({ controller: {}, waiting: { postMessage() {} } });
+  const reloads = [];
+  await registerServiceWorker({ nav: f.nav, location: { search: "", reload: () => reloads.push(1) }, onUpdate: () => {} });
+  f.swListeners.controllerchange();
+  f.swListeners.controllerchange();
+  assert.equal(reloads.length, 1);
+  // a page no version ran (the very first install) has nothing to mix: it is left alone
+  const first = fakeNav({ controller: null });
+  const none = [];
+  await registerServiceWorker({ nav: first.nav, location: { search: "", reload: () => none.push(1) }, onUpdate: () => {} });
+  first.swListeners.controllerchange?.();
+  assert.equal(none.length, 0);
+});
+
+test("another tab applied the update while this page holds work: it waits until a reload loses nothing, and says so", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  return (async () => {
+    const f = fakeNav({ controller: {}, waiting: { postMessage() {} } });
+    const reloads = [];
+    const told = [];
+    let busy = true; // an answer under way, text typed and not sent…
+    let offered = null;
+    await registerServiceWorker({
+      nav: f.nav, location: { search: "", reload: () => reloads.push(1) }, onUpdate: (fn) => { offered = fn; },
+      busy: () => busy, onReplaced: (reload) => told.push(reload),
+    });
+    f.swListeners.controllerchange();
+    f.swListeners.controllerchange();
+    assert.equal(reloads.length, 0, "nothing lost under the person");
+    assert.equal(told.length, 1, "told once");
+    t.mock.timers.tick(IDLE_CHECK_MS * 3);
+    assert.equal(reloads.length, 0, "still busy");
+    busy = false;
+    t.mock.timers.tick(IDLE_CHECK_MS);
+    assert.equal(reloads.length, 1, "then it follows by itself");
+    t.mock.timers.tick(IDLE_CHECK_MS * 3);
+    assert.equal(reloads.length, 1, "once");
+    // busy, and the person reloads from the notice (or from this page's own offer, the version already in charge)
+    const g = fakeNav({ controller: {}, waiting: { postMessage() {} } });
+    const now = [];
+    let notice = null;
+    await registerServiceWorker({ nav: g.nav, location: { search: "", reload: () => now.push(1) }, onUpdate: () => {}, busy: () => true, onReplaced: (reload) => { notice = reload; } });
+    g.swListeners.controllerchange();
+    notice();
+    assert.equal(now.length, 1);
+    // nothing held: it follows at once
+    const idle = fakeNav({ controller: {}, waiting: { postMessage() {} } });
+    const at = [];
+    await registerServiceWorker({ nav: idle.nav, location: { search: "", reload: () => at.push(1) }, onUpdate: () => {}, busy: () => false, onReplaced: () => assert.fail("not told") });
+    idle.swListeners.controllerchange();
+    assert.equal(at.length, 1);
+    // asked for in this page: at once, busy or not (the person chose it here)
+    const posted = [];
+    const own = fakeNav({ controller: {}, waiting: { postMessage: (m) => posted.push(m) } });
+    const ownReloads = [];
+    let apply = null;
+    await registerServiceWorker({ nav: own.nav, location: { search: "", reload: () => ownReloads.push(1) }, onUpdate: (fn) => { apply = fn; }, busy: () => true, onReplaced: () => assert.fail("not told") });
+    apply();
+    own.swListeners.controllerchange();
+    assert.deepEqual([posted.length, ownReloads.length], [1, 1]);
+    assert.equal(typeof offered, "function");
+  })();
 });
 
 test("?nosw: every registration told to stand down, unregistered, and its caches deleted", async () => {

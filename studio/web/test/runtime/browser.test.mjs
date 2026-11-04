@@ -30,6 +30,8 @@ const CATALOG = {
     { id: "clinic.assess", kind: "clinic", pyodide_packages: ["numpy", "scipy"] },
     { id: "system.capabilities", kind: "system" },
     { id: "system.audit_verify", kind: "system" },
+    { id: "tcmdb.import_store", kind: "tcmdb" },
+    { id: "tcmdb.tables", kind: "tcmdb" },
   ],
 };
 
@@ -221,6 +223,12 @@ test("call(): starts lazily; the catalog decides packages and state; the envelop
   assert.deepEqual(calls[2].payload.packages, []);
   assert.ok(calls[3].payload.context.capabilities.browser.device, "capabilities_status gets the host facts");
   assert.deepEqual((await rt.info()).packages.sort(), ["numpy", "packaging", "pyyaml", "scipy"]);
+  // an imported store is written under /persist/<project>/tcmdb: synced out to IndexedDB, or the next stateful call's
+  // sync in (or a reload) would delete it; reading the hub needs no sync
+  await rt.call("call_tool", { tool: "tcmdb.import_store", arguments: { dataset: "ddid", content_base64: "" } }, { project_id: "p1" });
+  await rt.call("call_tool", { tool: "tcmdb.tables", arguments: { dataset: "ddid" } }, { project_id: "p1" });
+  const hub = Worker.instances[0].received.filter((m) => m.op === "call").slice(-2);
+  assert.deepEqual(hub.map((m) => m.payload.stateful), [true, false]);
 });
 
 test("a failed sync to IndexedDB marks the receipt durable:false", async () => {

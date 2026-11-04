@@ -31,18 +31,29 @@ export async function seedSettings(page, patch = {}, { custom = null } = {}) {
   }, settings);
 }
 
+// jsDelivr serves the site's web fonts (css/fonts.css) and Pyodide. Outside CI it may be out of reach (a firewall, no
+// network): what the page could not fetch from it is then not counted, since the fonts fall back and the specs that need
+// Pyodide skip with the reason. In CI it must answer, so a failure there is one.
+const CDN = /^https:\/\/cdn\.jsdelivr\.net\//;
+const inCI = () => Boolean(process.env.CI) && !/^(0|false)$/i.test(String(process.env.CI).trim());
+
 /** Collects console errors, uncaught exceptions and failed requests. `allow` = regexps of expected messages. */
 export function watchConsole(page, { allow = [] } = {}) {
   const problems = [];
   const allowed = (s) => allow.some((re) => re.test(s));
+  const offCdn = (url) => !inCI() && CDN.test(url || "");
   page.on("console", (m) => {
-    if (m.type() === "error" && !allowed(m.text())) problems.push(`console.error: ${m.text()}`);
+    if (m.type() !== "error" || allowed(m.text())) return;
+    // a resource that could not be loaded is logged with its own address as the location
+    if (/^Failed to load resource: net::/.test(m.text()) && offCdn(m.location()?.url)) return;
+    problems.push(`console.error: ${m.text()}`);
   });
   page.on("pageerror", (e) => { if (!allowed(String(e))) problems.push(`pageerror: ${e.message}\n${e.stack || ""}`); });
   page.on("requestfailed", (r) => {
     const why = r.failure()?.errorText || "";
     // a stream the page itself aborted (stop, page change) is not a failure
     if (/ERR_ABORTED/.test(why)) return;
+    if (offCdn(r.url())) return;
     const line = `requestfailed: ${r.method()} ${r.url()} ${why}`;
     if (!allowed(line)) problems.push(line);
   });
@@ -108,6 +119,12 @@ export async function openPaired(page, runner) {
     await expect(pair.first()).toBeHidden({ timeout: 60000 });
   }
   await expect.poll(() => page.evaluate(() => globalThis.__studio.state.runner.status), { timeout: 60000 }).toBe("ready");
+  // what the runner reports about itself (its CPU, devices, settings) reaches the app's state, also when the runner was
+  // ready before the app listened (the page the runner serves connects at once)
+  await expect.poll(() => page.evaluate(() => {
+    const r = globalThis.__studio.state.runner;
+    return Boolean(r.info?.cpu && Array.isArray(r.devices?.devices) && r.settings);
+  }), { timeout: 30000 }).toBe(true);
 }
 
 /** Answer the permission card that is waiting: "once" | "project" | "deny". Returns the card's text as asked. */
@@ -120,8 +137,16 @@ export async function approve(page, decision) {
   return text;
 }
 
-/** A new project, opened (the composer is its first conversation). */
+/**
+ * A new project, opened (the composer is its first conversation): its own page, mounted for its route. The page shown
+ * before (home's project page, or another project's) also has a composer, and is drawn again for the new project when
+ * its conversations are read, before the route's page is mounted: a file chosen then went to that page's input, and its
+ * row to a list no longer shown (runner.spec's Chinese file name, once in a full run).
+ */
 export async function newProject(page, name) {
-  await page.evaluate((n) => globalThis.__studio.createProject({ name: n }), name);
-  await expect(page.locator("#composer-input")).toBeVisible();
+  const id = await page.evaluate(async (n) => (await globalThis.__studio.createProject({ name: n })).id, name);
+  const view = page.locator(`#main > .page--project[data-route-href="#/p/${encodeURIComponent(id)}"]`);
+  await expect(view).toBeVisible();
+  await expect(view.locator("#composer-input")).toBeVisible();
+  return id;
 }

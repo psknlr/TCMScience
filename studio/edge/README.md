@@ -61,7 +61,8 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
 - **不思考**：请求带 `thinking: {type: "disabled"}`（网页问身份时这样做）时，回复里的思考字段和 `<think>…</think>` 一律去掉，
   无论流怎样切分。最后一条用户消息在问助手的身份或模型时，中继自己也会加上它（与网页同一个判断，`src/identity.js`），
   不依赖客户端。
-- **上限**：输出 token 不超过 `MAX_OUTPUT_TOKENS`（`max_tokens` / `max_completion_tokens` 被截到上限，没写就补上）；去掉 `n`；
+- **上限**：输出 token 不超过 `MAX_OUTPUT_TOKENS`（`max_tokens` / `max_completion_tokens` 被截到上限，没写就补上；同一个键写了两次时，
+  无论键名是否用 `\u` 转义书写，送出的只有中继读到并检查过的那一个）；去掉 `n`；
   请求体不超过 `MAX_BODY_BYTES` 字节（按字节算，汉字 3 字节；超过时边读边停，不先读完）。
 - **限额**（`LIMITER` Durable Object，全站一个，SQLite）：每位访客每分钟 `PER_MINUTE`、每天 `PER_DAY` 次模型调用，全体每天
   `TOTAL_PER_DAY` 次；每位访客每天 `TOKENS_PER_DAY`、全体每天 `TOTAL_TOKENS_PER_DAY` 个 token（输入 + 输出）。调用发出时先按请求
@@ -101,9 +102,9 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 - `run_worker_first = ["/v1/*", "/api/sources/*", "/api/datasets/*", "/api/telemetry/*", "/api/admin/*", "/admin", "/admin/*"]`：模型、数据库网关、数据中转、
   统计与管理后台运行 Worker；`/admin/*` 的文件也由 Worker 把关（仪表板的代码只给已登录的管理员，页面强制 CSP）。
   其余文件由 Cloudflare 直接发送（免费，不计数）。
-- `not_found_handling = "none"`：找不到文件的路径交给 Worker——浏览器**导航**到它（应用自己的路由，如 `/p/<项目>/c/<会话>`）
-  时返回 `index.html`，其他请求（脚本、网页要的 JSON）返回真正的 404，而不是把网页 HTML 当成那个文件。若用 History API 路由，
-  网页必须用绝对路径引用自己的文件（`/js/…`）。
+- `not_found_handling = "none"`：找不到文件的路径交给 Worker——浏览器**导航**到它（有人输入、分享或收藏了一个非根路径）
+  时返回 `index.html`，其他请求（脚本、网页要的 JSON）返回真正的 404，而不是把网页 HTML 当成那个文件。应用自己的路由是哈希路由
+  （如 `#/p/<项目>/c/<会话>`），只看地址的哈希部分，不会走到这里。若改用 History API 路由，网页必须用绝对路径引用自己的文件（`/js/…`）。
 - [`_headers`](_headers)（部署时复制进 `studio/_site/`；Worker 自己的回答由 `src/site.js` 设置同样的头，测试检查两者一致）：
   - `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: require-corp`：页面跨源隔离，Pyodide 才能用
     SharedArrayBuffer 中断正在运行的 Python。jsDelivr 带 CORS，Pyodide 照常加载。

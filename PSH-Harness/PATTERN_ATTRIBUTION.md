@@ -84,6 +84,23 @@ the shipped default policy file, expressed in this form.
 **落地于：** `psh/kernel/execpolicy.py`。psh 中硬编码的破坏性命令拒绝名单（denylist）变成了随包发布的默认策略文件，用这种形式表达。
 
 
+**Departure: what a rule is matched against.** A Codex prefix rule matches the start of the
+command line. Matching the raw prefix alone let the shipped read-only rule allow
+`find . -delete`, so psh first analyses each line (`_analyse`): it splits it at the shell
+operators the shell itself reads (unquoted and unescaped), strips each command's wrappers
+(`env`, `nice`, `xargs`, `timeout`, …), leading assignments and the directory on its name,
+and analyses `sh -c` strings, command substitutions and `find -exec` commands as commands of
+their own. Forbidden rules are checked against every command the line would run, rm's
+recursive flags in any position included, and an allow rule allows a command only under the
+name it was written for. The shapes a prefix rule cannot describe (a `find` that deletes,
+writes or runs, an output redirection into a file, a here-document, an expansion or
+substitution whose value the policy cannot see) are always asked about, and no policy file
+can turn that question off.
+
+<!-- zh -->
+**偏离之处：规则匹配的对象。** Codex 的前缀规则匹配命令行的开头。只匹配原始前缀曾让随包发布的只读规则放行 `find . -delete`，因此 psh 先分析每一行（`_analyse`）：按 shell 自己读取的运算符（未加引号、未转义的）拆分，去掉每个命令的包装命令（`env`、`nice`、`xargs`、`timeout` 等）、前置的变量赋值和命令名上的目录，并把 `sh -c` 字符串、命令替换和 `find -exec` 的命令当作独立命令分析。forbidden 规则对这一行将运行的每个命令都检查，包括 rm 任意位置的递归参数；allow 规则只放行按其书写名称调用的命令。前缀规则无法描述的形态（会删除、写入或执行的 `find`，写入文件的输出重定向，here-document，策略看不到其值的展开或替换）一律询问，任何策略文件都不能关掉这一询问。
+
+
 **Not borrowed:** Starlark. psh rules are Python dataclasses / JSON; a second language inside
 a small kernel is cost without benefit at this scale.
 

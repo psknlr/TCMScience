@@ -348,6 +348,8 @@ async function relayed(request, response, entry, range, target) {
       return fail(413, "size_mismatch", `数据集服务器 ${upstream} 说文件共 ${cr.total ?? "未知"} 字节，与注册清单的 ${entry.bytes} 字节不符`);
     }
     if (cr.total !== null && cr.total > cap) return fail(413, "too_large", `数据集服务器 ${upstream} 说文件共 ${cr.total} 字节，超过 ${cap} 字节的上限`);
+    // a total the host does not say ("/*"): the part itself must end within the cap
+    if (cr.end >= cap) return fail(413, "too_large", `数据集服务器 ${upstream} 返回的范围（${h.get("Content-Range")}）超过 ${cap} 字节的上限`);
     limit = cr.end - cr.start + 1;
   }
   // an encoded body's Content-Length counts the encoded bytes, not the file's: it is neither checked nor passed on

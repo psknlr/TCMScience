@@ -278,9 +278,10 @@ could not be reached through the proxy. Only DeepWiki was reviewed and called.
 
 ## What the isolated child gets
 
-The bridge hands the child its MCP servers the way it hands over the admitted manifest. It
-writes a registry holding **only the server the component calls**, owner-only, beside the
-manifest under the kernel's state directory. It then adds
+The bridge hands the child its MCP servers the way it hands over the admitted manifest, which
+arrives as `--manifest <file> --manifest-digest <sha256>` and is refused if the file's digest
+differs. It writes a registry holding **only the server the component calls**, owner-only,
+beside the manifest under the kernel's state directory. It then adds
 `--mcp-config <file> --mcp-config-digest <sha256>` to the command line it admits. In the
 child, `exec.py` works as follows:
 
@@ -444,7 +445,7 @@ pip install -e "BioScience-Harness[dev,mcp]" "mcp>=2.2,<3"     # 2.x
 
 **隔离子进程：**
 - 桥接器把只含该组件所需服务器的注册表文件写在清单旁，并在命令行传入 `--mcp-config` 和 `--mcp-config-digest`。
-- 子进程先核对摘要再重建分发器，从不读取仓库里的注册表，并把内核的出口代理传给 stdio 服务器。
+- 子进程先核对摘要再重建分发器，从不读取仓库里的注册表，并把内核的出口代理传给 stdio 服务器。MCP 注册表与准入的清单以同样方式交给子进程：清单以 `--manifest <文件> --manifest-digest <sha256>` 传入，注册表以 `--mcp-config <文件> --mcp-config-digest <sha256>` 传入，摘要不符的文件在任何东西启动之前就被拒绝。
 - **子进程不接收凭据。** PSH 的 `secret_resolver`/`requires_secrets` 机制没有闸门、没有策略、不记审计，也没有测试，不是经过审定的通道。
 - 因此需要凭据的服务器在隔离准入时被拒绝，在子进程中为 UNAVAILABLE，只能在进程内运行。
 

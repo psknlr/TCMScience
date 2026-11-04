@@ -36,6 +36,7 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -74,6 +75,11 @@ SCORES_HEADER = ("ligand", "smiles", "best_score", "ligand_efficiency", "heavy_a
                  "rotatable_bonds", "formal_charge", "poses", "pose_check",
                  "min_receptor_distance")
 _UNLISTED = {"run.json", STAGES_FILE}
+#: what a ligand's name cannot hold, for it names the ligand's pose file: a path separator,
+#: a control character (a tab would also split its row of scores.tsv) or a character
+#: Windows refuses in a file name
+_UNSAFE_NAME = re.compile(r'[\x00-\x1f\x7f/\\:*?"<>|]')
+_NAME_BYTES = 200                  # a file name is at most 255 bytes on most file systems
 
 
 @dataclass(frozen=True)
@@ -110,10 +116,35 @@ class DockRun:
     stages: list[dict[str, Any]] = field(default_factory=list)
     complete: bool = False
     limitations: list[str] = field(default_factory=list)
+    renamed: dict[str, str] = field(default_factory=dict)   # name: the name as given
 
     @property
     def validated(self) -> bool:
         return bool(self.validation and self.validation["passed"])
+
+
+def _file_names(entries: Sequence[tuple[str, str]]) -> tuple[list[tuple[str, str]],
+                                                             dict[str, str]]:
+    """The ligands with names usable as file names (``_UNSAFE_NAME`` as ``_``, no leading
+    dot, at most ``_NAME_BYTES`` bytes) and unique without regard to case (``_2``,
+    ``_3``...): a name names ``poses/<name>.sdf`` and keys the ligand's scores, pose checks
+    and contacts, an SDF's stereoisomers often share a title, and on macOS or Windows
+    "Cmpd" and "cmpd" are one file. Also {name: the name as given} of those changed."""
+    taken: set[str] = set()
+    out: list[tuple[str, str]] = []
+    renamed: dict[str, str] = {}
+    for k, (given, smiles) in enumerate(entries):
+        name = _UNSAFE_NAME.sub("_", str(given)).strip().lstrip(".")
+        name = name.encode()[:_NAME_BYTES].decode(errors="ignore").strip() or f"ligand{k + 1}"
+        unique, n = name, 1
+        while unique.casefold() in taken:
+            n += 1
+            unique = f"{name}_{n}"
+        taken.add(unique.casefold())
+        out.append((unique, smiles))
+        if unique != str(given):
+            renamed[unique] = str(given)
+    return out, renamed
 
 
 def _receptor_text(spec: str, config: DockConfig) -> tuple[str, dict[str, Any], tuple]:
@@ -214,6 +245,11 @@ def run_docking(receptor: str, ligands: str | Sequence[tuple[str, str]], config:
                      f"residues; {len(receptor_obj.unmatched)} without a template")
 
     entries = prep.read_ligands(ligands) if isinstance(ligands, (str, Path)) else list(ligands)
+    entries, renamed = _file_names(entries)
+    if renamed:
+        warnings.append(f"{len(renamed)} ligand names were made file-safe and unique (they "
+                        "name the pose files): " + "; ".join(
+                            f"{given!r} as {name}" for name, given in renamed.items()))
     failures: dict[str, str] = {}
     prepared: list[prep.Ligand] = []
     with rec.stage("ligand_prep", engine="rdkit+meeko",
@@ -344,7 +380,7 @@ def run_docking(receptor: str, ligands: str | Sequence[tuple[str, str]], config:
         rec.not_applicable("contacts", "no pose to describe")
     run = DockRun(out_dir=out, receptor=receptor_obj, box=box, results=results,
                   validation=validation, contacts=contacts, failures=failures,
-                  warnings=warnings)
+                  warnings=warnings, renamed=renamed)
     run.pose_checks = pose_report
     _write(run, config, started, entries, rec, inputs)
     return run
@@ -431,7 +467,9 @@ def _write(run: DockRun, config: DockConfig, started: str,
             "config": config.as_dict(), "receptor": run.receptor.source,
             "box": {"center": run.box.center, "size": run.box.size,
                     "source": run.box.source},
-            "ligands": [{"name": n, "smiles": s} for n, s in entries],
+            "ligands": [{"name": n, "smiles": s,
+                         **({"given_name": run.renamed[n]} if n in run.renamed else {})}
+                        for n, s in entries],
             "validation": run.validation, "outputs": outputs, "warnings": run.warnings,
             "inputs": dict(inputs),
             "results": [{"ligand": r.ligand.name, "smiles": r.ligand.smiles,

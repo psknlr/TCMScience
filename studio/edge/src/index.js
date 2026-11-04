@@ -328,7 +328,8 @@ async function missing(request, env, url, deps) {
   }
   if (isNavigation(request) && env.ASSETS) {
     const page = await env.ASSETS.fetch(new Request(new URL("/", url), { method: request.method, headers: request.headers }));
-    if (page.ok) return page;
+    // 304: the browser revalidated the copy of the app it keeps for this address (a reload), and it is still current
+    if (page.ok || page.status === 304) return page;
   }
   return new Response(request.method === "HEAD" ? null : "Not Found\n", {
     status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache" },

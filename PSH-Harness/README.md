@@ -740,7 +740,10 @@ Enforced, with a test that drives the executing path:
 * a side-effecting tool whose earlier attempt is in doubt is not re-run;
 * a policy requirement this process cannot meet (the validated detector, OS isolation)
   refuses the kernel or the run before anything executes;
-* a `backend="subprocess"` component cannot read the kernel's environment.
+* a `backend="subprocess"` component cannot read the kernel's environment;
+* a tool is refused the kernel's state directory (its policy, audit log and keys) outside the
+  `workspace/` and `artifacts/` it is handed, wherever a payload or command line names it,
+  whatever the allowed paths say.
 
 <!-- zh -->
 * 没有任何取值未分类就抵达网关，并且调用者提供的标签会被重新校验 —— 包括编译后的投影，其渲染文本由 broker 分类并求并；
@@ -751,7 +754,8 @@ Enforced, with a test that drives the executing path:
 * 一个不得持久化的运行的检查点，只保存计划的形状，不保存其中任何文本；
 * 一个先前尝试存疑的有副作用工具不会被重新运行；
 * 本进程无法满足的策略要求（已验证的检测器、操作系统隔离）会在任何东西执行之前拒绝内核或该运行；
-* 一个 `backend="subprocess"` 的组件无法读取内核的环境。
+* 一个 `backend="subprocess"` 的组件无法读取内核的环境；
+* 工具不能触及内核的状态目录（其策略、审计日志与密钥），交给它的 `workspace/` 与 `artifacts/` 除外；无论载荷或命令行在哪里指名该目录，也无论允许路径怎样写，都会被拒绝。
 
 
 **Not** enforced, stated plainly:
@@ -764,12 +768,15 @@ Enforced, with a test that drives the executing path:
 * the egress proxy governs clients that honour proxy variables. A raw socket bypasses it.
   `SandboxBackend` is the seam for the OS layer (Seatbelt, bubblewrap+seccomp); only
   `NoSandbox` ships, and it says so in `describe()` and in the kernel's `IsolationReport`.
+* a shell tool can still reach the state directory through a path it builds at run time,
+  which no command line names; only an OS sandbox bounds that, and none ships (above).
 * the audit chain is tamper-evident, not tamper-proof; classification is a safety net, not
   certified de-identification; claim support is lexical; the planner is a placeholder.
 
 <!-- zh -->
 * 一个 `backend="python"` 的组件在内核进程中运行，不受任何东西限制。这就是诚实的边界：`require_isolated_tools=True` 是策略拒绝它的方式。
 * 出口代理只治理遵守代理变量的客户端。裸套接字会绕过它。`SandboxBackend` 是操作系统层（Seatbelt、bubblewrap+seccomp）的接缝；目前只随附 `NoSandbox`，它在 `describe()` 与内核的 `IsolationReport` 中如实说明。
+* shell 工具仍可通过运行时才拼出的路径触及状态目录，这种路径不会出现在任何命令行里；只有操作系统沙箱能限制它，而目前没有随附任何沙箱（见上）。
 * 审计链是防篡改可见（tamper-evident）的，不是防篡改（tamper-proof）的；分类是一张安全网，不是经过认证的去标识化；主张支撑是字面的；规划器是占位符。
 
 
@@ -785,6 +792,20 @@ configuration) — editable installs may not survive a session restart.
 
 <!-- zh -->
 用 `PYTHONPATH=src` 运行测试（组合配置则用 `PYTHONPATH=../sable_pkg/src:src`）—— 可编辑安装（editable install）可能无法在一次会话重启后存活。
+
+### Upgrading a state directory · 升级已有的状态目录
+
+A state directory written before the October 2026 kernel fixes may hold an
+`execpolicy.json` whose save the audit chain does not record. The kernel does not load it.
+On the first open it moves the file aside to `execpolicy.json.rejected-<sha16>`, records
+one `execpolicy_rejected` event, warns, and applies the shipped rules. Amendments persisted
+before the upgrade are therefore asked about again; their rules stay readable in the moved
+file. Inside the state directory, tools now reach only `workspace/` and `artifacts/`, and
+the default tool allowlist is `state_dir/workspace/*`. Details:
+`docs/RUNTIME_SECURITY_REVIEW.md`.
+
+<!-- zh -->
+在 2026 年 10 月的内核修复之前写下的状态目录，可能含有一个 `execpolicy.json`，而审计链中没有它被保存的记录。内核不会加载它。第一次打开时，内核把该文件移到一旁，改名为 `execpolicy.json.rejected-<sha16>`，记录一条 `execpolicy_rejected` 事件，发出警告，并应用随包发布的规则。因此，升级之前持久化的修正会被重新询问；它们的规则在被移走的文件中仍然可读。在状态目录之内，工具现在只能触及 `workspace/` 和 `artifacts/`，默认的工具允许名单是 `state_dir/workspace/*`。详见 `docs/RUNTIME_SECURITY_REVIEW.md`。
 
 
 ## Use · 使用

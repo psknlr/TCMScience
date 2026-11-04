@@ -416,6 +416,10 @@ test("exports: aggregated or full by scope, CSV safe for spreadsheets, JSON with
   assert.equal(csvCell("+1"), "'+1");
   assert.equal(csvCell("-sum"), "'-sum");
   assert.equal(csvCell("@cmd"), "'@cmd");
+  // no formula: the connector counts' "-" (no registered source) and a number, negative or not, are written as they are
+  assert.equal(csvCell("-"), "-");
+  assert.equal(csvCell(-3), "-3");
+  assert.equal(csvCell(0), "0");
   assert.equal(csvCell("a,b"), '"a,b"');
   assert.equal(csvCell({ x: 1 }), '"{""x"":1}"');
   assert.equal(toCsv([{ a: 1 }, { b: "x\ny" }]), '﻿a,b\r\n1,\r\n,"x\ny"\r\n');

@@ -48,6 +48,7 @@ import hashlib
 import inspect
 import json
 import tempfile
+import types
 import typing
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -137,7 +138,7 @@ _LIST_SEPARATORS = (",", "，", "、", ";", "；")
 
 def _is_sequence(annotation: Any) -> bool:
     origin = typing.get_origin(annotation)
-    if origin is typing.Union or str(origin) == "types.UnionType":
+    if origin is typing.Union or origin is types.UnionType:
         return any(_is_sequence(a) for a in typing.get_args(annotation)
                    if a is not type(None))
     target = origin or annotation

@@ -2,7 +2,7 @@ import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setLang } from "../js/core/i18n.js";
-import { PRESETS, activeProvider, allProviders, customPreset, localFix, relayBaseUrl, relayHealth, routeFor, testConnection } from "../js/core/providers.js";
+import { PRESETS, activeProvider, allProviders, customPreset, localFix, relayBaseUrl, relayHealth, relayHealthError, routeFor, testConnection } from "../js/core/providers.js";
 import { anthropicSse, fakeFetch, sse, streamResponse } from "./fixtures/fakes.mjs";
 
 test("the presets: Tao-S1 first, the cloud services, local servers, custom endpoints; the relay's vendor is never listed", () => {
@@ -146,6 +146,28 @@ test("relayHealth tells a relay or runner error in the page's language (the runn
   } finally {
     setLang("zh");
   }
+});
+
+test("a relay error checked in one language is told in the other after a switch (relayHealthError, at render time)", async () => {
+  const notRelay = { ok: false, error: { type: "not_relay", message: "本机 Runner 不提供 Tao-S1。", message_en: "This local runner does not provide Tao-S1." } };
+  const checked = {
+    off: await relayHealth({ fetch: fakeFetch(() => new Response(JSON.stringify({ ok: false }))) }),
+    runner: await relayHealth({ fetch: fakeFetch(() => new Response(JSON.stringify(notRelay))) }),
+    http: await relayHealth({ fetch: fakeFetch(() => new Response("", { status: 502 })) }),
+  };
+  assert.match(checked.off.error, /^Tao-S1 暂未开放/);
+  setLang("en");
+  try {
+    assert.match(relayHealthError(checked.off).error, /^Tao-S1 is not available right now/);
+    assert.match(relayHealthError(checked.runner).error, /^This local runner does not provide Tao-S1\./);
+    assert.equal(relayHealthError(checked.runner).error_type, "not_relay");
+    assert.equal(relayHealthError(checked.http).error, "HTTP 502");
+    // an answer with nothing to tell again (no answer at all) keeps what it said
+    assert.equal(relayHealthError({ ok: false, unreachable: true, error: "Failed to fetch" }).error, "Failed to fetch");
+  } finally {
+    setLang("zh");
+  }
+  assert.equal(relayHealthError(checked.runner).error, "本机 Runner 不提供 Tao-S1。");
 });
 
 test("presets say how they stream: increments for the known services; Tao-S1's reasoning arrives whole each time", () => {

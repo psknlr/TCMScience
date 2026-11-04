@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
-import { REPO, STUDIO, pyodideSkipReason, scratch, workerSkipReason } from "./lib/servers.mjs";
+import { REPO, STUDIO, pyodidePartSkipped, pyodideSkipReason, scratch, workerSkipReason } from "./lib/servers.mjs";
 
 const WORKFLOW = readFileSync(path.join(REPO, ".github", "workflows", "studio.yml"), "utf8");
 const LINES = WORKFLOW.split("\n");
@@ -232,10 +232,18 @@ test("an unreachable Pyodide CDN fails the browser specs in CI; outside CI it sk
     expect(pyodideSkipReason(false, url, "browser mode", env)).toMatch(/not reachable.*browser mode not tested/);
     expect(pyodideSkipReason(true, url, "browser mode", env)).toBeNull();
   }
+  // a part of a test: skipped outside CI with the reason, a failure in CI
+  expect(() => pyodidePartSkipped(false, url, "the governed question", { CI: "true" })).toThrow(/not reachable in CI/);
+  expect(pyodidePartSkipped(false, url, "the governed question", {})).toMatch(/not reachable.*the governed question not tested/);
+  expect(pyodidePartSkipped(true, url, "the governed question", { CI: "true" })).toBeNull();
   // and each spec that needs real Pyodide decides through it, never with a bare test.skip(!reachable)
-  for (const name of ["browser.spec.mjs", "browser-access.spec.mjs", "mobile.spec.mjs"]) {
+  for (const name of ["browser.spec.mjs", "browser-access.spec.mjs", "mobile.spec.mjs", "science.spec.mjs"]) {
     const spec = readFileSync(path.join(STUDIO, "e2e", name), "utf8");
     expect(spec, name).toMatch(/requirePyodide\(test, reachable, boot\.pyodide\.index_url, /);
     expect(spec, name).not.toMatch(/test\.skip\(!reachable/);
   }
+  // relay.spec's governed question is a part of its test
+  const relay = readFileSync(path.join(STUDIO, "e2e", "relay.spec.mjs"), "utf8");
+  expect(relay).toMatch(/pyodidePartSkipped\(cdn, boot\.pyodide\.index_url, /);
+  expect(relay).not.toMatch(/if \(cdn\)/);
 });

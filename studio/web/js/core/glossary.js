@@ -327,7 +327,7 @@ export const CODES = {
   },
   INQ110: {
     en: "the analysis has no sealed prediction for an explanation it bears on", zh: "分析缺少对其相关解释的密封预测",
-    remedy: { en: "declare, before running it, what every live explanation it bears on predicts it will show", zh: "在运行前，声明每个相关解释预测它会显示什么" },
+    remedy: { en: "declare, before running it, what every live explanation it bears on predicts it will show, and for a replicate every explanation that predicted its original, refuted or not", zh: "在运行前，声明每个相关解释预测它会显示什么；对重复检验，凡对原检验作过预测的解释，无论是否已被否定，也须声明" },
   },
   INQ111: {
     en: "unknown analysis or explanation", zh: "未知的分析或解释",

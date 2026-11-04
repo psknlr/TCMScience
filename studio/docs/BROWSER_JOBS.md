@@ -20,7 +20,7 @@ IndexedDB, followed, cancelled and resumed like runner jobs, and each writes a r
 was checked. On the planted world (the research jobs' known answer) a job worker in Chromium writes the five tables
 **byte for byte** as native CPython does (`studio/e2e/science.spec.mjs`, passed in Studio's CI with Pyodide's own
 pyarrow). The real 葛根芩连汤 case, run the same way in the live-data workflow and compared export by export with the
-native run on the same files, passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, commits 43918ac, 53bdbb0 and 65fa6aa, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it). The RNA-seq pipeline in its count-matrix mode (`pipeline.rnaseq` with `counts`) and the single-cell pipeline on count tables (`pipeline.scrna`) run the same way, with Pyodide's numpy and scipy, on files from the person's project ([§3.1](#31-rna-seq-and-single-cell-from-count-tables)); a FASTQ run, PyDESeq2, Scanpy, scVI, 10x HDF5 and `.h5ad` inputs, and inputs larger than a browser worker holds (more than 6,000 cells, a table of more than 66,000,000 cells × genes, a count matrix of more than 10,000,000 genes × samples) are refused with the reason and left to the runner. On their known-answer references (`omics_counts_world` v1 and `sc_world` v1) every output was compared with the native command's on the same files (`science.mjs --mode omics`, headless Chromium 141, locally): identical bytes, or numbers within a stated tolerance (the largest difference 0.133 of it), or, for the UMAP layout and its figures, not compared and said so; the genes called and each cell's cluster and cell type are identical, and the known answers hold on the browser's files. The same check passed in Studio's CI, with Pyodide's numpy and scipy from jsDelivr and the native side on CI's own Python 3.12.15 (`studio` #91 (run 39286931542, commit 65fa6aa, 2026-10-19)). ADMET runs the same way, with two parts the page computes itself ([§3.2](#32-admet)): `admet.models` builds the 22 TDC endpoint models in this browser from the TDC ADMET group archive (nothing trained is shipped) and keeps them in the site's private storage, and `pipeline.admet` predicts with them; the chemistry is RDKit.js 2026.9.1 with exact ports of what it lacks (a molecule they cannot standardise exactly is refused, named, and left to the runner, never approximated), and the applicability-domain search runs on this device's WebAssembly SIMD kernel, or on its GPU only where this device's own check measured the GPU exact and faster, Python checking the answers before it uses them. Compared with native RDKit 2026.9.1 and scikit-learn 1.8.0 at one thread (`science.mjs --mode admet`, headless Chromium 141 with Pyodide 314.0.7, locally): on a small known-answer archive the cards (apart from the files' digests, the seconds and the chemistry's name), the domain files, every prediction at full precision and `admet.tsv` were identical; on a synthetic archive at the TDC group's sizes the raw model outputs and `admet.tsv` were identical and 52 of 16,120 test-set predictions differed by 1 or 2 units in the last place of float64 (the C library's `exp`, or numpy's power, after the trees). On the real TDC archive (1,472,501 bytes at the pinned SHA-256, downloaded natively in CI and given to the page as a project file) the same comparison passed in `live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20; headless Chromium 141 on GitHub's runner, Pyodide 314.0.7 and RDKit.js 2026.9.1 from jsDelivr): the browser chemistry refused 202 of the 81,809 molecules (0.25%), each at a named step, and the native models were trained without them as the browser's were; the 22 cards (apart from the digests, the seconds and the chemistry) and the domain files were identical; on the 16,353 kept test molecules every raw model output and domain search was identical and 36 final predictions differed by 1 unit in the last place of float64 (through `10 **` or `expit`); `pipeline.admet` with these models wrote the native run's `admet.tsv` byte for byte. Studio's CI runs the comparison on the small archive (`studio` #95 (run 39386727362, commit 0882e95, 2026-10-20)). This is implemented and tested locally and in CI; it has not run on a physical GPU (P3's acceptance criterion is not met), in a tab on a person's machine, or with the archive downloaded through the relay. Docking runs the same way in a new **prepared-input mode** ([§3.3](#33-docking-from-prepared-structures)): `pipeline.dock` takes a rigid-receptor PDBQT, a ligand PDBQT and a site, and runs **AutoDock Vina 1.2.7 compiled to WebAssembly** (not a Pyodide package) — built from pinned, SHA-256-checked inputs, two independent builds byte-identical — one Vina run per ligand in dedicated workers on this device's CPU, with the plan, analysis and checks in a Pyodide worker as `bioagent.docking.prepared` runs natively. Vina's `score()` and `optimize()` are bit-identical to the native 1.2.7 package on all 6 fixture ligands, but a seeded search is **not** bit-reproducible (native Vina itself moves when its maths library changes), so docking is held to a measured band over seeds 1–8, not to exactness; the end-to-end comparison (`science.mjs --mode dock`) found the plan bytes and the re-scored pose energies identical and the search inside that band (benzamidine redocks 1.14 Å in the browser, 1.92 Å natively). Receptor and ligand preparation from raw PDB/SMILES (Meeko, RDKit) stays on the runner as the next cycle (Milestone B, not done), and nothing in docking uses the GPU. It is implemented and tested locally and in CI, not on a deployed site.
+native run on the same files, passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, commits 43918ac, 53bdbb0 and 65fa6aa, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it). The RNA-seq pipeline in its count-matrix mode (`pipeline.rnaseq` with `counts`) and the single-cell pipeline on count tables (`pipeline.scrna`) run the same way, with Pyodide's numpy and scipy, on files from the person's project ([§3.1](#31-rna-seq-and-single-cell-from-count-tables)); a FASTQ run, PyDESeq2, Scanpy, scVI, 10x HDF5 and `.h5ad` inputs, and inputs larger than a browser worker holds (more than 6,000 cells, a table of more than 66,000,000 cells × genes, a count matrix of more than 10,000,000 genes × samples) are refused with the reason and left to the runner. On their known-answer references (`omics_counts_world` v1 and `sc_world` v1) every output was compared with the native command's on the same files (`science.mjs --mode omics`, headless Chromium 141, locally): identical bytes, or numbers within a stated tolerance (the largest difference 0.133 of it in `studio` #91; 0.139 in a local run under the stricter p-value rule of 2026-10-28), or, for the UMAP layout and its figures, not compared and said so; the genes called and each cell's cluster and cell type are identical, and the known answers hold on the browser's files. The same check passed in Studio's CI, with Pyodide's numpy and scipy from jsDelivr and the native side on CI's own Python 3.12.15 (`studio` #91 (run 39286931542, commit 65fa6aa, 2026-10-19)). ADMET runs the same way, with two parts the page computes itself ([§3.2](#32-admet)): `admet.models` builds the 22 TDC endpoint models in this browser from the TDC ADMET group archive (nothing trained is shipped) and keeps them in the site's private storage, and `pipeline.admet` predicts with them; the chemistry is RDKit.js 2026.9.1 with exact ports of what it lacks (a molecule they cannot standardise exactly is refused, named, and left to the runner, never approximated), and the applicability-domain search runs on this device's WebAssembly SIMD kernel, or on its GPU only where this device's own check measured the GPU exact and faster, Python checking the answers before it uses them. Compared with native RDKit 2026.9.1 and scikit-learn 1.8.0 at one thread (`science.mjs --mode admet`, headless Chromium 141 with Pyodide 314.0.7, locally): on a small known-answer archive the cards (apart from the files' digests, the seconds and the chemistry's name), the domain files, every prediction at full precision and `admet.tsv` were identical; on a synthetic archive at the TDC group's sizes the raw model outputs and `admet.tsv` were identical and 52 of 16,120 test-set predictions differed by 1 or 2 units in the last place of float64 (the C library's `exp`, or numpy's power, after the trees). On the real TDC archive (1,472,501 bytes at the pinned SHA-256, downloaded natively in CI and given to the page as a project file) the same comparison passed in `live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20; headless Chromium 141 on GitHub's runner, Pyodide 314.0.7 and RDKit.js 2026.9.1 from jsDelivr): the browser chemistry refused 202 of the 81,809 molecules (0.25%), each at a named step, and the native models were trained without them as the browser's were; the 22 cards (apart from the digests, the seconds and the chemistry) and the domain files were identical; on the 16,353 kept test molecules every raw model output and domain search was identical and 36 final predictions differed by 1 unit in the last place of float64 (through `10 **` or `expit`); `pipeline.admet` with these models wrote the native run's `admet.tsv` byte for byte. Studio's CI runs the comparison on the small archive (`studio` #95 (run 39386727362, commit 0882e95, 2026-10-20)). This is implemented and tested locally and in CI; it has not run on a physical GPU (P3's acceptance criterion is not met), in a tab on a person's machine, or with the archive downloaded through the relay. Docking runs the same way in a new **prepared-input mode** ([§3.3](#33-docking-from-prepared-structures)): `pipeline.dock` takes a rigid-receptor PDBQT, a ligand PDBQT and a site, and runs **AutoDock Vina 1.2.7 compiled to WebAssembly** (not a Pyodide package) — built from pinned, SHA-256-checked inputs, two independent builds byte-identical — one Vina run per ligand in dedicated workers on this device's CPU, with the plan, analysis and checks in a Pyodide worker as `bioagent.docking.prepared` runs natively. Vina's `score()` and `optimize()` are bit-identical to the native 1.2.7 package on all 6 fixture ligands, but a seeded search is **not** bit-reproducible (native Vina itself moves when its maths library changes), so docking is held to a measured band over seeds 1–8, not to exactness; the end-to-end comparison (`science.mjs --mode dock`) found the plan bytes and the re-scored pose energies identical and the search inside that band (benzamidine redocks 1.14 Å in the browser, 1.92 Å natively). Receptor and ligand preparation from raw PDB/SMILES (Meeko, RDKit) stays on the runner as the next cycle (Milestone B, not done), and nothing in docking uses the GPU. It is implemented and tested locally and in CI (`studio` #99, 2026-10-20), and deployed with the site since `studio` #114 (2026-10-23); no run on the deployed site is recorded (the post-deploy check runs no browser job).
 
 ## 1. What runs where
 
@@ -102,10 +102,11 @@ that did not happen. The analysis itself is the same code either way, which is w
 ## 2. The data
 
 `runtime/datasets.json` (`tcmstudio.datasets/1`, built from `bioagent.sources.pipeline.required_files` and the licence
-records) lists the 17 files: URL, host, reviewed size and checksum where one exists (LOTUS is checked by md5; three
-files have neither a reviewed checksum nor a reviewed size and are kept as UNVERIFIED, as on the runner), licence, what
-is known about redistribution — from a reviewed licence record, or "unknown — downloading is not permission to
-redistribute" — and the pace bioagent keeps with its host (`rate_rps`: zenodo.org 0.1 a second, its robots.txt
+records) lists the 17 files: URL, host, reviewed size and checksum where one exists (LOTUS is checked by md5; STRING's
+aliases file, a frozen release, by the size and SHA-256 two live downloads read; two files, Reactome's UniProt mapping and
+the UniProt accession list, have neither a reviewed checksum nor a reviewed size and are kept as UNVERIFIED, as on the
+runner), licence, what is known about redistribution — from a reviewed licence record, or "unknown — downloading is not
+permission to redistribute" — and the pace bioagent keeps with its host (`rate_rps`: zenodo.org 0.1 a second, its robots.txt
 Crawl-delay; reactome.org 5; rest.uniprot.org 10; otherwise 1), which the relay keeps too. A second group, `admet`,
 lists one file, the TDC ADMET group archive the ADMET model build reads ([§3.2](#32-admet)): its URL and host
 (dataverse.harvard.edu), the SHA-256 bioagent pins (`bd0005246cb6…`) and the pinned archive's size (1,472,501 bytes),
@@ -116,7 +117,7 @@ No relayed download of it has been run in a browser: in CI (`live-data` #24) the
 given to the page as a project file ([§3.2](#32-admet)).
 
 Before a snapshot build starts, the browser's free storage is checked against the reviewed sizes of the files still
-missing (×1.1); the three files without a reviewed size are not guessed at, and the job's log names them.
+missing (×1.1); the two files without a reviewed size are not guessed at, and the job's log names them.
 
 A file reaches OPFS by one of three routes, recorded per file in `.meta/<file>.json`:
 
@@ -255,7 +256,9 @@ recorded digest and compared file by file:
 | the UMAP's structure instead of its numbers | — | the same cells in the same order, all coordinates finite, and the share of each cell's 15 nearest UMAP neighbours in its own cluster: browser 0.9985, native 0.9983 (required: at least 0.95 and within 0.01 of the native) |
 
 The tolerance, for each numeric cell: |a − b| ≤ 1e-6 + 1e-4·max(|a|,|b|) + one unit in the sixth significant digit of
-max(|a|,|b|) (the tables print `%.6g`). Every table that differed is a DESeq2 fit's (`deseq2_results.tsv`,
+max(|a|,|b|) (the tables print `%.6g`); since 2026-10-28, in the probability columns (`p_value`, `p_adjusted`) without
+the 1e-6 term, since the most significant genes' p-values lie far below it (70 of the 1,999 tested in
+`deseq2_results.tsv`, 8 in the B-cell pseudobulk), where that term alone let any two values pass. Every table that differed is a DESeq2 fit's (`deseq2_results.tsv`,
 `de_diagnostics.tsv`, the four pseudobulk tables): the dispersion search, a grid then golden sections on a flat
 likelihood, turns a last-bit difference between the native build of numpy, scipy and BLAS and Pyodide's wasm32 build
 into a difference the six printed digits can show. Harmony's embedding is printed in no table, and what follows from
@@ -269,7 +272,14 @@ Since the runs above, the harness gives each figure that is not the same bytes i
 holds what it draws only where one does (`plots/pca.svg`, `pca_variance.svg` and `sample_distances.svg` draw what no
 table holds), and holds `report.html` to identical text with its figures set aside, with no tolerance on its text
 (in both runs above it was identical so). One local run with these rules, from the bundle the limits below were
-checked with, gave the same rows and known answers.
+checked with, gave the same rows and known answers. Since 2026-10-28 the harness also holds `run.json` and
+`stages.json` field by field, their numbers under the rule, apart from what names the process, its time and its paths
+(`started`, `finished`, `python`, `numpy`, `scipy`, `summary.out_dir`, each stage's `seconds`; the outputs' digests
+are their files' own rows, and the inputs are compared by file name and digest); before, it compared only the stages'
+outcomes and the outputs' names. A local run with these two changes (headless Chromium 141, Pyodide 314.0.7 from a
+local copy) gave the same rows and known answers, the largest share of the bound 0.139 (the same `p_adjusted`, now
+without the 1e-6 term), the run records' numbers (each DESeq2 fit's dispersion trend and prior variance, the
+clustering's modularity) within the rule.
 
 **Known answers on the browser's files** (a Python checker natively reading them, its bounds from
 `bioagent/data/pipeline_references.json`; the native files give the same). RNA-seq: the inputs are `omics_counts_world`
@@ -437,7 +447,7 @@ as refused and why, not as "could not be read".
 **The comparison, and its rules.** `science.mjs --mode admet` runs `admet.models` (the archive as a project file) then
 `pipeline.admet` as jobs of the page's job service in headless Chromium 141 (Pyodide 314.0.7, RDKit.js 2026.9.1), and
 compares every output with a native run (RDKit 2026.9.1, scikit-learn 1.8.0, one thread). It holds the browser to
-exactness, not to a tolerance, with two named exceptions:
+exactness, not to a tolerance, with three named exceptions:
 
 - A **model card** is compared field by field apart from what names the process that wrote the model, not the model:
   the model file's and the domain file's SHA-256 (a pickle's bytes depend on the process — wasm32 here, 64-bit
@@ -456,6 +466,11 @@ exactness, not to a tolerance, with two named exceptions:
   native glibc and numpy 2.4.6 on this AVX-512 machine): Pyodide's power differed from glibc's `pow` on 65 (0.07%) and
   from numpy's AVX-512 power on 5,317 (5.3%), by 1 unit; its `exp` from glibc's on 72; `expit` on 34 (0.03%), by at
   most 2 units.
+- A **descriptor** of the chemistry's float64 values: `qed` (`compare.mjs` `ADMET_ULP_DESCRIPTORS`) may differ by at
+  most 4 units in the last place, and only where it is equal as float32, the precision the models read (V8's
+  `Math.exp` and `Math.log` are not glibc's: the chemistry's parity above). Each such molecule is named and the row is
+  never called identical; every other descriptor is compared exactly. On the 39-molecule set `qed` differed on 10
+  molecules, by at most 2 units.
 
 **The GPU domain search, and its evidence.** The domain search (batch Tanimoto max over packed 2048-bit Morgan bits:
 per query, the nearest training molecule — smallest index on ties — and the integer intersection and union, Python
@@ -647,7 +662,9 @@ recorded honestly as "not measured" (the job service does not read it). The brow
 50.2 s, 7 Vina runs, 96 s of Vina in all across 2 workers).
 
 **What has run, and what was not run.** `science.mjs --mode dock` end to end and `vina.test.mjs` (the exact and search
-tiers) pass locally and in `studio` CI. Not run: a physical GPU is unchanged — nothing in docking uses the GPU (only
+tiers) pass locally and in `studio` CI (first in `studio` #99, run 39487835374, 2026-10-20; on `main` from `studio`
+#114, run 39898204674, 2026-10-23, which also deployed the site with the WebAssembly Vina). Not run: a docking job on
+the deployed site (its post-deploy check runs no browser job); a physical GPU is unchanged — nothing in docking uses the GPU (only
 the ADMET applicability-domain search can, and P3's physical-GPU acceptance stays open, [§3.2](#32-admet)); a browser
 tab on a person's machine (the runs above are headless Chromium); and the relay download of a large structure in a
 browser (CI gives the inputs as project files). Receptor and ligand preparation in the browser (Meeko, RDKit),
@@ -669,7 +686,7 @@ bit for bit across engines or CPUs and is held to the measured band of §3.3.
 | The job service end to end | `research.run` and the self-test as jobs: stages, the research stage's checkpoint, a receipt at its recorded digest with `outputs_verified` and device evidence `verified`, the five tables the committed answer; a second run whose workers are stopped as its research stage ends fails, and resumed it reuses that stage from its checkpoint and gives the same tables | `studio/web/test/runtime/science.mjs --mode service` (Studio CI, build job) | implemented and tested in headless Chromium, locally and in Studio's CI with Pyodide's pyarrow 22.0.0 from jsDelivr (`studio` #88, 2026-10-19) |
 | Snapshot build from files in OPFS | the parser tests' fixture files mounted read-only from OPFS (a write to one is refused, their bytes in OPFS unchanged) and built in a job worker; then imported through the dataset workspace and built by `research.snapshot` as a job, down to its snapshots, its marker and its receipt (`outputs_verified`). Both give the native build's six snapshot ids | `science.mjs --mode fixture` (Studio CI, build job) | implemented and tested in headless Chromium, locally and in Studio's CI (as above) |
 | 葛根芩连汤 on the real files | `research.snapshot` + `research.run` as browser jobs, every export compared with the native run | live-data workflow, step "The same research in a browser" (`studio/web/test/runtime/science.mjs --mode gqd`) | implemented and tested: every export the native run's bytes in `live-data` #18, #19 and #21 (2026-10-19); repeated on every live-data run. Should a number ever differ in its last bit (glibc's and wasm's `math.exp` are not correctly rounded), the comparison reports that table, and the digests restating it, as within a relative 1e-12 — never as identical |
-| RNA-seq and single-cell from count tables, against the native run | `pipeline.rnaseq` (count matrix) and `pipeline.scrna` (count tables) as jobs of the page's job service on `omics_counts_world` v1 and `sc_world` v1, read from a project's files: every output compared with the native command's on the same files, as identical bytes, within the stated tolerance (the largest difference 0.133 of it) or not compared, with the reason (the UMAP layout and figures; the layout's structure is checked instead); the genes called, each cell's cluster and cell type and the clusters exact; the receipts, with the inputs at the files' digests; the known answers on the browser's files ([§3.1](#31-rna-seq-and-single-cell-from-count-tables)) | `science.mjs --mode omics` (Studio CI, build job, from commit 65fa6aa) | implemented and tested in headless Chromium, locally (Chromium 141, Pyodide 314.0.7 from a local mirror) and in Studio's CI with Pyodide's numpy and scipy from jsDelivr (`studio` #91, 2026-10-19): every check passed |
+| RNA-seq and single-cell from count tables, against the native run | `pipeline.rnaseq` (count matrix) and `pipeline.scrna` (count tables) as jobs of the page's job service on `omics_counts_world` v1 and `sc_world` v1, read from a project's files: every output compared with the native command's on the same files, as identical bytes, within the stated tolerance (the largest difference 0.133 of it in `studio` #91; 0.139 in a local run under the stricter p-value rule of 2026-10-28) or not compared, with the reason (the UMAP layout and figures; the layout's structure is checked instead); the genes called, each cell's cluster and cell type and the clusters exact; the receipts, with the inputs at the files' digests; the known answers on the browser's files ([§3.1](#31-rna-seq-and-single-cell-from-count-tables)) | `science.mjs --mode omics` (Studio CI, build job, from commit 65fa6aa) | implemented and tested in headless Chromium, locally (Chromium 141, Pyodide 314.0.7 from a local mirror) and in Studio's CI with Pyodide's numpy and scipy from jsDelivr (`studio` #91, 2026-10-19): every check passed |
 | The omics jobs' refusals, inputs and memory | refused before anything is queued, with the reason: FASTQ, PyDESeq2, Scanpy, scVI, `.h5`, `.h5ad`, out-of-bounds or unknown parameters, `counts` with a FASTQ sample sheet (`bad_arguments`, in the runner's words), a file the project lacks (for a name that may be a Cell Ranger directory, saying the runner reads one); `run_pipeline` and `call_tool` arguments the runner's schema refuses, before any approval; under compute Browser with the runner connected, `compute_browser` with the arguments' reason; without the job service's module, the catalog's `runner_only` rules; a resumed analysis run again when what computed it changed; inputs copied from the project's files, a digest mismatch refused; a run with a scripted worker (artefact names, receipt inputs, the verify outcome); running out of memory a refusal that retires the worker. In Python: each function, run natively, writes the command's bytes (all but `run.json` and `stages.json`), the size limits (cells, a table's cells × genes, genes × samples) and a `MemoryError` are typed refusals before or instead of a result, a corrupt or cut-short gzip and a table that is not UTF-8 are refusals with the reason, `verify_pipeline` names the runner's checks; the streaming table reader gives the whole-text parse's matrix; the count-matrix mode's refusals and its reference; a count-matrix call naming a FASTQ engine is `bad_arguments` on the runner | `web/test/scientific/omics.test.mjs`, `web/test/router.test.mjs`, `web/test/catalog-page.test.mjs`, `web/test/runtime/pyboot.test.mjs`; `studio/runner/tests/test_browser_jobs.py`, `test_capability_state.py`; `BioScience-Harness/tests/test_omics_rnaseq_counts.py`, `test_omics_scrna.py`, `test_pipeline_references.py` | implemented and tested locally; the memory paths with a scripted worker only |
 | ADMET (`admet.models`, `pipeline.admet`), against the native run | both as jobs of the page's job service, on the small known-answer archive `admet_world` (as a project file) and a 39-molecule set, and on the real TDC archive (all 22 endpoints, the archive a project file, then the 39-molecule set with its models), compared with the native command on the same molecules (RDKit 2026.9.1, scikit-learn 1.8.0, one thread): model cards (apart from the files' digests, seconds and chemistry), domain files and `admet.tsv` identical; the predictions at full precision (raw output and domain search exact, a final value within the named last-bit rule), the alerts, the stages; the reports differ only by the refused-molecules line; the expected refusals refused and read by the runner; then once more with WebGPU forced on the software adapter, the outputs identical ([§3.2](#32-admet)) | `science.mjs --mode admet` (Studio CI, build job; on the real archive, the live-data workflow's `admet` job) | implemented and tested in headless Chromium, locally (RDKit.js and Pyodide from local mirrors), in Studio's CI (`studio` #95 (run 39386727362, commit 0882e95, 2026-10-20)) and on the real TDC archive with RDKit.js and Pyodide from jsDelivr (`live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20): 202 of 81,809 molecules refused at named steps; every card (as above), domain file, raw output and domain search identical; 36 of 16,353 test-set predictions 1 unit apart in the last place); never on a physical GPU |
 | ADMET chemistry parity, the kernels and the device check | RDKit.js 2026.9.1 + ports against native RDKit on the parity fixture (484 molecules) and NCI first_5K (4,999): the float32 rows, bits and alerts identical, refusals as predicted; the Tanimoto kernels (JS, WASM SIMD, WebGPU) against each other and `np.bitwise_count`, exact; the device check's known-answer test, parity and verdicts, on SwiftShader (exact, "software, not evidence") | `web/test/scientific/chem.test.mjs`, `chem-worker.test.mjs`, `web/test/science-cpu.test.mjs`, `science-gpu.test.mjs`, `science-scheduler.test.mjs`, `science-calibration.test.mjs`, `scientific/evidence.test.mjs`; `chem.browser.mjs` and `gpu-science.mjs --software` in Chromium | implemented and tested locally and (`chem.browser.mjs`, `gpu-science.mjs --software`) in Studio's CI build job, passed in `studio` #95 (run 39386727362, commit 0882e95, 2026-10-20); never run on a hardware GPU |
@@ -680,7 +697,7 @@ bit for bit across engines or CPUs and is held to the measured band of §3.3.
 | In-process governed analysis | the same bytes and result digest as the isolated child natively | `BioScience-Harness/tests/test_research_inprocess.py` | implemented and tested |
 | Data layer | downloads, resume, relay fallback, checksum refusal, import, cancel | `web/test/scientific/*.test.mjs` (an in-memory OPFS); the import runs in Chromium's OPFS in `--mode fixture` | implemented and tested |
 | Job service and pool | queue, cancel, interruption and resume, receipts, worker crashes | `web/test/scientific/job-manager.test.mjs`, `worker-pool.test.mjs` | implemented and tested |
-| Relay | registry-bound, ranges, caps, streaming, each host's pace | `studio/edge/test/datasets.test.js` (no real host, not the Workers runtime) | implemented and tested; not deployed; after a deployment a HEAD probe checks it, as a warning only |
+| Relay | registry-bound, ranges, caps, streaming, each host's pace | `studio/edge/test/datasets.test.js` (no real host, not the Workers runtime) | implemented and tested; deployed on science.impf.ai since `studio` #114 (run 39898204674, 2026-10-23). After that deployment and after `studio` #118's (run 40193094581, commit 5da7f5d, 2026-10-25) the post-deploy check's HEAD of `research/CMAUPv2.0_download_Targets.txt` through it was answered from bidd.group, with no Content-Length, so the reviewed size was not compared. The check now asks for the file's first byte instead and compares the Content-Range total with the reviewed size (a failure is a warning only); it has not yet run against the deployed site. No download through the relay from a browser is recorded |
 
 ## 5. What this does not do (yet)
 
@@ -744,8 +761,10 @@ bit for bit across engines or CPUs and is held to the measured band of §3.3.
 - **Browsers.** Run in Chromium only. The page writes job records' files (receipts, checkpoints, the snapshot marker) with
   `createWritable`; a browser whose main thread lacks it (older Safari) refuses those writes, and the job fails rather
   than pretending to have kept them. Firefox and Safari have not been run.
-- **Archives without a checksum.** The runner reads a `.gz` through its CRC before keeping it; the browser does not, so a
-  truncated STRING aliases file (no reviewed checksum) is kept as UNVERIFIED and fails later, when Python parses it.
+- **Archives without a checksum.** The runner reads a `.gz` through its CRC before keeping it; the browser does not. Every
+  `.gz` the registry lists has a reviewed checksum (STRING's aliases file too, pinned from two live downloads), so a
+  truncated copy fails its checksum and nothing is kept; a `.gz` added without one would be kept as UNVERIFIED and fail
+  later, when Python parses it.
 - **Two tabs downloading the same file** do not corrupt it, but one finished download can be discarded and fetched again.
 
 ## 中文摘要
@@ -760,7 +779,7 @@ WebAssembly 的 CPython 3.14）和经 SHA-256 校验的应用包的 Web Worker�
 用一个线程，因此目前同一时间只有一个线程在计算。17 个原始文件（418 MB）
 保存在本站的私有文件系统（OPFS）中，Python 通过同步访问句柄就地只读读取；下载可直连上游、经本站边缘中转（流式、
 不存储、按 bioagent 对各主机的节奏限速）或由用户导入，并在构建快照时按审核过的校验和再次核验。构建前按已审核的文件
-大小检查剩余存储空间；三个没有审核大小的文件不做估计，任务日志会列出它们。浏览器 Worker 不能启动子进程，因此受治理的
+大小检查剩余存储空间；两个没有审核大小的文件不做估计，任务日志会列出它们。浏览器 Worker 不能启动子进程，因此受治理的
 分析在同一进程内经同一个 PSH 代理与审计链运行，产物如实记录 `isolation: "in_process"`。任务记录存于 IndexedDB，可取消；
 页面关闭时任务中断，下次可从已核验的阶段继续。每个任务写出回执：运行位置、运行时、各线程的 WebAssembly 内存峰值、
 每个输出（包括快照与账本）的两次独立哈希读取；运行了内核调用的阶段（ADMET 的适用域检索）另记其计算事实（`compute`，见下文 ADMET 段）。
@@ -770,7 +789,7 @@ WebAssembly 的 CPython 3.14）和经 SHA-256 校验的应用包的 Web Worker�
 反驳与导出，但没有 STRING、疾病、CMAUP、LOTUS 层，网络拓扑未被检验。任务服务端到端检查（检查点、回执、工作线程丢失后
 从检查点续跑）与 OPFS 中夹具文件的快照构建（`research.snapshot` 作为任务运行，快照编号与原生一致）在无头 Chromium
 中通过：本地及 Studio 的 CI（`studio` #88，2026-10-19，使用 jsDelivr 上 Pyodide 自带的 pyarrow 22.0.0）均已通过。葛根芩连汤真实数据在 live-data 流程中以浏览器任务运行并与原生运行逐个
-导出文件比对：已在 `live-data` #18、#19 与 #21 中通过（运行 39251758718、39258060948 与 39286930354，提交 43918ac、53bdbb0 与 65fa6aa，2026-10-19，GitHub 运行器上的无头 Chromium，Pyodide 314.0.7 及其 pyarrow 22.0.0）：17 个原始文件导入本站私有存储，`research.snapshot` 与 `research.run` 作为浏览器任务成功运行，每个导出文件与同一批文件上的原生运行逐字节一致（五张表、`provenance.json`、`limitations.md`、`report.html`；`run_manifest.json` 除执行块外一致）。该次运行：4 味药材、1,792 个成分、370 个实测人类靶点、237 个节点 624 条边的 STRING 网络、检验 959 条 Reactome 通路，BH 校正后无一显著（因此真实数据上未抽取置换零分布；模拟世界检验了它）。中转已实现并有单元测试，尚未部署。
+导出文件比对：已在 `live-data` #18、#19 与 #21 中通过（运行 39251758718、39258060948 与 39286930354，提交 43918ac、53bdbb0 与 65fa6aa，2026-10-19，GitHub 运行器上的无头 Chromium，Pyodide 314.0.7 及其 pyarrow 22.0.0）：17 个原始文件导入本站私有存储，`research.snapshot` 与 `research.run` 作为浏览器任务成功运行，每个导出文件与同一批文件上的原生运行逐字节一致（五张表、`provenance.json`、`limitations.md`、`report.html`；`run_manifest.json` 除执行块外一致）。该次运行：4 味药材、1,792 个成分、370 个实测人类靶点、237 个节点 624 条边的 STRING 网络、检验 959 条 Reactome 通路，BH 校正后无一显著（因此真实数据上未抽取置换零分布；模拟世界检验了它）。中转已实现并有单元测试，自 `studio` #114（运行 39898204674，2026-10-23）起部署在 science.impf.ai：该次部署后以及 `studio` #118 部署后（运行 40193094581，提交 5da7f5d，2026-10-25），部署后检查经它对 `research/CMAUPv2.0_download_Targets.txt` 发出的 HEAD 由 bidd.group 应答，但没有 Content-Length，因此未比较审核过的大小；该检查现改为请求文件的第一个字节，并把 Content-Range 给出的总长与审核大小比较（失败只作警告），尚未对已部署的站点运行过。没有记录过浏览器经中转的下载。
 
 **RNA-seq 与单细胞（计数表，§3.1）**：在浏览器中运行的是 bioagent 的同一套代码（`bioagent rnaseq --counts`、
 `bioagent scrna`），只用 Pyodide 的 numpy 与 scipy（首次加载约 16.2 MiB；Pyodide 未能取得的包会以「不可用」拒绝，不会被记为已加载）。RNA-seq：计数表（基因 × 样本的整数表，
@@ -832,7 +851,8 @@ RNA-seq：`counts.tsv`、`vst.tsv`、`report.md`、`limitations.md` 与四张图
 最大相对差 1.81e-5）；各伪批量检验的显著基因同为 16、0、0、0 个；全部 1,077 个细胞的聚类与细胞类型、聚类表完全相同；
 UMAP 坐标与三张 UMAP 图不比较（`paga.svg` 的边是 `paga.tsv` 中已比较的连接度，其节点位于各簇 UMAP 坐标的中位数），改查结构：每个细胞 15 个最近 UMAP 邻居中同簇的比例，浏览器 0.9985、原生 0.9983（要求
 至少 0.95，且与原生相差不超过 0.01）。容差为：|a − b| ≤ 1e-6 + 1e-4·max(|a|,|b|) + max(|a|,|b|) 第六位有效数字的一个
-单位（表格按 `%.6g` 输出）。不同的表都是 DESeq2 拟合的输出（`deseq2_results.tsv`、`de_diagnostics.tsv` 与四个伪批量表）：
+单位（表格按 `%.6g` 输出）；自 2026-10-28 起，概率列（`p_value`、`p_adjusted`）不含 1e-6 一项：最显著基因的 p 值远小于它
+（`deseq2_results.tsv` 检验的 1,999 个基因中 70 个，B 细胞伪批量中 8 个），仅这一项就会让任意两个这样的值通过。不同的表都是 DESeq2 拟合的输出（`deseq2_results.tsv`、`de_diagnostics.tsv` 与四个伪批量表）：
 离散度搜索把原生构建与 Pyodide 的 wasm32 构建之间末位的差异放大到打印出的六位数字；Harmony 的嵌入不出现在任何表中，由它
 得出的 `clusters.tsv`、`paga.tsv`、`markers.tsv` 与 `cells.tsv`（UMAP 除外）完全相同。表头、基因与细胞顺序、NA 位置、
 True/False 标记和文字必须完全相同；跨越 alpha 的基因判为失败，
@@ -840,7 +860,11 @@ True/False 标记和文字必须完全相同；跨越 alpha 的基因判为失�
 界的 0.157（一个血小板伪批量 p 值），而更严的 1e-7 + 1e-5·max 被超出 1.55 倍。这一容差是在两个模拟参考上拟合的，对其他数据未经确立。
 此后比对工具对每张不逐字节一致的图给出各自的原因（只在确有表格包含其所画数值时指明该表；`plots/pca.svg`、`pca_variance.svg`
 与 `sample_distances.svg` 所画的数值不在任何表中），并要求 `report.html` 去掉内嵌图后文字完全相同，不设容差（上述两次运行
-中均如此）。用这些规则在本地运行过一次（所用应用包与下文核对限值的相同），比对结果与已知答案与上面相同。已知答案在浏览器写出的
+中均如此）。用这些规则在本地运行过一次（所用应用包与下文核对限值的相同），比对结果与已知答案与上面相同。自 2026-10-28 起，比对工具
+还逐字段比对 `run.json` 与 `stages.json`，其中数值按上述容差，只略去标识进程、时间与路径的字段（`started`、`finished`、`python`、`numpy`、
+`scipy`、`summary.out_dir`、各阶段的 `seconds`；各输出的摘要由各文件自己的行比对，输入按文件名与摘要比对）；此前只比对各阶段的结局与输出名。
+含这两处改动的一次本地运行（无头 Chromium 141，Pyodide 314.0.7 来自本地副本）比对结果与已知答案与上面相同，最大用到容差界的 0.139（同一个
+`p_adjusted`，现已不含 1e-6 一项），运行记录中的数值（各次 DESeq2 拟合的离散度趋势与先验方差、聚类的模块度）在容差内。已知答案在浏览器写出的
 文件上成立（原生文件亦然）：RNA-seq 上调 40/40、下调 40/40（各至少 38），方向错误 0，90 个显著中假发现 10 个（至多 15），
 检验 1,999 个基因；单细胞聚类 ARI 1.0000（887 个细胞），四种细胞类型，B 细胞伪批量中 20 个预设基因找到 16 个（至少 12），
 其他类型各 0 个（至多 1），批次混合度 1.0253（大于 0.8）。两个回执都在其记录的摘要处，`outputs_verified`，设备证据
@@ -950,7 +974,7 @@ C++ 异常时，该分子同样被拒绝（`RDKit.js exception`），化学工�
 
 **比对及其规则**：`science.mjs --mode admet` 在无头 Chromium 141（Pyodide 314.0.7、RDKit.js 2026.9.1）中，以页面任务服务的任务先运行
 `admet.models`（归档作为项目文件）再运行 `pipeline.admet`，并把每个输出与原生运行（RDKit 2026.9.1、scikit-learn 1.8.0、单线程）比对。它要求
-完全一致，不设容差，只有两个点名的例外：**模型卡**逐字段比对，只略去标识写出模型的进程而非模型本身的字段——模型文件与适用域文件的 SHA-256（pickle
+完全一致，不设容差，只有三个点名的例外：**模型卡**逐字段比对，只略去标识写出模型的进程而非模型本身的字段——模型文件与适用域文件的 SHA-256（pickle
 的字节取决于进程：此处为 wasm32，原生为 64 位，因此模型文件本身不比对；适用域 `.npy` 的字节单列一行比对）、训练 `seconds` 与化学引擎名称；原生
 模型用浏览器化学保留的分子训练。**预测**是模型的原始输出（提升树之和，完全一致地比对）经过一个初等函数：分类终点为 scipy 的 `expit`（其 `exp`
 来自 C 库），log10 终点为 numpy 的 `10 **`。这些末位在不同库之间不同，因此最终值可能在 float64 末位相差**至多 4 个单位**，逐个点名，绝不称作
@@ -958,7 +982,9 @@ C++ 异常时，该分子同样被拒绝（`RDKit.js exception`），化学工�
 numpy 的 `10 **` 用其自带的 SIMD 幂运算而非 glibc 的 `pow`，因此原生 log10 终点的末位本身就会因 CPU 是否有 AVX-512 而不同（核查的 vdss_lombardo 值在浏览器中与
 glibc 的一致，与众不同的是原生 numpy 的值）。在合成归档上实测：至多 2 个单位，16,120 个测试集预测中 52 个，所有原始输出一致。在 [−4, 4] 内的 100,000 个值上（Node 下的 Pyodide 314.0.7 对照
 本机原生的 glibc 与 AVX-512 上的 numpy 2.4.6）：Pyodide 的幂运算与 glibc 的 `pow` 不同者 65 个（0.07%），与 numpy 的 AVX-512 幂运算不同者 5,317 个（5.3%），都差 1 个单位；其 `exp` 与 glibc 的不同者 72 个；`expit` 34 个（0.03%），
-至多 2 个单位。
+至多 2 个单位。**描述符**：`qed`（`compare.mjs` 的 `ADMET_ULP_DESCRIPTORS`）的 float64 值可在末位相差至多 4 个单位，且只在作为 float32
+相等时（模型读取的精度；V8 的 `Math.exp`/`Math.log` 不是 glibc 的，见上文化学引擎的一致性），逐个分子点名，该行绝不称作一致；其他描述符都完全一致地
+比对。在 39 个分子的集合上，`qed` 在 10 个分子上不同，至多差 2 个单位。
 
 **GPU 适用域检索及其证据**：适用域检索（打包 2048 位 Morgan 位上的批量 Tanimoto 最大值：每个查询的最近训练分子——平局取最小下标——及整数交集与
 并集，由 Python 以 float64 相除）经 `science-scheduler.js` 在本设备的内核上运行。在用户的加速设置下，只有本设备自身的检查（`device-check.js`）测得
@@ -1093,7 +1119,9 @@ kcal/mol，在上述带内。
 `94807d4aeb35…`）与计算事实 `vina.dock`，在 2 个专用工作线程上运行，无 GPU，从未加速。专用 Vina 工作线程的 WebAssembly 内存如实记为
 「未测量」（任务服务不读取它）。浏览器任务用时 54.9 秒（dock 阶段 50.2 秒，7 次 Vina 运行，2 个工作线程上共 96 秒的 Vina）。
 
-**已运行与尚未运行**：`science.mjs --mode dock` 端到端与 `vina.test.mjs`（精确层与搜索层）在本地与 `studio` CI 中通过。尚未运行：实体 GPU
+**已运行与尚未运行**：`science.mjs --mode dock` 端到端与 `vina.test.mjs`（精确层与搜索层）在本地与 `studio` CI 中通过（首次在 `studio` #99，
+运行 39487835374，2026-10-20；`main` 上自 `studio` #114，运行 39898204674，2026-10-23 起，该次运行也把带 WebAssembly 版 Vina 的站点部署上线）。
+尚未运行：已部署站点上的对接任务（部署后检查不运行任何浏览器任务）；实体 GPU
 不变——对接不使用 GPU（只有 ADMET 适用域检索会用，P3 的实体 GPU 验收仍未满足，§3.2）；用户自己机器上的浏览器标签页（以上运行都是无头
 Chromium）；以及在浏览器中经中转下载大型结构（CI 以项目文件给出输入）。浏览器中准备受体与配体（Meeko、RDKit）、相互作用分析与 SDF 位姿
 （需要 RDKit）、从原始 PDB/SMILES 出发的输入都是里程碑 B、下一轮的工作，尚未完成（BROWSER_EXPANSION.md）。
@@ -1107,5 +1135,6 @@ AutoDock Vina 1.2.7（锁定的 SHA-256）对接，其 `score`/`optimize` 与原
 `.h5ad` 需要 Runner；从原始结构出发的对接（受体与配体准备：Meeko、RDKit，里程碑 B，尚未完成）与结构预测在浏览器中没有引擎，ADMET 的 SDF 或 `.mol` 文件、受治理的 `predict-admet` 与 `dock-ligands` Skill 运行也需要 Runner）、逐位可复现的对接（`score`/`optimize` 与原生 Vina 逐位一致，但带种子的蒙特卡洛搜索不是逐位可复现的，只被约束在种子 1–8 上的经测量带内，§3.3）、组学与 ADMET 输出与原生的逐字节一致（组学在两个参考上表格末位数字在
 容差内不同，UMAP 不比较，只比对过两个参考的参数，用户自己的运行不做比较；ADMET 的适用域文件与 `admet.tsv` 是原生运行的字节，模型卡逐字段与原生一致（模型文件摘要、秒数与化学名称除外：pickle 的字节取决于进程），模型原始输出与适用域检索完全一致，但经 `expit`/`10 **` 的最终预测值可能在 float64 末位相差几个单位（C 库的 `exp`，或 numpy 自带的 AVX-512 幂运算），逐个点名、绝不称作一致，qed 与 BertzCT 的 float64 末位可能相差而 float32 相等；浏览器化学拒绝了 Runner 的 RDKit 能读的训练分子时（真实 TDC 归档上拒绝了 81,809 个分子中的 202 个，0.25%），浏览器构建的模型可能与 Runner 的不同（模型卡计数，比对用同样保留的分子训练原生参考）；浏览器中的比对在小的已知答案归档、TDC 规模的合成归档以及（CI 中）真实 TDC 归档上运行，真实归档上 16,353 个测试集预测中 36 个在末位差 1 个单位）、组学任务超出限值的输入（超过 6,000 个细胞、单个表
 超过 66,000,000 个细胞 × 基因、计数矩阵超过 10,000,000 个基因 × 样本，交给 Runner）、在实体 GPU 上验证 ADMET 适用域检索（本机与 CI 无实体 GPU，P3 验收仍未满足）、手机端与浏览器标签页内存的测量。目前只在 Chromium 中运行过（Firefox、Safari 未运行；主线程缺少 `createWritable` 的浏览器写不了任务记录，
-任务会失败而不是假装已保存）；浏览器不像 Runner 那样在保存前校验 `.gz` 的 CRC，没有审核校验和的 STRING 别名文件若被
-截断，会标为 UNVERIFIED，并在 Python 解析时失败。
+任务会失败而不是假装已保存）；浏览器不像 Runner 那样在保存前校验 `.gz` 的 CRC，但清单中的每个 `.gz` 都有审核过的校验和
+（STRING 别名文件这一冻结版本也已按两次独立实际下载读到的大小与 SHA-256 固定），截断的副本会因校验和不符而
+不被保留；今后若加入没有校验和的 `.gz`，截断时会标为 UNVERIFIED，并在 Python 解析时失败。

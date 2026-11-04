@@ -132,7 +132,7 @@ Full attribution with file paths and page names is in `PATTERN_ATTRIBUTION.md`. 
 
 | # | Pattern | From | Landed in | Measured |
 |---|---|---|---|---|
-| 1 | Declarative execution policy with self-testing rules | Codex `execpolicy` | `kernel/execpolicy.py` | evaluate 0.0084 ms; load + self-test all 12 rules 0.062 ms |
+| 1 | Declarative execution policy with self-testing rules | Codex `execpolicy` | `kernel/execpolicy.py` | evaluate 0.0084 ms; load + self-test all 12 rules 0.062 ms (v0.4; see §7) |
 | 2 | Approval writes back a rule | Codex `ReviewDecision::ApprovedExecpolicyAmendment` | `kernel/approvals.py` | — |
 | 3 | `forbidden` absolute, first match, specificity irrelevant | Claude Code `permissions` | `execpolicy.py` | — |
 | 4 | Typed hook lifecycle, one JSON protocol | Claude Code `hooks`; same shape in Codex `hooks/` | `kernel/hooks.py` | 5 hooks + 5 audit events 0.3869 ms |
@@ -142,7 +142,7 @@ Full attribution with file paths and page names is in `PATTERN_ATTRIBUTION.md`. 
 <!-- zh -->
 | # | 模式 | 来源 | 落地位置 | 实测 |
 |---|---|---|---|---|
-| 1 | 声明式执行策略，规则自测试 | Codex `execpolicy` | `kernel/execpolicy.py` | evaluate 0.0084 ms；加载 + 自测试全部 12 条规则 0.062 ms |
+| 1 | 声明式执行策略，规则自测试 | Codex `execpolicy` | `kernel/execpolicy.py` | evaluate 0.0084 ms；加载 + 自测试全部 12 条规则 0.062 ms（v0.4；见第 7 节） |
 | 2 | 审批回写一条规则 | Codex `ReviewDecision::ApprovedExecpolicyAmendment` | `kernel/approvals.py` | — |
 | 3 | `forbidden` 绝对优先，首个匹配生效，具体程度无关 | Claude Code `permissions` | `execpolicy.py` | — |
 | 4 | 带类型的 hook 生命周期，单一 JSON 协议 | Claude Code `hooks`；Codex `hooks/` 中形状相同 | `kernel/hooks.py` | 5 个 hook + 5 个审计事件 0.3869 ms |
@@ -245,6 +245,14 @@ proxy therefore could not bind here. Three consequences, each handled rather tha
 
 
 ## 7. Measured · 7. 实测
+
+These figures were measured for v0.4 and are kept as measured then; none has been re-measured
+since. The execution policy's predate the command analysis added in October 2026 (each line is
+now analysed before its rules are matched: `PATTERN_ATTRIBUTION.md`, pattern 1), which does more
+work per evaluation.
+
+<!-- zh -->
+以下数字是为 v0.4 测得的，按当时的测量保留，此后都没有重新测量。执行策略的数字早于 2026 年 10 月加入的命令分析（现在每一行在匹配规则之前先被分析：见 `PATTERN_ATTRIBUTION.md` 模式 1），每次求值做的工作更多。
 
 | Mechanism | Figure |
 |---|---|

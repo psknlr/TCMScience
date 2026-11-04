@@ -9,8 +9,14 @@ every output built on the pack says so.
 
 ``check`` holds the pack to what the code relies on: every formula's herbs have limits,
 every syndrome's formula exists, every finding a criterion scores is on the intake form,
-no base formula contains a pair the pack itself calls incompatible. A pack that fails is
-not loaded.
+no base formula contains a pair the pack itself calls incompatible, every medicine mapped to
+drug-interaction classes is mapped to exactly the classes whose ATC groups hold its ATC code
+(a thiazide to both 利尿剂 and 降压药), every herb alias (``herb_aliases``, read by the allergy
+check) names a pack herb, cites its source and is given to one herb only, and every herb
+source record (``herb_sources``: the species of a herb the materia table lacks) names a pack
+herb and cites its source, every herb's pinyin (``herb_pinyin``) is of a pack herb and in Latin
+letters, and every English common name (``herb_common_names``) gives its species and cites its
+source. A pack that fails is not loaded.
 """
 
 from __future__ import annotations
@@ -114,8 +120,30 @@ class ClinicPack:
     synonyms: Mapping[str, str]
     digest: str
     incompatible_sources: Mapping[str, str] = field(default_factory=dict)   # rule -> source
+    #: a medicine's name (呋塞米, Lasix) -> (the rule class words it is read as, its ATC code);
+    #: one in two classes has both (氢氯噻嗪: 利尿剂 and 降压药)
+    drug_classes: Mapping[str, tuple[tuple[str, ...], str]] = field(default_factory=dict)
+    atc_groups: Mapping[str, tuple[str, ...]] = field(default_factory=dict)  # class -> groups
+    drug_classes_source: str = ""
     path: str = ""
     extra: Mapping[str, Any] = field(default_factory=dict)
+    #: another name of a pack herb -> (the herb, the source that gives the name): 夜交藤 ->
+    #: 首乌藤, 川黄柏 -> 黄柏. Read by the allergy check; a name no source is cited for is not
+    #: listed.
+    herb_aliases: Mapping[str, tuple[str, str]] = field(default_factory=dict)
+    #: a pack herb the materia table does not hold -> (its source species, the source):
+    #: 首乌藤 is the stem of the plant whose root is 何首乌, Polygonum multiflorum
+    herb_sources: Mapping[str, tuple[tuple[str, ...], str]] = field(default_factory=dict)
+    #: the Latin name of a herb the materia table does not hold: 首乌藤, Polygoni Multiflori
+    #: Caulis (read by the allergy check, in this and the older word order)
+    herb_latin: Mapping[str, str] = field(default_factory=dict)
+    #: each pack herb's name in pinyin (人参: ren shen), read by the allergy check; and where
+    #: the pinyin comes from
+    herb_pinyin: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    herb_pinyin_source: str = ""
+    #: English common names, each with the species it names and its source: ginger, Zingiber
+    #: officinale. The allergy check reads them as the species, never as one herb
+    herb_common_names: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = ()
 
     @property
     def reviewed(self) -> bool:
@@ -197,6 +225,31 @@ def _build(data: Mapping[str, Any], digest: str, path: str) -> ClinicPack:
                     patterns=tuple(re.compile(x, re.IGNORECASE) for x in r.get("patterns") or ()),
                     why=str(r["why"]), action=str(r.get("action") or "refer"))
         for r in data["red_flags"])
+    classes = data.get("drug_classes") or {}
+    named: dict[str, tuple[tuple[str, ...], str]] = {}
+    for d in classes.get("drugs") or ():
+        words = (d["class"],) if isinstance(d["class"], str) else d["class"]
+        entry = (tuple(dict.fromkeys(str(w) for w in words)), str(d["atc"]))
+        if not entry[0]:
+            raise PackError(f"drug_classes: {list(_tuple(d['names']))} are read as no class")
+        for n in _tuple(d["names"]):
+            if named.setdefault(n, entry) != entry:
+                raise PackError(f"drug_classes: {n} is listed as {named[n]} and as {entry}")
+    aliases: dict[str, tuple[str, str]] = {}
+    for a in data.get("herb_aliases") or ():
+        entry = (str(a["herb"]), str(a.get("source") or ""))
+        for name in _tuple(a["aliases"]):
+            if aliases.setdefault(name, entry)[0] != entry[0]:
+                raise PackError(f"herb_aliases: {name} is given to {aliases[name][0]} and to "
+                                f"{entry[0]}")
+    sources = {str(r["herb"]): (_tuple(r.get("species")), str(r.get("source") or ""))
+               for r in data.get("herb_sources") or ()}
+    latin = {str(r["herb"]): str(r["latin"]) for r in data.get("herb_sources") or ()
+             if r.get("latin")}
+    pinyin_doc = data.get("herb_pinyin") or {}
+    pinyin = {str(h): _tuple(p) for h, p in (pinyin_doc.get("names") or {}).items()}
+    common = tuple((_tuple(c.get("names")), _tuple(c.get("species")), str(c.get("source") or ""))
+                   for c in data.get("herb_common_names") or ())
     vitals = data.get("vital_limits") or {}
     vital_rules = tuple(
         VitalRule(id=str(v["id"]), field=str(v["field"]),
@@ -212,6 +265,10 @@ def _build(data: Mapping[str, Any], digest: str, path: str) -> ClinicPack:
         incompatible=_pairs(data.get("incompatible") or ()),
         incompatible_sources={str(r["rule"]): str(r.get("source") or "")
                               for r in data.get("incompatible") or ()},
+        drug_classes=named,
+        atc_groups={str(k): _tuple(v.get("atc"))
+                    for k, v in (classes.get("classes") or {}).items()},
+        drug_classes_source=str(classes.get("source") or ""),
         drug_interactions=tuple(data.get("drug_interactions") or ()),
         condition_cautions=tuple(data.get("condition_cautions") or ()),
         red_flags=flags, vital_rules=vital_rules, vital_source=str(vitals.get("source") or ""),
@@ -220,7 +277,9 @@ def _build(data: Mapping[str, Any], digest: str, path: str) -> ClinicPack:
         emergency_syndromes=frozenset(_tuple(data.get("emergency_syndromes"))),
         inquiry_groups={g: _tuple(t) for g, t in (data.get("inquiry_groups") or {}).items()},
         synonyms={str(k): str(v) for k, v in (data.get("synonyms") or {}).items()},
-        digest=digest, path=path)
+        digest=digest, path=path, herb_aliases=aliases, herb_sources=sources,
+        herb_latin=latin, herb_pinyin=pinyin,
+        herb_pinyin_source=str(pinyin_doc.get("source") or ""), herb_common_names=common)
 
 
 def _pairs(rules: Any) -> tuple[tuple[str, str, str], ...]:
@@ -300,6 +359,44 @@ def check(pack: ClinicPack) -> list[str]:
     for name in pack.emergency_syndromes:
         if name in pack.syndromes and pack.syndromes[name].formula:
             problems.append(f"emergency syndrome {name} must not carry a formula to draft")
+    words = {str(d) for r in pack.drug_interactions for d in r.get("drugs") or ()}
+    for name, (read_as, atc) in pack.drug_classes.items():
+        groups = [k for k, gs in pack.atc_groups.items() if any(atc.startswith(g) for g in gs)]
+        for word in read_as:
+            if word not in words:
+                problems.append(f"drug_classes: {name} is read as {word}, which no interaction "
+                                "rule names")
+        # read as every class whose ATC groups hold its code, and only those: a thiazide
+        # (C03AA) as 利尿剂 and as 降压药, a loop diuretic (C03CA) as 利尿剂 alone
+        if sorted(groups) != sorted(read_as):
+            problems.append(f"drug_classes: {name} ({atc}) is read as {list(read_as)}, but the "
+                            f"classes whose ATC groups hold its code are {groups}")
+    for name, (herb, source) in pack.herb_aliases.items():
+        if herb not in pack.herbs:
+            problems.append(f"herb alias {name}: {herb} is not a herb of the pack")
+        if name in pack.herbs:
+            problems.append(f"herb alias {name} is itself a herb of the pack")
+        if not name.strip() or not source.strip():
+            problems.append(f"herb alias {name!r} of {herb} must cite its source")
+    for herb, names in pack.herb_pinyin.items():
+        if herb not in pack.herbs:
+            problems.append(f"herb pinyin {herb} is not a herb of the pack")
+        if not names or not all(n.strip() and n.isascii() for n in names):
+            problems.append(f"herb pinyin of {herb} must be written in Latin letters")
+    if pack.herb_pinyin and not pack.herb_pinyin_source.strip():
+        problems.append("herb pinyin must say where it comes from")
+    for herb in pack.herb_latin:
+        if herb not in pack.herb_sources:
+            problems.append(f"herb Latin name of {herb} must come with its source record")
+    for names, species, source in pack.herb_common_names:
+        if not names or not species or not source.strip():
+            problems.append(f"herb common names {list(names)} must give their species and "
+                            "cite their source")
+    for herb, (species, source) in pack.herb_sources.items():
+        if herb not in pack.herbs:
+            problems.append(f"herb source {herb} is not a herb of the pack")
+        if not species or not source.strip():
+            problems.append(f"herb source {herb} must give its species and cite its source")
     ids = [r.id for r in pack.red_flags] + [v.id for v in pack.vital_rules]
     if len(ids) != len(set(ids)):
         problems.append("red-flag and vital-sign rule ids must be unique")

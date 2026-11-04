@@ -9,7 +9,8 @@
 // --software        lets the check compute on a software adapter (Chromium's SwiftShader, forced with
 //                   --use-angle=swiftshader): it shows the WGSL is exact there, and its timings are the CPU's, so the
 //                   report says "software, not evidence" and gives no speed-up. The page also checks that a production
-//                   ScienceGPU refuses that adapter.
+//                   ScienceGPU refuses that adapter. With it, no adapter, or a GPU that did not run exactly at every
+//                   size, fails (softwareFailures): the step exists to check the WGSL.
 // without it        a machine whose only adapter is a software renderer (or none) reports "no physical adapter" and
 //                   exits 0 with that verdict: it is not a parity failure; the CPU kernels are still checked and timed.
 // --channel chrome --headed
@@ -17,8 +18,8 @@
 //                   acceptance of a physical GPU needs, which no machine here or in CI has.
 // --site DIR        serves a built site (build_web.py --dev) instead of studio/web.
 // Exit 0 when every exactness check passed (whatever the verdict), 1 when one did not (or a production ScienceGPU
-// computed on a software adapter), 2 when no report came back. A long TMPDIR breaks Chromium's launch on Linux (its
-// profile and socket paths): run with a short one (TMPDIR=/tmp/x).
+// computed on a software adapter, or --software and the WGSL did not run), 2 when no report came back. A long TMPDIR
+// breaks Chromium's launch on Linux (its profile and socket paths): run with a short one (TMPDIR=/tmp/x).
 
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -75,6 +76,22 @@ function serve(root) {
 
 const v = (x) => (x === null || x === undefined ? "—" : x === true ? "yes" : x === false ? "**no**" : String(x));
 
+/**
+ * What --software requires beyond the page's own checks → failures: that the WGSL ran, on an adapter, and was exact at
+ * every size. The device check reports a machine without an adapter (or whose GPU could not run) as "no physical
+ * adapter", which is not a parity failure for a visitor; under --software it would leave the GPU's exactness unchecked.
+ */
+export function softwareFailures(report) {
+  if (!report) return [];
+  const k = report.kernels?.["tanimoto.best"];
+  const failures = [];
+  const unrun = (k?.sizes || []).filter((s) => s.exact?.webgpu !== true);
+  if (!report.device?.adapter) failures.push(`--software: no WebGPU adapter, so the WGSL never ran${report.device?.gpu_error ? ` (${report.device.gpu_error.message})` : ""}`);
+  else if (unrun.length) failures.push(`--software: the WGSL did not run exactly at ${unrun.map((s) => `${s.queries} × ${s.refs} (${s.exact?.webgpu === false ? "not exact" : s.gpu_error?.message || report.device.gpu_error?.message || "not run"})`).join(", ")}`);
+  if (!k?.sizes?.length) failures.push("--software: no size was measured");
+  return failures;
+}
+
 /** The report as lines a person reads in a terminal. */
 export function summary(result) {
   const r = result.report;
@@ -126,6 +143,8 @@ async function main() {
   }
   result.browser_version = browserVersion;
   result.harness = { flags, channel: args.channel || null, headed: args.headed, software_allowed: args.software, node: process.version, os: `${os.platform()} ${os.release()} ${os.arch()}`, cpu: os.cpus()[0]?.model || null, cores: os.cpus().length };
+  const required = args.software ? softwareFailures(result.report) : [];
+  if (required.length) Object.assign(result, { ok: false, failures: [...(result.failures || []), ...required] });
   if (args.json) writeFileSync(args.json, JSON.stringify(result, null, 1));
   for (const line of summary(result)) console.log(line);
   if (!result.report) { for (const l of result.console || []) console.error(l); process.exit(2); }

@@ -185,9 +185,11 @@ jobs:
         # checks included. The stage and incomplete-run tests use a stand-in for Vina here too; they need RDKit and
         # meeko, which the unit tier lacks. test_docking_prepared: the prepared-input mode (PDBQT in, the browser's
         # docking) with real Vina 1.2.7 on the prepared fixture, the crystal ligand redocked within 2 Å; its other
-        # tests run in the unit tier too. test_runrecord and test_pipeline_references need no engine (the docking
-        # reference compares its fixture's digest; the ADMET one skips without BIOAGENT_TDC_ARCHIVE, not set here)
-        run: python -m pytest -q tests/test_docking.py tests/test_docking_prepared.py tests/test_admet.py tests/test_compute_contracts.py tests/test_runrecord.py tests/test_pipeline_references.py
+        # tests run in the unit tier too. test_admet_build and test_admet_engine: the ADMET model build and the
+        # chemistry engine seam, which need RDKit and scikit-learn and so skip in the unit tier. test_runrecord and
+        # test_pipeline_references need no engine (the docking reference compares its fixture's digest; the ADMET
+        # one skips without BIOAGENT_TDC_ARCHIVE, not set here)
+        run: python -m pytest -q tests/test_docking.py tests/test_docking_prepared.py tests/test_admet.py tests/test_admet_build.py tests/test_admet_engine.py tests/test_compute_contracts.py tests/test_runrecord.py tests/test_pipeline_references.py
       - name: Dependency readiness where the packages are installed (imports, versions, known-answer calculations)
         # a group not installed in this job is BLOCKED, which does not fail it; an installed
         # package that fails to import or computes a wrong answer does

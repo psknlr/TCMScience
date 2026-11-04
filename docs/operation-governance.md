@@ -41,9 +41,10 @@ one, the broker is the only way the call runs. A refused or failed call raises
 `OperationError` (`OperationRefused` for a gate's refusal) in the skill.
 
 **The egress guard** makes the door more than a convention. While a broker is installed, a
-Python audit hook watches `urllib.Request` and `socket.connect`. A `urllib` request or an IP
-socket connection (loopback included) made outside an operation is refused and recorded as an
-`unbrokered` operation. Inside an
+Python audit hook watches `urllib.Request`, `socket.connect` and the datagram sends that need
+no connection, `socket.sendto` and `socket.sendmsg`. A `urllib` request, an IP socket
+connection or an IP datagram (loopback included) made outside an operation is refused and
+recorded as an `unbrokered` operation. Inside an
 operation, a `urllib` request to a host the operation does not declare is refused, and that
 includes a redirect or an address the service hands back.
 
@@ -278,7 +279,7 @@ and `test_network_pharmacology.py` now pass a component registry.
 - **双内核执行：** 先由 PSH 桥接准入，经 `ExecutionBroker.call_tool` 分类载荷、按真实目的地裁决出口、计预算；再经 BioScience `Runtime.invoke`，走解析器、策略内核（许可证与可信主机白名单）和事件日志。
 - **逐条记录：** 每次调用写一条执行证据，同时进入 PSH 审计链和产物 provenance。证据包括契约要求（组件、主机、目的地、标签上限）、经过的闸门、`ExecutionStatus` 和输出的 sha256，回读确认后才算已记录。
 
-**出口守卫：** Python 审计钩子监视 `urllib.Request` 和 `socket.connect`。绕过入口的联网被拒绝，并记为 `unbrokered`；操作内部请求未声明的主机（包括重定向）同样被拒绝。
+**出口守卫：** Python 审计钩子监视 `urllib.Request`、`socket.connect`，以及无需连接即可发出数据报的 `socket.sendto` 与 `socket.sendmsg`。绕过入口的联网（包括 UDP 数据报）被拒绝，并记为 `unbrokered`；操作内部请求未声明的主机（包括重定向）同样被拒绝。
 
 **发布：** 运行中只要有操作被拒、失败或未记录，即使技能捕获错误继续完成，也不会发布：
 - `run_governed` 不签发证明；

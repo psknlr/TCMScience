@@ -183,6 +183,7 @@ pip install -e ".[dev]"
 PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit      # 847 tests
 PYTHONPATH=src:../PSH-Harness/src python scripts/check_lockfile.py  # pins match the tree
 python -m bioagent.cli scout --skills skills/tcm --out candidates.json
+# --skills skills scans skills/tcm and skills/candidates at any depth, as the monthly scout does
 ```
 
 ---

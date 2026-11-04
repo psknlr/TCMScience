@@ -9,7 +9,7 @@ way the site build builds it) and from ``compat_matrix.rows()`` for the browser 
 core tools, connector sources and operations, native tools and their domains, governed and pinned skills, entries
 that run in the browser and those only the runner runs, and the class counts.
 
-Two kinds of check run over README.md, README.zh-CN.md, USAGE.md, studio/README.md, studio/docs/*.md,
+Two kinds of check run over README.md, README.zh-CN.md, USAGE.md, INSTALL.md, studio/README.md, studio/docs/*.md,
 BioScience-Harness/README.md and docs/*.md:
 
 * anchors: a phrase a given doc is known to use (``| 3 | … | 3 |`` in the class table, ``642 entries: native 150,
@@ -17,10 +17,13 @@ BioScience-Harness/README.md and docs/*.md:
 * phrases anywhere ("N public sources", "N typed operations", "N native tools", "N 个原生工具", "N entries", …):
   every number in one must equal the fact it names.
 
-Versions a doc states (the README's kernel badge, USAGE's example version line) are checked the same way against
-each package's pyproject.toml (``VERSION_ANCHORS``). A table that must list every member of a set (docs/validation.md's
-verification levels) is checked for a row per member (``TABLE_ROWS``), so a deleted row is noticed as well as a wrong
-count. The kernel parity case count is read from ``studio/web/test/fixtures/kernel_cases.json``.
+Versions a doc states (the README's kernel badge, the example version line of USAGE and INSTALL) are checked the same
+way against each package's pyproject.toml (``VERSION_ANCHORS``). A table that must list every member of a set
+(docs/validation.md's verification levels) is checked for a row per member (``TABLE_ROWS``), so a deleted row is noticed
+as well as a wrong count. The kernel parity case count is read from ``studio/web/test/fixtures/kernel_cases.json``, and the research
+files the browser's storage check cannot count (no reviewed size), and those a benchmark stage that reads one stays
+UNVERIFIED for (no reviewed checksum), from ``tcmstudio.datasets.registry_document()`` (``runtime/datasets.json``); the
+docs write those as a word ("the two files", "两个"), which is read as its number.
 
 A dated report or a release note states the counts of its own day and is left as written; each such file or
 section is listed below with the reason. Nothing else is exempt.
@@ -43,7 +46,7 @@ for src in (STUDIO / "runner" / "src", REPO / "BioScience-Harness" / "src", REPO
         sys.path.insert(0, str(src))
 
 #: the docs whose numbers are checked (globs from the repository root)
-DOCS = ("README.md", "README.zh-CN.md", "USAGE.md", "studio/README.md", "studio/docs/*.md",
+DOCS = ("README.md", "README.zh-CN.md", "USAGE.md", "INSTALL.md", "studio/README.md", "studio/docs/*.md",
         "BioScience-Harness/README.md", "docs/*.md")
 #: the kernel parity fixtures (the cases web/test/kernels.test.mjs and test_kernel_fixtures.py run)
 KERNEL_CASES = "studio/web/test/fixtures/kernel_cases.json"
@@ -54,6 +57,8 @@ HISTORICAL_FILES = {
                                              "the October 2026 release it qualified",
     "docs/audit-2026-09-response.md": "a dated audit response (September 2026)",
     "docs/audit-2026-10-response.md": "a dated audit response (October 2026)",
+    "docs/upgrade-2026-10.md": "a dated upgrade report (2026-10-19): its counts, tests and audit figures are those of "
+                               "the branch it reported on",
 }
 #: sections (from a heading matching the pattern to the next heading of the same or a higher level) that state
 #: the counts of a past version, with the reason
@@ -63,6 +68,11 @@ HISTORICAL_SECTIONS = {
 }
 
 _N = r"(\d[\d,]*)"
+#: a small count as the docs write it, as a word ("the two files", "两个"); ``_number`` reads it
+_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+          "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+_W = r"\b((?i:\d[\d,]*|one|two|three|four|five|six|seven|eight|nine|ten))"
+_WZ = r"(?<![\d一二两三四五六七八九十])(\d[\d,]*|[一二两三四五六七八九十])"
 #: the capability verification levels an entry's ``verification.levels`` may hold (docs/validation.md)
 VERIFICATION_LEVELS = ("offline_invocation", "reference_output", "kernel_parity", "pyodide_parity", "lock_pin",
                        "gateway_mock", "live_upstream", "live_gateway")
@@ -84,6 +94,9 @@ PHRASES: tuple[tuple[str, str], ...] = (
     (rf"{_N} 个(?:序列|内核)工具", "kernel_tools"),
     (rf"(?<![\d.,~]){_N} parity cases\b", "kernel_cases"),
     (rf"{_N} 个一致性用例", "kernel_cases"),
+    (rf"(?<![\d.,~]){_W}\s+files?\s+(?:with\s+no|without\s+a)\s+reviewed\s+size\b", "unsized_files"),
+    (rf"{_WZ}\s*个没有审核大小的文件", "unsized_files"),
+    (rf"(?<![\d.,~]){_W}\s+files?\s+(?:with\s+no|without\s+a)\s+reviewed\s+checksum\b", "unchecked_files"),
 )
 #: (doc, pattern, facts): a phrase this doc is known to use; it must still be there. A fact None is a label group;
 #: "class.{}" takes the label before it.
@@ -117,6 +130,11 @@ ANCHORS: tuple[tuple[str, str, tuple[str | None, ...]], ...] = (
     ("README.zh-CN.md", rf"对照 Python 参考实现跑 {_N} 个一致性用例", ("kernel_cases",)),
     ("studio/README.md", rf"逐字节相同（{_N} 个一致性用例", ("kernel_cases",)),
     ("studio/docs/BROWSER_COMPUTE.md", rf"shown by the parity tests \({_N} fixture cases", ("kernel_cases",)),
+    ("studio/docs/BROWSER_COMPUTE.md", rf"the {_W}\s+files\s+with\s+no\s+reviewed\s+size", ("unsized_files",)),
+    ("studio/docs/BROWSER_JOBS.md", rf"the {_W}\s+files\s+without\s+a\s+reviewed\s+size", ("unsized_files",)),
+    ("studio/docs/BROWSER_JOBS.md", rf"{_WZ}个没有审核大小的文件", ("unsized_files",)),
+    ("docs/validation.md", rf"either of the {_W}\s+files\s+without\s+a\s+reviewed\s+checksum\s+\(Reactome's\s+"
+                           r"UniProt\s+mapping\s+and\s+the\s+UniProt\s+accession\s+list,", ("unchecked_files",)),
     ("BioScience-Harness/README.md", rf"and {_N} public sources", ("sources",)),
     ("BioScience-Harness/README.md", rf"tools/\s+{_N} native bioinformatics, clinical and TCM tools", ("native",)),
 )
@@ -131,6 +149,9 @@ VERSION_ANCHORS: tuple[tuple[str, str, str], ...] = (
     # the example ResearchArtifact's version line (bioagent.skills.base: psh-<psh>+bioagent-<bioagent>)
     ("USAGE.md", r"runtime=psh-([0-9][0-9.]*[0-9])\+bioagent-", "psh"),
     ("USAGE.md", r"runtime=psh-[0-9.]+\+bioagent-([0-9][0-9.]*[0-9])\|", "bioagent"),
+    # INSTALL.md prints the same line from its Python example
+    ("INSTALL.md", r"runtime=psh-([0-9][0-9.]*[0-9])\+bioagent-", "psh"),
+    ("INSTALL.md", r"runtime=psh-[0-9.]+\+bioagent-([0-9][0-9.]*[0-9])\|", "bioagent"),
 )
 #: (doc, row pattern with one ``{}`` for the member, members): a table that must have its own row for every member
 TABLE_ROWS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
@@ -181,6 +202,7 @@ def check_rows(rel: str, text: str) -> list[str]:
 def facts() -> dict[str, int]:
     """The numbers the docs may restate, computed from the code."""
     from tcmstudio.catalog import build_catalog
+    from tcmstudio.datasets import registry_document
     import compat_matrix
 
     doc = build_catalog("browser", probe=False)
@@ -205,12 +227,18 @@ def facts() -> dict[str, int]:
         **{f"level.{n}": sum(1 for e in items if n in ((e.get("verification") or {}).get("levels") or {}))
            for n in VERIFICATION_LEVELS},
         "kernel_cases": len(json.loads((REPO / KERNEL_CASES).read_text(encoding="utf-8"))["cases"]),
+        # the research files the browser's storage check cannot count before a snapshot build
+        "unsized_files": sum(1 for f in registry_document()["groups"]["research"]["files"] if f["bytes"] is None),
+        # the research files without a reviewed checksum, for which a benchmark stage that reads one stays
+        # UNVERIFIED (STRING's aliases file has one, pinned from two live downloads)
+        "unchecked_files": sum(1 for f in registry_document()["groups"]["research"]["files"] if not f["checksum"]),
     }
     return out
 
 
 def _number(text: str) -> int:
-    return int(text.replace(",", ""))
+    word = _WORDS.get(text.lower())
+    return word if word is not None else int(text.replace(",", ""))
 
 
 def _short(text: str) -> str:

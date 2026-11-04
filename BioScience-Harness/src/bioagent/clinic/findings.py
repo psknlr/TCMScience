@@ -44,13 +44,13 @@ def split_entries(values: Iterable[str] | str | None) -> list[str]:
         return []
     if isinstance(values, str):
         values = [values]
-    out: list[str] = []
+    out: dict[str, None] = {}                 # ordered and unique, in linear time
     for v in values:
         for piece in _SPLIT.split(unicodedata.normalize("NFKC", str(v))):
             n = normalise(piece)
-            if n and n not in out:
-                out.append(n)
-    return out
+            if n:
+                out.setdefault(n, None)
+    return list(out)
 
 
 @dataclass(frozen=True)

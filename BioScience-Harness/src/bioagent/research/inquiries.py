@@ -23,7 +23,10 @@ Two rules are this module's own:
 * **Who classified an outcome is in the trail.** An outcome the runtime classified carries
   ``runtime:<tool>:<digest>`` as its evidence reference; one the agent reports carries
   ``agent:`` and the evidence it cites, which it must give. A test with a runtime
-  classifier accepts only data, never a reported outcome.
+  classifier accepts only data, never a reported outcome, and so does a replicate an agent
+  adds to one. Data already recorded (the same numbers, however labelled or written) are
+  refused, as is a replicate citing its original's source: a PMID or DOI however it is
+  written (a label or none, a URL, full-width characters, a note after it).
 
 An agent that can call several tools at once asks for a plan: the engine's batch of up to
 four analyses, valued by the information they carry together and sealed into the trail
@@ -40,6 +43,7 @@ import math
 import os
 import re
 import threading
+import unicodedata
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -135,6 +139,7 @@ class InquiryStore:
         record.setdefault("values", {})
         record.setdefault("tests", {})
         record.setdefault("read", {})
+        record.setdefault("inputs", {})
         return inquiry, record
 
     def save(self, inquiry: Any, record: Mapping[str, Any]) -> None:
@@ -305,6 +310,12 @@ def declare(store: InquiryStore, inquiry_id: str, analysis_id: str,
                 raise ValueError(f"the analysis given is {added.id!r}, not {analysis_id!r}")
             inquiry.add_analysis(added)
             record["tests"][added.id] = _how(analysis)
+            # A replicate of a test the runtime classifies is classified by the same rule,
+            # from data: a reported outcome would skip the criteria sealed for it.
+            original = record["tests"].get(added.replicates) or {}
+            if original.get("classifier"):
+                record["tests"][added.id] = {
+                    **original, "test": original.get("test") or added.replicates}
         if predictions:
             inquiry.declare(analysis_id, predictions)
         elif analysis is None:
@@ -315,6 +326,52 @@ def declare(store: InquiryStore, inquiry_id: str, analysis_id: str,
 
 def _classifier(record: Mapping[str, Any], analysis_id: str) -> str:
     return str((record.get("tests") or {}).get(analysis_id, {}).get("classifier") or "")
+
+
+_DOI = re.compile(r"10\.\d+(?:\.\d+)*/[^\s\"']+")
+_PMID = re.compile(r"(?:pmid|pubmed(?:\.ncbi\.nlm\.nih\.gov)?)\W*(?:(?:id|term)\W*)?"
+                   r"(\d{1,9})(?!\d)")
+_OPENS = {")": "(", "]": "[", ">": "<"}
+_TRAILING = ".,;:。、"         # punctuation after a DOI, which NFKC leaves as it is
+
+
+def _sources(ref: str) -> frozenset[str]:
+    """The sources a reference names: every PMID and DOI in it, however written (a label
+    or none, a URL, full-width characters, punctuation or a note around it), or, when it
+    names neither, the reference itself without case or spacing."""
+    text = unicodedata.normalize("NFKC", str(ref or "")).casefold()
+    found = set()
+    for m in _DOI.finditer(text):
+        doi = m.group(0).rstrip(_TRAILING)
+        # a bracket closing around the DOI, as in "(doi:10.1/x).", is not part of it
+        while doi[-1] in _OPENS and doi.count(doi[-1]) > doi.count(_OPENS[doi[-1]]):
+            doi = doi[:-1].rstrip(_TRAILING)
+        found.add("doi:" + doi)
+    rest = _DOI.sub(" ", text)
+    found |= {f"pmid:{int(m.group(1))}" for m in _PMID.finditer(rest)}
+    bare = "".join(rest.split()).rstrip(".")
+    if not found and bare.isdigit() and len(bare) <= 9:
+        found.add(f"pmid:{int(bare)}")        # a number alone is a PMID
+    return frozenset(found) or frozenset({"".join(text.split())})
+
+
+def _cited(update: Any) -> str:
+    """The source an outcome cites: the agent's, or the one given with runtime data."""
+    ref = str(update.evidence_ref or "")
+    if ref.startswith("agent:"):
+        return ref[len("agent:"):]
+    return ref.split(" · ", 1)[1] if ref.startswith("runtime:") and " · " in ref else ""
+
+
+def _own_source(inquiry: Any, analysis_id: str, source: str) -> None:
+    """A replicate may not cite the source its original was recorded from."""
+    original = inquiry.analysis(analysis_id).replicates
+    if not source or not original or not inquiry.observed(original):
+        return
+    theirs = next(_cited(u) for u in inquiry.updates if u.analysis_id == original)
+    if theirs and _sources(theirs) & _sources(source):
+        raise ValueError(f"{analysis_id} replicates {original}: it needs evidence of its "
+                         f"own, not the source already recorded for {original}")
 
 
 def record_reported(store: InquiryStore, inquiry_id: str, analysis_id: str, outcome: str,
@@ -331,12 +388,7 @@ def record_reported(store: InquiryStore, inquiry_id: str, analysis_id: str, outc
             raise ValueError(f"{analysis_id} is classified by the runtime: pass the result "
                              f"as data ({record['tests'][analysis_id]['data']}), or "
                              "withdraw it if those data do not exist")
-        original = inquiry.analysis(analysis_id).replicates
-        if original and inquiry.observed(original) and next(
-                u.evidence_ref for u in inquiry.updates
-                if u.analysis_id == original) == f"agent:{evidence}":
-            raise ValueError(f"{analysis_id} replicates {original}: it needs evidence of its "
-                             f"own, not the source already recorded for {original}")
+        _own_source(inquiry, analysis_id, evidence)
         update = inquiry.observe(analysis_id, outcome, evidence_ref=f"agent:{evidence}")
         store.save(inquiry, record)
     return view(inquiry, record, update=update)
@@ -359,20 +411,28 @@ def record_classified(store: InquiryStore, inquiry_id: str, analysis_id: str,
             raise rivals.Unclassifiable(
                 "this inquiry's stored values are not the ones sealed in its trail, so its "
                 "criteria cannot be applied; record outcomes with the evidence you cite")
-        outcome, read = rivals.classify(record["scaffold"], analysis_id, record["values"],
+        # a test an agent added as a replicate is classified by its original's rule
+        test = str(record["tests"][analysis_id].get("test") or analysis_id)
+        outcome, read = rivals.classify(record["scaffold"], test, record["values"],
                                         arguments, result)
         computed = digest({"arguments": arguments, "result": result})
+        # the same data, however labelled or written, are not a second data set
+        same = digest({"classifier": classifier,
+                       "inputs": rivals.inputs(classifier, arguments)})
         again = [u.analysis_id for u in inquiry.updates if u.result_digest == computed]
+        again += [a for a, d in record["inputs"].items() if d == same]
         if again:
             raise rivals.Unclassifiable(
                 f"these data were already recorded for {again[0]}: a replication, or any "
                 "second analysis, needs data of its own")
         ref = f"runtime:{tool or classifier}:{computed[:16]}"
         source = " ".join(str(evidence_ref or "").split())
+        _own_source(inquiry, analysis_id, source)
         update = inquiry.observe(analysis_id, outcome,
                                  evidence_ref=ref + (f" · {source}" if source else ""),
                                  result_digest=computed)
         record["read"][analysis_id] = plain(read)
+        record["inputs"][analysis_id] = same
         store.save(inquiry, record)
     return view(inquiry, record, update=update)
 
@@ -491,9 +551,11 @@ def conclude(store: InquiryStore, inquiry_id: str) -> dict[str, Any]:
     for a in inquiry.analyses:
         if inquiry.observed(a.id):
             continue
+        # a severe test, or a replicate of one or of a test the acceptance rests on (an
+        # outcome that refuted the rival)
         against = sorted(r for r in rivals_open if c.leader and (
-            inquiry.severe(c.leader, r, a.id) or (a.replicates and inquiry.severe(
-                c.leader, r, a.replicates))))
+            inquiry.severe(c.leader, r, a.id) or (a.replicates and (inquiry.severe(
+                c.leader, r, a.replicates) or a.replicates in c.severe_tests.get(r, ())))))
         entry = {"analysis_id": a.id, "title": a.title, "design": a.design.value,
                  **_how_to(record, a.id)}
         if a.id in inquiry.withdrawn:

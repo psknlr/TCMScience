@@ -106,9 +106,15 @@ def test_the_files_needed_are_the_ones_the_parsers_read():
     assert {reactome.FILE, string_db.FILES["aliases"], "260413_frozen.csv.gz"} <= names
     assert {a.filename for a in pipeline.required_files(["lotus"], network=False)} == {
         "260413_frozen.csv.gz"}
-    unreviewed = {a.filename for a in pipeline.UNREVIEWED}
-    assert unreviewed == {"9606.protein.aliases.v12.0.txt.gz", "UniProt2Reactome.txt"}
-    assert all(a.checksum is None and a.expected_bytes is None for a in pipeline.UNREVIEWED)
+    unreviewed = {a.filename: a for a in pipeline.UNREVIEWED}
+    assert set(unreviewed) == {"9606.protein.aliases.v12.0.txt.gz", "UniProt2Reactome.txt"}
+    # STRING v12.0 is frozen: the size and SHA-256 two live downloads read (live-data runs
+    # 38127338070 and 40307982154); Reactome's 'current' file changes, so it has neither
+    aliases = unreviewed["9606.protein.aliases.v12.0.txt.gz"]
+    assert (aliases.expected_bytes, aliases.checksum) == (
+        19777800, "sha256:b65f730b993ed0c1bd72edf4565d3d425db42861101b29699704810e8f125680")
+    reactome = unreviewed["UniProt2Reactome.txt"]
+    assert reactome.checksum is None and reactome.expected_bytes is None
     with pytest.raises(ValueError, match="no research source"):
         pipeline.required_files(["chembl"])
 
