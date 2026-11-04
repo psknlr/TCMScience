@@ -136,7 +136,7 @@ a mechanism, which is the plan's acceptance condition.
 
   | File | Bytes | Observed SHA-256 (runs #3 to #5) | Note |
   |---|---|---|---|
-  | `9606.protein.aliases.v12.0.txt.gz` (STRING) | 19,777,800 | `b65f730b993ed0c1bd72edf4565d3d425db42861101b29699704810e8f125680` | frozen release v12.0: a checksum will hold |
+  | `9606.protein.aliases.v12.0.txt.gz` (STRING) | 19,777,800 | `b65f730b993ed0c1bd72edf4565d3d425db42861101b29699704810e8f125680` | frozen release v12.0: a checksum will hold (added on 2026-10-28: since pinned to this size and SHA-256 in `bioagent/sources/pipeline.py`, after `live-data` #31, run 40307982154 on 2026-10-26, read the same) |
   | `UniProt2Reactome.txt` (Reactome) | 43,041,375 | `e34fe56a5129d88d8cd67300c279d7e81fa1d3bf86fa0577cf91032c326eaecc` | from `download/current/`, which changes with each release: pin a versioned copy, not this URL |
   | `uniprot_human_reviewed_accessions.txt` (UniProt) | 144,669 | `7a153cbbf75f350b4bdc711d68bd3adbc0f4c5e9244aefb4a2fb8f8a7f24d5b7` | a live query that changes with each UniProt release: pin a release |
 

@@ -151,7 +151,7 @@ python -m bioagent.cli tcmdb enrich 黄芪                  # 按需查询 SymMa
 python -m bioagent.cli tcmdb survey herb_ingredient       # 抽样估计各库之间的抄录关系，保存结果
 python -m bioagent.cli tcmdb consensus herb_ingredient --subject 黄芪   # 多库对账：统一 ID、按独立来源计数
 python -m bioagent.cli tcmdb compare formula_herb 补中益气汤          # 方剂按版本比较
-python -m bioagent.cli tcmdb check all                    # 验收：文件非 HTML、重建一致、标签合法、许可、待消歧数
+python -m bioagent.cli tcmdb check all                    # 验收：文件非 HTML、重建一致、标签合法、许可、待消歧数；没有已构建的数据集时说明原因并以 1 退出
 python -m bioagent.cli tcmdb relations regulation --subject symbol:EGFR --commercial   # 只返回允许商用的行
 python -m bioagent.cli tcmdb relations compound_assay --outcome negative  # 只看“测试阴性”
 ```
@@ -250,7 +250,7 @@ the runner or in the browser's own job workers with no runner
 
 即使所有假说都被驳回，这次运行仍会发布，发布的就是这个阴性结果，原因写在 `limitations.md` 里。真实数据上的结果见 [docs/audit-2026-09-response.md](docs/audit-2026-09-response.md)。
 
-同一次运行还会被读回为十六个有记录的工作流阶段（从方剂身份到可复现导出，每个阶段为 PASS、FAIL、BLOCKED、UNVERIFIED、SKIPPED 或 NOT_APPLICABLE；GO 注释因未登记 GO 快照而为 SKIPPED，KEGG 因通路成员需要许可而为 BLOCKED），并写出九个导出文件，从 `compounds.tsv` 到 `run_manifest.json` 与 `report.html`；`python -m bioagent.analysis.np_exports verify` 可复核它们（见 [docs/analysis-pipelines.md](docs/analysis-pipelines.md)）。这才是数据驱动的分析；种子技能 `analyze-tcm-network-pharmacology` 只是有限种子语料网络假说分析，也是 Studio 浏览器模式中唯一能运行的网络药理学。
+同一次运行还会被读回为十六个有记录的工作流阶段（从方剂身份到可复现导出，每个阶段为 PASS、FAIL、BLOCKED、UNVERIFIED、SKIPPED 或 NOT_APPLICABLE；GO 注释因未登记 GO 快照而为 SKIPPED，KEGG 因通路成员需要许可而为 BLOCKED），并写出九个导出文件，从 `compounds.tsv` 到 `run_manifest.json` 与 `report.html`；`python -m bioagent.analysis.np_exports verify` 可复核它们（见 [docs/analysis-pipelines.md](docs/analysis-pipelines.md)）。这才是数据驱动的分析；种子技能 `analyze-tcm-network-pharmacology` 只是有限种子语料网络假说分析。在 Studio 中，研究闭环作为任务运行：在 Runner 上，或在浏览器自己的任务工作线程中（无需 Runner）（见 [studio/docs/BROWSER_JOBS.md](studio/docs/BROWSER_JOBS.md)）。
 
 ---
 
@@ -405,6 +405,7 @@ python scripts/run_inquiry.py --snapshots WORK/snapshots --ledger WORK/audit/sna
 ## Running the governance layer · 运行治理层
 
 ```bash
+cd BioScience-Harness
 # what would the monthly scan propose?  (never promotes)
 python -m bioagent.cli scout --sources registry/skill_sources.yaml --skills skills
 
@@ -412,12 +413,20 @@ python -m bioagent.cli scout --sources registry/skill_sources.yaml --skills skil
 python -m bioagent.cli registry-release --release-id registry-1.0.0 --season season-1
 ```
 
+The scout audits and ranks the local skill trees, at any depth (`skills/tcm/<id>`,
+`skills/candidates/<group>/<id>`: 11 skills today). Fetching the sources declared in
+`registry/skill_sources.yaml` is not implemented: the report notes each one as declared,
+not fetched. The monthly workflow runs the same command and keeps the report as the run's
+artifact.
+
 The scout **cannot promote**, and that is structural rather than conventional:
 `Registry.promote` is the only writer of a stable entry and it requires a
 `PromotionDecision` naming a human. A scheduled run has no code path to one. See
 `docs/adr/0001`.
 
 <!-- zh -->
+scout 审计并排序本地的 Skill 目录树，任意深度（`skills/tcm/<id>`、`skills/candidates/<组>/<id>`：目前共 11 个 Skill）。抓取 `registry/skill_sources.yaml` 中声明的来源尚未实现：报告会把每个来源记为"已声明、未抓取"。月度工作流运行同一命令，并把报告保存为该次运行的产物。
+
 scout **无法执行晋级**，而这是结构性的，不是约定俗成的：`Registry.promote` 是稳定注册表条目的唯一写入者，而且它要求一份指名到人的 `PromotionDecision`。定时运行根本没有通往它的代码路径。见 `docs/adr/0001`。
 
 ### Measuring the governance · 测量治理
@@ -463,7 +472,7 @@ python scripts/run_evidence_typing_benchmark.py --check benchmarks/evidence_typi
 | --- | --- |
 | `ModuleNotFoundError: No module named 'psh'` | Install the kernel: `pip install -e PSH-Harness`. The two packages are separate and `bioagent` imports `psh`. |
 | `ModuleNotFoundError: No module named 'yaml'` | `pip install pyyaml`. It is a declared dependency, so this only happens on a very old install. |
-| `no skills found under skills/tcm` | You are not in the repository root. Pass `--dir BioScience-Harness/skills/tcm`. |
+| `no skills found under skills/tcm: it is not a directory` | A relative `--dir` is read from the current directory. From the repository root pass `--dir BioScience-Harness/skills/tcm`; without `--dir` the installed TCM skills are listed. |
 | `skill '...' needs --arg <name>=<value>` | The skill wants a different argument name. The message lists its parameters. |
 | An artifact comes back `REFUSED` | Read the violation codes. `ART101` means no sources, `ART106` means a clinical claim on prediction-only evidence, `ART110` means no limitations were stated. |
 
@@ -472,6 +481,6 @@ python scripts/run_evidence_typing_benchmark.py --check benchmarks/evidence_typi
 | --- | --- |
 | `ModuleNotFoundError: No module named 'psh'` | 安装内核：`pip install -e PSH-Harness`。这两个包是分开的，而 `bioagent` 会导入 `psh`。 |
 | `ModuleNotFoundError: No module named 'yaml'` | `pip install pyyaml`。它已是声明过的依赖，所以只有在非常老的安装里才会出现这种情况。 |
-| `no skills found under skills/tcm` | 你不在仓库根目录。请加上 `--dir BioScience-Harness/skills/tcm`。 |
+| `no skills found under skills/tcm: it is not a directory` | 相对路径的 `--dir` 从当前目录读取。在仓库根目录请加上 `--dir BioScience-Harness/skills/tcm`；不加 `--dir` 时列出已安装的 TCM Skill。 |
 | `skill '...' needs --arg <name>=<value>` | 该技能要的是另一个参数名。报错信息里会列出它的参数。 |
 | An artifact comes back `REFUSED` | 去看违规码。`ART101` 表示没有来源，`ART106` 表示在只有预测证据的情况下提出了临床主张，`ART110` 表示没有声明任何局限。 |

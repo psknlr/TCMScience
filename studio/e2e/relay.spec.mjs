@@ -6,7 +6,7 @@
 import { expect, test } from "@playwright/test";
 import { UPSTREAM_MODEL, UPSTREAM_VENDOR, startMockLLM } from "./mock-llm.mjs";
 import { readDb, seedSettings, send, shot, waitForAnswers, waitForApp, watchConsole } from "./lib/app.mjs";
-import { startWorker, workerSkipReason } from "./lib/servers.mjs";
+import { pyodidePartSkipped, startWorker, workerSkipReason } from "./lib/servers.mjs";
 
 test.use({ ignoreHTTPSErrors: true });
 
@@ -77,13 +77,15 @@ test("the default model Tao-S1 answers through the relay and the page never name
   // the governed question: Tao-S1 asks for the tool, the browser runs it (no runner here)
   const boot = await page.evaluate(async () => (await fetch("/runtime/boot.json")).json());
   const cdn = await page.evaluate(async (u) => { try { return (await fetch(`${u}pyodide-lock.json`)).ok; } catch { return false; } }, boot.pyodide.index_url);
-  if (cdn) {
+  // a skipped part outside CI; in CI an unreachable CDN is a failure, as for the browser specs
+  const skipped = pyodidePartSkipped(cdn, boot.pyodide.index_url, "the governed question through Tao-S1");
+  if (!skipped) {
     await send(page, "甘草与甘遂同用，有哪些记载？");
     answer = await waitForAnswers(page, 3, { timeout: 300_000 });
     await expect(answer).toContainText("工具状态：succeeded");
     await expect(answer.locator(".tool-card").first()).toContainText("浏览器");
   } else {
-    test.info().annotations.push({ type: "skipped part", description: "Pyodide's CDN is unreachable: the governed question through Tao-S1 was not run" });
+    test.info().annotations.push({ type: "skipped part", description: skipped });
   }
 
   // nothing the page shows, stores, or received from the relay names the upstream

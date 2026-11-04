@@ -28,6 +28,13 @@ test("a governed skill runs on the runner and the thread shows its verdict", asy
   await seedSettings(page, {}, { custom: { id: "custom-e2e", base_url: `${mock.url}/v1`, model: "mock-sci-1" } });
   // the runner prints this link: the page pairs with the runner that serves it
   await openPaired(page, runner);
+  // Settings → Compute shows what the runner reported: its CPU and its network switch as the runner has it
+  await page.evaluate(() => { location.hash = "#/settings/compute"; });
+  const reported = await page.evaluate(() => globalThis.__studio.state.runner);
+  const runnerCard = page.locator(".rt-card.is-ready").filter({ hasText: "127.0.0.1" });
+  await expect(runnerCard).not.toContainText("CPU 信息不可用");
+  if (reported.info.cpu.model) await expect(runnerCard).toContainText(reported.info.cpu.model);
+  await expect(runnerCard.getByRole("switch", { name: "Runner 联网" })).toHaveAttribute("aria-checked", String(Boolean(reported.settings.network?.enabled)));
   await newProject(page, "E2E 配伍");
 
   await send(page, QUESTION);

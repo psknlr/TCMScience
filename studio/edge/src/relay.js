@@ -224,11 +224,11 @@ async function caller(request, env, now) {
   return hex(digest).slice(0, 24);
 }
 
-/** The body's text, or null when it is over `max` bytes (by its declared length, else while it is read). */
+/** The body {text, bytes}, or null when it is over `max` bytes (by its declared length, else while it is read). */
 async function readBody(request, max) {
   const declared = request.headers.get("Content-Length");
   if (declared !== null && Number(declared) > max) return null;
-  if (!request.body) return "";
+  if (!request.body) return { text: "", bytes: 0 };
   const reader = request.body.getReader();
   const parts = [];
   let size = 0;
@@ -248,7 +248,7 @@ async function readBody(request, max) {
     bytes.set(part, at);
     at += part.byteLength;
   }
-  return new TextDecoder().decode(bytes);
+  return { text: new TextDecoder().decode(bytes), bytes: size };
 }
 
 async function bursting(request, deps) {
@@ -300,8 +300,9 @@ async function chat(request, env, cfg, cors, allowed, deps) {
   }
   if (!cfg.enabled || !env.MINIMAX_API_KEY) return error(503, MSG.not_configured, "not_configured", cors);
   if (await bursting(request, deps)) return limited({ reason: "burst" }, cfg.chat, cors);
-  const raw = await readBody(request, cfg.maxBody);
-  if (raw === null) return error(413, MSG.too_large(cfg.maxBody), "too_large", cors);
+  const read = await readBody(request, cfg.maxBody);
+  if (read === null) return error(413, MSG.too_large(cfg.maxBody), "too_large", cors);
+  const raw = read.text;
   let body;
   try {
     body = JSON.parse(raw);
@@ -343,6 +344,8 @@ async function chat(request, env, cfg, cors, allowed, deps) {
     body.thinking = { type: "disabled" };
     rewrite = true;
   }
+  // a key checked above, named twice: JSON.parse read the last, the upstream may keep the first
+  if (!rewrite && repeatsCheckedKey(raw)) rewrite = true;
   let payload = rewrite ? null : upstreamText(raw, cfg.model, fields, cfg);
   if (payload === null) {
     Object.assign(body, fields);
@@ -353,7 +356,7 @@ async function chat(request, env, cfg, cors, allowed, deps) {
   const noReasoning = body.thinking?.type === "disabled";
 
   const who = await caller(request, env, deps.now());
-  const reserve = Math.ceil(raw.length / 3); // about a token per three bytes of request, charged now, settled by the answer
+  const reserve = Math.ceil(read.bytes / 3); // about a token per three bytes of request, charged now, settled by the answer
   let gate;
   try {
     gate = await deps.gate({ who, kind: "chat", limits: cfg.chat, reserve });
@@ -498,6 +501,28 @@ function upstreamText(raw, model, fields, cfg) {
   let out = raw.replace(LEADING_MODEL, () => `{"model":${JSON.stringify(model)},${extra ? `${extra},` : ""}`);
   if (cfg.formatPrefix && out.includes(PUBLIC_FORMAT)) out = out.replace(PUBLIC_FORMAT_FIELD, () => `"format":"${cfg.formatPrefix}`);
   return out;
+}
+
+// The keys whose values the relay checks before a text goes out as it came: the output caps and thinking. (`n` is
+// always removed, which re-serializes; a second "model" can only repeat the public name, the last one being checked.)
+// JSON may write any letter of a key as a \u escape ("max\u005ftokens" is max_tokens to JSON.parse), so each letter is
+// matched as itself or as its escape, hex digits in either case.
+const spelled = (key) => [...key].map((c) => {
+  const hex = c.charCodeAt(0).toString(16).padStart(4, "0").replace(/[a-f]/g, (d) => `[${d}${d.toUpperCase()}]`);
+  return `(?:${c}|\\\\u${hex})`;
+}).join("");
+const CHECKED_KEY = new RegExp(String.raw`"(${["max_tokens", "max_completion_tokens", "thinking"].map(spelled).join("|")})"\s*:`, "g");
+
+/** Whether the text names a checked key more than once, however it is spelled (anywhere: a tool's schema with such a
+ * property counts too). */
+function repeatsCheckedKey(raw) {
+  const seen = new Set();
+  for (const m of raw.matchAll(CHECKED_KEY)) {
+    const key = JSON.parse(`"${m[1]}"`); // the name JSON.parse reads: letters and escapes only, so it parses
+    if (seen.has(key)) return true;
+    seen.add(key);
+  }
+  return false;
 }
 
 /** The reasoning a page sends back (the turns before), under the upstream's own format names again. */

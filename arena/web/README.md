@@ -20,7 +20,7 @@ arena/web/
   assets/app.js       all behaviour; no framework
   assets/fallback-data.js   mirror of data/*.example.json (see "Offline" below)
   data/*.example.json committed placeholder data
-  data/*.json         generated results — gitignored, absent from a fresh clone
+  data/*.json         generated: benchmarks.json and the demonstration run, committed
   runs/               reserved for published run bundles
 ```
 

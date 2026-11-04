@@ -437,6 +437,48 @@ def test_the_scout_discovers_the_p0_skills_offline():
     assert report.unreachable == ()
 
 
+def test_the_scout_finds_skills_at_any_depth_of_a_tree():
+    """`--skills skills` is what USAGE and the monthly job pass: the skills sit at
+    skills/tcm/<id> and skills/candidates/<group>/<id>, and a scan one level deep found
+    none of them, and exited 0."""
+    report = Scout([], offline=True, local_roots=[REPO / "skills"]).run()
+    ids = {s.id for s in report.found}
+    assert {"normalize-tcm-entities", "assess-tcm-safety", "dock-ligands",
+            "scrna-cell-atlas", "retrieve-literature-evidence"} <= ids
+    assert len(ids) == 11 and report.unreachable == ()
+
+
+def test_a_declared_source_that_was_not_fetched_says_so():
+    """This build reads only the local trees: a declared repository it did not fetch
+    is noted, never left out as though it had been read and nothing had changed."""
+    source = SkillSource(id="upstream", kind="repo", url="https://github.com/a/b")
+    off = Scout([source], offline=True, local_roots=[SKILLS_DIR]).run()
+    assert any(n.startswith("upstream: declared, not fetched") for n in off.notes)
+    assert "not fetched" in off.explain()
+    disabled = SkillSource(id="off", kind="repo", url="https://github.com/a/c",
+                           enabled=False)
+    assert Scout([disabled], local_roots=[SKILLS_DIR]).run().skipped == ("off",)
+
+
+def test_the_documented_scout_command_scans_the_skill_trees(tmp_path, monkeypatch, capsys):
+    import json
+    import subprocess
+    import sys
+
+    from bioagent import cli
+    monkeypatch.chdir(REPO)
+    out = tmp_path / "candidate-report.json"
+    assert cli.main(["scout", "--sources", "registry/skill_sources.yaml", "--skills",
+                     "skills", "--out", str(out)]) == 0
+    report = json.loads(out.read_text())
+    assert report["report"]["found"] == 11 and len(report["candidates"]) == 11
+    assert any("not fetched" in n for n in report["notes"])
+    assert "11 skill(s) loaded" in capsys.readouterr().out
+    check = subprocess.run([sys.executable, "scripts/check_no_autopromotion.py", str(out)],
+                           capture_output=True, text=True)
+    assert check.returncode == 0 and "ok: 11 candidate(s)" in check.stdout
+
+
 def test_a_skill_md_without_a_manifest_is_reported_as_needing_an_adapter(tmp_path):
     """The backlog of upstream skills, counted separately from failures —
     they are the candidate pool, not errors."""

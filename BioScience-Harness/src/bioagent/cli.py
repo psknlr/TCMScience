@@ -56,6 +56,12 @@ def _cmd_skills(a) -> int:
     from .skills.loader import load_skills
 
     a.dir = _skill_root(a)
+    if not Path(a.dir).is_dir():
+        # load_skills reports a missing root as one refused row; that is no skill at all
+        print(f"no skills found under {a.dir}: it is not a directory\n"
+              "  (pass --dir to name the directory that holds the skills; a relative path "
+              "is read from the current directory)", file=sys.stderr)
+        return 1
     loaded, refused = load_skills(a.dir)
     callables = _skill_callables()
     rows = []
@@ -273,6 +279,11 @@ def _cmd_tcmdb(a) -> int:
             return 0
         if a.tcmdb_cmd == "check":
             keys = hub.built() if a.dataset == "all" else [a.dataset]
+            if not keys:
+                # nothing was checked, so it is not a pass either
+                print(f"no built dataset to check under {hub.root}: build one first "
+                      "(tcmdb build <dataset>)", file=sys.stderr)
+                return 1
             results = [hub.check(k, rebuild=not a.no_rebuild) for k in keys]
             show(results if len(results) > 1 else results[0])
             return 0 if all(r["ok"] for r in results) else 1
@@ -483,6 +494,7 @@ def _cmd_scout(a) -> int:
                    "unreachable": len(report.unreachable)},
         "unreachable": [{"source": s, "reason": r} for s, r in report.unreachable],
         "needs_adapter": list(report.needs_adapter),
+        "notes": list(report.notes),
         "candidates": [c.as_dict() for c in ordered],
         "stable": [v.as_dict() for v in registry.stable_versions()],
         "note": ("Candidates only. Promotion requires a reviewed PromotionDecision and "

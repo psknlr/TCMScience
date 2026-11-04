@@ -14,8 +14,8 @@ record and a status (``bioagent.validation``'s six):
                  read through before a file is kept); a host the network policy refuses is
                  learnt from its first refusal and not asked again
     integrity    every file hashed again and compared with its reviewed checksum; a file
-                 with none (two files the acquisition table does not list yet) is verified
-                 by its size, and its SHA-256 recorded for review
+                 with none (Reactome's current UniProt mapping, the UniProt accession list)
+                 is verified by its size, and its SHA-256 recorded for review
     build        parse, normalise and gate each source (``sources.build.build_gold``): the
                  QC status, warnings and dropped rows, and the gold standard — every herb's
                  marker compound found in one of its source species, a fact the real files
@@ -50,9 +50,11 @@ SCHEMA = "tcmscience.snapshots/1"
 RESEARCH_SOURCES = ("npass", "cmaup", "lotus")
 
 #: Files the research build reads that the reviewed acquisition table does not list yet.
-#: Their URLs are the ones the source cards name (``sources.cards``); they have no reviewed
-#: size or checksum, so a download is verified against the server's Content-Length and the
-#: file's SHA-256 is recorded in the report for a person to review and pin.
+#: Their URLs are the ones the source cards name (``sources.cards``). STRING's aliases, a
+#: frozen release (v12.0), carry the size and SHA-256 two independent live downloads read
+#: (the live-data workflow, runs 38127338070 on 2026-10-11 and 40307982154 on 2026-10-26);
+#: Reactome's has none (its 'current' file changes every release), so a download of it is
+#: verified against the server's Content-Length and its SHA-256 is recorded in the report.
 UNREVIEWED: tuple[AcquisitionSpec, ...] = (
     AcquisitionSpec(
         "https://stringdb-downloads.org/download/protein.aliases.v12.0/"
@@ -60,6 +62,8 @@ UNREVIEWED: tuple[AcquisitionSpec, ...] = (
         "9606.protein.aliases.v12.0.txt.gz", "stringdb-downloads.org", "CC-BY-4.0",
         "STRING v12 human protein aliases, UniProt accessions among them: how a measured "
         "target is found among STRING's proteins.", "proteomics", fmt="tsv.gz",
+        expected_bytes=19777800,
+        checksum="sha256:b65f730b993ed0c1bd72edf4565d3d425db42861101b29699704810e8f125680",
         source_project="STRING", version="12.0",
         notes="the same release and URL scheme as the reviewed info and links files"),
     AcquisitionSpec(

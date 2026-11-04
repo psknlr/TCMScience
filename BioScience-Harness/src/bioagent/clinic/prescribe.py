@@ -16,11 +16,20 @@ then made to fit the person:
 ``check`` then holds the prescription, drafted or the practitioner's own, to:
 十八反 / 十九畏 (the pack's rules and the seed knowledge base's records); pregnancy
 (禁用 stops, 慎用 needs the practitioner's reason, an unknown status in a woman of
-child-bearing age needs it asked first); allergies; drug interactions with the recorded
-medications; cautions for recorded conditions; toxic herbs and their processing and
-decoction notes; doses outside the (age-scaled) range. Where the pack and the knowledge
-base disagree on a safety point (附子 in pregnancy: 药典 2020 慎用, the seed's 《中药学》
-reading 禁用), the stricter applies and the report says the sources differ.
+child-bearing age needs it asked first); allergies (the whole history, and an allergy
+written among the conditions, is scanned for every name the tables hold, see ``allergy``: a
+stop when a drug-level table says it names the herb or another processed form of it and the
+record states an allergy to it (just names, or a reaction word or allergy statement no
+negator stands right before), the practitioner's reason when it only may — the record only
+mentions the herb (other words around it and no un-negated reaction word), the materia
+table gives the two one source, a species or English name of the source, a formula that
+holds the herb, one name inside the other, the name inside a longer word, or 花粉); drug
+interactions with the recorded medications, and which of them the rules do not recognise
+(so an unchecked medicine is not mistaken for a safe one); cautions for recorded
+conditions; toxic herbs and
+their processing and decoction notes; doses outside the (age-scaled) range. Where the pack
+and the knowledge base disagree on a safety point (附子 in pregnancy: 药典 2020 慎用, the
+seed's 《中药学》 reading 禁用), the stricter applies and the report says the sources differ.
 
 Severities: ``stop`` — cannot be signed as it stands; ``block`` — can be signed only with
 the practitioner's recorded reason; ``warn`` and ``info`` — shown. Nothing here decides;
@@ -29,9 +38,13 @@ a draft is a starting point for a licensed practitioner, who signs or rejects it
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from .allergy import (_ALLERGY_HOMONYMS, _STATE_WORDS, _allergen, _base, _forms,  # noqa: F401
+                      _identity, _materia, _materia_names, _one_drug, _processed, _resolve,
+                      allergy_issues, allergy_records_in)
 from .findings import TermMatcher, normalise
 from .intake import Intake
 from .pack import ClinicPack
@@ -119,12 +132,10 @@ def _kb():
     return default_knowledge()
 
 
-def _resolve(kb: Any, herb: str) -> Any:
-    try:
-        r = kb.resolve(herb)
-    except Exception:                                            # noqa: BLE001
-        return None
-    return r.entity if getattr(r, "found", False) else None
+def _allergies(herbs: Sequence[str], records: Sequence[str], kb: Any,
+               pack: ClinicPack | None = None) -> list[Issue]:
+    """Each herb against every name the allergy records hold (``allergy.allergy_issues``)."""
+    return [Issue(*t) for t in allergy_issues(herbs, records, kb, pack)]
 
 
 def _line_for(pack: ClinicPack, herb: str, dose: float | None, fraction: float, *,
@@ -366,23 +377,45 @@ def check(lines: Sequence[Line], intake: Intake, pack: ClinicPack, *, kb: Any = 
                                 f"哺乳期：{ln.herb}{spec.toxicity}，须医师权衡", (ln.herb,)))
         _pregnancy(issues, ln.herb, spec.pregnancy, entity, kb, patient)
     _incompatibility(issues, herbs, entities, kb, pack)
-    if intake.allergies:
-        for h in herbs:
-            for a in intake.allergies:
-                if normalise(h) in a or (len(a) >= 2 and a in normalise(h)):
-                    issues.append(Issue(f"allergy:{h}", "stop", "allergy",
-                                        f"过敏史记录“{a}”：处方含{h}", (h,)))
+    records = list(intake.allergy_records if intake.allergy_records is not None
+                   else intake.allergies or ())
+    # an allergy recorded among the conditions (黄芪过敏 there) is read as well, as written:
+    # the intake splits conditions at 、 and ，, which would cut 对黄芪、人参过敏 in two
+    raw = (intake.raw or {}).get("conditions")
+    written = [raw] if isinstance(raw, str) else raw
+    if not (isinstance(written, (list, tuple)) and all(isinstance(c, str) for c in written)):
+        written = intake.conditions or ()
+    records += allergy_records_in(written)
+    if records:
+        issues += _allergies(herbs, records, kb, pack)
     if intake.medications is not None:
         meds = [normalise(m) for m in intake.medications]
+        named = _named_medicines(pack, meds)
         for rule in pack.drug_interactions:
             present = [h for h in herbs if h in rule["herbs"]]
             drugs = [d for d in rule["drugs"] if any(normalise(d) in m for m in meds)]
-            if present and drugs:
-                issues.append(Issue(f"interaction:{'+'.join(present)}:{drugs[0]}", "warn",
+            # a medicine recorded by name (呋塞米, Lasix) is read as its ATC class (利尿剂);
+            # one in two classes (氢氯噻嗪: 利尿剂 and 降压药) by each rule that names either
+            by_name = [(n, next(w for w in words if w in rule["drugs"]), atc)
+                       for n, words, atc in named if any(w in rule["drugs"] for w in words)]
+            if present and (drugs or by_name):
+                labels = drugs + [f"{n}（{word}，ATC {atc}）" for n, word, atc in by_name]
+                source = str(rule.get("source") or "")
+                if by_name:
+                    source += f"；药物分类：{pack.drug_classes_source}"
+                issues.append(Issue(f"interaction:{'+'.join(present)}:"
+                                    f"{(drugs or [n for n, _, _ in by_name])[0]}", "warn",
                                     "interaction",
-                                    f"{'、'.join(present)}与正在使用的{'、'.join(drugs)}："
-                                    f"{rule['risk']}", tuple(present),
-                                    str(rule.get("source") or "")))
+                                    f"{'、'.join(present)}与正在使用的{'、'.join(labels)}："
+                                    f"{rule['risk']}", tuple(present), source))
+        # "no interaction" is told from "not recognised": a medicine neither a rule's class
+        # word nor the ATC mapping names was not checked at all (美托洛尔, 螺内酯)
+        unknown = _unrecognised(pack, intake.medications)
+        if unknown:
+            issues.append(Issue("medications_unrecognised", "info", "medications_unrecognised",
+                                f"未识别的用药：{'、'.join(unknown)}。知识包的相互作用规则与药物"
+                                "分类均未收录，未核查其与本方的相互作用（未提示不等于无相互作用）",
+                                (), pack.drug_classes_source))
     if intake.conditions:
         conds = [normalise(c) for c in intake.conditions]
         for rule in pack.condition_cautions:
@@ -394,6 +427,44 @@ def check(lines: Sequence[Line], intake: Intake, pack: ClinicPack, *, kb: Any = 
                                     f"既往{'、'.join(hit)}：{'、'.join(present)}，{rule['why']}",
                                     tuple(present), str(rule.get("source") or "")))
     return _dedupe(issues)
+
+
+def _named_medicines(pack: ClinicPack, meds: Sequence[str]
+                     ) -> list[tuple[str, tuple[str, ...], str]]:
+    """(name, class words, ATC code) of each medicine the pack's ATC mapping finds in the
+    recorded medications, once per ATC code. A name inside a longer one found in the same
+    record is that one's (泼尼松 in 泼尼松龙 is prednisolone, not prednisone)."""
+    out: list[tuple[str, tuple[str, ...], str]] = []
+    codes: set[str] = set()
+    for m in meds:
+        found = [n for n in pack.drug_classes if normalise(n) and normalise(n) in m]
+        for n in found:
+            words, atc = pack.drug_classes[n]
+            if atc in codes or any(n != o and normalise(n) in normalise(o) for o in found):
+                continue
+            codes.add(atc)
+            out.append((n, words, atc))
+    return out
+
+
+#: A medications entry that records there are none: 无, 否认, 无特殊用药, 未服药, none. The
+#: template asks for [] then, but 无 is how it is usually written, and it is no medicine.
+_NO_MEDICATION = re.compile(
+    r"(无|否认|没有|暂无|未|不|none|no|nil|na|n/a|nkda)+"
+    r"(特殊|其他|其它|长期|规律|规则|常规|任何|服用|使用|口服|服|用|吃|西药|中药|药物|药|史"
+    r"|medications?|medicines?|meds?|drugs?)*")
+
+
+def _unrecognised(pack: ClinicPack, medications: Sequence[str]) -> list[str]:
+    """The recorded medications that no interaction rule's class word and no name in the
+    ATC mapping is found in: nothing was checked for them. An entry that says there are
+    none (无, 否认用药史) is not a medication."""
+    known = {normalise(str(d)) for r in pack.drug_interactions for d in r.get("drugs") or ()}
+    known |= {normalise(n) for n in pack.drug_classes}
+    known.discard("")
+    return [m for m in medications
+            if not _NO_MEDICATION.fullmatch(normalise(m))
+            and not any(k in normalise(m) for k in known)]
 
 
 def _pregnancy(issues: list[Issue], herb: str, pack_note: str, entity: Any, kb: Any,

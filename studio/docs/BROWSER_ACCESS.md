@@ -155,7 +155,9 @@ domain search on the 16,353 test molecules identical, and 36 final predictions d
 float64 (through `10 **` or `expit`). There the archive was given to the page as a project file, so a download through
 the relay in a browser has not been run, nor has a run in a tab on a person's machine (CI is headless Chromium on a
 virtual machine); the domain search has not run on a physical GPU, so P3's acceptance criterion (a physical GPU,
-measured) is not met. Structure prediction, docking and the governed `predict-admet` skill run on the runner.
+measured) is not met. Structure prediction, docking from raw structures (receptor and ligand preparation) and the
+governed `predict-admet` and `dock-ligands` skills run on the runner; docking from prepared PDBQT structures runs in
+the browser ([BROWSER_JOBS.md §3.3](BROWSER_JOBS.md#33-docking-from-prepared-structures)).
 
 The sync HTTP adapter executes in a dedicated Worker; it cannot block the page's
 UI thread. See [Pyodide HTTP APIs](https://pyodide.org/en/stable/usage/api/python-api/http.html),
@@ -165,7 +167,9 @@ and [WebGPU compute](https://gpuweb.github.io/gpuweb/).
 After a first visit the app shell, the Python runtime and the fonts are kept by a
 service worker against a manifest of SHA-256 hashes, so the page opens and runs
 browser tools offline; data files used once stay in the runtime's verified cache.
-A new version is offered, never forced; `?nosw` removes the service worker and its
+A new version is offered, never forced; once the person reloads into it in one tab, the
+site's other open tabs reload with it (a tab with an answer or job under way, unsent text
+or a dialog open says so first, and reloads once those are done). `?nosw` removes the service worker and its
 caches. Model calls and database queries still need the network.
 
 Deploy with the existing `studio` workflow. A changed workbook also triggers that

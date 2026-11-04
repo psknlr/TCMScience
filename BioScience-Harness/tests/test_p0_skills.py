@@ -533,6 +533,18 @@ def test_the_skills_command_lists_all_four_with_their_hashes():
         assert skill_id in proc.stdout
 
 
+def test_the_skills_command_says_when_its_directory_is_missing(tmp_path, capsys):
+    # it listed the missing root as "1 skill(s)" with an error row and exited 0, so the
+    # message USAGE's troubleshooting names never appeared
+    from bioagent.cli import main
+    missing = tmp_path / "skills" / "tcm"
+    for argv in (["skills", "--dir", str(missing)], ["skills", "--dir", str(missing),
+                                                     "--json"]):
+        assert main(argv) == 1
+        out, err = capsys.readouterr()
+        assert out == "" and err.startswith(f"no skills found under {missing}")
+
+
 def test_the_skill_command_reports_the_gate_not_just_the_output():
     """Running a skill through the CLI shows the validation verdict, so a new
     user sees the contract layer working on their first call."""

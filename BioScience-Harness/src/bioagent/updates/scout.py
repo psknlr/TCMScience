@@ -16,7 +16,11 @@ omitted a repository would read as "nothing changed there", which is the opposit
 of what happened.
 
 Offline by default. `Scout(offline=True)` uses only what is already on disk, so
-the whole pipeline is testable and a CI run never reaches the network.
+the whole pipeline is testable and a CI run never reaches the network. Fetching the
+declared sources is not implemented in this build, online or not: each enabled
+repository, topic or search is noted as declared and not fetched, so the report never
+reads as though it had been read and nothing had changed there. A local tree is scanned
+at any depth (``skills/tcm/<id>``, ``skills/candidates/<group>/<id>``).
 """
 
 from __future__ import annotations
@@ -136,6 +140,8 @@ class DiscoveryReport:
             lines.append(f"  NEEDS ADAPTER {name}")
         for name in self.skipped:
             lines.append(f"  skipped {name}")
+        for note in self.notes:
+            lines.append(f"  note: {note}")
         return "\n".join(lines)
 
 
@@ -170,15 +176,14 @@ class Scout:
                 notes.append(f"{source.id}: manual submission, resolved from the "
                              "local checkout rather than fetched")
                 continue
+            notes.append(f"{source.id}: declared, not fetched ({source.kind} "
+                         f"{source.url}): this build reads only the local trees")
 
         for root in self.local_roots:
             if not root.is_dir():
                 unreachable.append((str(root), "directory does not exist"))
                 continue
-            for directory in sorted(p for p in root.iterdir() if p.is_dir()):
-                if not ((directory / SKILL_FILE).is_file()
-                        or (directory / DOC_FILE).is_file()):
-                    continue
+            for directory in _skill_dirs(root):
                 try:
                     loaded = load_skill_dir(directory)
                     found.append(loaded.spec)
@@ -222,6 +227,21 @@ class Scout:
         # An unlicensed skill is knowable from the manifest alone.
         report["license_present"] = bool(spec.license_spdx)
         return report
+
+
+def _skill_dirs(root: Path) -> list[Path]:
+    """The directories under ``root`` that hold a skill.yaml or a SKILL.md, at any depth
+    (``skills/tcm/<id>``, ``skills/candidates/<group>/<id>``), and none inside one of
+    them: what is below a skill is its own. A link to a directory is not descended
+    into: a hostile tree could loop."""
+    out: list[Path] = []
+    for directory in sorted(p for p in root.iterdir() if p.is_dir()
+                            and not p.name.startswith((".", "__"))):
+        if (directory / SKILL_FILE).is_file() or (directory / DOC_FILE).is_file():
+            out.append(directory)
+        elif not directory.is_symlink():
+            out.extend(_skill_dirs(directory))
+    return out
 
 
 # -- declared sources ------------------------------------------------------

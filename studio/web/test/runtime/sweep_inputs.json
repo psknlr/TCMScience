@@ -1,0 +1,557 @@
+{
+ "_source": "the arguments of the entries and core tools tcmstudio validate has no input for, from the runner's tests: studio/runner/tests/conftest.py (INTAKE, VISITS) and test_dispatch.py (core_cases, test_study_designs, the tcmdb tests); sweep_calls.py calls them as the group extra",
+ "entry:clinic.assess": {
+  "intake": {
+   "schema": "bioagent.clinic.intake/1",
+   "patient": {
+    "id": "demo-001",
+    "age": 40,
+    "sex": "female",
+    "pregnant": false,
+    "breastfeeding": false,
+    "weight_kg": 58
+   },
+   "chief_complaint": "乏力纳差两月",
+   "duration": "2个月",
+   "inspection": {
+    "present": [
+     "面色萎黄"
+    ],
+    "absent": [],
+    "tongue": [
+     "舌淡，苔白"
+    ]
+   },
+   "listening_smelling": {
+    "present": [
+     "少气懒言"
+    ],
+    "absent": []
+   },
+   "inquiry": {
+    "present": [
+     "神疲乏力",
+     "胃口差",
+     "大便稀",
+     "腹胀"
+    ],
+    "absent": [
+     "发热"
+    ]
+   },
+   "palpation": {
+    "pulse": [
+     "脉缓弱"
+    ],
+    "present": [],
+    "absent": []
+   },
+   "vitals": {
+    "temperature_c": 36.6,
+    "heart_rate": 72,
+    "resp_rate": 16,
+    "systolic": 118,
+    "diastolic": 76,
+    "spo2": 98
+   },
+   "medications": [],
+   "allergies": [],
+   "conditions": [],
+   "red_flags_cleared": [],
+   "collected_by": "demo",
+   "collected_at": "2026-10-07T09:00:00Z"
+  }
+ },
+ "entry:clinic.check": {
+  "intake": {
+   "schema": "bioagent.clinic.intake/1",
+   "patient": {
+    "id": "demo-001",
+    "age": 40,
+    "sex": "female",
+    "pregnant": false,
+    "breastfeeding": false,
+    "weight_kg": 58
+   },
+   "chief_complaint": "乏力纳差两月",
+   "duration": "2个月",
+   "inspection": {
+    "present": [
+     "面色萎黄"
+    ],
+    "absent": [],
+    "tongue": [
+     "舌淡，苔白"
+    ]
+   },
+   "listening_smelling": {
+    "present": [
+     "少气懒言"
+    ],
+    "absent": []
+   },
+   "inquiry": {
+    "present": [
+     "神疲乏力",
+     "胃口差",
+     "大便稀",
+     "腹胀"
+    ],
+    "absent": [
+     "发热"
+    ]
+   },
+   "palpation": {
+    "pulse": [
+     "脉缓弱"
+    ],
+    "present": [],
+    "absent": []
+   },
+   "vitals": {
+    "temperature_c": 36.6,
+    "heart_rate": 72,
+    "resp_rate": 16,
+    "systolic": 118,
+    "diastolic": 76,
+    "spo2": 98
+   },
+   "medications": [],
+   "allergies": [],
+   "conditions": [],
+   "red_flags_cleared": [],
+   "collected_by": "demo",
+   "collected_at": "2026-10-07T09:00:00Z"
+  },
+  "herbs": [
+   {
+    "herb": "甘草",
+    "grams": 6
+   },
+   {
+    "herb": "甘遂",
+    "grams": 3
+   }
+  ]
+ },
+ "entry:clinic.verify": {
+  "session_id": "s-0000"
+ },
+ "entry:skill.draft-tcm-prescription": {
+  "intake": {
+   "schema": "bioagent.clinic.intake/1",
+   "patient": {
+    "id": "demo-001",
+    "age": 40,
+    "sex": "female",
+    "pregnant": false,
+    "breastfeeding": false,
+    "weight_kg": 58
+   },
+   "chief_complaint": "乏力纳差两月",
+   "duration": "2个月",
+   "inspection": {
+    "present": [
+     "面色萎黄"
+    ],
+    "absent": [],
+    "tongue": [
+     "舌淡，苔白"
+    ]
+   },
+   "listening_smelling": {
+    "present": [
+     "少气懒言"
+    ],
+    "absent": []
+   },
+   "inquiry": {
+    "present": [
+     "神疲乏力",
+     "胃口差",
+     "大便稀",
+     "腹胀"
+    ],
+    "absent": [
+     "发热"
+    ]
+   },
+   "palpation": {
+    "pulse": [
+     "脉缓弱"
+    ],
+    "present": [],
+    "absent": []
+   },
+   "vitals": {
+    "temperature_c": 36.6,
+    "heart_rate": 72,
+    "resp_rate": 16,
+    "systolic": 118,
+    "diastolic": 76,
+    "spo2": 98
+   },
+   "medications": [],
+   "allergies": [],
+   "conditions": [],
+   "red_flags_cleared": [],
+   "collected_by": "demo",
+   "collected_at": "2026-10-07T09:00:00Z"
+  }
+ },
+ "entry:study.combination": {
+  "cells": [
+   {
+    "dose_a": 1,
+    "dose_b": 0,
+    "effect": [
+     0.1,
+     0.11,
+     0.09000000000000001
+    ]
+   },
+   {
+    "dose_a": 3,
+    "dose_b": 0,
+    "effect": [
+     0.25,
+     0.26,
+     0.24
+    ]
+   },
+   {
+    "dose_a": 0,
+    "dose_b": 1,
+    "effect": [
+     0.12,
+     0.13,
+     0.11
+    ]
+   },
+   {
+    "dose_a": 0,
+    "dose_b": 3,
+    "effect": [
+     0.3,
+     0.31,
+     0.29
+    ]
+   },
+   {
+    "dose_a": 1,
+    "dose_b": 1,
+    "effect": [
+     0.2,
+     0.21000000000000002,
+     0.19
+    ]
+   },
+   {
+    "dose_a": 1,
+    "dose_b": 3,
+    "effect": [
+     0.35,
+     0.36,
+     0.33999999999999997
+    ]
+   },
+   {
+    "dose_a": 3,
+    "dose_b": 1,
+    "effect": [
+     0.33,
+     0.34,
+     0.32
+    ]
+   },
+   {
+    "dose_a": 3,
+    "dose_b": 3,
+    "effect": [
+     0.5,
+     0.51,
+     0.49
+    ]
+   }
+  ],
+  "primary": "bliss",
+  "boot": 50
+ },
+ "entry:study.effect_modification": {
+  "outcome": [
+   1,
+   2,
+   3,
+   4,
+   2,
+   3,
+   5,
+   6
+  ],
+  "treated": [
+   0,
+   0,
+   0,
+   0,
+   1,
+   1,
+   1,
+   1
+  ],
+  "modifiers": [
+   {
+    "name": "age",
+    "values": [
+     30,
+     40,
+     50,
+     60,
+     30,
+     40,
+     50,
+     60
+    ],
+    "baseline": true
+   }
+  ]
+ },
+ "entry:study.exposure_screen": {
+  "exposures": [
+   {
+    "molecule": "berberine",
+    "species": "human",
+    "site": "plasma",
+    "time_h": 2,
+    "concentration": {
+     "qualifier": "measured",
+     "value": 0.4,
+     "unit": "ng/mL"
+    }
+   }
+  ],
+  "assays": [
+   {
+    "molecule": "berberine",
+    "target": "AMPK",
+    "endpoint": "EC50",
+    "result": {
+     "qualifier": "measured",
+     "value": 5,
+     "unit": "uM"
+    }
+   }
+  ],
+  "site": "plasma",
+  "mw": {
+   "berberine": 336.4
+  }
+ },
+ "entry:system.job_status": {
+  "job_id": "j_0000000000000000"
+ },
+ "entry:tcmdb.compare": {
+  "kind": "organism_compound",
+  "subject": "甘草"
+ },
+ "entry:tcmdb.consensus": {
+  "kind": "herb_ingredient",
+  "subject": "黄芪"
+ },
+ "entry:tcmdb.import_store": {
+  "dataset": "ddid",
+  "content_base64": "AAAA"
+ },
+ "entry:tcmdb.query": {
+  "dataset": "ddid",
+  "table": "drugs"
+ },
+ "entry:tcmdb.tables": {
+  "dataset": "ddid"
+ },
+ "entry:tcmdb.unresolved": {
+  "dataset": "ddid"
+ },
+ "core:clinic_assess": {
+  "intake": {
+   "schema": "bioagent.clinic.intake/1",
+   "patient": {
+    "id": "demo-001",
+    "age": 40,
+    "sex": "female",
+    "pregnant": false,
+    "breastfeeding": false,
+    "weight_kg": 58
+   },
+   "chief_complaint": "乏力纳差两月",
+   "duration": "2个月",
+   "inspection": {
+    "present": [
+     "面色萎黄"
+    ],
+    "absent": [],
+    "tongue": [
+     "舌淡，苔白"
+    ]
+   },
+   "listening_smelling": {
+    "present": [
+     "少气懒言"
+    ],
+    "absent": []
+   },
+   "inquiry": {
+    "present": [
+     "神疲乏力",
+     "胃口差",
+     "大便稀",
+     "腹胀"
+    ],
+    "absent": [
+     "发热"
+    ]
+   },
+   "palpation": {
+    "pulse": [
+     "脉缓弱"
+    ],
+    "present": [],
+    "absent": []
+   },
+   "vitals": {
+    "temperature_c": 36.6,
+    "heart_rate": 72,
+    "resp_rate": 16,
+    "systolic": 118,
+    "diastolic": 76,
+    "spo2": 98
+   },
+   "medications": [],
+   "allergies": [],
+   "conditions": [],
+   "red_flags_cleared": [],
+   "collected_by": "demo",
+   "collected_at": "2026-10-07T09:00:00Z"
+  }
+ },
+ "core:clinic_check_prescription": {
+  "intake": {
+   "schema": "bioagent.clinic.intake/1",
+   "patient": {
+    "id": "demo-001",
+    "age": 40,
+    "sex": "female",
+    "pregnant": false,
+    "breastfeeding": false,
+    "weight_kg": 58
+   },
+   "chief_complaint": "乏力纳差两月",
+   "duration": "2个月",
+   "inspection": {
+    "present": [
+     "面色萎黄"
+    ],
+    "absent": [],
+    "tongue": [
+     "舌淡，苔白"
+    ]
+   },
+   "listening_smelling": {
+    "present": [
+     "少气懒言"
+    ],
+    "absent": []
+   },
+   "inquiry": {
+    "present": [
+     "神疲乏力",
+     "胃口差",
+     "大便稀",
+     "腹胀"
+    ],
+    "absent": [
+     "发热"
+    ]
+   },
+   "palpation": {
+    "pulse": [
+     "脉缓弱"
+    ],
+    "present": [],
+    "absent": []
+   },
+   "vitals": {
+    "temperature_c": 36.6,
+    "heart_rate": 72,
+    "resp_rate": 16,
+    "systolic": 118,
+    "diastolic": 76,
+    "spo2": 98
+   },
+   "medications": [],
+   "allergies": [],
+   "conditions": [],
+   "red_flags_cleared": [],
+   "collected_by": "demo",
+   "collected_at": "2026-10-07T09:00:00Z"
+  },
+  "herbs": [
+   {
+    "herb": "甘草",
+    "grams": 6
+   },
+   {
+    "herb": "甘遂",
+    "grams": 3
+   }
+  ]
+ },
+ "core:clinic_followup": {
+  "syndrome": "脾胃气虚证",
+  "baseline": {
+   "date": "2026-10-01",
+   "scores": {
+    "神疲乏力": "重",
+    "食少": "中",
+    "便溏": "中",
+    "腹胀": "轻"
+   }
+  },
+  "current": {
+   "date": "2026-10-08",
+   "scores": {
+    "神疲乏力": "轻",
+    "食少": "轻",
+    "便溏": "无",
+    "腹胀": "无"
+   },
+   "adherence": "full",
+   "adverse_events": [
+    {
+     "event": "口干",
+     "severity": "mild",
+     "relation": "possible"
+    }
+   ]
+  }
+ },
+ "core:connector_call": {
+  "connector": "uniprot",
+  "operation": "entry",
+  "arguments": {
+   "accession": "P04637"
+  }
+ },
+ "core:literature_search": {
+  "query": "Astragalus membranaceus"
+ },
+ "core:network_pharmacology_run": {
+  "formula": "葛根芩连汤",
+  "disease": "MONDO_0005148"
+ },
+ "core:run_pipeline": {
+  "pipeline": "rnaseq",
+  "arguments": {
+   "samples": "upload_123"
+  }
+ }
+}

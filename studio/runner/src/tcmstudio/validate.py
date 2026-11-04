@@ -63,25 +63,153 @@ CHECKS = ("discovery", "schema", "invocation", "functional_correctness", "error_
 _BUDGET_S = {"native": 10.0, "skill": 120.0, "clinic": 30.0, "tcmdb": 60.0, "study": 120.0,
              "system": 30.0, "connector": 60.0, "core": 60.0}
 
-#: inputs for entries that ship no example: real calls, chosen to be cheap and offline
-PROBES: dict[str, dict[str, Any]] = {
+#: A clinic intake and two visits (the runner tests' own: tests/conftest.py).
+_INTAKE: dict[str, Any] = {
+    "schema": "bioagent.clinic.intake/1",
+    "patient": {"id": "demo-001", "age": 40, "sex": "female", "pregnant": False,
+                "breastfeeding": False, "weight_kg": 58},
+    "chief_complaint": "乏力纳差两月", "duration": "2个月",
+    "inspection": {"present": ["面色萎黄"], "absent": [], "tongue": ["舌淡，苔白"]},
+    "listening_smelling": {"present": ["少气懒言"], "absent": []},
+    "inquiry": {"present": ["神疲乏力", "胃口差", "大便稀", "腹胀"], "absent": ["发热"]},
+    "palpation": {"pulse": ["脉缓弱"], "present": [], "absent": []},
+    "vitals": {"temperature_c": 36.6, "heart_rate": 72, "resp_rate": 16, "systolic": 118,
+               "diastolic": 76, "spo2": 98},
+    "medications": [], "allergies": [], "conditions": [], "red_flags_cleared": [],
+    "collected_by": "demo", "collected_at": "2026-10-07T09:00:00Z",
+}
+_VISITS: dict[str, Any] = {
+    "syndrome": "脾胃气虚证",
+    "baseline": {"date": "2026-10-01", "scores": {"神疲乏力": "重", "食少": "中", "便溏": "中",
+                                                  "腹胀": "轻"}},
+    "current": {"date": "2026-10-08", "scores": {"神疲乏力": "轻", "食少": "轻", "便溏": "无",
+                                                 "腹胀": "无"}, "adherence": "full",
+                "adverse_events": [{"event": "口干", "severity": "mild", "relation": "possible"}]},
+}
+#: A combination screen of two agents on a 3 × 3 dose grid (tests/test_dispatch.py)
+_CELLS = [{"dose_a": a, "dose_b": b, "effect": [eff, eff + 0.01, eff - 0.01]}
+          for (a, b, eff) in ((1, 0, 0.1), (3, 0, 0.25), (0, 1, 0.12), (0, 3, 0.3),
+                              (1, 1, 0.2), (1, 3, 0.35), (3, 1, 0.33), (3, 3, 0.5))]
+
+
+def _store() -> str:
+    """The smallest store tcmdb.import_store accepts (its provenance and relations tables, and
+    one table of two rows), base64-encoded (tests/test_repository_data.py)."""
+    import base64
+    import sqlite3
+
+    from bioagent.tcmdb.rowkit import COLUMNS
+    with tempfile.TemporaryDirectory(prefix="tcmstudio-validate-store-") as tmp:
+        path = Path(tmp) / "store.sqlite"
+        with contextlib.closing(sqlite3.connect(path)) as conn, conn:
+            conn.execute("CREATE TABLE _tcmdb_files (tbl TEXT, rows INTEGER, license TEXT, "
+                         "sha256 TEXT)")
+            conn.execute("INSERT INTO _tcmdb_files VALUES ('compounds', 2, 'CC BY 4.0', 'probe')")
+            conn.execute("CREATE TABLE compounds (name TEXT, target TEXT)")
+            conn.executemany("INSERT INTO compounds VALUES (?,?)", [("alpha", "A"), ("beta", "B")])
+            conn.execute("CREATE TABLE relations (" + ",".join(f'"{c}" TEXT' for c in COLUMNS)
+                         + ")")
+        return base64.b64encode(path.read_bytes()).decode()
+
+
+def _imported(args: dict[str, Any]) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
+    """A probe of a dataset's store: the probe store imported first, then ``args``. It is
+    imported into the hub ``ctx`` names, or a throwaway one (``_probe_roots``), never the
+    default hub, whose DDID store it would replace."""
+    def probe(ctx: Mapping[str, Any]) -> dict[str, Any]:
+        from .dispatch import call
+        with _probe_roots(ctx) as here:
+            call("tcmdb.import_store", {"dataset": "ddid", "content_base64": _store()}, here)
+        return dict(args)
+    return probe
+
+
+def _session(ctx: Mapping[str, Any]) -> dict[str, Any]:
+    """clinic.verify's probe: the session a clinic assessment of the probe intake wrote."""
+    from .dispatch import call
+    e = call("clinic.assess", {"intake": copy.deepcopy(_INTAKE)}, ctx)
+    return {"session_id": str((e.get("result") or {}).get("session_id") or "")}
+
+
+#: inputs for entries that ship no example: real calls, chosen to be cheap and offline (the
+#: network ones are refused offline and called for real in the live tier). A function makes
+#: its input when the probe runs (a store to import, or what a call writes first: a store
+#: imported, a clinic session), given the context the probe runs in.
+PROBES: dict[str, dict[str, Any] | Callable[[Mapping[str, Any]], dict[str, Any]]] = {
     "tcmdb.status": {}, "tcmdb.licences": {}, "system.doctor": {},
     "tcmdb.relations": {"kind": "organism_compound", "object": "inchikey:YBHILYKTIRIUTE-UHFFFAOYSA-N"},
     "tcmdb.evidence_for": {"subject": "黄芪"},
+    "tcmdb.consensus": {"kind": "organism_compound", "subject": "甘草"},
+    "tcmdb.compare": {"kind": "herb_ingredient", "subject": "黄芪"},
+    "tcmdb.import_store": lambda ctx: {"dataset": "ddid", "content_base64": _store()},
+    "tcmdb.tables": _imported({"dataset": "ddid"}),
+    "tcmdb.query": _imported({"dataset": "ddid", "table": "compounds", "limit": 1}),
+    "tcmdb.unresolved": _imported({"dataset": "ddid", "limit": 5}),
+    "clinic.assess": {"intake": _INTAKE},
+    "clinic.check": {"intake": _INTAKE, "herbs": [{"herb": "甘草", "grams": 6},
+                                                  {"herb": "甘遂", "grams": 3}]},
+    "clinic.verify": _session,
+    "skill.draft-tcm-prescription": {"intake": _INTAKE},
+    "study.combination": {"cells": _CELLS, "primary": "bliss", "boot": 50},
+    "study.effect_modification": {
+        "outcome": [1, 2, 3, 4, 2, 3, 5, 6], "treated": [0, 0, 0, 0, 1, 1, 1, 1],
+        "modifiers": [{"name": "age", "values": [30, 40, 50, 60, 30, 40, 50, 60],
+                       "baseline": True}]},
+    "study.exposure_screen": {
+        "exposures": [{"molecule": "berberine", "species": "human", "site": "plasma",
+                       "time_h": 2, "concentration": {"qualifier": "measured", "value": 0.4,
+                                                      "unit": "ng/mL"}}],
+        "assays": [{"molecule": "berberine", "target": "AMPK", "endpoint": "EC50",
+                    "result": {"qualifier": "measured", "value": 5, "unit": "uM"}}],
+        "site": "plasma", "mw": {"berberine": 336.4}},
+    "system.provider_call": {"provider": "tooluniverse", "tool": "UniProt_get_entry_by_accession",
+                             "arguments": {"accession": "P04637"}},
+    "system.job_status": {"job_id": "j_0000000000000000"},
     # core tools (the model calls these; none ships an example)
     "tcm_lookup": {"name": "黄芪"}, "tcm_herb": {"name": "甘草"}, "tcm_formula": {"name": "桂枝汤"},
     "tcm_syndrome": {"name": "太阳中风"}, "tcm_classical_search": {"query": "桂枝"},
     "tcm_compatibility": {"herbs": ["甘草", "甘遂"]}, "tcm_normalize": {"names": ["黄芪", "桂枝汤"]},
     "tcm_evidence": {"subject": "黄芪"}, "tcm_safety_report": {"subject": "附子"},
     "tcm_applicability": {"subject": "桂枝汤", "object": "太阳中风"},
-    "tcm_network_hypothesis": {"formula_name": "葛根芩连汤"}, "tcmdb_catalog": {"query": "NPASS"},
+    # a formula of the seed corpus (its six: 桂枝汤 麻黄汤 四逆汤 四君子汤 四物汤 补中益气汤); one
+    # outside it builds nothing (an empty result, which _unresolved fails)
+    "tcm_network_hypothesis": {"formula_name": "桂枝汤"}, "tcmdb_catalog": {"query": "NPASS"},
     "tcmdb_consensus": {"kind": "organism_compound", "subject": "甘草"},
     "tcmdb_relations": {"kind": "organism_compound", "subject": "甘草"},
+    "clinic_assess": {"intake": _INTAKE},
+    "clinic_check_prescription": {"intake": _INTAKE, "herbs": [{"herb": "甘草", "grams": 6},
+                                                               {"herb": "甘遂", "grams": 3}]},
+    "clinic_followup": _VISITS,
+    "connector_call": {"connector": "uniprot", "operation": "entry",
+                       "arguments": {"accession": "P04637"}},
+    "literature_search": {"query": "Astragalus membranaceus"},
     "research_routes": {"route": "compound_targets"}, "research_inquiry": {"action": "scaffolds"},
     "capabilities_status": {}, "catalog_search": {"query": "GC content"},
     "job_status": {"job_id": "j_0000000000000000"},
     "call_tool": {"tool": "native.gc_content", "arguments": {"sequence": "ACGTGGCC"}},
 }
+
+#: Probes that write into the data hub: they run against a hub of the validator's own (under
+#: its state root), never the one it was given (--tcmdb-root), whose store they would replace.
+_OWN_HUB = frozenset({"tcmdb.import_store", "tcmdb.tables", "tcmdb.query", "tcmdb.unresolved"})
+
+#: Probes that name what does not exist, on purpose: not_found is the answer that shows they
+#: ran. Any other probe names what the corpus or the runtime holds, and not_found fails it.
+_ABSENT_ON_PURPOSE = frozenset({"job_status", "system.job_status"})
+
+#: How a governed run says the name it was given resolved to nothing in its corpus, so it
+#: analysed nothing and succeeded with an empty result (netpharm's formula outside the seed,
+#: assess_safety's unresolved subject): a not_found by other means, which fails a probe as
+#: not_found does.
+_UNRESOLVED = ("did not resolve", "could not be resolved")
+
+
+def _unresolved(env: Mapping[str, Any]) -> str | None:
+    """The limitation of a succeeded call that says its input resolved to nothing, or None."""
+    for text in ((env or {}).get("governance") or {}).get("limitations") or ():
+        if any(m in str(text) for m in _UNRESOLVED):
+            return str(text)
+    return None
 
 #: what classical texts and pharmacopoeias say, for the TCM core tools
 TCM_REFERENCES: list[tuple[str, dict[str, Any], Callable[[Any], tuple[bool, str]], str]] = []
@@ -204,11 +332,39 @@ def _invalid(schema: Mapping[str, Any]) -> dict[str, Any] | None:
     return {name: wrong}
 
 
-def _example(entry_or_core: Mapping[str, Any], key: str) -> dict[str, Any] | None:
+@contextlib.contextmanager
+def _probe_roots(ctx: Mapping[str, Any] | None) -> Iterator[dict[str, Any]]:
+    """The context a probe makes its input in. A probe writes (the probe store imported into a
+    hub, a clinic session), so it writes only into the state and hub its context names: what
+    the context leaves out is a throwaway directory, removed afterwards. Without this a context
+    that names no hub resolves to the default one ($BIOAGENT_TCMDB, else the data lake's
+    tcmdb under the repository), where the probe store would replace a person's own DDID
+    store (the browser sweep's call listing did, sweep_calls.py)."""
+    here = dict(ctx or {})
+    if here.get("state_root") and here.get("tcmdb_root"):
+        yield here
+        return
+    with tempfile.TemporaryDirectory(prefix="tcmstudio-probe-") as tmp:
+        here.setdefault("network", False)
+        for key in ("state_root", "tcmdb_root"):
+            if not here.get(key):
+                here[key] = str(Path(tmp) / key.split("_")[0])
+        yield here
+
+
+def _example(entry_or_core: Mapping[str, Any], key: str,
+             ctx: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+    """The input an entry or core tool is called with: its example, else its probe. A probe
+    that is a function writes what it needs first (``PROBES``), in ``ctx``'s state and hub, or
+    in throwaway ones where ``ctx`` names none (``_probe_roots``): never the default hub."""
     ex = entry_or_core.get("example")
     if isinstance(ex, Mapping):
         return dict(ex)
-    return copy.deepcopy(PROBES[key]) if key in PROBES else None
+    probe = PROBES.get(key)
+    if callable(probe):
+        with _probe_roots(ctx) as here:
+            return probe(here)
+    return copy.deepcopy(probe) if probe is not None else None
 
 
 def _digest(env: Mapping[str, Any]) -> str | None:
@@ -275,7 +431,11 @@ def validate_entries(items: Sequence[tuple[str, str, Mapping[str, Any]]], *, ctx
                 "found by its id" + (" and by its loose name" if loose == rid else ""))
         # schema ---------------------------------------------------------------
         params = item.get("parameters") or {}
-        example = _example(item, rid)
+        own_hub = ({"tcmdb_root": str(Path(ctx_base["state_root"]) / "probe-tcmdb")}
+                   if rid in _OWN_HUB else {})
+        here_off, here_live = {**offline, **own_hub}, {**live, **own_hub}
+        example = _example(item, rid, here_off)
+        probed = example is not None and not isinstance(item.get("example"), Mapping)
         if params.get("type") != "object":
             rec.add("schema", FAIL, "the parameters are not an object schema")
         elif example is None:
@@ -317,7 +477,7 @@ def validate_entries(items: Sequence[tuple[str, str, Mapping[str, Any]]], *, ctx
             for c in ("execution_isolation", "reproducibility", "performance"):
                 rec.add(c, NOT_APPLICABLE, "not run: its packages are not installed")
         elif network and tier != "live":
-            env = call(rid, example, offline)
+            env = call(rid, example, here_off)
             refused = env["status"] == "failed" and (env.get("error") or {}).get("type") == "network_off"
             rec.add("invocation", SKIPPED, "a network entry: called for real in the live tier")
             rec.add("execution_isolation", PASS if refused else FAIL,
@@ -328,12 +488,19 @@ def validate_entries(items: Sequence[tuple[str, str, Mapping[str, Any]]], *, ctx
             env = None
         else:
             t0 = time.perf_counter()
-            with watched_sockets() as attempts:
-                env = call(rid, example, live if network else offline)
+            # the watch is for what runs offline; a network entry here is the live tier's
+            # real call, which the watch would refuse before any request left (live-data 33)
+            with (contextlib.nullcontext([]) if network else watched_sockets()) as attempts:
+                env = call(rid, example, here_live if network else here_off)
             elapsed = time.perf_counter() - t0
             status = env["status"]
             err = env.get("error") or {}
-            if status in ("succeeded", "job_submitted"):
+            empty = (_unresolved(env) if status == "succeeded" and probed
+                     and rid not in _ABSENT_ON_PURPOSE else None)
+            if empty:
+                rec.add("invocation", FAIL, "its probe names what the corpus or this runtime "
+                        f"holds, and it answered with an empty result: {empty[:200]}")
+            elif status in ("succeeded", "job_submitted"):
                 rec.add("invocation", PASS, f"{status} in {elapsed * 1000:.0f} ms",
                         duration_ms=round(elapsed * 1000), output_sha256=_digest(env))
             elif err.get("type") in ("unavailable", "network_off"):
@@ -341,6 +508,9 @@ def validate_entries(items: Sequence[tuple[str, str, Mapping[str, Any]]], *, ctx
             elif status == "needs_approval" or err.get("type") == "refused":
                 rec.add("invocation", SKIPPED, "needs a person's confirmation, which the "
                         "validator never gives")
+            elif err.get("type") == "not_found" and probed and rid not in _ABSENT_ON_PURPOSE:
+                rec.add("invocation", FAIL, "its probe names what the corpus or this runtime "
+                        f"holds, and it answered not_found: {err.get('message', '')[:200]}")
             elif err.get("type") == "not_found" and kind != "native":
                 rec.add("invocation", PASS, f"ran and answered not_found: {err.get('message', '')[:200]}",
                         duration_ms=round(elapsed * 1000))
@@ -356,7 +526,7 @@ def validate_entries(items: Sequence[tuple[str, str, Mapping[str, Any]]], *, ctx
             rec.add("performance", PASS if elapsed <= budget else FAIL,
                     f"{elapsed:.2f} s of a {budget:g} s budget", seconds=round(elapsed, 3))
             if status == "succeeded":
-                again = call(rid, example, live if network else offline)
+                again = call(rid, example, here_live if network else here_off)
                 if _digest(again) == _digest(env):
                     rec.add("reproducibility", PASS, "the same output digest twice")
                 elif _stable_digest(again) == _stable_digest(env):

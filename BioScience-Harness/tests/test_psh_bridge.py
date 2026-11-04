@@ -380,6 +380,33 @@ def test_an_isolated_component_runs_in_a_kernel_child_process(kernel, tmp_path):
     assert bridge.component("local.tool.echo").calls == 0, "the parent process never ran it"
 
 
+def test_the_isolated_child_runs_only_the_manifest_it_was_admitted_with(kernel, tmp_path):
+    """PSH-BRG-1: the child re-read the manifest file with no digest check, so an edit after
+    admission — or another process admitting the same id into a shared state_dir — ran an
+    entrypoint nobody admitted, under this admission's audit record."""
+    import hashlib
+    import shlex
+
+    echo = local_tool()
+    runtime = default_runtime(catalogue=False, public_apis=False, extra_manifests=(echo,),
+                              data_lake=tmp_path / "no-lake")
+    bridge = BioScienceBridge(kernel, runtime, isolate=True)
+    argv = shlex.split(bridge.admit(echo).entrypoint)
+    written = kernel.config.state_dir / "bioscience" / "local.tool.echo.yaml"
+    digest = hashlib.sha256(written.read_bytes()).hexdigest()
+    assert argv[argv.index("--manifest-digest") + 1] == digest
+    admitted = next(e for e in kernel.events.records()
+                    if e.event_type == "bioscience_component_admitted")
+    assert admitted.detail["manifest_digest"] == digest
+
+    component = bridge.component("local.tool.echo")
+    result = kernel.broker.call_tool(component, {"obj": {"b": 2}}, kernel.policy.envelope())
+    assert json.loads(result.value) == {"b": 2}
+    written.write_text(written.read_text().replace("json:dumps", "os.path:abspath"))
+    with pytest.raises(ContractViolation, match="admitted under"):
+        kernel.broker.call_tool(component, {"path": "x"}, kernel.policy.envelope())
+
+
 def test_a_policy_requiring_isolation_refuses_the_in_process_bridge(tmp_path, runtime):
     strict = TrustedKernel(PSHConfig(state_dir=tmp_path / "strict").ensure_dirs(),
                            policy=policy(require_isolated_tools=True))

@@ -78,8 +78,9 @@ Each was reproduced first (unit tests, and for the switches in Chromium) and has
 `validation` column is each entry's committed verification record (`entry.verification` in the catalog: levels such as
 `kernel_parity`, `lock_pin`, `reference_output` and `live_upstream`, each with its status and, where the record has one,
 its date); an entry with no record is UNVERIFIED. A class says where an entry runs, not that its browser output was
-compared with native CPython: that comparison was made only for the calls of the manual runtime check
-([§10](#10-validation)), and the connectors' levels are reported per operation in
+compared with native CPython: that comparison is made by the manual runtime check for its named calls, and since
+2026-10-28 by the browser sweep for every tool of classes 1, 2, 3 and 5 ([§10](#10-validation)); neither commits a
+record, so neither shows in the `validation` column. The connectors' levels are reported per operation in
 [compat/connectors.md](compat/connectors.md).
 
 | Class | Meaning | Entries |
@@ -434,8 +435,8 @@ a Windows + NVIDIA machine, or any device with a hardware adapter — there are 
 - **From the harness** (a checkout of this repository, with `studio`'s npm dependencies installed for Playwright):
   `node studio/web/test/runtime/gpu-science.mjs --channel chrome --headed` runs the same check in
   the person's own Chrome against its real GPU and prints the report. Without a flag a software-only machine reports
-  "no physical adapter" and exits 0 (not a parity failure); `--software` forces and labels SwiftShader; `--quick` uses
-  the two smaller sizes.
+  "no physical adapter" and exits 0 (not a parity failure); `--software` forces and labels SwiftShader, and exits 1
+  unless the WGSL ran, exact, at every size (no adapter is then a failure); `--quick` uses the two smaller sizes.
 
 The report shows, per size, the GPU time (search and its CPU check) beside the WebAssembly SIMD and JavaScript times,
 whether the GPU's answers were exact, and the per-size verdict, and an overall verdict and label. On a physical adapter
@@ -452,16 +453,24 @@ software adapter always reads "software, not evidence".
   SHA-256, and checked against it when cached), Pyodide, and the fonts. The page loads and runs tools with the network
   off. An offline run produced the same output hash as an online one.
 - Each version is a consistent snapshot. A new version installs in the background and is offered ("a new version is
-  ready"); it takes over only when the person reloads.
+  ready"); it takes over only when the person reloads, and then every open tab of the site reloads into it. The tab
+  where the person reloaded does so at once; another tab that holds what a reload would lose (an answer or a browser
+  job under way, text typed or files attached and not sent, a dialog open) says so, and reloads once that is done
+  (looked at every three seconds). Until then that tab still runs the build it loaded: the new version keeps the old
+  build's shell while a page that runs it is open, and serves that page, and any worker it starts, from it, so a module
+  the tab loads later (another page of the app, a job's worker) is never the new build's. The old shell is deleted
+  once no open page runs it.
 - It never caches `/v1` (model traffic) or `/api` (database queries), nor range requests. `?nosw` unregisters it and
   deletes its caches, as a way out. Automated browsers get it only when they ask (`?sw`).
 - The Python bundle and data assets were already content-addressed: kept by SHA-256 in the runtime cache and verified
-  before use. Projects, conversations, files and keys stay in IndexedDB. The Python state of governed runs is synced
-  to IndexedDB (IDBFS) where it works, and the receipt says `durable: false` where it does not.
+  before use (a download replaces only older copies of the same file). Projects, conversations, files and keys stay in
+  IndexedDB. The Python state of governed runs, and a dataset store imported into a project's data hub
+  (`tcmdb.import_store`), is synced to IndexedDB (IDBFS) where it works, and the receipt says `durable: false` where it
+  does not.
 - The capability probe reports quota, usage, whether storage is persisted, OPFS and the Cache API.
 
 **Implemented for the research jobs** ([BROWSER_JOBS.md](BROWSER_JOBS.md)): resumable, verified downloads of the
-research files into OPFS (a storage check on the reviewed sizes before a job starts: the three files with no reviewed
+research files into OPFS (a storage check on the reviewed sizes before a job starts: the two files with no reviewed
 size are not counted, and the job's log names them; `If-Range` resumes), read in place by Python through
 synchronous access handles, and a *Keep this data* button that asks for persistent storage. **Proposed**: the same for
 model downloads (none ships).
@@ -587,20 +596,57 @@ a first visit downloads about 11 MB from jsDelivr, and later visits read them fr
 
 ## 10. Validation
 
-The results below are those of the 2026-10-10 report, as of that date; the suite counts have changed since and are not
-restated here. The 2026-10-18 additions are covered by
+The results below are those of the 2026-10-10 report, as of that date, unless a row names a later run; the suite counts
+have changed since. Four suites were re-run on 2026-10-28 on the merged fixes, as their rows say. The 2026-10-18 additions are covered by
 `web/test/compute.test.mjs` and `web/test/runtime/webgpu.test.mjs` (the classifier, the ladder, the known-answer test,
 like-for-like timing, the receipt), `runner/tests/test_browser_compute.py` (the Worker's own packets bound in Python,
 the evidence Python writes) and `runner/tests/test_devices.py` (device evidence, the runtime report), and by
-`webgpu.browser.mjs --software` in Chromium 141 on SwiftShader.
+`webgpu.browser.mjs --software` in Chromium 141 on SwiftShader. Since 2026-10-28 Studio's CI build job runs
+`webgpu.browser.mjs --software` beside `gpu-science.mjs --software` (which now fails unless the WGSL ran, exact, at
+every size: a machine without a WebGPU adapter used to pass it with the verdict "no physical adapter"), and the
+browser sweep below.
 
 | Suite | What it proves | Result |
 |---|---|---|
-| `cd studio && npm test` (Node 22) | Kernels against 374 fixture cases from the Python reference (SIMD and JavaScript counts both); SIMD against JavaScript over awkward widths, alphabets and refusals; the committed WebAssembly binary against its source; scheduler rules; capability probing; the service worker; the network-switch races (19 tests) | 331 passed, 1 skipped (bioagent not installed for the system Python) |
-| `pytest studio/runner/tests` | The Python side: packets bound to inputs, lying and broken kernels caught, the real JavaScript kernels driven through Node (with SIMD and without) against the original Python, the envelope fast paths against the original code, ranked formula search, the pinned skills' code against their pins, the web build and its service-worker manifest, the matrix | 338 passed |
-| `pytest -m unit BioScience-Harness` | The tools' kernel hooks and checks; everything else in bioagent | 2534 passed, 131 skipped |
-| `node --test studio/edge/test` | The Worker: relay, gateway, headers | 63 passed |
-| `node studio/web/test/runtime/run.mjs` (`npm run test:runtime`; run by hand, **not in CI**) | Real Pyodide in Chromium 141: 48 checks (governed skills, tools, kernels with each acceleration choice, cancellation, ranked formula search), reload from cache, a non-isolated page, a tampered bundle refused; on 2026-10-10, 18 envelopes compared field by field with native CPython. The comparisons are the calls `check.mjs` marks `compare`; as of 2026-10-19 there are 21, not re-run since: the 7 kernel tools; `benjamini_hochberg`, `fisher_exact`; the TCM lookups (`tcm_compatibility` twice, `tcm_herb`, `tcm_syndrome`); ranked `tcmdb.formulas`; `catalog_search`; three of the four pinned skills (safety, normalisation, evidence retrieval); and three refusals, compared as refusals: `connector_call` with web access off (`network_off`), `clinic.sign` (`HUMAN_ONLY`) and a misspelt argument (`bad_arguments`). The network-pharmacology seed skill is not among them | all passed (2026-10-10) |
+| `cd studio && npm test` (Node 22) | Kernels against 374 fixture cases from the Python reference (SIMD and JavaScript counts both); SIMD against JavaScript over awkward widths, alphabets and refusals; the committed WebAssembly binary against its source; scheduler rules; capability probing; the service worker; the network-switch races (19 tests) | 331 passed, 1 skipped (bioagent not installed for the system Python); on 2026-10-28, with `PYTHON` naming a Python that imports the packages (so the glossary comparison runs), 797 passed, 0 skipped |
+| `pytest studio/runner/tests` | The Python side: packets bound to inputs, lying and broken kernels caught, the real JavaScript kernels driven through Node (with SIMD and without) against the original Python, the envelope fast paths against the original code, ranked formula search, the pinned skills' code against their pins, the web build and its service-worker manifest, the matrix | 338 passed; 860 passed, 1 skipped on 2026-10-28 |
+| `pytest -m unit BioScience-Harness` | The tools' kernel hooks and checks; everything else in bioagent | 2534 passed, 131 skipped; 3277 passed, 30 skipped, 16 deselected on 2026-10-28 |
+| `node --test studio/edge/test/*.test.js` (on Node 22 the bare directory, `node --test studio/edge/test`, fails with `Cannot find module`) | The Worker: relay, gateway, headers | 63 passed; 126 passed on 2026-10-28 |
+| `node studio/web/test/runtime/run.mjs` (`npm run test:runtime`; run by hand, **not in CI**) | Real Pyodide in Chromium 141: 48 checks (governed skills, tools, kernels with each acceleration choice, cancellation, ranked formula search), reload from cache, a non-isolated page, a tampered bundle refused; on 2026-10-10, 18 envelopes compared field by field with native CPython. The comparisons are the calls `check.mjs` marks `compare`; as of 2026-10-19 there are 21: the 7 kernel tools; `benjamini_hochberg`, `fisher_exact`; the TCM lookups (`tcm_compatibility` twice, `tcm_herb`, `tcm_syndrome`); ranked `tcmdb.formulas`; `catalog_search`; three of the four pinned skills (safety, normalisation, evidence retrieval); and three refusals, compared as refusals: `connector_call` with web access off (`network_off`), `clinic.sign` (`HUMAN_ONLY`) and a misspelt argument (`bad_arguments`). The network-pharmacology seed skill is not among them. Every browser tool's envelope is compared by the sweep, the next row | all passed (2026-10-10); re-run on 2026-10-28 (headless Chromium 141, Pyodide 314.0.7 from a local copy, `--sci`): 71 checks (full 53, reload 7, not isolated 9, tampered bundle 2), the 21 comparisons identical |
+| `node studio/web/test/runtime/sweep.mjs` (the browser sweep; in Studio's CI build job since 2026-10-28, Pyodide from jsDelivr) | Every tool the browser runs, called in Chromium through `BrowserRuntime` as the router calls it and natively as `tcmstudio call … --where browser --no-network` makes it, each pair of envelopes held to `run.mjs`'s comparison (`compareEnvelopes`, imported, not copied). The calls (`sweep_calls.py`): the entries the compatibility matrix runs in the browser (classes 1, 2, 3 and 5; 189 of them) and the 27 core tools, each with the input `tcmstudio validate` gives it (its example or probe), which all 189 of those entries and 25 core tools have on this tree (the other 2, `network_pharmacology_run` and `run_pipeline`, are called with the runner tests' inputs, `sweep_inputs.json`), the 444 connector operations with web access off (both sides must refuse them as `network_off`), 206 calls with a wrongly typed argument (the refusals compared), the native tools' 74 reference cases, each entry by its own id (189), 24 kernel calls above the kernels' thresholds, and 14 calls that need the complete formula workbook, on a fresh page of their own: 1,167 calls (`sweep_calls.py` on this tree; 1,153 before `tcmstudio validate` gave every browser entry an input). A difference passes only where `KNOWN` in `sweep.mjs` declares it, by entry id and field, with its reason (below); any other difference, a call that fails on one side only or does not finish, or a connector not refused, fails the step | 2026-10-28, headless Chromium 141, Pyodide 314.0.7 from a local copy, before that change (1,153 calls): 1,134 identical, 19 different only as declared, 0 failed, in 54.5 s (the browser 36 s, native CPython 18 s); the same with the native side in a Python installed as the CI job installs it (CPython 3.12, no openpyxl), 52.5 s. In Studio's CI on the merged fixes (`studio` #120, run 40737603907, commit 810397d, 2026-10-28, Pyodide from jsDelivr): 1,167 calls, 1,145 identical, 22 different only as declared, 0 failed, in 53.4 s |
+
+**The differences the sweep declares** (`sweep.mjs` `KNOWN`), each set aside by entry id and field, and nothing else:
+
+- The project's state root in the result (`/persist` in the browser, a temporary directory natively), for
+  `native.hk_cmm_dna_lookup`, `native.hkbu_formula_lookup`, `native.hkcmms_standard_lookup`, `tcmdb.status`,
+  `system.audit_verify`, `system.capabilities` and `capabilities_status`: compared with each side's root written
+  `<state root>`, they are identical.
+- `system.audit_verify`'s `head_hash`: each record carries its own time and run id, so it differs between two native
+  runs too; the records, the events by kind and `intact` are compared.
+- `system.capabilities` and `capabilities_status`: the host's own facts, namely the interpreter, which optional packages
+  import here (natively the host's installation; in the browser Pyodide loads numpy, scipy and pandas on first use),
+  the formula workbook (available natively, loaded on demand in the browser) and the browser's device report. The text
+  is compared up to its `Result:` line, the result leaf by leaf.
+- `system.capability_audit`: the connectors' verification. The browser runtime's bundle does not carry the committed
+  connector live-verification record (`BioScience-Harness/data/connector_live_verification.csv`), so in the browser its
+  444 connectors read `UNVERIFIED` (82 pass against 526 natively), and the envelope's limitations say so. The
+  site's `catalog.json` is built where the record is read, so the catalog shows them as passing. The two views differ
+  by design; the summary's count, that limitation and the counts by verification and implementation are set aside, and
+  every other number of the audit is compared.
+- `study.effect_modification` (with the runner tests' input): `numpy.linalg.lstsq` and `inv` (OpenBLAS natively,
+  Pyodide's numpy in the browser) differ in the last bits of float64: 11 numbers, at most 2.8e-14 relative (the
+  interaction's lower confidence limit) and 1.2e-15 absolute. Its result and text are held within 1e-12 relative
+  (`compare.mjs` `RELATIVE`), everything else exactly. `study.contrast_formula_monomer`, also numpy, is identical.
+- `clinic.assess` and `clinic_assess`: the session's id, its start and end times and the interpreter version it records.
+- `skill.draft-tcm-prescription`: `clinic_summary.json` records its own run directory, and the composite version's
+  source digest covers the source cards' `snapshot_at` times; both differ between two native runs too (the skill is
+  unpinned and never released on either side). The file is compared by its content, apart from that directory.
+
+`receipt.output_sha256` hashes the result as written, so it is set aside exactly where the result differs as declared.
+`receipt.input_sha256` is compared: like `run.mjs`, the sweep gives the native side the arguments as JavaScript writes
+them, and JavaScript has one number type (the catalog example's `3.0` reaches both sides as `3`; see CONTRACTS.md §3 on
+what the hash covers). The sweep does not cover a sequence across a reload, such as a store imported and then read back
+after the page reloads, or Cache Storage after the formula workbook loads: those are separate checks.
 
 **Cross-platform status.** Tested: Chromium 141 headless on Linux x86-64, isolated and not isolated; Node 22 (V8)
 for the kernels; native CPython 3.13 for the comparisons. The repository's Playwright suite also emulates a phone (390 ×
@@ -618,7 +664,7 @@ nothing changes.
 |---|---|---|---|
 | 1 | Network switches made reliable; capability probe; scheduler; exact CPU kernels (JavaScript, WASM SIMD); WebGPU packets bound and checked; offline service worker; matrix; benchmark; envelope fast paths; ranked formula search with herb names ([§11.1](#111-ranked-formula-search)) | — | **Done** (this branch) |
 | 2 | The research loop in the browser (`job.research.snapshot`, `job.research.run`): job workers, OPFS, a job service with cancel and resume, receipts; the permutation null is CPython's own MT19937, so no port is needed ([BROWSER_JOBS.md](BROWSER_JOBS.md)) | P1 | **Done** (this branch); the real 葛根芩连汤 browser run passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, commits 43918ac, 53bdbb0 and 65fa6aa, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it) |
-| 2 | RNA-seq from a count matrix and single-cell from count tables as browser jobs (`job.pipeline.rnaseq` in its count-matrix mode, `job.pipeline.scrna`): the runner's Python with Pyodide's numpy and scipy, inputs copied from the project's files and checked against their SHA-256; FASTQ, PyDESeq2, Scanpy, scVI, 10x HDF5, `.h5ad` and inputs above 6,000 cells, a table above 66,000,000 cells × genes or a count matrix above 10,000,000 genes × samples refused for the runner, with the reason ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)) | P2 | **Done** (this branch, commit 65fa6aa): implemented and tested locally in headless Chromium 141 with Pyodide 314.0.7 (`science.mjs --mode omics`): on `omics_counts_world` v1 and `sc_world` v1 every output identical to the native command's, within the stated tolerance (at most 0.133 of it) or not compared with the reason (the UMAP layout and five figures); the genes called, each cell's cluster and cell type identical; the known answers hold on the browser's files. The same check passed in Studio's CI with Pyodide's numpy and scipy from jsDelivr (`studio` #91 (run 39286931542, commit 65fa6aa, 2026-10-19)) |
+| 2 | RNA-seq from a count matrix and single-cell from count tables as browser jobs (`job.pipeline.rnaseq` in its count-matrix mode, `job.pipeline.scrna`): the runner's Python with Pyodide's numpy and scipy, inputs copied from the project's files and checked against their SHA-256; FASTQ, PyDESeq2, Scanpy, scVI, 10x HDF5, `.h5ad` and inputs above 6,000 cells, a table above 66,000,000 cells × genes or a count matrix above 10,000,000 genes × samples refused for the runner, with the reason ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)) | P2 | **Done** (this branch, commit 65fa6aa): implemented and tested locally in headless Chromium 141 with Pyodide 314.0.7 (`science.mjs --mode omics`): on `omics_counts_world` v1 and `sc_world` v1 every output identical to the native command's, within the stated tolerance (at most 0.133 of it; 0.139 under the stricter p-value rule of 2026-10-28, [BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)) or not compared with the reason (the UMAP layout and five figures); the genes called, each cell's cluster and cell type identical; the known answers hold on the browser's files. The same check passed in Studio's CI with Pyodide's numpy and scipy from jsDelivr (`studio` #91 (run 39286931542, commit 65fa6aa, 2026-10-19)) |
 | 3 | ADMET in the browser (`job.admet.models`, `job.pipeline.admet`): bioagent's ADMET pipeline and model build in Pyodide job workers (scikit-learn 1.8.0), the chemistry in RDKit.js 2026.9.1 with exact ports, the applicability-domain search on the Tanimoto kernel (WebAssembly SIMD, or WebGPU where this device's check found it exact and faster), re-checked in Python; the models built here from the TDC archive and kept in private storage, nothing trained shipped ([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet), [§6.1](#61-the-science-kernels-and-the-device-check-p3)) | P3 | **Done** (this branch); on the real TDC archive it passed in `live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20, headless Chromium 141 on GitHub's runner, Pyodide 314.0.7; the archive given to the page as a project file): all 22 models built in the browser, 202 of the 81,809 molecules (0.25%) refused by the browser chemistry and the native models trained without them too; the model cards the native ones field by field (not the model file's digest, the seconds or the chemistry's name), the domain files the native run's bytes; on the 16,353 test molecules every raw model output and domain search identical, 36 final predictions differing by 1 unit in the last place of float64, through `10 **` or `expit` (up to 4 units allowed); `pipeline.admet` with these models on a 39-molecule set (29 predicted, 9 refused as expected, 1 not read, as natively) wrote the native `admet.tsv` bytes on the kept molecules. Before that, the same comparison passed locally in headless Chromium 141 (`science.mjs --mode admet`) on a small known-answer archive and a synthetic one at the TDC sizes. Studio's CI runs it on the known-answer archive; it passed in `studio` #95 (run 39386727362, commit 0882e95, 2026-10-20). The physical-GPU acceptance is the next row's and stays open |
 | 3 | The exact Tanimoto kernel (JavaScript, WebAssembly SIMD, WebGPU/WGSL), the device check and the per-device calibration, and the "accelerated" rule decided per call from a measurement ([§5.1](#51-the-evidence-ladder), [§6.1](#61-the-science-kernels-and-the-device-check-p3)) | P3 | **Implemented; acceptance open: needs a physical GPU.** Exact on SwiftShader (a software adapter, refused in production and never evidence of a GPU); the WebGPU path has never run on a hardware GPU here or in CI, so its speed is unmeasured and no call has ever reached `accelerated`. The device check runs it on real hardware ([§6.2](#62-how-to-verify-on-your-own-gpu)) |
 | 3 | ONNX Runtime Web for the ADMET tree models | P3 | **Evaluated, not used** ([§6.1](#61-the-science-kernels-and-the-device-check-p3)): tree ensembles run only on its CPU (WebAssembly) execution providers (bit-identical to native ORT at one thread): its native WebGPU builds lack the `ai.onnx.ml` ops and its JSEP build runs them on the CPU, and two of its WebAssembly files exceed the 25 MiB per-file limit; it waits for a neural workload (below) |

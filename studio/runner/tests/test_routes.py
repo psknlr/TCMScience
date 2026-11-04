@@ -210,7 +210,7 @@ def test_a_source_that_cannot_run_names_what_covers_it_and_what_that_changes():
     assert tcm["unanswered_here"]["needs"] and tcm["unanswered_here"]["to_answer_it"] == [
         "Turn web access on."]
     assert all("covered_by" not in s for s in tcm["sources"])
-    assert view["counts"] == {"sources": 18, "runnable_now": 2}
+    assert view["counts"] == {"sources": 20, "runnable_now": 2}
     assert view["scaffold"]["id"] == "target_engagement"
     assert "research_inquiry" in view["scaffold"]["how"]
     assert view["rules"] == list(rt.RULES) and set(view["evidence"]) <= set(rt.EVIDENCE)
@@ -273,8 +273,13 @@ def test_research_routes_lists_shows_and_matches(runner_ctx, jobs, monkeypatch):
 
 def test_readiness_is_the_capability_audits(browser_ctx, monkeypatch):
     # the same entries, judged by the two code paths, in the browser with web access on and off
-    for network in (True, False):
-        ctx = {**browser_ctx, "network": network}
+    # and its job service off and on; a browser job's call also by the entry's own rules for
+    # the inputs it names (capability.runner_only), which the audit of the entry as such does
+    # not read
+    from tcmstudio import capability
+    catalog = {e["id"]: e for e in entries("browser")}
+    for network, browser_jobs in ((True, False), (False, False), (True, True)):
+        ctx = {**browser_ctx, "network": network, "browser_jobs": browser_jobs}
         audit = call("call_tool", {"tool": "system.capability_audit",
                                    "arguments": {"limit": 1000}}, ctx)
         ready = {r["id"]: r["readiness"] == "ready" for r in audit["result"]["entries"]}
@@ -282,7 +287,239 @@ def test_readiness_is_the_capability_audits(browser_ctx, monkeypatch):
             view = call("research_routes", {"route": r.id}, ctx)["result"]
             for step, s in zip(r.steps, view["steps"]):
                 for u, row in zip(step.uses, s["sources"]):
-                    assert row["runnable_now"] == ready[u.entry], (network, r.id, u.entry)
+                    runner_only = capability.runner_only(catalog[u.entry], dict(u.args))
+                    assert row["runnable_now"] == (ready[u.entry] and not runner_only), (
+                        network, browser_jobs, r.id, u.entry)
+
+
+def _rows(view, step):
+    return {s["source"]: s for s in next(x for x in view["steps"] if x["step"] == step)["sources"]}
+
+
+def test_a_browser_job_is_judged_by_the_inputs_its_call_names(browser_ctx, runner_ctx):
+    """A route's job call runs here only when the entry's own browser rules run the inputs it
+    names: docking from a structure, RNA-seq from FASTQ, single-cell from an .h5ad and ADMET
+    on an SDF need the runner, so the same job on prepared PDBQT files, a count table, count
+    tables or SMILES covers each, and says so."""
+    ctx = {**browser_ctx, "network": True, "browser_jobs": True}
+    dock = _rows(call("research_routes", {"route": "structure_binding"}, ctx)["result"], "docking")
+    by_id = dock["job.pipeline.dock (a PDB or UniProt id)"]
+    by_file = dock["job.pipeline.dock (a PDB file)"]
+    prepared = dock["job.pipeline.dock (prepared inputs)"]
+    assert prepared["runnable_now"] is True
+    assert prepared["call"]["arguments"]["arguments"]["receptor"].endswith(".pdbqt")
+    # the receptor and the ligands each need the runner, which prepares them, and so does
+    # the fetch of a structure (allow_remote)
+    for raw, reasons in ((by_id, 3), (by_file, 2)):
+        assert raw["runnable_now"] is False
+        assert len([n for n in raw["needs"] if "runner" in n and ".pdbqt" in n]) == reasons
+        assert raw["covered_by"] == "job.pipeline.dock (prepared inputs)"
+        assert raw["changes"].startswith("the same job on prepared inputs")
+    # a PDB:/UniProt: receptor is fetched only with allow_remote; a PDB file is fetched not
+    assert by_id["call"]["arguments"]["arguments"]["allow_remote"] is True
+    assert "allow_remote" not in by_file["call"]["arguments"]["arguments"]
+    assert by_file["call"]["arguments"]["arguments"]["receptor"].endswith(".pdb")
+    assert dock["skill.dock-ligands"]["covered_by"] == "job.pipeline.dock (prepared inputs)"
+    # every call names the docking site, which either runtime requires
+    for row in (by_id, by_file, prepared):
+        assert {"center", "size"} <= set(row["call"]["arguments"]["arguments"])
+    targets = call("research_routes", {"route": "compound_targets"}, ctx)["result"]
+    binding = next(s for s in targets["steps"] if s["step"] == "binding")
+    assert "unanswered_here" not in binding
+    assert [s["runnable_now"] for s in binding["sources"]] == [False, False, True]
+
+    # ADMET: SMILES and CSV, TSV or .smi tables run here; an SDF or .mol file needs the runner
+    # (RDKit's SDMolSupplier), in both steps that name the job
+    for route_, step in (("safety", "toxicity"), ("exposure_metabolism", "models")):
+        rows = _rows(call("research_routes", {"route": route_}, ctx)["result"], step)
+        smiles = rows["job.pipeline.admet (SMILES or CSV/TSV/.smi)"]
+        sdf = rows["job.pipeline.admet (SDF or .mol)"]
+        assert smiles["runnable_now"] is True and "needs" not in smiles, (route_, smiles)
+        assert sdf["call"]["arguments"]["arguments"]["molecules"].endswith(".sdf")
+        assert sdf["runnable_now"] is False and "SDMolSupplier" in sdf["needs"][0]
+        assert sdf["covered_by"] == "job.pipeline.admet (SMILES or CSV/TSV/.smi)"
+        assert sdf["changes"].startswith("the same job on SMILES or CSV/TSV/.smi")
+        assert not [k for k in rows if k == "job.pipeline.admet"], "every ADMET call names its mode"
+
+    omics = call("research_routes", {"route": "omics_datasets"}, ctx)["result"]
+    bulk, single = _rows(omics, "analysis"), _rows(omics, "single_cell_analysis")
+    assert bulk["job.pipeline.rnaseq (count matrix)"]["runnable_now"] is True
+    fastq = bulk["job.pipeline.rnaseq (FASTQ)"]
+    assert fastq["runnable_now"] is False and "without counts" in fastq["needs"][0]
+    assert fastq["covered_by"] == "job.pipeline.rnaseq (count matrix)"
+    assert single["job.pipeline.scrna (count tables)"]["runnable_now"] is True
+    h5ad = single["job.pipeline.scrna (AnnData or 10x HDF5)"]
+    assert h5ad["runnable_now"] is False and ".h5ad" in h5ad["needs"][0]
+    # a single-cell atlas is covered by the single-cell job, never by a bulk RNA-seq one
+    assert single["skill.scrna-cell-atlas"]["covered_by"] == "job.pipeline.scrna (count tables)"
+
+    # the rules are the browser's: the runner judges the calls of a job alike, except that a
+    # structure is fetched only with web access on
+    for network in (False, True):
+        on_runner = _rows(call("research_routes", {"route": "structure_binding"},
+                               {**runner_ctx, "network": network})["result"], "docking")
+        here = on_runner["job.pipeline.dock (prepared inputs)"]["runnable_now"]
+        assert on_runner["job.pipeline.dock (a PDB file)"]["runnable_now"] == here
+        fetch = on_runner["job.pipeline.dock (a PDB or UniProt id)"]
+        assert ("web access for this project" in fetch.get("needs", [])) is not network
+        if network:
+            assert fetch["runnable_now"] == here
+
+
+def test_the_same_job_on_other_inputs_is_named_by_those_inputs():
+    """A job's mode names the inputs a call runs on, so the sentence that says what covering
+    one call by another changes reads as one: 'the same job on a PDB file', never 'on from a
+    PDB file'."""
+    def judge(entry_id, args):                  # a runner with web access off
+        return ([{"detail": "web access for this project", "remedy": "Turn web access on."}]
+                if args.get("allow_remote") else [])
+    for route_, step in (("structure_binding", "docking"), ("compound_targets", "binding")):
+        fetch = _rows(rt.view(rt.ROUTE_BY_ID[route_], judge), step)[
+            "job.pipeline.dock (a PDB or UniProt id)"]
+        assert fetch["covered_by"] == "job.pipeline.dock (a PDB file)"
+        assert fetch["changes"] == ("the same job on a PDB file, the inputs it runs on here: "
+                                    "give it those, and say which inputs it ran on")
+    modes = {u.mode for _, _, u in _uses() if u.mode}
+    assert modes and not [m for m in modes if m.split()[0] in {"from", "on", "with", "by", "in"}]
+
+
+def test_a_call_that_reaches_the_web_by_its_arguments_is_judged_by_them(runner_ctx, catalog):
+    """An entry that reaches the web only when one of its arguments says so (``network_if``:
+    the allow_remote that fetches a structure, or sends a sequence to the ESM Atlas API) is
+    judged by the call the route names: with web access off, a call that sets it is not
+    runnable and needs web access, as the runner refuses it (network_off), whether or not the
+    entry's browser rules read that argument (the fold job and the structure skill have
+    none). A fold by the default method, esmatlas, is refused without it, so the route sets
+    it on both."""
+    judged = []
+    for network in (False, True):
+        ctx = {**runner_ctx, "network": network}
+        for r in rt.ROUTES:
+            shown = call("research_routes", {"route": r.id}, ctx)["result"]["steps"]
+            for step, view in zip(r.steps, shown):
+                for use, item in zip(step.uses, view["sources"]):
+                    key = catalog[use.entry].get("network_if")
+                    if not key:
+                        continue
+                    sets_it = bool(rt.fixed_args(use).get(key))
+                    needs_web = "web access for this project" in item.get("needs", [])
+                    assert needs_web is (sets_it and not network), (
+                        r.id, step.id, rt.label(use), network, item.get("needs"))
+                    judged.append((rt.label(use), sets_it))
+    assert {("job.pipeline.fold", True), ("skill.predict-protein-structure", True),
+            ("job.pipeline.dock (a PDB or UniProt id)", True),
+            ("job.pipeline.dock (a PDB file)", False)} <= set(judged)
+
+    # and the fold the route names is refused offline as the route now says, taken online;
+    # nothing else predicts a structure offline as the route gives it (esmatlas is the skill's
+    # default too, refused without allow_remote), so the step says what would answer it
+    view = call("research_routes", {"route": "structure_binding"}, runner_ctx)["result"]
+    fold = _rows(view, "predicted")["job.pipeline.fold"]
+    assert fold["runnable_now"] is False and fold["needs"] == ["web access for this project"]
+    predicted = next(s for s in view["steps"] if s["step"] == "predicted")
+    assert predicted["unanswered_here"]["needs"] == ["web access for this project"]
+    given = fold["call"]["arguments"]
+    given = {**given, "arguments": {**given["arguments"],
+                                    "source": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ"}}
+    off = call(fold["call"]["tool"], given, runner_ctx)
+    assert off["status"] == "failed" and off["error"]["type"] == "network_off"
+    on = call(fold["call"]["tool"], given, {**runner_ctx, "network": True})
+    assert on["status"] == "job_submitted", on
+
+
+def test_a_job_template_is_judged_as_the_call_it_stands_for():
+    """Each '<…>' of a job a route names stands for a value of one kind: with the '<…>'
+    filled in, the entry's browser rules send the call where they send the template."""
+    import re
+
+    from tcmstudio import capability
+    catalog = {e["id"]: e for e in entries("browser")}
+
+    def fill(value):
+        if isinstance(value, str):
+            return re.sub(r"<[^>]*>", "x", value)
+        if isinstance(value, list):
+            return [fill(v) for v in value]
+        return value
+    judged = 0
+    for r, s, u in _uses():
+        rules = ((catalog[u.entry].get("execution") or {}).get("browser_job") or {}).get(
+            "runner_only")
+        if not rules:
+            continue
+        template = capability.runner_only(catalog[u.entry], dict(u.args))
+        filled = capability.runner_only(catalog[u.entry], {k: fill(v) for k, v in u.args.items()})
+        assert template == filled, (r.id, s.id, rt.label(u))
+        judged += 1
+    assert judged >= 7
+
+
+def test_every_pipeline_a_route_names_is_taken_by_its_job_kind_once_filled_in(tmp_path):
+    """Each pipeline job a route names, its '<…>' filled with a value of the kind each stands
+    for (a '<…>.sdf' with a file of that suffix), is a call the runner's job kind takes as
+    given: a PDB:/UniProt: receptor comes with the allow_remote that fetches it, a FASTQ run
+    with the transcriptome it is quantified against, a fold by the default method with the
+    allow_remote that sends the sequence out. The runner refuses a call that leaves one out
+    before it is queued, so a route that left it out would send the agent back for it."""
+    import re
+
+    from tcmstudio.kinds import KINDS, BadParams, PrepareContext
+    found: dict[str, tuple[Path, dict]] = {}
+
+    def upload(name, text=""):
+        path = tmp_path / "files" / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        found[name] = (path, {"upload": f"u_{len(found):016x}", "name": name})
+        return name
+    reads = upload("reads_1.fastq", "@r1\nACGTACGT\n+\nIIIIIIII\n")
+    stands_for = {
+        "<PDB:id or UniProt:accession>": "PDB:1M17",
+        "<SMILES, or a CSV, SDF or .smi file>": "CCO",
+        "<SMILES, or a CSV, TSV or .smi file>": "CCO",
+        "<x>": 1.5, "<y>": -2.0, "<z>": 3.25, "<x, Å>": 20.0, "<y, Å>": 20.0, "<z, Å>": 20.0,
+        "<sequence or FASTA>": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ",
+        "<gene × sample count table>": upload("counts.tsv", "gene\tS1\tS2\nG1\t1\t2\n"),
+        "<sample table>": upload("samples.csv", "sample,condition\nS1,a\nS2,b\n"),
+        "<sample sheet of FASTQ files>": upload("sheet.csv", f"sample,fastq_1\nS1,{reads}\n"),
+        "<transcriptome FASTA>": upload("transcripts.fa", ">t1\nACGTACGT\n"),
+        "<count tables (CSV/TSV), or a sample sheet of them>": upload("cells.csv",
+                                                                      "gene,c1,c2\nG1,1,0\n"),
+    }
+
+    def fill(key, value):
+        if isinstance(value, list):
+            return [fill(key, v) for v in value]
+        if not isinstance(value, str) or "<" not in value:
+            return value
+        suffix = re.fullmatch(r"<[^<>]*>(\.[\w.]+)", value)
+        if suffix:
+            return upload(f"{key}{suffix.group(1)}")
+        if value not in stands_for:
+            raise BadParams(f"{value!r}: say in this test what it stands for")
+        return stands_for[value]
+    ctx = PrepareContext(job_id="j1", job_dir=tmp_path / "job", project_id=None, paths={},
+                         data_env={"BIOAGENT_DATA_LAKE": str(tmp_path / "lake")},
+                         find=found.get, settings={})
+    refused, taken = [], []
+    for r, s, u in _uses():
+        if not u.entry.startswith("job.pipeline."):
+            continue
+        try:
+            KINDS[u.entry.split(".", 1)[1]].prepare(
+                {k: fill(k, v) for k, v in u.args.items()}, ctx)
+        except BadParams as exc:
+            refused.append(f"{r.id}/{s.id}/{rt.label(u)}: {exc}")
+            continue
+        taken.append(rt.label(u))
+    assert not refused, "the runner refuses these calls as the routes give them:\n" + "\n".join(
+        refused)
+    assert {"job.pipeline.dock (a PDB or UniProt id)", "job.pipeline.dock (a PDB file)",
+            "job.pipeline.dock (prepared inputs)", "job.pipeline.rnaseq (FASTQ)",
+            "job.pipeline.rnaseq (count matrix)", "job.pipeline.admet (SDF or .mol)",
+            "job.pipeline.admet (SMILES or CSV/TSV/.smi)", "job.pipeline.fold",
+            "job.pipeline.scrna (count tables)", "job.pipeline.scrna (AnnData or 10x HDF5)"
+            } == set(taken)
 
 
 def test_a_built_dataset_makes_its_relation_kind_runnable(runner_ctx, monkeypatch):
@@ -327,9 +564,90 @@ def test_a_built_dataset_makes_its_relation_kind_runnable(runner_ctx, monkeypatc
     ("葛根芩连汤是否比单用小檗碱更有效？", "formula_composition"),
     ("What did NCT01234567 find?", "efficacy_evidence"),
     ("Re-analyse GSE12345 for Huangqi treatment", "omics_datasets"),
+    # the safety_signal scaffold's own example event, and how it is asked
+    ("Does Polygonum multiflorum cause drug-induced liver injury?", "safety"),
+    ("何首乌会引起肝损伤吗？", "safety"),
+    ("何首乌导致药物性肝损伤的证据", "safety"),
+    ("Is Heshouwu hepatotoxic?", "safety"),
+    ("What are the protein targets of quercetin?", "compound_targets"),
+    ("Which proteins does quercetin bind?", "compound_targets"),
+    ("What is the effect of BRAF p.Val600Glu on vemurafenib response?",
+     "variants_pharmacogenomics"),
+    ("Is c.1799T>A pathogenic?", "variants_pharmacogenomics"),
+    ("What does GO:0008150 map to?", "ontology_mapping"),
+    ("What is ChEMBL25?", "compound_identity"),
+    # a 伤寒论 syndrome named without its closing 证, and what a syndrome is treated with
+    ("桂枝汤治疗太阳中风的证据", "traditional_use"),
+    ("太阳中风用什么方？", "traditional_use"),
+    ("少阴病四逆汤的条文", "traditional_use"),
+    ("桂枝汤的方证", "traditional_use"),
+    ("Dock quercetin into EGFR", "structure_binding"),
+    # a 伤寒论 syndrome or six-channel disease says what a question is about, not what it
+    # asks: a question of safety or efficacy that names one goes to safety or efficacy
+    ("少阴病用附子安全吗？", "safety"),
+    ("附子在伤寒论中的用量安全吗？", "safety"),
+    ("伤寒论附子的毒性", "safety"),
+    ("伤寒论中少阴病、太阳伤寒用附子安全吗？", "safety"),
+    ("麻黄汤治疗太阳伤寒的随机对照试验", "efficacy_evidence"),
+    ("四逆汤治疗少阴病的临床证据", "efficacy_evidence"),
+    # 用什么方法 asks for a method, not for a formula (用什么方)
+    ("用什么方法评估附子的毒性？", "safety"),
+    ("用什么方法预测槲皮素的靶点？", "compound_targets"),
+    ("用什么方法分析单细胞数据？", "omics_datasets"),
+    ("用什么方法研究黄芪的药代动力学？", "exposure_metabolism"),
+    ("用什么方法鉴别人参和西洋参？", "herb_identity"),
 ])
 def test_a_question_finds_its_route(question, expected):
     assert rt.match(question)[0][0].id == expected
+
+
+@pytest.mark.parametrize("question", [
+    "用什么方法测定黄芪中黄芪甲苷的含量？",      # 用什么方法: what method
+    "黄芪甲苷用什么方式检测",                    # 用什么方式: what way
+    "桂枝汤处方证据等级如何？",                  # 处方证据: a prescription's evidence
+    "这张处方证据充分吗？",
+    "官方证实了吗？",                            # 官方证实: officially confirmed
+])
+def test_a_word_inside_another_word_is_not_that_word(question):
+    """A Chinese word is matched inside the question's text, so a word whose characters begin
+    a longer word that means something else is not counted there: 用什么方 (which formula) in
+    用什么方法 (which method), 方证 (a formula's pattern) in 处方证据 or 官方证实."""
+    assert "traditional_use" not in [r.id for r, _ in rt.match(question)]
+
+
+def test_a_subject_word_places_only_a_question_no_keyword_places():
+    """A route's subject words name what a question is about (a 伤寒论 syndrome, a six-channel
+    disease, the classics), not what it asks: together they count less than any one keyword
+    of any route, so they place a question that names nothing else and never outrank what
+    a question asks (少阴病 … 安全吗 is a safety question), and they add nothing to a route
+    a keyword places, so the order of those is the keywords' own."""
+    def scores(question):
+        return {x.id: score for x, score in rt.match(question, limit=len(rt.ROUTES))}
+    least = min(scores(k)[r.id] for r in rt.ROUTES for k in r.keywords)
+    subjects = [(r, s) for r in rt.ROUTES for s in r.subjects]
+    assert subjects and least >= 2
+    for r, s in subjects:
+        assert not [k for k in r.keywords if k.lower() in s.lower()], (r.id, s)
+        top, score = rt.match(s)[0]
+        assert top is r and score < least, (s, top.id, score)
+        for k in r.keywords:
+            assert scores(f"{s} {k}") == scores(k), (s, k)
+    # however many of them a question names
+    for r in {r.id: r for r, _ in subjects}.values():
+        top, score = rt.match("，".join(r.subjects))[0]
+        assert top is r and score < least, (r.id, score)
+
+
+@pytest.mark.parametrize("question,not_expected", [
+    # a p-value is not an HGVS protein change, and 'go' is not the GO prefix: identifiers
+    # are matched as they are written
+    ("Is the effect significant at p.05?", "variants_pharmacogenomics"),
+    ("Is the effect significant at P.05?", "variants_pharmacogenomics"),
+    ("go: 1", "ontology_mapping"),
+    ("hp: 2", "ontology_mapping"),
+])
+def test_text_that_only_looks_like_an_identifier_finds_no_route_by_it(question, not_expected):
+    assert not_expected not in [r.id for r, _ in rt.match(question)]
 
 
 def test_the_routes_document_is_generated_from_the_module():

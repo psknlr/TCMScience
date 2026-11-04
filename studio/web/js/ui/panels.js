@@ -8,7 +8,7 @@
 // validated < verified < accelerated). A software WebGPU adapter is 软件模拟 GPU, never GPU acceleration; WebNN is
 // "detected; NPU execution unverified" at most; a runner's GPU is reported or selected, never more.
 
-import { allProviders, localFix, PRESETS } from "../core/providers.js";
+import { allProviders, localFix, PRESETS, relayHealthError } from "../core/providers.js";
 import { lang, t } from "../core/i18n.js";
 import { isLoopbackUrl } from "../core/util.js";
 import { classifyAdapter } from "../runtime/webgpu.js";
@@ -478,9 +478,11 @@ export function openPairingDialog(app, pairing) {
  * Settings → Models page itself (`here`), without the pointer to that same page.
  */
 export function relayErrorLine(relay, { tag = "p", here = false } = {}) {
-  const message = here ? withoutModelsPointer(relay?.error) : String(relay?.error || "");
+  // told now, in the page's language as it is: the relay may have been checked before a language switch
+  const told = relayHealthError(relay);
+  const message = here ? withoutModelsPointer(told.error) : String(told.error || "");
   const [before, after = ""] = t("ui.models.relay_error", { message: "\u0001" }).split("\u0001");
-  return h(tag, before, h("span", { lang: relay?.error_lang === "zh" ? "zh-Hans" : null }, message), after);
+  return h(tag, before, h("span", { lang: told.error_lang === "zh" ? "zh-Hans" : null }, message), after);
 }
 
 /** A relay error without 「或在「设置 → 模型」里改用自己的模型」 / "or use your own model in Settings → Model". */

@@ -136,6 +136,23 @@ def test_an_edited_audit_chain_attests_nothing(governed, tmp_path):
         AuditChainAttestor.open(tmp_path / "nowhere")
 
 
+def test_opening_the_attestor_does_not_write_to_the_chain(governed, tmp_path):
+    """Attesting reads the chain. The attestor opened a whole kernel to read it, and a
+    kernel records a policy file it refuses: every open made the chain one event longer."""
+    state = tmp_path / "psh"
+    (state / "execpolicy.json").write_text(json.dumps({"default": "prompt", "rules": []}))
+
+    def count() -> int:
+        with sqlite3.connect(state / "events.db") as db:
+            return db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+
+    before = count()
+    for _ in range(2):
+        with AuditChainAttestor.open(state) as attestor:
+            assert attestor.attest(governed.artifact)[0]
+    assert count() == before and (state / "execpolicy.json").exists()
+
+
 # ============================== AUD-14: a resumed stage keeps its own history
 
 def test_a_resumed_run_does_not_promote_an_ungoverned_stage(tmp_path):

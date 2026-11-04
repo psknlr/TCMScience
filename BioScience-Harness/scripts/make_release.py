@@ -203,7 +203,10 @@ def find_unimportable(root: Path) -> list[tuple[str, str]]:
         "        bad.append([n, f'{type(exc).__name__}: {exc}', 'defect'])\n"
         "sys.stdout.write(json.dumps(bad))\n"
     )
-    env = {**os.environ, "PYTHONPATH": str(root / "src")}
+    # src/ first, then the caller's path: CI puts PSH on PYTHONPATH rather than installing
+    # it, and replacing the path made every module that imports psh "not checkable"
+    path = [str(root / "src"), *filter(None, [os.environ.get("PYTHONPATH")])]
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(path)}
     proc = _sp.run([sys.executable, "-c", code], capture_output=True, text=True,
                    cwd=str(root), env=env, timeout=300)
     if proc.returncode != 0:
@@ -390,10 +393,13 @@ def accept_wheel(wheel: Path) -> list[str]:
 
 
 def build(outdir: Path) -> list[Path]:
+    """The sdist, then the wheel built from it (``python -m build`` with no ``--sdist`` or
+    ``--wheel``: given both, it builds each from the source tree), the path ``pip install``
+    of the sdist takes."""
     if outdir.exists():
         shutil.rmtree(outdir)
-    subprocess.run([sys.executable, "-m", "build", "--sdist", "--wheel",
-                    "--outdir", str(outdir), str(REPO)], check=True)
+    subprocess.run([sys.executable, "-m", "build", "--outdir", str(outdir), str(REPO)],
+                   check=True)
     return sorted(p for p in outdir.iterdir() if p.suffix in (".whl", ".gz"))
 
 

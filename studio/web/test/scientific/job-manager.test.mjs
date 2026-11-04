@@ -395,11 +395,15 @@ test("cancel a queued job: cancelled at once, never run; cancel a running one: i
   await new Promise((r) => setTimeout(r, 30));
   assert.equal((await svc.get(first.id)).state, "running");
   assert.equal((await svc.get(second.id)).state, "queued", "maxConcurrent 1");
+  assert.equal(svc.active, 2, "queued and running: what a reload of this tab would interrupt");
   const c = await svc.cancel(second.id);
   assert.equal(c.state, "cancelled");
   assert.equal(c.receipt, null, "it never started: no receipt");
+  assert.equal(svc.active, 1);
   gate.resolve();
   assert.equal((await settle(svc, first.id)).state, "succeeded");
+  for (let i = 0; i < 100 && svc.active; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(svc.active, 0);
   assert.equal((await svc.get(second.id)).state, "cancelled", "it never ran");
   await assert.rejects(svc.cancel(first.id), { type: "conflict" }, "a finished job has nothing to cancel");
 

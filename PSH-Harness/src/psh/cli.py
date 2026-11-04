@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from .config import PSHConfig
-from .kernel import TrustedKernel
+from .kernel import EventStore, TrustedKernel
 from .profiles import get_profile, profile_names
 from .workgraph import NodeKind, WorkGraph
 
@@ -30,15 +30,21 @@ def cmd_verify(args: argparse.Namespace) -> int:
     if not cfg.event_store.exists():
         print(f"no event store at {cfg.event_store}")
         return 1
-    kernel = TrustedKernel(cfg)
-    result = kernel.events.verify(expected_head=args.expected_head)
-    print(f"event store: {cfg.event_store}")
-    print(f"events:      {len(kernel.events)}")
-    print(f"head hash:   {kernel.events.head_hash}")
-    print(f"result:      {result!r}")
-    if args.events:
-        for event_type, count in kernel.events.events().items():
-            print(f"  {event_type}: {count}")
+    # The store alone, not a kernel: verifying must not write to what it verifies. Opening
+    # a kernel can append (a refused policy file is recorded), and an append between the
+    # anchor and the check reads as a rewritten log.
+    events = EventStore(cfg.event_store, policy_version=cfg.policy_version)
+    try:
+        result = events.verify(expected_head=args.expected_head)
+        print(f"event store: {cfg.event_store}")
+        print(f"events:      {len(events)}")
+        print(f"head hash:   {events.head_hash}")
+        print(f"result:      {result!r}")
+        if args.events:
+            for event_type, count in events.events().items():
+                print(f"  {event_type}: {count}")
+    finally:
+        events.close()
     return 0 if result.intact else 2
 
 

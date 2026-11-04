@@ -172,15 +172,17 @@ function nativeCall(tool, args, stateRoot, project) {
   return JSON.parse(r.stdout);
 }
 
-const stable = (v) => JSON.stringify(sortKeys(v));
+/** A JSON value as text with its keys sorted: two values are equal when these are. */
+export const stable = (v) => JSON.stringify(sortKeys(v));
 function sortKeys(v) {
   if (Array.isArray(v)) return v.map(sortKeys);
   if (v && typeof v === "object") return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(v[k])]));
   return v;
 }
 
-/** Fields that must match between the browser and the native dispatcher, and the ones that legitimately differ. */
-function compareEnvelopes(b, n) {
+/** Fields that must match between the browser and the native dispatcher, and the ones that legitimately differ (the
+ * sweep, sweep.mjs, holds every browser tool's envelope to this too). → [{field, browser, native}] */
+export function compareEnvelopes(b, n) {
   const diffs = [];
   const same = (label, x, y) => { if (stable(x) !== stable(y)) diffs.push({ field: label, browser: x, native: y }); };
   same("status", b.status, n.status);

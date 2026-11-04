@@ -274,6 +274,8 @@ export class BrowserJobService {
   /** "idle" before start(), then "ready" or "unsupported" (with `reason`). */
   get status() { return this.#status; }
   get reason() { return this.#reason; }
+  /** How many jobs this tab has queued or running (a reload would interrupt them). */
+  get active() { return this.#runs.size; }
 
   onStatus(fn) { return this.#bus.on("status", fn); }
 

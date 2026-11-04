@@ -5,10 +5,21 @@ import { lang, setLang, t } from "../core/i18n.js";
 import { cssEscape, dateGroup, fill, formatDateTime, formatRelative, h, shortcutLabel } from "./dom.js";
 import { icon } from "./icons.js";
 import { openMenu, promptDialog, confirmDialog, trapFocus, toast } from "./overlay.js";
-import { iconButton, statusDot } from "./primitives.js";
+import { emptyState, iconButton, statusDot } from "./primitives.js";
 import { computeChipLabel, runnerTone } from "./panels.js";
 
-export function mountShell(app, root) {
+/** Each route's page: its module, loaded when the route is first shown → its mount function, (app, main) → view. */
+export const PAGES = Object.freeze({
+  conversation: async () => (await import("./conversation.js")).mountConversation,
+  project: async () => (await import("./pages/project.js")).mountProject,
+  home: async () => (await import("./pages/project.js")).mountProject,
+  settings: async () => (await import("./pages/settings.js")).mountSettings,
+  about: async () => (await import("./pages/about.js")).mountAbout,
+  catalog: async () => (await import("./pages/catalog.js")).mountCatalog,
+});
+
+/** `pages`: the route pages (PAGES; a test gives its own). */
+export function mountShell(app, root, { pages = PAGES } = {}) {
   const topbar = h("header.topbar", { role: "banner" });
   const sidebar = h("aside#sidebar.sidebar", { "aria-label": t("ui.sidebar.label") });
   const main = h("main#main.main", { tabindex: "-1" });
@@ -231,32 +242,35 @@ export function mountShell(app, root) {
 
   // ----------------------------------------------------------------------------------------------- views
 
+  // The number of the latest mount: a page whose module arrives after a later route began mounting is not mounted (a
+  // slow first load of the project page must not paint over the About page clicked after it, and leave it undestroyed).
+  let mounting = 0;
+
   async function mountView() {
+    const mount = ++mounting;
     const route = app.state.route;
     // the same page with another detail (a catalog entry, a settings tab): update in place, keep its state
     if (view?.routeName === route.name && typeof view.update === "function") {
       view.update(route);
+      markView(route);
       setLayout();
       return;
     }
     view?.destroy?.();
     view = null;
-    let mod;
-    switch (route.name) {
-      case "conversation": mod = await import("./conversation.js"); view = mod.mountConversation(app, main); break;
-      case "project":
-      case "home": mod = await import("./pages/project.js"); view = mod.mountProject(app, main); break;
-      case "settings": mod = await import("./pages/settings.js"); view = mod.mountSettings(app, main); view.routeName = "settings"; break;
-      case "about": mod = await import("./pages/about.js"); view = mod.mountAbout(app, main); break;
-      case "catalog": mod = await import("./pages/catalog.js"); view = mod.mountCatalog(app, main); view.routeName = "catalog"; break;
-      default: {
-        const { emptyState } = await import("./primitives.js");
-        fill(main, h("div.page", emptyState({ icon: "help", title: t("ui.notfound.title"), body: t("ui.notfound.body") }), h("p", { style: "text-align:center" }, h("a", { href: "#/" }, t("ui.notfound.home")))));
-      }
+    const open = Object.hasOwn(pages, route.name) ? await pages[route.name]() : null;
+    if (mount !== mounting) return; // a later route is being mounted: its page is the one shown
+    if (open) {
+      view = open(app, main);
+      view.routeName = route.name;
+      markView(route);
+    } else {
+      fill(main, h("div.page", emptyState({ icon: "help", title: t("ui.notfound.title"), body: t("ui.notfound.body") }), h("p", { style: "text-align:center" }, h("a", { href: "#/" }, t("ui.notfound.home")))));
     }
     if (route.name === "conversation") {
       if (!inspector) {
         const m = await import("./inspector.js");
+        if (mount !== mounting) return;
         inspector = m.mountInspector(app, inspectorHost);
       } else inspector.refresh();
     }
@@ -264,6 +278,11 @@ export function mountShell(app, root) {
     document.title = title ? `${title} · TCMScience Studio` : "TCMScience Studio";
     setLayout();
     syncSkipLinks();
+  }
+
+  /** The view's element says the route it was mounted (or last updated) for: data-route-href, as routeHref writes it. */
+  function markView(route) {
+    view?.el?.setAttribute?.("data-route-href", app.href(route));
   }
 
   /**

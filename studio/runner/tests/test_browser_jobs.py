@@ -924,11 +924,17 @@ def test_the_registry_lists_the_research_files_as_the_build_reads_them():
         assert f["rate_rps"] == PACER.interval(f["host"]) ** -1
     assert files["260413_frozen.csv.gz"]["rate_rps"] == 0.1      # zenodo.org's Crawl-delay
     # every reviewed checksum, LOTUS's as Zenodo publishes it (md5); none invented
-    assert sum(1 for f in files.values() if f["checksum"]) == 14
+    assert sum(1 for f in files.values() if f["checksum"]) == 15
     assert files["260413_frozen.csv.gz"]["checksum"] == "md5:cf0cf2afa2ca4d758b68f2e39d466f5d"
     for name in ("9606.protein.aliases.v12.0.txt.gz", "UniProt2Reactome.txt"):
         assert files[name]["reviewed"] is False
-        assert files[name]["checksum"] is None and files[name]["bytes"] is None
+    # STRING's aliases (a frozen release) pinned from two live downloads, so the relay holds
+    # it to its size; Reactome's current file and the UniProt query are not pinned
+    aliases = files["9606.protein.aliases.v12.0.txt.gz"]
+    assert (aliases["bytes"], aliases["checksum"]) == (
+        19777800, "sha256:b65f730b993ed0c1bd72edf4565d3d425db42861101b29699704810e8f125680")
+    reactome = files["UniProt2Reactome.txt"]
+    assert reactome["checksum"] is None and reactome["bytes"] is None
     assert files["uniprot_human_reviewed_accessions.txt"]["checksum"] is None
     # redistribution as the runner's dataset pages say it: from a licence record that names
     # the release, else unknown

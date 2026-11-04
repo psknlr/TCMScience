@@ -193,8 +193,7 @@ export class App {
     this.views.shell = mountShell(this, root);
     root.removeAttribute("aria-busy");
 
-    this.router = new HashRouter((route, prev) => this.#onRoute(route, prev));
-    await this.#onRoute(this.router.current, null);
+    await this.startRouting();
 
     if (pairing) this.#afterPairing(pairing);
     else if (!this.state.settings.onboarded) import("./onboarding.js").then((m) => m.openOnboarding(this));
@@ -210,13 +209,31 @@ export class App {
 
   /** The service worker that keeps the app and its runtime usable offline (core/offline.js, /sw.js). */
   #offline() {
+    let offer = () => {};
     import("../core/offline.js")
       .then((m) => m.registerServiceWorker({
-        // a new version waits until the person chooses to reload into it: nothing changes under an open page
-        onUpdate: (apply) => toast(t("ui.offline.update"), { action: { label: t("ui.offline.reload"), onClick: apply }, timeout: 0 }),
+        // a new version waits until the person chooses to reload into it, in this tab or another
+        onUpdate: (apply) => { offer = toast(t("ui.offline.update"), { action: { label: t("ui.offline.reload"), onClick: apply }, timeout: 0 }); },
+        // chosen in another tab: this page follows (the old version's files are gone) once that loses nothing here,
+        // and says so meanwhile
+        busy: () => this.#holdsWork(),
+        onReplaced: (reload) => {
+          offer();
+          toast(t("ui.offline.replaced"), { tone: "warn", action: { label: t("ui.offline.reload"), onClick: reload }, timeout: 0 });
+        },
       }))
       .then((r) => { this.state.serviceWorker = r?.state || null; })
       .catch(() => { this.state.serviceWorker = "failed"; });
+  }
+
+  /**
+   * Whether a reload now would lose something of this page: an answer or a browser job under way, text typed or files
+   * attached in the composer, a dialog open.
+   */
+  #holdsWork() {
+    if (this.state.turn || this.runtimes?.jobs?.service?.active || hasOverlay()) return true;
+    if (document.getElementById("composer-input")?.value.trim()) return true;
+    return document.querySelector(".composer__attachments")?.hidden === false;
   }
 
   // ----------------------------------------------------------------------------------------------- connectivity
@@ -302,6 +319,12 @@ export class App {
           this.#afterRunnerReady();
         }
       });
+      // a runner ready before anyone listened (on loopback it answers while the job service is still loading) sent its
+      // "ready" to no one: what it reports about itself is read now
+      if (runner.status === "ready") {
+        this.#availability("runner", null, "ready");
+        this.#afterRunnerReady();
+      }
     }
     const jobs = this.runtimes.jobs;
     if (jobs) {
@@ -359,7 +382,8 @@ export class App {
     // the runner knows what it can run: merge its catalog
     try {
       this.catalog = await loadCatalog(this.runtimes);
-        this.toolRouter.setCatalog(this.catalog);
+      // none yet while the app boots: it is made from this same merged catalog
+      this.toolRouter?.setCatalog(this.catalog);
       this.emit("catalog", this.catalog);
     } catch { /* keep the built catalog */ }
     this.emit("runtime", { kind: "runner" });
@@ -486,14 +510,21 @@ export class App {
 
   async refreshConversations() {
     const pid = this.state.project?.id;
-    this.state.conversations = pid ? await this.store.conversations.list(pid) : [];
-    this.state.recent = await this.store.conversations.recent(30);
+    const conversations = pid ? await this.store.conversations.list(pid) : [];
+    const recent = await this.store.conversations.recent(30);
+    // another project was opened while the store answered (a newer navigation): this list is not its, and its own
+    // refresh is on the way
+    if (this.state.project?.id !== pid) return;
+    this.state.conversations = conversations;
+    this.state.recent = recent;
     this.emit("conversations", this.state.conversations);
   }
 
   async loadMessages() {
     const conv = this.state.conversation;
-    this.state.messages = conv ? await this.store.messages.list(conv.id) : [];
+    const messages = conv ? await this.store.messages.list(conv.id) : [];
+    if (this.state.conversation?.id !== conv?.id) return; // another conversation was opened meanwhile: not its messages
+    this.state.messages = messages;
     this.emit("messages", this.state.messages);
   }
 
@@ -514,7 +545,24 @@ export class App {
     this.router.navigate(route, opts);
   }
 
+  /** Follow the address (boot): the hash router, and the route the page opened on. */
+  async startRouting() {
+    this.router = new HashRouter((route, prev) => this.#onRoute(route, prev));
+    await this.#onRoute(this.router.current, null);
+  }
+
+  /** The number of the latest navigation (#onRoute): an earlier one still waiting on the store is dropped. */
+  #navigation = 0;
+
   async #onRoute(route) {
+    // A project or conversation route waits on the store; a later navigation may start and finish meanwhile (a click
+    // on About while a project opens). The earlier one then stops at its next step: its route is neither set nor shown
+    // over the later one's, and it sets nothing more. What it set before that step can remain where the later route
+    // does not set it: once its project was read, state.project and the tool router's settings, and that project's
+    // conversation list (About, settings and the catalog keep the project). The open conversation is always the
+    // latest navigation's: every route sets or clears it (home, or a missing project, through the route it goes on to).
+    const nav = ++this.#navigation;
+    const stale = () => nav !== this.#navigation;
     this.state.sidebarOpen = false;
     if (route.name === "home") {
       const last = this.state.recent[0];
@@ -525,6 +573,7 @@ export class App {
       this.state.messages = [];
     } else if (route.name === "project" || route.name === "conversation") {
       const project = await this.store.projects.get(route.projectId);
+      if (stale()) return;
       if (!project) {
         toast(t("ui.project.missing"), { tone: "warn" });
         return this.navigate({ name: "home" }, { replace: true });
@@ -533,8 +582,10 @@ export class App {
       this.state.project = project;
       this.toolRouter?.setSettings(this.effectiveSettings());
       if (changedProject || !this.state.conversations.length) await this.refreshConversations();
+      if (stale()) return;
       if (route.name === "conversation") {
         const conv = await this.store.conversations.get(route.convId);
+        if (stale()) return;
         if (!conv || conv.projectId !== project.id) {
           toast(t("ui.conv.missing"), { tone: "warn" });
           return this.navigate({ name: "project", projectId: project.id }, { replace: true });
@@ -544,6 +595,7 @@ export class App {
         if (switched) {
           this.state.inspector = { ...this.state.inspector, messageId: null, selection: null };
           await this.loadMessages();
+          if (stale()) return;
         }
       } else {
         this.state.conversation = null;

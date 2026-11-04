@@ -127,6 +127,39 @@ def test_every_package_directory_is_importable_from_the_installed_package() -> N
         importlib.import_module(dotted)
 
 
+def test_the_import_probe_keeps_the_callers_pythonpath(tmp_path, monkeypatch, capsys) -> None:
+    """CI puts PSH on PYTHONPATH rather than installing it. The probe added src/ by
+    replacing PYTHONPATH, so every module that imports psh was 'not checkable here' and
+    skipped, and `--check` printed OK without importing them."""
+    import make_release
+    (tmp_path / "src" / "bioagent").mkdir(parents=True)
+    (tmp_path / "src" / "bioagent" / "__init__.py").write_text("import only_on_the_path\n")
+    (tmp_path / "dep").mkdir()
+    (tmp_path / "dep" / "only_on_the_path.py").write_text("")
+    monkeypatch.setattr(make_release, "REQUIRED_PACKAGES", ())
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "dep"))
+    skipped = len(make_release._SKIPPED)
+    assert make_release.find_unimportable(tmp_path) == []
+    assert len(make_release._SKIPPED) == skipped
+    assert "not checkable" not in capsys.readouterr().out
+
+
+def test_the_release_builds_the_wheel_from_the_sdist(tmp_path, monkeypatch) -> None:
+    """`python -m build --sdist --wheel` builds both from the source tree; without those
+    flags it builds the sdist and then the wheel from it, the path `pip install` of the
+    sdist takes, which the sdist check of verify_artifact and the acceptance assume."""
+    import make_release
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        (tmp_path / "dist").mkdir()
+    monkeypatch.setattr(make_release.subprocess, "run", run)
+    assert make_release.build(tmp_path / "dist") == []
+    (args,) = calls
+    assert args[1:3] == ["-m", "build"] and not {"--sdist", "--wheel"} & set(args)
+
+
 def test_the_declared_version_is_stated_once() -> None:
     """pyproject and __init__ drifted (0.2.2 vs 0.2.1).
 
@@ -185,8 +218,8 @@ def test_a_wheel_built_from_the_sdist_runs_a_governed_skill_on_its_own(tmp_path)
     a release is built, sdist first, and run a skill from it outside this checkout."""
     pytest.importorskip("build", reason="pip install build")
     pytest.importorskip("psh", reason="a governed run needs PSH")
-    subprocess.run([sys.executable, "-m", "build", "--sdist", "--wheel", "--outdir",
-                    str(tmp_path), str(REPO)], check=True, capture_output=True)
+    subprocess.run([sys.executable, "-m", "build", "--outdir", str(tmp_path), str(REPO)],
+                   check=True, capture_output=True)       # the wheel from the sdist
     (wheel,) = tmp_path.glob("*.whl")
     names = zipfile.ZipFile(wheel).namelist()
     assert set(required_in_wheel()) <= set(names)

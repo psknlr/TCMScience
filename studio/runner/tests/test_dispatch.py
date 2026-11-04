@@ -366,6 +366,59 @@ def test_clinic_bad_intake_is_a_bad_argument(runner_ctx):
     assert e["status"] == "failed" and e["error"]["type"] == "bad_arguments"
 
 
+def test_an_allergy_that_is_not_text_is_refused_alike_here_and_by_the_library(runner_ctx,
+                                                                                 intake):
+    # the command line reads an intake with bioagent.clinic.intake: an allergy given as an
+    # object was turned into text there (or raised a TypeError for a number) while the studio
+    # refused it; both now refuse it with one message
+    import pytest
+    from bioagent.clinic.intake import IntakeError, parse_intake
+    from bioagent.clinic.pack import load_pack
+    herbs = [{"herb": "黄芪", "grams": 9}]
+    for value in ([{"substance": "北芪", "reaction": "皮疹"}], {"北芪": "皮疹"}, [None], 5, [5],
+                  5.5, ["北芪", 3]):
+        bad = {**intake, "allergies": value}
+        e = call("clinic_check_prescription", {"intake": bad, "herbs": herbs}, runner_ctx)
+        assert e["status"] == "failed" and e["error"]["type"] == "bad_arguments"
+        with pytest.raises(IntakeError) as exc:
+            parse_intake(bad, load_pack())
+        assert e["error"]["message"] == f"arguments.intake.{exc.value}", value
+    # a blank allergy field records nothing: not asked, by either path
+    for blank in ("", [""], ["。。。"]):
+        e = call("clinic_check_prescription", {"intake": {**intake, "allergies": blank},
+                                               "herbs": herbs}, runner_ctx)
+        assert e["status"] == "succeeded" and "过敏史未询问" in e["result"]["intake_warnings"]
+    # and an alias in the history's own words stops the herb, through the studio too
+    e = call("clinic_check_prescription", {"intake": {**intake, "allergies": ["患者对北芪过敏"]},
+                                           "herbs": herbs}, runner_ctx)
+    assert e["result"]["stop"] and any(i["id"] == "allergy:黄芪" for i in e["result"]["issues"])
+    # a formula of the pack in the history asks about each of its herbs, through the studio too
+    e = call("clinic_check_prescription", {"intake": {**intake, "allergies": ["补中益气丸过敏"]},
+                                           "herbs": herbs}, runner_ctx)
+    assert any(i["id"] == "allergy_formula:黄芪" and i["severity"] == "block"
+               for i in e["result"]["issues"]), e["result"]["issues"]
+
+
+def test_exceptions_and_list_items_of_words_read_alike_through_the_studio(runner_ctx, intake):
+    # the r9 review's repros, through clinic.check: an exception excepts every entry joined to it,
+    # another allergen's name among them and in either order (a stop), and a list item that holds
+    # a context word (无反应, 一直吃, 中医开的, by herbalist) only mentions the herb (a block)
+    herbs = [{"herb": "黄芪", "grams": 9}]
+    for record, stop in (("No allergies except penicillin and huang qi", True),
+                         ("No allergies except huang qi and penicillin", True),
+                         ("NKDA except penicillin, huang qi", True), ("除青霉素、黄芪外无过敏", True),
+                         ("无过敏史，黄芪、青霉素除外", True), ("No allergies except: huang qi", True),
+                         ("黄芪，无反应", False), ("黄芪，一直吃", False), ("黄芪，已停用", False),
+                         ("黄芪，中医开的", False), ("huang qi, by herbalist", False)):
+        e = call("clinic_check_prescription", {"intake": {**intake, "allergies": [record]},
+                                               "herbs": herbs}, runner_ctx)
+        assert e["status"] == "succeeded", e["error"]
+        mine = {(i["id"], i["severity"]) for i in e["result"]["issues"] if i["id"].startswith("allergy")}
+        assert mine == ({("allergy:黄芪", "stop")} if stop else {("allergy_mentioned:黄芪", "block")}), \
+            (record, mine)
+        assert bool(e["result"]["stop"]) == stop, record
+
+
 def test_draft_prescription_skill_is_a_development_run(runner_ctx, intake):
     e = call("call_tool", {"tool": "skill.draft-tcm-prescription",
                            "arguments": {"intake": intake}}, runner_ctx)
@@ -513,6 +566,41 @@ def test_applicability_names_the_licensing_set_and_says_when_nothing_is_recorded
     assert "无 黄芪→太阳中风证 的记载（不等于无证据）" in e["summary"]
     assert "现有记载" not in e["summary"]
     assert "随机对照试验或系统评价" in e["summary"]
+
+
+def test_a_syndrome_named_as_the_classics_write_it_is_the_seeds_syndrome(runner_ctx):
+    """伤寒论 第12条 writes 太阳中风 for the syndrome the seed records as 太阳中风证: the name
+    with its closing 证 is read, and the answer says so. A name that is only part of one stays
+    a suggestion."""
+    e = call("tcm_syndrome", {"name": "太阳中风"}, runner_ctx)
+    assert e["status"] == "succeeded", e["error"]
+    assert e["result"]["syndrome"]["chinese"] == "太阳中风证"
+    assert [f["chinese"] for f in e["result"]["formulas"]] == ["桂枝汤"]
+    assert e["result"]["read_as"] == {"name": {"given": "太阳中风", "read": "太阳中风证",
+                                               "as": "太阳中风证"}}
+    assert any(x.startswith("「太阳中风」 was read as 太阳中风证")
+               for x in e["governance"]["limitations"])
+    assert call("tcm_syndrome", {"name": "太阳伤寒"}, runner_ctx)["result"]["syndrome"][
+        "chinese"] == "太阳伤寒证"
+    # its recorded alias with 证 names it too, and the answer names the alias read
+    alias = call("tcm_syndrome", {"name": "表虚"}, runner_ctx)
+    assert alias["result"]["syndrome"]["chinese"] == "太阳中风证"
+    assert any("read as 表虚证" in x and "records as 太阳中风证" in x
+               for x in alias["governance"]["limitations"])
+    a = call("tcm_applicability", {"subject": "桂枝汤", "object": "太阳中风",
+                                   "claim_kind": "attribution"}, runner_ctx)
+    b = call("tcm_applicability", {"subject": "桂枝汤", "object": "太阳中风证",
+                                   "claim_kind": "attribution"}, runner_ctx)
+    assert a["status"] == "succeeded" and a["result"]["object"]["chinese"] == "太阳中风证"
+    assert a["result"]["verdict"] == b["result"]["verdict"] == "within_scope"
+    assert set(a["result"]["read_as"]) == {"object"} and "read_as" not in b["result"]
+    # a partial match is no name: 气虚, part of 气虚证 and of 脾胃气虚证, is read as 气虚证
+    qi = call("tcm_syndrome", {"name": "气虚"}, runner_ctx)
+    assert qi["result"]["read_as"] == {"name": {"given": "气虚", "read": "气虚证", "as": "气虚证"}}
+    # a name that names something, or only part of one and nothing with 证, is left as given
+    assert call("tcm_syndrome", {"name": "中风"}, runner_ctx)["error"]["type"] == "not_found"
+    assert call("tcm_syndrome", {"name": "太阳"}, runner_ctx)["status"] == "failed"
+    assert "read_as" not in call("tcm_syndrome", {"name": "脾胃气虚证"}, runner_ctx)["result"]
 
 
 def test_significance_wording_follows_the_p_value(runner_ctx):

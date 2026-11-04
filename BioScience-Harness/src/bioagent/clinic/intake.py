@@ -10,12 +10,26 @@ about and is ``absent``; a negated entry (无自汗) is read as absent as well.
 grouped by the 十问 order, with the tongue and pulse terms as references, so the
 collector can see what the differentiation will look for. ``None`` and ``[]`` differ:
 ``"medications": null`` is *not asked* and ``[]`` is *none*; interactions are checked only
-when the medications were asked.
+when the medications were asked. A blank field ("", ["  "], ["。。。"]) records neither and
+is read as not asked; so is an allergy field that holds only its label or a form's labels,
+or says it was not asked or is not known (过敏史：, Allergies:, Allergy hx:, Drug allergies:,
+过敏史：____, 药物：____ 食物：____, 过敏史：□无 □有, 未询问, 没有询问, 没询问, 没有问, 没问, 漏问,
+未询及, 待询问, 患者不能配合, 无法回答, 不详, 不清楚, 未知, 暂不详, 记不清楚, 拒答, unknown, not
+asked, deferred, 过敏史 - 不详, Allergies: - unknown, 患者不知道有没有过敏), unless it also holds a
+name the tables know or a none word (无, 否认, none, NKDA …) outside that phrase (过敏史不详
+人参过敏; 不详，白及过敏; 无药物过敏史，未查过敏原; NKDA (see chart)); a word of allergy (过敏, 过敏史,
+allergy) never answers by itself. The field is read whole, not entry by entry: ["青霉素过敏",
+"其他未询问"] is not asked, as ["青霉素过敏，其他未询问"] is. What a not-asked field holds is still
+scanned. A negative in
+brackets is an answer, with or without a label (过敏史：（-）, 过敏史（-）, （-）). Medications,
+allergies and conditions are text: a number or an object there is refused, not turned into text.
 """
 
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -73,6 +87,10 @@ class Intake:
     collected_at: str
     warnings: tuple[str, ...] = ()
     raw: Mapping[str, Any] = field(default_factory=dict)
+    #: the allergy entries as written, unsplit and unnormalised, which the allergy check
+    #: scans whole (``allergies`` holds them split and normalised, for the report); None
+    #: when allergies were not asked
+    allergy_records: tuple[str, ...] | None = None
 
     @property
     def all_text(self) -> list[str]:
@@ -108,10 +126,140 @@ def _bool(v: Any, name: str) -> bool | None:
     raise IntakeError(f"{name} must be true, false or null, not {v!r}")
 
 
-def _list(v: Any) -> tuple[str, ...] | None:
+def _items(v: Any, name: str) -> list[str] | None:
+    """The written entries of a list field (medications, allergies, conditions), or None
+    when it was not asked.
+
+    ``null`` is *not asked* and ``[]`` is *none*. A blank — "", spaces, entries without a
+    letter or a digit ("   ", [""], ["。。。"], ["///"]) — records neither, so it reads as
+    not asked, never as "asked, none". Anything but text (a number, an object, true, a nested
+    list) is refused with the message the studio's argument check gives, rather than
+    turned into text or left to fail later."""
     if v is None:
         return None
-    return tuple(split_entries(v))
+    items = [v] if isinstance(v, str) else v
+    if not isinstance(items, (list, tuple)) or not all(isinstance(x, str) for x in items):
+        raise IntakeError(f"{name} must be a list of strings or null")
+    if not items:
+        return []
+    written = [x for x in items if any(unicodedata.category(c)[0] in "LN" for c in x)
+               or _BRACKETED_NEGATIVE.search(unicodedata.normalize("NFKC", x))]
+    return written or None
+
+
+#: The negative mark in brackets, (-) or （-）: written, it is an answer, though it holds no
+#: letter (a bare "-" may only start a form's line).
+_BRACKETED_NEGATIVE = re.compile(r"[(（][^\S\n]*[-－−][^\S\n]*[)）]")
+
+
+#: The labels of an allergy field, and the words of a form around them, which answer nothing
+#: on their own: 过敏史：, 药物过敏史：, 过敏原：, 过敏史（药物/食物）：, 过敏史及不良反应史：, 药物：
+#: 食物：, Allergies:, Drug allergies:, Known allergies:, Allergies (drug/food):, Allergies &
+#: ADRs:, and the "whether" of a question (有无过敏, 有没有过敏), whose 没有 is no none word.
+_ALLERGY_LABELS = re.compile(
+    r"(?:既往|已知|药物|食物|中药|西药|接触物|其他|其它)?(?:过敏史|过敏原|过敏源|过敏物质|过敏物|过敏药物"
+    r"|过敏药品|过敏食物|过敏情况|过敏反应|过敏及不良反应|过敏|药敏史|药敏|致敏原|变应原)"
+    r"|(?:药物)?不良反应史?|既往史|药物|食物|中药|西药|接触物|其他|其它|有没有|有无|及|和|与"
+    r"|\b(?:allerg(?:ies|y|ens?|ic)?|known|drugs?|foods?|medications?|medicines?|meds?"
+    r"|environmental|other|history|hx|status|intolerances?|reactions?|adrs?|and|or|list)\b",
+    re.IGNORECASE)
+#: Words that say the allergies are not known, or that the answer was not given: 不详, 未详,
+#: 待查, 记不清楚, 不太清楚, 不记得, 拒答, unknown, unsure, TBD, null, not known, not recorded.
+#: The longer of two that start alike comes first (记不清楚 before 记不清), so nothing of one
+#: is left over to read as an answer.
+_UNKNOWN = re.compile(
+    r"记不清楚|说不清楚|搞不清楚|不太清楚|不大清楚|不清楚|记不清|说不清|不清|不太明确|不明确|不明|不详|未详|未知"
+    r"|不知道|不知|不记得|记不得|记不起来?|想不起来?|忘记了?|忘了|不确定|无法确定|不能确定"
+    r"|待查|待补充|待补|待完善|待追问|需追问|追问|待定"
+    r"|拒答|拒绝回答|拒绝提供|不能提供|无法提供|未提供|未记录|无记录|无法获取|未能获取|未获取|无法获得"
+    r"|\b(?:unknown|unk|unsure|uncertain|tbd|tba|null|n/k|nk|nr|blank|not\s+known|not\s+sure"
+    r"|not\s+recorded|not\s+documented|not\s+obtained|not\s+elicited|not\s+assessed"
+    r"|unable\s+to\s+(?:obtain|assess|state|confirm|elicit)|cannot\s+(?:recall|remember)"
+    r"|can't\s+(?:recall|remember)|does\s+not\s+(?:recall|remember|know)|doesn't\s+(?:recall|remember|know))\b",
+    re.IGNORECASE)
+#: Who speaks, what an unknown is said of, and the small words around it, which answer
+#: nothing either: 患者过敏史不详, 家属诉过敏史不详, 过敏史：患者不清楚, 尚不清楚, 具体不详, 暂不详,
+#: 目前不详, 家属亦不清楚, Unknown to patient.
+_SPEAKERS = re.compile(
+    r"患者|病人|本人|家属|自诉|代诉|诉|述|尚|具体|暂时|暂|目前|现|亦|也|均|都|仍"
+    r"|\b(?:patient|family|pt|to|the|by|per|is|are)\b", re.IGNORECASE)
+#: Words that say they were not asked or could not be: 未询问, 没有询问, 没询问, 没有问, 没问, 漏问,
+#: 未询及, 待询问, 患者昏迷，未能询问, 患者不能配合, 无法回答, not asked, deferred. (没问题 and 没有问题
+#: are not ones; the 无 of 无法回答 is no none word.)
+_NOT_ASKED = re.compile(r"没有询问|没有问(?!题)|没询问|未询问|未能询问|无法询问|待询问|未及询问|未询及|未问"
+                        r"|没问(?!题)|漏问|待问|无法回答"
+                        r"|未采集|不能配合|无法配合|不能沟通|无法沟通|未查(?![到出见])|未提及|未涉及|详见病历|见病历"
+                        r"|\b(?:not\s+asked|deferred|see\s+(?:chart|notes|ehr|record))\b",
+                        re.IGNORECASE)
+#: The none words that answer the question beside a not-asked or not-known phrase (R6): 无, 否认,
+#: 没有, 阴性, none, NKDA … and a negative in brackets. They are read once the phrases, the
+#: labels and a form's unticked options are taken out, so 没有询问, 无法获取, 有无 and □无 are
+#: none of them. A word of allergy (过敏, allergy, 皮疹) is not an answer here: it is a label's.
+_NONE_WORDS = re.compile(r"无|否认|没有|阴性|未发现|未见|[(（]\s*[-－−]\s*[)）]"
+                         r"|\b(?:nkda|nka|nkfa|none|no|nil|negative|denies|denied|n/a)\b",
+                         re.IGNORECASE)
+#: A form's options left unticked (□无 □有, ○无 ○有) or printed with no choice made (无/有),
+#: and placeholders (XX, ___). No branch starts with an optional part before a run of
+#: whitespace, so a long run is read once (linear time).
+_UNFILLED = re.compile(
+    r"[□☐○◯]\s*(?:无|有|是|否|yes|no)|(?:无|有|是|否|yes|no)\s*[□☐○◯]"
+    r"|[(（]\s*(?:无\s*[/／]\s*有|有\s*[/／]\s*无)\s*[)）]?"
+    r"|(?:无\s*[/／]\s*有|有\s*[/／]\s*无)\s*[)）]?|\b[xX]{2,}\b", re.IGNORECASE)
+#: A negative written after a label, or alone: 过敏史：（-）, 过敏史：-, 过敏史（-）, （-）, -.
+#: Written so that a long run of whitespace is read once.
+_LABELLED_NEGATIVE = re.compile(
+    r"(?:^|[:：∶])\s*(?:[(（]\s*)?[-－−]\s*(?:[)）]\s*)?(?:$|[,，;；。\n])"
+    r"|(?:^|过敏史|过敏|\ballerg[a-z]*)\s*[(（]\s*[-－−]\s*[)）]\s*(?:$|[,，;；。\n])",
+    re.IGNORECASE)
+#: What a not-asked or not-known phrase is replaced with: a mark, not whitespace, so a dash left
+#: between a label and the phrase (过敏史 - 不详, Allergies: - unknown, 过敏史-未询问) is not read as
+#: a negative ending the field, and a boundary for the scan of names (不详白及 is … 白及).
+_PHRASE = " … "
+
+
+def _names_a_herb(text: str, pack: ClinicPack | None) -> bool:
+    """``text`` holds a name the tables know, standing as a word (``allergy.mentions``)."""
+    from .allergy import mentions
+    return any(not m.word for m in mentions(text, pack=pack))
+
+
+def _answers(entry: str, pack: ClinicPack | None = None) -> bool:
+    """An allergy field (its entries joined, one per line) that answers the question (R6).
+
+    A blank entry, one that holds only its label or a form's labels (过敏史：, 过敏史：____,
+    Allergies:, Drug allergies:, 过敏史（药物/食物）：, 药物：____ 食物：____, 过敏史：□无 □有), and
+    one that says it was not asked (未询问, 没有询问, 没询问, 没有问, 没问, 漏问, 未询及, 未问, 待询问,
+    未能询问, 患者不能配合, 无法回答, not asked, deferred) or that the allergies are not known (不详,
+    不清楚, 未知, 暂不详, 未详, 不明确, 记不清楚, 不记得, 拒答, unknown, unsure, not recorded, not
+    obtained) do not answer, unless the entry also holds a name the tables know or a none word
+    (``_NONE_WORDS``: 无, 否认, none, NKDA …) outside the not-asked or not-known phrase: 过敏史不详
+    人参过敏, 不详，白及过敏, 无药物过敏史，未查过敏原, NKDA (see chart) answer; 不详，可能对青霉素过敏
+    and 青霉素过敏，其他未询问 do not (青霉素 is no name of the tables), and the record is still
+    read. Names are looked for before the labels are taken out, since a label's word may be a
+    character of a name (the 及 of 白及). A word of allergy (过敏, 过敏史, allergy) never answers
+    by itself, and neither does the "whether" of a question (患者不知道有没有过敏: its 没有 is no
+    none word). A negative mark after a label (过敏史：（-）, 过敏史：-, 过敏史（-）) or in brackets
+    alone (（-）) is a none; a dash that starts a line of a form (- Drug:), or stands between a
+    label and a not-asked or not-known phrase (过敏史 - 不详, Allergies: - unknown), is not. Every
+    pattern here reads a run of whitespace once, so a long field takes linear time."""
+    text = unicodedata.normalize("NFKC", entry)
+    if _NOT_ASKED.search(text) or _UNKNOWN.search(text):
+        rest = _UNKNOWN.sub(_PHRASE, _NOT_ASKED.sub(_PHRASE, _UNFILLED.sub(" ", text)))
+        bare = _ALLERGY_LABELS.sub(" ", rest)
+        return (_NONE_WORDS.search(bare) is not None or _LABELLED_NEGATIVE.search(bare.strip()) is not None
+                # names are looked for before the labels are taken out: a label's word (及, 和,
+                # 药物 …) may be a character of a name (白及)
+                or _names_a_herb(rest, pack))
+    if _LABELLED_NEGATIVE.search(text.strip()):
+        return True
+    rest = _UNFILLED.sub("", text)
+    rest = _SPEAKERS.sub("", _ALLERGY_LABELS.sub("", rest))
+    return any(unicodedata.category(c)[0] in "LN" for c in rest)
+
+
+def _list(v: Any, name: str) -> tuple[str, ...] | None:
+    items = _items(v, name)
+    return None if items is None else tuple(split_entries(items))
 
 
 def parse_intake(doc: Mapping[str, Any], pack: ClinicPack) -> Intake:
@@ -168,9 +316,15 @@ def parse_intake(doc: Mapping[str, Any], pack: ClinicPack) -> Intake:
         warnings.append("脉象未记录：四诊合参需要脉象")
     if patient.childbearing_age and patient.pregnant is None:
         warnings.append("妊娠状态未记录：育龄期患者开方前须确认是否妊娠")
-    meds = _list(doc.get("medications"))
-    allergies = _list(doc.get("allergies"))
-    conditions = _list(doc.get("conditions"))
+    meds = _list(doc.get("medications"), "medications")
+    allergy_records = _items(doc.get("allergies"), "allergies")
+    allergies = None
+    # R6 reads the field, not each entry: ["青霉素过敏", "其他未询问"] says not asked as
+    # ["青霉素过敏，其他未询问"] does, and ["无", "其他未询问"] answers as ["无，其他未询问"] does
+    if allergy_records is not None and (not allergy_records
+                                        or _answers("\n".join(allergy_records), pack)):
+        allergies = tuple(split_entries(allergy_records))
+    conditions = _list(doc.get("conditions"), "conditions")
     if meds is None:
         warnings.append("目前用药未询问：无法检查中西药相互作用")
     if allergies is None:
@@ -189,7 +343,8 @@ def parse_intake(doc: Mapping[str, Any], pack: ClinicPack) -> Intake:
                   conditions=conditions, red_flags_cleared=tuple(cleared),
                   collected_by=str(doc.get("collected_by") or ""),
                   collected_at=str(doc.get("collected_at") or ""), warnings=tuple(warnings),
-                  raw=dict(doc))
+                  raw=dict(doc),
+                  allergy_records=None if allergy_records is None else tuple(allergy_records))
 
 
 def read_intake(path: str | Path, pack: ClinicPack) -> Intake:

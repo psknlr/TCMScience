@@ -235,12 +235,25 @@ jobs:
           node studio/web/test/runtime/science.mjs --mode service --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-service.json"
           node studio/web/test/runtime/science.mjs --mode fixture --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-fixture.json"
           node studio/web/test/runtime/science.mjs --mode omics --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-omics.json"
+      - name: Browser sweep, every browser tool's envelope against native CPython's (Pyodide from jsDelivr, no runner)
+        # sweep.mjs: every entry the compatibility matrix runs in the browser (classes 1, 2, 3, 5) and every core tool
+        # with the input `tcmstudio validate` gives it, every connector with web access off (refused as network_off on
+        # both sides), and the groups beyond (the inputs validate lacks, wrongly typed arguments, the native tools'
+        # reference cases, each entry by its own id, the CPU kernels above their thresholds, and the calls that need the
+        # formula workbook on a page of their own): made in headless Chromium through BrowserRuntime as the router
+        # makes them and natively with the dispatcher's own context, each pair of envelopes held to the runtime check's
+        # comparison (run.mjs compareEnvelopes). A difference passes only where sweep.mjs KNOWN declares it, by entry
+        # id and field, with its reason; anything else fails. 1,153 calls, about a minute with a local Pyodide
+        run: node studio/web/test/runtime/sweep.mjs --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-sweep.json"
       - name: Browser chemistry, science kernels and the ADMET jobs (RDKit.js, WebGPU on SwiftShader, Pyodide's scikit-learn)
         # chem.browser.mjs: the chemistry worker in Chromium (the vendored loader, npm's RDKit_minimal.wasm checked
         # against the pin, a tampered one refused) prepares the parity corpus to native RDKit's answers.
         # gpu-science.mjs --software: the device check on SwiftShader, a software adapter (exactness of the WGSL against
         # WebAssembly SIMD and JavaScript; its timings are the CPU's, so it says "software, not evidence"; no runner here
-        # has a physical GPU). science.mjs --mode admet: admet.models on the known-answer archive (a project file) and
+        # has a physical GPU); with --software it fails unless the WGSL ran, exact, at every size. webgpu.browser.mjs
+        # --software: the sequence kernels' WGSL (js/runtime/webgpu.js) on the same adapter, every integer count against
+        # the CPU reference, its known-answer test, and a production SequenceCompute refusing the software adapter.
+        # science.mjs --mode admet: admet.models on the known-answer archive (a project file) and
         # pipeline.admet on a molecule set as jobs of the page's job service, RDKit.js and Pyodide from jsDelivr as on
         # science.impf.ai, held exactly to native RDKit 2026.9.1 and scikit-learn 1.8.0 at one thread (the cards apart
         # from file digests, seconds and the chemistry's name; admet.tsv; predictions and domain search; alerts; the
@@ -250,6 +263,7 @@ jobs:
           (cd studio && (npm ci || npm install) && npx playwright install --with-deps chromium)
           node studio/web/test/runtime/chem.browser.mjs --json "$RUNNER_TEMP/science-chem.json"
           node studio/web/test/runtime/gpu-science.mjs --software --json "$RUNNER_TEMP/science-gpu.json"
+          node studio/web/test/runtime/webgpu.browser.mjs --software > "$RUNNER_TEMP/science-webgpu.json"
           node studio/web/test/runtime/science.mjs --mode admet --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-admet.json"
       - name: Browser docking (AutoDock Vina 1.2.7 in WebAssembly, the Python stages in Pyodide) against native Vina 1.2.7
         # science.mjs --mode dock: pipeline.dock as a job of the page's job service on the prepared fixtures (3PTB's

@@ -14,6 +14,7 @@ import { IDBFactory } from "fake-indexeddb";
 
 import { claimsOf, evidenceOf, releaseOf } from "../../js/core/governance.js";
 import { glossary, setLang, t } from "../../js/core/i18n.js";
+import { relayHealth } from "../../js/core/providers.js";
 import { openStore } from "../../js/core/store.js";
 import { messageContext } from "../../js/ui/conversation.js";
 import { auditHeadView, claimCard, familyChip } from "../../js/ui/governance.js";
@@ -74,13 +75,24 @@ test("[E#] resolves in this turn first, then in the earlier turns on the path; a
   assert.equal(messageContext(old, { earlier: [turn1] }).cite("E1").label, "本轮的 E1");
 });
 
-test("the relay's error line: its own Chinese marked as such; on Settings → Models without the pointer to that page", () => {
+test("the relay's error line: its own Chinese marked as such; on Settings → Models without the pointer to that page", async () => {
   setLang("en");
   try {
     const line = relayErrorLine({ error: "中继出错了", error_lang: "zh" }, { tag: "p.notice__body" });
     assert.equal(line.querySelector("span[lang]").getAttribute("lang"), "zh-Hans");
     assert.match(line.textContent, /^The relay reports: 中继出错了$/);
     assert.equal(relayErrorLine({ error: "plain" }).querySelector("span").getAttribute("lang"), null);
+  } finally {
+    setLang("zh");
+  }
+  // checked on a Chinese page, then the language switched: the line is told again in English, not left in Chinese
+  const off = await relayHealth({ fetch: async () => new Response(JSON.stringify({ ok: false })) });
+  assert.match(relayErrorLine(off).textContent, /Tao-S1 暂未开放/);
+  setLang("en");
+  try {
+    const line = relayErrorLine(off, { here: true });
+    assert.match(line.textContent, /^The relay reports: Tao-S1 is not available right now/);
+    assert.doesNotMatch(line.textContent, /[㐀-鿿]/);
   } finally {
     setLang("zh");
   }

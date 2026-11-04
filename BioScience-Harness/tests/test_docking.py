@@ -40,6 +40,32 @@ def test_ligands_are_read_from_tables_and_lines(tmp_path):
         prep.read_ligands(dup)
 
 
+def test_ligands_are_read_from_an_sdf_plain_or_gzipped(tmp_path):
+    """An .sdf.gz is the SDF it compresses: RDKit's SDMolSupplier reads only plain text, so
+    the reader opens it with gzip. The ADMET job reads its molecules with the same reader."""
+    import gzip
+
+    from bioagent.admet.pipeline import read_molecules
+    Chem = need_module("rdkit.Chem")
+    sdf = ""
+    for name, smiles in (("bza", BENZAMIDINE), ("eth", "CCO")):
+        mol = Chem.MolFromSmiles(smiles)
+        mol.SetProp("_Name", name)
+        sdf += Chem.MolToMolBlock(mol) + "$$$$\n"
+    (tmp_path / "l.sdf").write_text(sdf)
+    with gzip.open(tmp_path / "L.SDF.GZ", "wt") as fh:
+        fh.write(sdf)
+    want = [("bza", Chem.CanonSmiles(BENZAMIDINE)), ("eth", "CCO")]
+    assert prep.read_ligands(tmp_path / "l.sdf") == want
+    assert prep.read_ligands(tmp_path / "L.SDF.GZ") == want
+    assert read_molecules(tmp_path / "L.SDF.GZ") == want
+    bad = tmp_path / "bad.sdf.gz"
+    with gzip.open(bad, "wt") as fh:
+        fh.write("not a molecule\n$$$$\n")
+    with pytest.raises(prep.DockingError, match="record 1 could not be read"):
+        prep.read_ligands(bad)
+
+
 def test_a_box_around_coordinates_has_padding_and_a_minimum():
     box = Box.around(np.array([[0.0, 0.0, 0.0], [4.0, 2.0, 30.0]]))
     assert box.center == (2.0, 1.0, 15.0)
@@ -288,6 +314,55 @@ def test_the_skill_claims_only_poses_that_pass_from_a_complete_run(tmp_path, mon
     assert "the run is incomplete (stage pose_checks: its check failed" in text
     assert "the best pose of ethanol failed the pose checks (" in text
     assert "no claim is made for it" in text
+
+
+def test_ligand_names_are_made_file_safe_and_unique(tmp_path, monkeypatch):
+    """A name names the ligand's pose file and keys its scores, pose checks and contacts:
+    a repeated title (an SDF's stereoisomers, a .smi file) or a path in a name must not
+    overwrite another ligand's poses, crash the run or write outside it."""
+    _modules()
+    from rdkit import Chem
+    from bioagent.docking import engine
+    monkeypatch.setattr(engine, "dock", _stand_in())
+    smi = tmp_path / "l.smi"
+    smi.write_text(f"{BENZAMIDINE} cmpd\nCCO cmpd\nCO Cmpd\nCN bza/1\nC ../../escaped\n"
+                   "N /abs/x.mol\n")                  # small molecules: the stand-in's poses
+    out = tmp_path / "a" / "b" / "run"                # at the box centre pass the checks
+    run = run_docking(str(POCKET), str(smi), DockConfig(site_ligand="BEN",
+                                                        site_ligand_smiles=BENZAMIDINE), out)
+    names = [r.ligand.name for r in run.results]
+    assert names == ["cmpd", "cmpd_2", "Cmpd_3", "bza_1", "_.._escaped", "_abs_x.mol"]
+    assert sorted(p.name for p in (out / "poses").iterdir()) == sorted(f"{n}.sdf"
+                                                                      for n in names)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["a", "l.smi"]   # nothing escaped
+    for r in run.results:                    # each pose file holds its own ligand
+        (smiles,) = {Chem.MolToSmiles(Chem.RemoveHs(m))
+                     for m in Chem.SDMolSupplier(str(out / "poses" / f"{r.ligand.name}.sdf"))}
+        assert smiles == r.ligand.smiles
+    assert sorted(run.pose_checks) == sorted(names) and sorted(run.contacts) == sorted(names)
+    manifest = json.loads((out / "run.json").read_text())
+    given = {x["name"]: x.get("given_name") for x in manifest["ligands"]}
+    assert given == {"cmpd": None, "cmpd_2": "cmpd", "Cmpd_3": "Cmpd", "bza_1": "bza/1",
+                     "_.._escaped": "../../escaped", "_abs_x.mol": "/abs/x.mol"}
+    assert any("file-safe and unique" in w and "'bza/1' as bza_1" in w for w in run.warnings)
+    rows = (out / "scores.tsv").read_text().splitlines()[1:]
+    assert sorted(r.split("\t")[0] for r in rows) == sorted(names)
+    assert run.complete and verify_run(out) == (True, [])
+
+
+def test_the_skill_quotes_each_ligand_its_own_row(tmp_path, monkeypatch):
+    _modules()
+    from bioagent.docking import engine
+    from bioagent.skills.molecular.docking import dock_ligands
+    monkeypatch.setattr(engine, "dock", _stand_in())
+    smi = tmp_path / "l.smi"
+    smi.write_text(f"{BENZAMIDINE} cmpd\nCCO cmpd\n")
+    art = dock_ligands(str(POCKET), str(smi), out_dir=str(tmp_path / "run"),
+                       site_ligand="BEN", site_ligand_smiles=BENZAMIDINE)
+    assert sorted(e.id for e in art.evidence) == ["dock.cmpd", "dock.cmpd_2"]
+    assert len({c.id for c in art.claims}) == 2
+    for e in art.evidence:
+        assert e.quote.split("\t")[1] == e.subject     # the row of this molecule
 
 
 def test_the_reference_manifest_names_this_fixture(run):

@@ -287,6 +287,15 @@ def _contrast(attributes: Sequence[Mapping[str, str]], design: str,
     return factor, levels[1], levels[0]
 
 
+def _chosen_contrast_note(contrast: tuple[str, str, str]) -> str:
+    """What a run says when it chose the contrast (``_contrast`` without one named): which
+    way round, and by what rule, for the sign of every fold change follows from it."""
+    factor, num, den = contrast
+    return (f"no contrast was named, so {num} vs {den} was tested: the later of {factor}'s "
+            f"two levels in sorted order against the earlier (a log2 fold change > 0 means "
+            f"higher in {num}); name the contrast (factor,numerator,denominator) to choose")
+
+
 # ============================================================== the run
 
 @dataclass
@@ -377,6 +386,8 @@ def run_rnaseq(sheet: str | Path, config: RNASeqConfig, out_dir: str | Path) -> 
     the run works, ``run.json['stages']`` at the end). The run is complete when every
     required stage succeeded and no check failed; ``RNASeqRun.complete`` says which."""
     samples = read_sample_sheet(sheet)
+    if not 0 < config.alpha < 1:
+        raise RNASeqError(f"alpha is the FDR level, between 0 and 1 (not {config.alpha:g})")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     # the choices first: one that cannot run here is refused before anything is written
@@ -385,7 +396,7 @@ def run_rnaseq(sheet: str | Path, config: RNASeqConfig, out_dir: str | Path) -> 
     _check_de_backend(config)
     contrast = _infer_contrast(samples, config)
     rec = StageRecorder(out, PIPELINE, plan=STAGES)
-    warnings: list[str] = []
+    warnings: list[str] = [] if config.contrast else [_chosen_contrast_note(contrast)]
     steps: list[dict[str, Any]] = []
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
 

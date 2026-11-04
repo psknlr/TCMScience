@@ -357,6 +357,24 @@ def test_unknown_fields_stay_unknown(index):
     # a protocol reports no results, whatever design it plans
     ("Study protocol for a randomized controlled trial of acupuncture in adults.", ""),
     ("Participants will be randomized to acupuncture or sham acupuncture.", ""),
+    ("We describe the design of a randomized trial that is now recruiting.", ""),
+    # ...but the trials a review looked for in registries are not this study
+    ("We conducted a systematic review of randomized trials and searched registries for "
+     "trials that are currently recruiting.", "systematic_review"),
+    # quasi-random allocation (by alternation, admission day) is not randomisation
+    ("In this quasi-randomized trial, 120 patients received Huangqi decoction or usual "
+     "care.", ""),
+    ("In this quasi randomised trial, 120 patients received usual care.", ""),
+    ("Patients were pseudo-randomized by day of admission to two groups.", ""),
+    ("Patients were quasi-randomly allocated by alternation to two groups.", ""),
+    ("采用半随机对照方法，将120例患者分为两组。", ""),
+    ("采用类随机分组方法，将120例患者按入院顺序分为两组。", ""),
+    ("采用准随机对照方法，将120例患者按就诊顺序分为两组。", ""),
+    # ...but 半/类/准 ending another word does not qualify the randomisation: standard
+    # randomisation, half of them randomised, approved and then randomised
+    ("采用标准随机分组方法，将120例患者分为治疗组和对照组。", "randomized_trial"),
+    ("其中一半随机分配至治疗组。", "randomized_trial"),
+    ("患者经伦理委员会批准随机分为两组。", "randomized_trial"),
     # a random split of data is not a trial's allocation
     ("将患者按照7∶3随机分为训练集和验证集，建立预后模型。", ""),
     ("We performed a cross-sectional survey of 300 nurses.", "observational"),
@@ -377,6 +395,55 @@ def test_the_design_rules_prefer_no_answer_to_a_wrong_one(text, design):
         assert text[reading.offset:reading.offset + len(reading.span)] == reading.span
     else:
         assert reading.note
+
+
+#: 半, 类 or 准 before 随机 qualifies it (quasi-random) unless it ends a word that does not.
+#: The excluded words are whole words: excluding a character (种 for 种类, 过 for 过半, 人
+#: for 人类, 该 and 此) hid the quasi-random terms each of these sentences states.
+QUASI_RANDOM_ZH = [
+    "通过半随机分组，将120例患者按入院顺序分为治疗组和对照组。",
+    "通过类随机分组将患者按入院日期分为两组。",
+    "通过准随机分配，将患者按就诊顺序分为两组。",
+    "本研究采用一种半随机分组方法，将120例患者按入院顺序分为两组。",
+    "本研究采用一种类随机分组方法，将120例患者按入院顺序分为两组。",
+    "本研究采用一种准随机对照设计，将120例患者按就诊顺序分为两组。",
+    "将120例病人半随机分为治疗组和对照组。",
+    "将120例病人类随机分为两组。",
+    "将120例病人准随机分为两组。",
+    "将240人半随机分为两组。",
+    "该准随机对照试验纳入120例患者。",
+    "此半随机对照研究纳入120例患者。",
+    "这项半随机对照研究纳入120例患者。",
+    "针对半随机对照试验的偏倚进行分析。",
+    "多中心、准随机对照试验。",
+    "半随机分组，将120例患者分为两组。",
+]
+#: ...and the words that end in 半, 类 or 准 without qualifying the randomisation after them.
+ORDINARY_ZH = [
+    "其中一半随机分配至治疗组。",                      # half of them
+    "入组患者过半随机分配至治疗组。",                  # more than half
+    "按1:1对半随机分配至两组。",                       # in halves
+    "患者分为三类随机分组。",                          # three kinds
+    "将患者按病情分类随机分组。",                      # classified
+    "将患者按病情种类随机分为两组。",                  # kind
+    "本研究为人类随机对照试验，纳入120例患者。",        # humankind
+    "采用标准随机分组方法，将120例患者分为治疗组和对照组。",  # standard
+    "采用基准随机分组，将120例患者分为两组。",          # benchmark
+    "患者经伦理委员会批准随机分为两组。",              # approved
+    "经伦理委员会核准随机分为两组。",                  # approved
+    "获准随机分组。",                                  # permitted
+]
+
+
+@pytest.mark.parametrize("text,design", [(t, "") for t in QUASI_RANDOM_ZH]
+                         + [(t, "randomized_trial") for t in ORDINARY_ZH])
+def test_a_quasi_random_term_is_set_aside_and_a_word_ending_like_one_is_not(text, design):
+    reading = read_fields(text)["design"]
+    assert reading.value == design
+    if design:
+        assert reading.rule == "design.trial.zh"
+    else:
+        assert "quasi-random" in reading.note
 
 
 def test_a_passage_given_other_content_is_refused():

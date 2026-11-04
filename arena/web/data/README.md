@@ -22,26 +22,26 @@ Five documents drive the site:
 | `benchmarks.json` | 冻结基准注册表：各赛季、来源与许可、评分规则、引用信息 |
 | `skills.json` | 候选 / 稳定 / 基准三类注册表及其条目 |
 
-## `*.json` is generated and is not committed · `*.json` 由生成而来，不纳入提交
+## `*.json` is generated and committed · `*.json` 由生成而来，并已提交
 
-`*.json` here is written by `scripts/build_arena_data.py` from the registries,
-and is ignored because it carries leaderboard scores and run traces. The
-generator, the schemas and the page templates are committed, so the site can be
-rebuilt from a registry by anyone holding one. What is not published is the
-result set itself.
+`*.json` here is generated: `scripts/build_arena_data.py` writes `benchmarks.json`
+from the registries, and `scripts/run_demo_season.py` writes the demonstration run
+(`runs.json`, `tracks.json`, `skills.json` and the leaderboard's rows). The owner
+decided on 2026-09-26 to publish them (see `.gitignore`), so they are committed. The
+demonstration run is not a benchmark score: what is not published is the benchmark
+cases and their gold answers.
 
 <!-- zh -->
-此处的 `*.json` 由 `scripts/build_arena_data.py` 从注册表写入，因携带排行榜分数与运行轨迹而被忽略（gitignore）。生成器、schema 与页面模板都已提交，因此任何持有一份注册表的人都能重建该站点。未予发布的，是结果集本身。
+此处的 `*.json` 是生成的：`scripts/build_arena_data.py` 从注册表写出 `benchmarks.json`，`scripts/run_demo_season.py` 写出示范运行（`runs.json`、`tracks.json`、`skills.json` 与排行榜中的行）。所有者于 2026-09-26 决定公开它们（见 `.gitignore`），因此它们已提交。示范运行不是基准分数；未予发布的，是基准用例及其标准答案。
 
 ## `*.example.json` is committed on purpose · `*.example.json` 是刻意提交的
 
-A fresh clone has no generated files, and a site that renders nothing until you
-run a generator is not demonstrable. The example set carries **placeholder rows
-only** — no real scores, no real run traces — and exists so every page renders on
-a fresh clone.
+A site that renders nothing until you run a generator is not demonstrable. The
+example set carries **placeholder rows only** — no real scores, no real run traces
+— and exists so every page renders where a generated file is missing.
 
 <!-- zh -->
-全新的克隆没有任何生成文件，而一个在你运行生成器之前什么都渲染不出来的站点是无法演示的。示例数据集**只包含占位行**——没有真实分数，没有真实运行轨迹——它的存在是为了让每个页面在全新克隆中都能渲染。
+一个在你运行生成器之前什么都渲染不出来的站点是无法演示的。示例数据集**只包含占位行**——没有真实分数，没有真实运行轨迹——它的存在是为了让每个页面在生成文件缺失时也能渲染。
 
 The site fetches `data/<name>.json` first and falls back to
 `data/<name>.example.json`. Every example document carries `"example": true`,
@@ -66,15 +66,15 @@ published row could be confused, the placeholder is wrong, not the banner.
 
 The full field-by-field contract — what each document must contain, which keys
 the renderer requires, and the invariants a checker should enforce — is in
-[`../README.md`](../README.md#the-data-contract).
+[`../README.md`](../README.md#the-data-contract--数据契约).
 
 <!-- zh -->
-逐字段的完整契约——每个文档必须包含什么、渲染器要求哪些键、以及校验器应当强制执行哪些不变量——见 [`../README.md`](../README.md#the-data-contract)。
+逐字段的完整契约——每个文档必须包含什么、渲染器要求哪些键、以及校验器应当强制执行哪些不变量——见 [`../README.md`](../README.md#the-data-contract--数据契约)。
 
 ## Read-only · 只读
 
-Nothing in `arena/web/` writes to this directory. The generator is the only
-writer (ADR-0004).
+Nothing in `arena/web/` writes to this directory. The two generators above are its only
+writers, one per file (ADR-0004).
 
 <!-- zh -->
-`arena/web/` 中没有任何东西会写入本目录。生成器是唯一的写入者（ADR-0004）。
+`arena/web/` 中没有任何东西会写入本目录。上述两个生成脚本是它仅有的写入者，每个文件只有一个写入者（ADR-0004）。

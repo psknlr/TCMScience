@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:,">
+  <title>Browser sweep</title>
+  <style>
+    :root { color-scheme: light dark; --fg: #1d1d1b; --bg: #faf9f6; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #ecebe6; --bg: #1b1b1a; } }
+    body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
+  </style>
+</head>
+<body>
+  <p id="status">Starting…</p>
+  <script type="module" src="./sweep-page.mjs"></script>
+</body>
+</html>

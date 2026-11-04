@@ -282,6 +282,17 @@ test("caps: a declared length over the registry's size is refused before streami
   assert.equal((await unsized.call(UNIPROT.name)).status, 413);
   const ranged = await unsized.call(UNIPROT.name, { headers: { Range: "bytes=5-" } });
   assert.deepEqual([ranged.status, (await errorOf(ranged)).type], [413, "too_large"]);
+  // a part of a file whose total the host does not say ("/*") ends within the cap too: the part's own length is no limit
+  let partCancelled = 0;
+  const unknown = setup({ upstream: (_url, init) => new Response(new ReadableStream({ cancel() { partCancelled++; } }), { status: 206, headers: {
+    "Content-Range": init.headers.get("Range") === "bytes=0-" ? `bytes 0-${2 * MAX_UNSIZED_BYTES - 1}/*` : `bytes 5-${MAX_UNSIZED_BYTES - 1}/*` } }) });
+  const beyondCap = await unknown.call(UNIPROT.name, { headers: { Range: "bytes=0-" } });
+  assert.equal(beyondCap.status, 413);
+  assert.equal((await errorOf(beyondCap)).type, "too_large");
+  assert.equal(partCancelled, 1, "refused before a byte is sent");
+  const withinCap = await unknown.call(UNIPROT.name, { headers: { Range: "bytes=5-" } });
+  assert.equal(withinCap.status, 206);
+  await withinCap.body.cancel();
   const fits = setup({ upstream: () => new Response(null, { headers: { "Content-Length": String(MAX_UNSIZED_BYTES) } }) });
   const head = await fits.call(UNIPROT.name, { method: "HEAD" });
   assert.equal(head.status, 200);
@@ -519,11 +530,20 @@ export async function resolve(specifier, context, next) {
   }
 });
 
-test("the deploy check's dataset probe: one HEAD through the relay, a warning unless --require-datasets", async () => {
+test("the deploy check's dataset probe: one byte through the relay, its total the reviewed size; a warning unless --require-datasets", async () => {
   assert.equal(DATASET_PROBE.name, TARGETS.name);
-  /** science.impf.ai with the relay behind it; `route` false is a Worker without the route, `bytes` the host's size. */
-  const site = ({ route = true, bytes = TARGETS.bytes, registry = REGISTRY } = {}) => {
-    const w = setup({ registry, upstream: () => new Response(null, { headers: { "Content-Length": String(bytes) } }) });
+  /**
+   * science.impf.ai with the relay behind it; `route` false is a Worker without the route, `bytes` the host's size.
+   * `length` false: the host's answers carry no Content-Length (as bidd.group's HEAD through the Worker did); `ranges`
+   * false: the host ignores a Range and sends the whole file.
+   */
+  const site = ({ route = true, bytes = TARGETS.bytes, registry = REGISTRY, length = true, ranges = true } = {}) => {
+    const w = setup({ registry, upstream: (_url, init) => {
+      const sized = (n) => (length ? { "Content-Length": String(n) } : {});
+      if (init.method === "HEAD") return new Response(null, { headers: sized(bytes) });
+      if (ranges && init.headers.get("Range") === "bytes=0-0") return new Response("T", { status: 206, headers: { "Content-Range": `bytes 0-0/${bytes}`, ...sized(1) } });
+      return new Response(new Uint8Array(bytes), { headers: sized(bytes) });
+    } });
     const seen = [];
     const fetch = async (url, init = {}) => {
       const u = new URL(url);
@@ -538,11 +558,19 @@ test("the deploy check's dataset probe: one HEAD through the relay, a warning un
     return { fetch, seen, w };
   };
   const ok = site();
-  assert.deepEqual(await checkDatasets("https://science.impf.ai", ok.fetch), { status: "ok", file: `research/${TARGETS.name}`, upstream: TARGETS.url, bytes: TARGETS.bytes });
-  assert.deepEqual(ok.seen, ["GET /runtime/datasets.json", `HEAD /api/datasets/files/research/${TARGETS.name}`]);
-  assert.equal(ok.w.calls[0].init.method, "HEAD", "the host is asked for headers only");
+  const passed0 = { status: "ok", file: `research/${TARGETS.name}`, upstream: TARGETS.url, bytes: TARGETS.bytes };
+  assert.deepEqual(await checkDatasets("https://science.impf.ai", ok.fetch), passed0);
+  assert.deepEqual(ok.seen, ["GET /runtime/datasets.json", `GET /api/datasets/files/research/${TARGETS.name}`]);
+  assert.deepEqual([ok.w.calls[0].init.method, ok.w.calls[0].init.headers.get("Range")], ["GET", "bytes=0-0"], "the host is asked for one byte");
   await assert.rejects(checkDatasets("https://science.impf.ai", site({ route: false }).fetch), /answered 404: the Worker does not route \/api\/datasets/);
-  await assert.rejects(checkDatasets("https://science.impf.ai", site({ bytes: 100 }).fetch), /has 100 bytes, the registry 117843: the file changed upstream/);
+  await assert.rejects(checkDatasets("https://science.impf.ai", site({ bytes: 100 }).fetch), /\b100\b.*\b117843\b.*the file changed upstream/);
+  // a host whose answers carry no Content-Length still has its size compared: the range's total says it
+  assert.deepEqual(await checkDatasets("https://science.impf.ai", site({ length: false }).fetch), passed0);
+  await assert.rejects(checkDatasets("https://science.impf.ai", site({ bytes: 100, length: false }).fetch), /\b100\b.*\b117843\b.*the file changed upstream/);
+  // a host that ignores the range sends the file, which is counted (the relay stops one longer than the registry says)
+  assert.deepEqual(await checkDatasets("https://science.impf.ai", site({ ranges: false, length: false }).fetch), passed0);
+  await assert.rejects(checkDatasets("https://science.impf.ai", site({ ranges: false, length: false, bytes: 100 }).fetch), /\b100\b.*\b117843\b.*the file changed upstream/);
+  await assert.rejects(checkDatasets("https://science.impf.ai", site({ ranges: false, length: false, bytes: TARGETS.bytes + 1 }).fetch), /could not be read whole.*changed upstream/);
   await assert.rejects(checkDatasets("https://science.impf.ai", site({ registry: registryOf([UNIPROT]) }).fetch), /does not offer research\/CMAUPv2\.0_download_Targets\.txt/);
   const io = (s, logs) => ({ fetch: s.fetch, sleep: async () => {}, log: (l) => logs.push(l), now: () => 0 });
   const logs = [];
