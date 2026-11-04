@@ -112,17 +112,23 @@ def test_every_capability_that_is_not_a_job_has_an_input_to_run_it_with():
 
 PROBED = ("clinic_assess", "clinic_check_prescription", "clinic_followup", "clinic.assess",
           "clinic.check", "clinic.verify", "skill.draft-tcm-prescription", "study.combination",
-          "study.effect_modification", "study.exposure_screen", "tcmdb.consensus",
-          "tcmdb.compare", "tcmdb.import_store", "tcmdb.tables", "tcmdb.query",
-          "tcmdb.unresolved")
+          "study.effect_modification", "study.exposure_screen", "tcmdb.import_store",
+          "tcmdb.tables", "tcmdb.query", "tcmdb.unresolved")
+#: Hub queries probed against a hub with nothing built: nothing is searched, so they are
+#: dataset_not_built (BLOCKED), never a zero-hit pass (audit of 2026-11-04, P0)
+PROBED_EMPTY_HUB = ("tcmdb.consensus", "tcmdb.compare")
 
 
 def test_the_probes_run_what_ships_no_example_and_write_into_no_hub_they_were_given(tmp_path):
-    recs = _run(tmp_path, *PROBED, "connector_call", "literature_search", "system.provider_call",
-                "system.job_status", "tcm_syndrome", "tcm_applicability")
+    recs = _run(tmp_path, *PROBED, *PROBED_EMPTY_HUB, "connector_call", "literature_search",
+                "system.provider_call", "system.job_status", "tcm_syndrome", "tcm_applicability")
     for rid in (*PROBED, "tcm_syndrome", "tcm_applicability"):
         inv = recs[rid].check("invocation")
         assert inv.status == PASS and inv.detail.startswith("succeeded"), (rid, inv.detail)
+        assert recs[rid].check("execution_isolation").status == PASS, rid
+    for rid in PROBED_EMPTY_HUB:
+        inv = recs[rid].check("invocation")
+        assert inv.status == "BLOCKED" and "nothing was searched" in inv.detail, (rid, inv.detail)
         assert recs[rid].check("execution_isolation").status == PASS, rid
     for rid in ("connector_call", "literature_search", "system.provider_call"):
         assert recs[rid].check("invocation").status == SKIPPED

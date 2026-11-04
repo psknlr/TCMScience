@@ -20,6 +20,15 @@ This backend executes them, with the properties a shared scientific client needs
 * **an HTML page is not data** — a login, CAPTCHA, WAF challenge or error page served
   with ``200`` where the caller asked for JSON, text or XML is ``UNAVAILABLE`` with the
   reason, not a successful result whose "value" is the page's markup.
+* **an error report is not data** — a PHP fatal error, a Python, Java, .NET or Node stack
+  trace served with ``200`` (SIGNOR answered its ``connect`` example with a PHP
+  ``TypeError`` as ``text/plain``, which parsed as "XML" and was reported SUCCEEDED in
+  the audit of 2026-11-04) is ``FAILED`` with ``metadata.content_check`` saying why, and
+  is never cached.
+* **a declared shape is checked** — an operation may declare what its answer must look
+  like (``contract``: a table's columns, the fields every row must fill, patterns they
+  must match, a minimum row count). An answer that does not fit — malformed, misaligned
+  or empty — is ``FAILED`` before it can reach evidence synthesis, not a result.
 * **an honest User-Agent** — the harness names itself and a contact
   (``BIOAGENT_CONTACT``), which Wikidata's policy requires and NCBI asks for.
 
@@ -135,6 +144,119 @@ def _html_page(raw: bytes, ctype: str) -> bool:
     ct = (ctype or "").lower()
     return ("text/html" in ct or "application/xhtml" in ct
             or head.startswith(b"<!doctype html") or head.startswith(b"<html"))
+
+
+#: Server-side error reports a body can be *instead of* data, each with a pattern specific
+#: enough that no record carries it by chance. PHP's are the common case on academic
+#: servers (SIGNOR, 2026-11-04: ``<b>Fatal error</b>: Uncaught TypeError: array_map()``
+#: as ``text/plain`` with HTTP 200); an interpreter's stack trace is the general one.
+_ERROR_REPORTS: tuple[tuple[str, "re.Pattern[str]"], ...] = (
+    ("PHP error", re.compile(
+        r"<b>\s*(?:Fatal error|Parse error|Warning|Notice|Deprecated|Recoverable fatal error)"
+        r"\s*</b>\s*:", re.I)),
+    ("PHP error", re.compile(
+        r"(?:PHP )?(?:Fatal error|Parse error)\s*:\s+.{0,800}?"
+        r"(?:\.php\b|Uncaught\b|Allowed memory size|Maximum execution time)", re.I | re.S)),
+    ("PHP warning", re.compile(
+        r"(?:Warning|Notice|Deprecated)\s*:\s+.{0,800}?\.php\s+on line\s+\d+", re.I | re.S)),
+    ("PHP stack trace", re.compile(r"^Stack trace:\s*$\s*^#0 ", re.M)),
+    ("Python traceback", re.compile(r"Traceback \(most recent call last\):\s*\n\s+File \"")),
+    ("Java stack trace", re.compile(r"\n\s*at [\w$.<>]+\([\w$]+\.java:\d+\)")),
+    (".NET error page", re.compile(r"Server Error in '[^']*' Application")),
+    (".NET stack trace", re.compile(r"\n\s*at [\w.`<>]+\(.*\) in .+:line \d+")),
+    ("Node.js stack trace", re.compile(r"\n\s+at .{1,200} \((?:/|[A-Za-z]:\\|node:).+:\d+:\d+\)")),
+)
+#: The browser source gateway's refusals (``studio/edge/src/sources.js``) that the same
+#: request would meet again: an authorization, input or configuration refusal. A retry is
+#: pointless, so the call stops at once; ``rate_limited`` waits for its Retry-After and
+#: ``timeout`` / ``upstream_unreachable`` / ``unavailable`` are retried as transients.
+_GATEWAY_FINAL = frozenset({"forbidden_origin", "https_required", "invalid_body",
+                            "method_not_allowed", "not_configured", "not_found",
+                            "redirect_refused", "source_not_allowed", "too_large"})
+#: How much of each end of a body is searched: a report is either the whole answer or
+#: what a server appended when it died part-way through (PHP's memory errors).
+_REPORT_WINDOW = 8192
+
+
+def _error_report(raw: bytes) -> str | None:
+    """``"<kind>: <excerpt>"`` when a body is a server's error report, else ``None``.
+
+    A body that parses as JSON is the API's own answer (its error objects are read by
+    the caller), so it is never counted as a report.
+    """
+    if not raw:
+        return None
+    head = raw[:512].lstrip(b"\xef\xbb\xbf \t\r\n")
+    if head[:1] in (b"{", b"["):
+        try:
+            json.loads(raw.decode("utf-8", "replace"))
+            return None
+        except json.JSONDecodeError:
+            pass
+    ends = [raw[:_REPORT_WINDOW]]
+    if len(raw) > _REPORT_WINDOW:
+        ends.append(raw[-_REPORT_WINDOW:])
+    for part in ends:
+        text = part.decode("utf-8", "replace")
+        for kind, pattern in _ERROR_REPORTS:
+            m = pattern.search(text)
+            if m:
+                start = max(0, m.start() - 40)
+                excerpt = re.sub(r"<[^>]{1,20}>", "", text[start:m.start() + 200])
+                return f"{kind}: {' '.join(excerpt.split())[:200]}"
+    return None
+
+
+def _contract_problems(value: Any, contract: Mapping[str, Any] | None) -> list[str]:
+    """What keeps a parsed answer from fitting the operation's declared ``contract``.
+
+    The contract is the dict an ``Operation`` renders (``providers.public_apis``):
+    ``kind`` (only ``table`` so far), ``columns``, ``required`` (fields every row must
+    fill), ``patterns`` (field -> regular expression), ``min_fields`` (fields a row must
+    have, counted before they are named) and ``min_rows``.
+    """
+    if not contract:
+        return []
+    what = str(contract.get("what") or "rows")
+    if contract.get("kind", "table") != "table":
+        return [f"unknown contract kind {contract.get('kind')!r}"]
+    if not isinstance(value, dict) or value.get("format") != "tsv" \
+            or not isinstance(value.get("rows"), list):
+        fmt = value.get("format") if isinstance(value, dict) else type(value).__name__
+        return [f"the body is not the tab-separated table of {what} the operation returns "
+                f"(it parsed as {fmt})"]
+    rows = value["rows"]
+    min_rows = int(contract.get("min_rows", 1))
+    if len(rows) < min_rows:
+        return [f"the body holds {len(rows)} row(s) of {what}; at least {min_rows} expected. "
+                "An empty answer cannot be told apart from a failed one, so it is not evidence "
+                "that nothing exists"]
+    required = [str(c) for c in contract.get("required") or ()]
+    patterns = {str(k): re.compile(str(v)) for k, v in (contract.get("patterns") or {}).items()}
+    min_fields = int(contract.get("min_fields") or 0)
+    widths = value.get("widths") or []
+    bad: list[str] = []
+    n_bad = 0
+    for i, row in enumerate(rows):
+        why = []
+        if min_fields and i < len(widths) and widths[i] < min_fields:
+            why.append(f"{widths[i]} field(s), not at least {min_fields}")
+        empty = [c for c in required if not str(row.get(c) or "").strip()]
+        if empty:
+            why.append(f"no {', '.join(empty)}")
+        off = [c for c, p in patterns.items()
+               if str(row.get(c) or "").strip() and not p.fullmatch(str(row.get(c)).strip())]
+        if off:
+            why.append(", ".join(f"{c}={str(row.get(c))[:40]!r}" for c in off)
+                       + " does not match the declared form")
+        if why:
+            n_bad += 1
+            if len(bad) < 3:
+                bad.append(f"row {i + 1}: {'; '.join(why)}")
+    if n_bad:
+        return [f"{n_bad} of {len(rows)} row(s) of {what} are malformed ({' | '.join(bad)}); "
+                "a payload that does not fit its declared shape is not a result"]
+    return []
 
 
 def _charset(ctype: str) -> str:
@@ -337,6 +459,9 @@ class HTTPRequest:
     #: a cached answer from last release is never served for this one. Empty for sources
     #: that publish no version.
     version: str = ""
+    #: The shape the answer must have (``_contract_problems``), from the operation. Part of
+    #: the cache key when set, since a headerless table is parsed by its columns.
+    contract: Mapping[str, Any] | None = None
 
     @property
     def full_url(self) -> str:
@@ -363,6 +488,8 @@ class HTTPRequest:
         if self.version:
             # Only when set, so the keys of existing unversioned cache entries are unchanged.
             fields["v"] = self.version
+        if self.contract:
+            fields["c"] = dict(self.contract)
         blob = json.dumps(fields, sort_keys=True, default=str)
         return hashlib.sha256(blob.encode()).hexdigest()[:32]
 
@@ -431,6 +558,13 @@ class HTTPBackend(Backend):
                 if self.max_age_s is not None and (
                         time.time() - float(rec.get("fetched_at") or 0)) > self.max_age_s:
                     raise ValueError("cached answer is older than max_age_s")
+                cached_text = (rec["value"].get("text") if isinstance(rec.get("value"), dict)
+                               else None)
+                if isinstance(cached_text, str) and _error_report(cached_text.encode("utf-8")):
+                    # An entry written before error reports were refused: not data either.
+                    raise ValueError("cached error report")
+                if _contract_problems(rec["value"], req.contract):
+                    raise ValueError("cached answer does not fit the contract")
                 self.stats["cache_hits"] += 1
                 meta.update(cached=True, http_status=rec.get("http_status"),
                             fetched_at=rec.get("fetched_at"))
@@ -465,11 +599,36 @@ class HTTPBackend(Backend):
                 if _html_page(raw, ctype) and not _asks_for_html(req.accept):
                     # The shape every reverse-wrapped source fails in: a login, CAPTCHA,
                     # WAF challenge or error page, served with 200 in place of the data.
+                    meta["content_check"] = {"ok": False, "check": "html_page",
+                                             "layer": "upstream_content"}
+                    meta["failure_layer"] = "upstream_content"
                     return ExecutionStatus.UNAVAILABLE, None, (
                         f"{req.host} answered with an HTML page ({ctype or 'no content type'}) "
                         f"where {req.accept} was asked for; a login, CAPTCHA, challenge or "
                         "error page is not data"), meta
-                value = self._parse(raw, ctype)
+                report = _error_report(raw)
+                if report:
+                    meta["content_check"] = {"ok": False, "check": "server_error_report",
+                                             "layer": "upstream_content",
+                                             "detail": report}
+                    meta["failure_layer"] = "upstream_content"
+                    return ExecutionStatus.FAILED, None, (
+                        f"{req.host} answered HTTP {meta['http_status']} with a server error "
+                        f"report instead of data ({report}); an error report is not a result "
+                        "and contributes no evidence"), meta
+                value = self._parse(raw, ctype, contract=req.contract)
+                problems = _contract_problems(value, req.contract)
+                if problems:
+                    meta["content_check"] = {"ok": False, "check": "response_contract",
+                                             "layer": "upstream_content",
+                                             "detail": problems[0][:400]}
+                    meta["failure_layer"] = "upstream_content"
+                    return ExecutionStatus.FAILED, None, (
+                        f"{req.host} answered HTTP {meta['http_status']}, but not with what "
+                        f"the operation returns: {problems[0]}"), meta
+                if req.contract:
+                    meta["content_check"] = {"ok": True, "check": "response_contract",
+                                             "rows": len(value.get("rows") or ())}
                 meta["fetched_at"] = time.time()
                 if cache_path:
                     with gzip.open(cache_path, "wt", encoding="utf-8") as fh:
@@ -479,6 +638,8 @@ class HTTPBackend(Backend):
                 return (*self._judge(value), meta)
             except urllib.error.HTTPError as exc:
                 meta["http_status"] = exc.code
+                # The upstream answered with an error status (through the gateway, its own).
+                meta["failure_layer"] = "upstream_http"
                 excerpt = ""
                 try:
                     excerpt = exc.read(600).decode("utf-8", "replace")
@@ -509,6 +670,33 @@ class HTTPBackend(Backend):
                 # transient the live tests hit on the first run; retry, never crash.
                 reason = str(getattr(exc, "reason", exc))
                 last_err = f"{type(exc).__name__}: {reason}"
+                # Which layer failed: the browser's source gateway says so on the exception
+                # (tcmstudio.browser_http.GatewayRefusal); anything else is the transport.
+                meta["failure_layer"] = getattr(exc, "layer", None) or "transport"
+                gateway = getattr(exc, "gateway", None)
+                if isinstance(gateway, Mapping):
+                    meta["gateway"] = dict(gateway)
+                    etype = str(gateway.get("error_type") or "")
+                    asked = gateway.get("retry_after_s")
+                    if etype in _GATEWAY_FINAL:
+                        # an authorization or input refusal: retrying sends the same request
+                        return ExecutionStatus.UNAVAILABLE, None, (
+                            f"the source gateway refused the request to {req.host} "
+                            f"({etype or 'refused'}, HTTP {gateway.get('status')}): {reason}"), meta
+                    if etype == "rate_limited":
+                        if asked is not None and float(asked) > self.max_retry_after_s:
+                            meta["retry_after_s"] = float(asked)
+                            return ExecutionStatus.FAILED, None, (
+                                f"{last_err} (the source gateway asked to retry after "
+                                f"{float(asked):.0f}s, more than the "
+                                f"{self.max_retry_after_s:.0f}s this backend waits)"), meta
+                        if attempt < self.max_retries:
+                            self.stats["retries"] += 1
+                            time.sleep(max(min(8.0, 0.8 * (2 ** attempt)), float(asked or 0)))
+                            continue
+                        if asked is not None:
+                            meta["retry_after_s"] = float(asked)
+                        return ExecutionStatus.FAILED, None, last_err, meta
                 if "timed out" in reason.lower():
                     if attempt < self.max_retries:
                         self.stats["retries"] += 1
@@ -521,8 +709,10 @@ class HTTPBackend(Backend):
                     time.sleep(min(8.0, 0.8 * (2 ** attempt)))
                     continue
             except _TooLarge as exc:
+                meta["failure_layer"] = "client"
                 return ExecutionStatus.FAILED, None, str(exc), meta
             except _RedirectRefused as exc:
+                meta["failure_layer"] = "policy"
                 return ExecutionStatus.DENIED, None, str(exc), meta
             except Exception as exc:  # noqa: BLE001 - reported, never raised into the runtime
                 return ExecutionStatus.FAILED, None, f"{type(exc).__name__}: {exc}", meta
@@ -549,9 +739,21 @@ class HTTPBackend(Backend):
         return b"".join(chunks)
 
     @staticmethod
-    def _parse(raw: bytes, ctype: str) -> Any:
+    def _parse(raw: bytes, ctype: str, contract: Mapping[str, Any] | None = None) -> Any:
         ct = ctype.lower()
         text = raw.decode(_charset(ct), "replace")
+        if contract and contract.get("kind", "table") == "table" and contract.get("columns") \
+                and not contract.get("header", False) and (not text.strip()
+                                                           or text.lstrip()[:1] not in "{[<"):
+            # A headerless table the operation names the columns of (SIGNOR's getData.php).
+            # The generic reader below took its first relation for the column names, and a
+            # dict keyed by values lost every field whose value repeated another's.
+            names = [str(c) for c in contract["columns"]]
+            lines = [ln.rstrip("\r") for ln in text.split("\n") if ln.strip()]
+            fields = [ln.split("\t") for ln in lines]
+            rows = [dict(zip(names, f)) for f in fields]
+            return {"columns": names, "rows": rows, "n_rows": len(rows), "format": "tsv",
+                    "widths": [len(f) for f in fields]}
         if "json" in ct or text[:1] in "{[":
             try:
                 return json.loads(text)
@@ -579,12 +781,14 @@ class HTTPBackend(Backend):
                form: Mapping[str, Any] | None = None,
                headers: Mapping[str, str] | None = None, accept: str = "application/json",
                graphql: str | None = None, variables: Mapping[str, Any] | None = None,
-               use_cache: bool = True, **_: Any) -> Any:
+               use_cache: bool = True, contract: Mapping[str, Any] | None = None,
+               **_: Any) -> Any:
         """Execute against the component's declared server (base URL).
 
         `graphql=` turns the call into a POST with {query, variables}. Any host
         actually contacted must be in `permissions.network`, which the policy
-        kernel has already checked — this is a second, local guard.
+        kernel has already checked — this is a second, local guard. `contract=` is the
+        shape the operation's answer must have (``_contract_problems``).
         """
         t0 = time.perf_counter()
         base = (manifest.runtime.server or "").rstrip("/")
@@ -616,10 +820,11 @@ class HTTPBackend(Backend):
             req = HTTPRequest(url=url, method="POST", params=dict(params or {}),
                               headers={"Content-Type": "application/x-www-form-urlencoded",
                                        **dict(headers or {})},
-                              data=body.encode("utf-8"), accept=accept)
+                              data=body.encode("utf-8"), accept=accept, contract=contract)
         else:
             req = HTTPRequest(url=url, method=method.upper(), params=dict(params or {}),
-                              headers=dict(headers or {}), json_body=json_body, accept=accept)
+                              headers=dict(headers or {}), json_body=json_body, accept=accept,
+                              contract=contract)
         status, value, err, meta = self.request(req, use_cache=use_cache, allowed_hosts=allowed)
         if status is ExecutionStatus.SUCCEEDED and graphql is not None and isinstance(value, dict) \
                 and value.get("errors"):

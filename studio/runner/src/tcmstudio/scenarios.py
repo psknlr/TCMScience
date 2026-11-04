@@ -48,7 +48,7 @@ def outcome_of(env: Mapping[str, Any]) -> str | None:
             return ("data_unavailable" if re.search(
                 r"not built|no store|store is|import (it|a store)|not downloaded|no files", msg, re.I)
                 else "tool_unavailable")
-        if kind == "network_off":
+        if kind in ("network_off", "dataset_not_built"):
             return "data_unavailable"
         return {"not_found": "no_record", "bad_arguments": "input_error", "refused": "not_permitted",
                 "declined": "not_permitted"}.get(kind, "tool_failed")
@@ -117,8 +117,14 @@ class _Run:
         err = env.get("error") or {}
         status = (BLOCKED if cls in ("tool_unavailable", "data_unavailable", "not_permitted")
                   else FAIL)
+        hint = err.get("hint") or ""
+        if err.get("type") == "dataset_not_built":
+            # nothing was searched (never a zero): the suite's own remedy, as _needs_built says it
+            hint = ("the stores are not built in this hub: fetch and build them (job.tcmdb.fetch, "
+                    "job.tcmdb.build) or run `bioagent validate data --live`, then pass "
+                    "--tcmdb-root")
         self.rec.add(name, status, f"{cls}: {err.get('message', '')}"[:400]
-                     + (f" — {err['hint']}" if err.get("hint") else ""), outcome=cls,
+                     + (f" — {hint}" if hint else ""), outcome=cls,
                      duration_s=took)
         if optional:
             return None

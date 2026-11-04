@@ -15,8 +15,15 @@ export function createSourceTransport(siteUrl, { XMLHttpRequest: XHR = globalThi
     if (!xhr.status) throw new Error("Source gateway network request failed");
     if (xhr.responseText.length > 12 * 1024 * 1024) throw new Error("Source gateway response exceeded the browser limit");
     // Error wrappers also reach Python, so its honest UNAVAILABLE/FAILED handling applies.
+    // The gateway's own HTTP status and Retry-After travel with its refusal: Python tells a
+    // gateway refusal from the upstream's answer by them, backs off on 429 for the time
+    // asked, and stops at once on an authorization or input refusal.
     const result = JSON.parse(xhr.responseText);
     if (xhr.status >= 400 && !result.error) throw new Error(`Source gateway HTTP ${xhr.status}`);
+    if (result.error && typeof result.error === "object") {
+      const retry = Number(xhr.getResponseHeader?.("Retry-After"));
+      result.gateway = { status: xhr.status, ...(Number.isFinite(retry) && retry >= 0 ? { retry_after_s: retry } : {}) };
+    }
     return JSON.stringify(result);
   };
 }

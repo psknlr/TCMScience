@@ -239,7 +239,7 @@ def test_skills_from_manifests_and_signatures():
     assert {"normalize-tcm-entities", "retrieve-tcm-evidence", "assess-tcm-safety",
             "analyze-tcm-network-pharmacology"} <= set(specs)
     assert len(specs) >= 11
-    lock_hash = {"assess-tcm-safety": "5a12df2abe348b70547efb3529853cc6cb40c0495bce4eb5db9c732cf306a87e"}
+    lock_hash = {"assess-tcm-safety": "f505c3bfde0c2ac49f1871e27edf67cca8c283d6d8680fb885a5458b29d079e3"}
     safety = get_entry("skill.assess-tcm-safety")
     # The function takes subject / co_administered / population, not the manifest's 'query'.
     assert safety["parameters"]["required"] == ["subject"]

@@ -129,3 +129,60 @@ test("catalog: a browser job kind's engine that is not chemistry (pipeline.dock'
   setLang("zh");
   assert.equal(t("ui.catalog.browser_engine", undefined, "zh"), "浏览器计算引擎");
 });
+
+test("catalog: a connector shows its current status apart from its verification (audit 2026-11-04)", async () => {
+  setLang("en");
+  const app = new App();
+  const doc = admetCatalogDoc();
+  doc.entries.push({
+    kind: "connector", category: "tcm_data", summary: "HERB search", example: null, network: true, confirm: false, job: false, gpu: false, heavy: [], tags: [],
+    id: "connector.herb_api.search", title: { zh: "HERB · search", en: "HERB · search" }, exec: ["browser", "runner"], parameters: { type: "object", properties: {} },
+    connector: { key: "herb_api", name: "HERB", operation: "search", host: "herb.ac.cn", license: "CC BY-NC 4.0" },
+    verification: { status: "PASS", levels: { live_upstream: { status: "PASS", at: "2026-10-01T20:05:36Z" } } },
+    operational: {
+      state: "failing", consecutive_failures: 2, record: "studio/runner/src/tcmstudio/data/operational_status.json",
+      latest: { at: "2026-11-04T13:43:53Z", route: "production_gateway", outcome: "failed", layer: "upstream_http", gateway_http: 200, upstream_http: 403 },
+      latest_production: { at: "2026-11-04T13:43:53Z", route: "production_gateway", outcome: "failed", layer: "upstream_http", gateway_http: 200, upstream_http: 403 },
+      last_failure: { at: "2026-11-04T13:43:53Z", route: "production_gateway", layer: "upstream_http", gateway_http: 200, upstream_http: 403, detail: "error code: 1003" },
+      last_success: { at: "2026-11-03", route: "direct_upstream" },
+    },
+  });
+  app.catalog = new Catalog(doc);
+  app.state.route = { name: "catalog", entryId: "connector.herb_api.search", params: {} };
+  app.state.layout = "mobile";
+  app.toolRouter = new ToolRouter({ catalog: app.catalog, runtimes: {}, settings: app.state.settings });
+  const main = document.createElement("main");
+  const view = mountCatalog(app, main);
+  const detail = text(main.querySelector(".catalog__detail"));
+  assert.match(detail, /Current status\s*Currently failing/);
+  assert.match(detail, /Latest production-gateway check\s*2026-11-04T13:43:53Z · production gateway · failed · gateway HTTP 200 · upstream HTTP 403/);
+  assert.match(detail, /Last failure\s*2026-11-04T13:43:53Z · production gateway · at the upstream \(HTTP error\)/);
+  assert.match(detail, /Last success\s*2026-11-03 · direct to upstream/);
+  assert.match(detail, /Verification/, "the verification section is still there, unchanged");
+  view.destroy();
+  setLang("zh");
+});
+
+test("catalog: a connector without its own view takes the catalog's default: operational at the latest production check", async () => {
+  setLang("en");
+  const app = new App();
+  const doc = admetCatalogDoc();
+  doc.operational = { absent: "operational", checked: "2026-11-04", record: "studio/runner/src/tcmstudio/data/operational_status.json" };
+  doc.entries.push({
+    kind: "connector", category: "live_sources", summary: "MyGene", example: null, network: true, confirm: false, job: false, gpu: false, heavy: [], tags: [],
+    id: "connector.mygene.gene", title: { zh: "MyGene · gene", en: "MyGene · gene" }, exec: ["browser", "runner"], parameters: { type: "object", properties: {} },
+    connector: { key: "mygene", name: "MyGene", operation: "gene", host: "mygene.info" },
+  });
+  app.catalog = new Catalog(doc);
+  assert.equal(app.catalog.toJSON().operational.checked, "2026-11-04");
+  app.state.route = { name: "catalog", entryId: "connector.mygene.gene", params: {} };
+  app.state.layout = "mobile";
+  app.toolRouter = new ToolRouter({ catalog: app.catalog, runtimes: {}, settings: app.state.settings });
+  const main = document.createElement("main");
+  const view = mountCatalog(app, main);
+  const detail = text(main.querySelector(".catalog__detail"));
+  assert.match(detail, /Current status\s*Operational \(the latest call succeeded\)/);
+  assert.match(detail, /Latest production-gateway check\s*2026-11-04 · production gateway · succeeded/);
+  view.destroy();
+  setLang("zh");
+});

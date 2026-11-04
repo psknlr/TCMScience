@@ -41,7 +41,7 @@ from .rowkit import COLUMNS
 from .spec import allows_commercial, licence_class
 from .store import StoreError, build_store, connect, safe_name
 
-__all__ = ["SourceCard", "TCMDataHub", "catalog", "HubError", "ENV_TCMDB"]
+__all__ = ["SourceCard", "TCMDataHub", "catalog", "HubError", "DatasetNotBuilt", "ENV_TCMDB"]
 
 ENV_TCMDB = "BIOAGENT_TCMDB"
 ACCESS_MODES = ("live_api", "live_api+snapshot", "snapshot", "manual_import", "restricted",
@@ -50,6 +50,20 @@ ACCESS_MODES = ("live_api", "live_api+snapshot", "snapshot", "manual_import", "r
 
 class HubError(RuntimeError):
     """A request the hub cannot serve, with the reason."""
+
+
+class DatasetNotBuilt(HubError):
+    """Every store a query asked for is absent here, so nothing was searched.
+
+    Audit of 2026-11-04 (P0): asking for LOTUS in a hub holding only NPASS and CMAUP, or
+    any store of an empty hub, came back as a successful search with zero rows. A store
+    that is not built cannot say a relation is absent; the query is refused instead, and
+    ``coverage`` says what was asked for, what is missing and the step that builds it.
+    """
+
+    def __init__(self, message: str, coverage: Mapping[str, Any]) -> None:
+        super().__init__(message)
+        self.coverage = dict(coverage)
 
 
 @dataclass(frozen=True)
@@ -570,6 +584,95 @@ class TCMDataHub:
             return [dict(r) for r in conn.execute(sql, params)]
 
     # ---------------------------------------------------------------- relations
+    def _has_relations(self, key: str) -> bool:
+        with closing(self._conn(key)) as conn:
+            return bool(conn.execute("SELECT 1 FROM sqlite_master WHERE name='relations'")
+                        .fetchone())
+
+    def coverage(self, sources: Iterable[str] | None = None, *,
+                 kind: str | None = None) -> dict[str, Any]:
+        """Which stores a relation query asks for, which it can search and which are missing.
+
+        ``sources=None`` asks for every built store. A requested store is ``searched`` when
+        it is built with a relations table, ``missing`` otherwise, each missing one with its
+        reason and the step that would build it. With ``kind``, a built store whose dataset
+        does not declare that kind is still searched (its rows say what it holds) but is
+        listed under ``kind_not_declared``, so a zero from it is read for what it is.
+
+        ``complete`` is true only when every requested store was searched; ``partial`` when
+        some were and some were not. A store that is ``missing`` contributes no row and no
+        zero: it was not searched.
+        """
+        if kind is not None and kind not in RELATION_KINDS:
+            # an input error is one whatever is built: said before what is missing
+            raise HubError(f"unknown relation kind {kind!r}; have {sorted(RELATION_KINDS)}")
+        sources = [str(s) for s in sources or ()]
+        requested_all = not sources              # None or [] ask for every built store
+        wanted = list(dict.fromkeys(self.built() if requested_all else sources))
+        known = {d.key for d in DATASETS}
+        unknown = [k for k in wanted if k not in known]
+        if unknown:
+            raise HubError(f"unknown dataset(s) {unknown}; tcmdb.datasets lists the keys "
+                           f"(built here: {self.built() or 'none'})")
+        searched: list[str] = []
+        missing: list[dict[str, Any]] = []
+        for key in wanted:
+            if not self.db_path(key).exists():
+                spec = dataset(key)
+                step = (spec.instructions if spec.access == "manual" else
+                        f"run hub.enrich(<name>) for {key}" if spec.access == "live" else
+                        f"job.tcmdb.fetch {{dataset: {key}}}, then job.tcmdb.build")
+                missing.append({"dataset": key, "reason": "not built here",
+                                "next_step": step})
+            elif not self._has_relations(key):
+                missing.append({"dataset": key, "reason": "built before relations existed",
+                                "next_step": f"rebuild it: job.tcmdb.build {{dataset: {key}}}"})
+            else:
+                searched.append(key)
+        out: dict[str, Any] = {
+            "requested": "all_built" if requested_all else wanted,
+            "searched": searched,
+            "missing": missing,
+            "complete": bool(searched) and not missing,
+            "partial": bool(searched) and bool(missing),
+            "built": self.built(),
+        }
+        if kind:
+            out["kind_not_declared"] = [k for k in searched
+                                        if kind not in (dataset(k).relations or ())]
+        return out
+
+    def require(self, sources: Iterable[str] | None = None, *,
+                kind: str | None = None) -> dict[str, Any]:
+        """``coverage``, or ``DatasetNotBuilt`` when not one requested store can be searched."""
+        cov = self.coverage(sources, kind=kind)
+        if not cov["searched"]:
+            if cov["requested"] == "all_built":
+                msg = ("no TCM data store is built here, so nothing was searched: build one "
+                       "(job.tcmdb.fetch, then job.tcmdb.build) or import a store")
+            else:
+                names = ", ".join(m["dataset"] for m in cov["missing"])
+                msg = (f"the requested store(s) {names} are not built here (built: "
+                       f"{', '.join(cov['built']) or 'none'}), so nothing was searched: "
+                       + "; ".join(f"{m['dataset']}: {m['next_step']}" for m in cov["missing"]))
+            raise DatasetNotBuilt(msg, cov)
+        return cov
+
+    def search_relations(self, kind: str | None = None, **kw: Any) -> dict[str, Any]:
+        """``relations`` with what was searched: ``{rows, coverage, by_source}``.
+
+        ``by_source`` counts every searched store, with ``0`` for one that was searched and
+        matched nothing; a store that was not built is under ``coverage.missing``, never a
+        zero. Raises ``DatasetNotBuilt`` when no requested store can be searched.
+        """
+        cov = self.require(kw.get("sources"), kind=kind)
+        rows = self.relations(kind, **{**kw, "sources": cov["searched"] or None})
+        by_source = dict.fromkeys(cov["searched"], 0)
+        for r in rows:
+            src = str(r.get("source"))
+            by_source[src] = by_source.get(src, 0) + 1
+        return {"rows": rows, "coverage": cov, "by_source": by_source}
+
     def relations(self, kind: str | None = None, *, subject: str | None = None,
                   object: str | None = None, sources: Iterable[str] | None = None,
                   evidence: Iterable[str] | None = None, contains: bool = False,
@@ -588,6 +691,12 @@ class TCMDataHub:
         ``commercial=True`` keeps only rows whose licence allows commercial reuse of
         derived data (``tcmdb.spec.licence_class``: open or share-alike); rows under a
         non-commercial, no-derivatives or unstated licence are left out.
+
+        ``sources`` names the stores to search. When none of them is built the query is
+        refused (``DatasetNotBuilt``) rather than answered with no rows; when only some
+        are, the others are skipped, so a caller that needs to say what was searched uses
+        ``search_relations`` (or ``coverage``). A dataset key that does not exist is a
+        ``HubError``.
         """
         if kind is not None and kind not in RELATION_KINDS:
             raise HubError(f"unknown relation kind {kind!r}; have {sorted(RELATION_KINDS)}")
@@ -597,7 +706,9 @@ class TCMDataHub:
         oc = set(outcomes or ())
         if oc - OUTCOMES:
             raise HubError(f"unknown outcome {sorted(oc - OUTCOMES)}; have {sorted(OUTCOMES)}")
-        keys = [k for k in (sources or self.built()) if self.db_path(k).exists()]
+        sources = list(sources or ())
+        # an empty list asks for every built store, as None does
+        keys = self.require(sources)["searched"] if sources else self.built()
         out: list[dict[str, Any]] = []
         for key in keys:
             clauses, params = [], []

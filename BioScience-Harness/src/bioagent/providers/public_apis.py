@@ -42,6 +42,9 @@ class Operation:
     accept: str = "application/json"
     args: tuple[str, ...] = ()            # required argument names
     example: Mapping[str, Any] = field(default_factory=dict)
+    #: What the answer must look like (``table_contract``): the HTTP backend refuses one
+    #: that does not fit — malformed, misaligned, empty — before it can become evidence.
+    contract: Mapping[str, Any] | None = None
 
     def render(self, **kwargs: Any) -> dict[str, Any]:
         missing = [a for a in self.args if a not in kwargs]
@@ -73,7 +76,50 @@ class Operation:
             out["json_body"] = sub(self.json_body)
         if self.form is not None:
             out["form"] = sub(self.form)
+        if self.contract:
+            out["contract"] = dict(self.contract)
         return out
+
+
+def table_contract(columns: tuple[str, ...], *, required: tuple[str, ...],
+                   patterns: Mapping[str, str] | None = None, header: bool = False,
+                   min_fields: int | None = None, min_rows: int = 1,
+                   what: str = "rows") -> dict[str, Any]:
+    """The shape of a tab-separated answer (``backends.http._contract_problems``).
+
+    ``columns`` names a headerless table's fields in order (``header=False``); ``required``
+    are the fields every row must fill; ``patterns`` the regular expressions a filled field
+    must match in full; ``min_fields`` how many tab-separated fields a row must have (by
+    default up to the last required one, so a misaligned row is caught); ``min_rows`` how
+    many rows an answer needs to be one (an empty body cannot be told from a failure).
+    """
+    unknown = [c for c in (*required, *(patterns or {})) if c not in columns]
+    if unknown:
+        raise ValueError(f"contract names fields that are not columns: {unknown}")
+    if min_fields is None:
+        min_fields = max(columns.index(c) for c in required) + 1 if required else 0
+    return {"kind": "table", "header": header, "columns": list(columns),
+            "required": list(required), "patterns": dict(patterns or {}),
+            "min_fields": min_fields, "min_rows": min_rows, "what": what}
+
+
+def contract_sample(contract: Mapping[str, Any]) -> bytes:
+    """One row that fits ``contract``, for offline checks that call an operation through a
+    stand-in transport (``studio/scripts/connector_coverage.py``): a declared pattern's
+    field gets the first example the pattern's ``(?#e.g. …)`` comment gives, any other
+    required field ``x``."""
+    cols = [str(c) for c in contract.get("columns") or ()]
+    pats = dict(contract.get("patterns") or {})
+    req = set(contract.get("required") or ())
+    width = max(int(contract.get("min_fields") or 0), 1)
+
+    def value(c: str) -> str:
+        m = re.search(r"\(\?#e\.g\. ([^)]*)\)", str(pats.get(c, "")))
+        return m.group(1) if m else ("x" if c in req else "")
+
+    row = [value(c) for c in cols[:max(width, len(cols))]]
+    lines = ["\t".join(row)] * max(int(contract.get("min_rows", 1)), 1)
+    return ("\n".join(lines) + "\n").encode("utf-8")
 
 
 #: Printable ASCII an argument may carry into a path unchanged. Only the characters that

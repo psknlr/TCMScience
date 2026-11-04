@@ -118,6 +118,24 @@ does this) and served live by the runner at `GET /api/catalog`. One JSON documen
                                                  // levels ⊂ live_upstream {status, at} (connectors) | reference_output
                                                  // (natives with an independent reference) | kernel_parity (the 7 kernel
                                                  // tools) | lock_pin (pinned skills); none → UNVERIFIED, levels {}
+  "operational": {"state": "failing",            // connectors only (tcmstudio.opstatus): operational | failing |
+                                                 // recovered | unknown — how the latest calls went, kept apart from
+                                                 // verification (which says only that it once answered)
+                  "latest": {"at", "route", "outcome", "layer"?, "gateway_http"?, "upstream_http"?, "detail"?},
+                  "latest_production": {…} | null, "last_success": {"at", "route"} | null,
+                  "last_failure": {"at", "route", "layer", …} | null, "consecutive_failures": 2,
+                  "observations": 4, "record": "studio/runner/src/tcmstudio/data/operational_status.json"},
+                                                 // route: production_gateway | direct_upstream | browser_gateway |
+                                                 // runner_direct; layer: gateway | transport | upstream_http |
+                                                 // upstream_content | client | policy. A success after a failure is
+                                                 // recovered and the failure stays in last_failure and the history.
+                                                 // catalog.json carries the committed record, compactly: only a
+                                                 // failing, recovered or unrecorded operation has its own view
+                                                 // (no record or observations; latest only when it is not the latest
+                                                 // production check, whose route is implied); the document's
+                                                 // "operational" {absent:"operational", record, checked, note} says
+                                                 // what an entry without one means. catalog_search and each
+                                                 // connector call merge in this runtime's own calls
   "approvals": [{"reason": "network"}],          // what a call may ask for: confirm | job | network | remote_upload
                                                  // (hosts: `hosts`, or `hosts_by` for the argument)
   "execution": {                                 // only where it applies
@@ -292,7 +310,7 @@ Every tool call returns this, in both runtimes. A call **never raises**: failure
   },
   "job": null | {"id":"j_…","kind":"pipeline.rnaseq","state":"queued"},
   "approval": null | {"reason":"network|job|confirm|remote_upload|first_runner_call|remote_runner","what":"…","hosts":["…"],"decision"?:"deny"},
-  "error": null | {"type":"bad_arguments|unavailable|not_found|refused|declined|runtime_error|timeout|network_off","message":"…","hint":"…",
+  "error": null | {"type":"bad_arguments|unavailable|not_found|refused|declined|runtime_error|timeout|network_off|invalid_response|dataset_not_built","message":"…","hint":"…",
                    "requires"?: [Requirement], "reason"?: "needs_runner|no_runtime|missing_deps|missing_engine|too_large_for_browser|network_off|needs_dataset|needs_job_service|remote_upload_off"}
                                         // additive: the dispatcher's preflight names every missing requirement
                                         // (§2 Readiness) and the reason code; hint is the first remedy.
@@ -339,6 +357,23 @@ Rules:
   under the last succeeded poll.
 - A tool that can't run here (missing dep, needs runner, network off) returns `status:"failed"`
   with `error.type:"unavailable" | "network_off"` and a remedy. It never substitutes an approximation.
+- An upstream that answers, but not with data — a server error report or stack trace served with HTTP 200 (SIGNOR's
+  PHP fatal error in the audit of 2026-11-04), an HTML page where data was asked for, or an answer that does not fit the
+  operation's declared shape (`Operation.contract`: a table's columns, the fields every row fills, an empty answer) —
+  is `status:"failed"`, `error.type:"invalid_response"`, with `receipt.request.content_check {ok:false, check, layer,
+  detail}`. Nothing from it is a result or evidence. `receipt.request` also carries `failure_layer` (gateway |
+  transport | upstream_http | upstream_content | client | policy) and, for a refusal by the source gateway itself,
+  `gateway {status, error_type, retry_after_s?}`, kept apart from the upstream's `http_status`.
+- A data-hub query (`tcmdb.relations`, `tcmdb.evidence_for`, `tcmdb.consensus`, `tcmdb.compare`) whose every requested
+  store is absent here is `status:"failed"`, `error.type:"dataset_not_built"`, `error.reason:"needs_dataset"`, with
+  `error.coverage {requested, searched:[], missing:[{dataset, reason, next_step}], built}`: nothing was searched, so
+  there is no zero. A query that searched some requested stores succeeds with `result.coverage {requested, searched,
+  missing, complete, partial}`, a limitation naming the stores not searched, and `by_source` counting a searched
+  store's zero; a store that is not built is never a zero and never a silent source.
+- Every connector call that reached the network is an observation of its operation: the dispatcher records it in the
+  runtime's own status record (`<state_root>/opstatus/`) and puts the operation's current status on
+  `receipt.operational {state, checked, route, failure?, last_success?}`; a call to an operation that was already
+  failing says so in its hint, and a success after a failure is noted as a recovery.
 - `needs_approval` is returned by the *web client's router* (not by Python) when a `confirm` /
   `network` tool is called without a standing approval. The UI then shows the PermissionRequestCard.
   After approval, the call is retried with the approval attached.
