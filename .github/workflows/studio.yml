@@ -238,12 +238,14 @@ jobs:
       - name: Browser sweep, every browser tool's envelope against native CPython's (Pyodide from jsDelivr, no runner)
         # sweep.mjs: every entry the compatibility matrix runs in the browser (classes 1, 2, 3, 5) and every core tool
         # with the input `tcmstudio validate` gives it, every connector with web access off (refused as network_off on
-        # both sides), and the groups beyond (the inputs validate lacks, wrongly typed arguments, the native tools'
-        # reference cases, each entry by its own id, the CPU kernels above their thresholds, and the calls that need the
-        # formula workbook on a page of their own): made in headless Chromium through BrowserRuntime as the router
-        # makes them and natively with the dispatcher's own context, each pair of envelopes held to the runtime check's
-        # comparison (run.mjs compareEnvelopes). A difference passes only where sweep.mjs KNOWN declares it, by entry
-        # id and field, with its reason; anything else fails. 1,153 calls, about a minute with a local Pyodide
+        # both sides), an identifier in a networked call's arguments (refused with EGRESS_IDENTIFIER on both sides,
+        # before web access is asked), and the groups beyond (the inputs validate lacks, wrongly typed arguments, the
+        # native tools' reference cases, each entry by its own id, the CPU kernels above their thresholds, and the calls
+        # that need the formula workbook on a page of their own): made in headless Chromium through BrowserRuntime as
+        # the router makes them and natively with the dispatcher's own context, each pair of envelopes held to the
+        # runtime check's comparison (run.mjs compareEnvelopes). A difference passes only where sweep.mjs KNOWN declares
+        # it, by entry id and field, with its reason; anything else fails. 1,170 calls, about a minute with a local
+        # Pyodide
         run: node studio/web/test/runtime/sweep.mjs --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-sweep.json"
       - name: Browser chemistry, science kernels and the ADMET jobs (RDKit.js, WebGPU on SwiftShader, Pyodide's scikit-learn)
         # chem.browser.mjs: the chemistry worker in Chromium (the vendored loader, npm's RDKit_minimal.wasm checked

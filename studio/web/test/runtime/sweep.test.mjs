@@ -113,6 +113,21 @@ test("failures on one side, timeouts and connectors that are not refused as netw
   assert.equal(judge(call("connector.uniprot.entry", "connector"), rec(ok), nat(ok), ROOTS).result, "not_network_off");
 });
 
+test("an egress case passes only when both sides refuse it with EGRESS_IDENTIFIER", () => {
+  const gated = envelope({ status: "refused", error: { type: "refused" }, result: null,
+    governance: { kind: "connector", refusals: [{ code: "EGRESS_IDENTIFIER", categories: ["medical_record_number"] }] } });
+  const egress = { ...call("literature_search", "egress"), tool: "literature_search" };
+  assert.equal(judge(egress, rec(gated), nat(gated), ROOTS).result, "same");
+  // the identical network_off of both sides is not the gate: the arguments were never read
+  const off = envelope({ status: "failed", error: { type: "network_off" }, result: null });
+  const row = judge(egress, rec(off), nat(off), ROOTS);
+  assert.equal(row.result, "not_egress_refused");
+  assert.deepEqual(row.egress_refused, { browser: false, native: false });
+  assert.equal(row.ok, false);
+  // one side refusing and the other not is a difference in its own right
+  assert.equal(judge(egress, rec(gated), nat(off), ROOTS).result, "differs");
+});
+
 test("every declaration names its fields and gives a reason; paths select array elements by their path", () => {
   for (const [id, rule] of Object.entries(KNOWN)) {
     assert.ok(rule.roots || rule.leaves || rule.masks || rule.numbers, id);

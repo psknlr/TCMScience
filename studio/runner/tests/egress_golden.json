@@ -1,0 +1,3294 @@
+{
+ "connector_call 10.1016/j.jep.2020.112345": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "0e29bbc3ca39d1eebc67224cca5a20216df37d1ab6b0fe0cb362fed75b5a090c",
+     "ok": true,
+     "repairs": [],
+     "schema": "entry"
+    }
+   },
+   "input_sha256": "417e8308491c633ef7e2cdae7de9e8cf947ae7e14960ea884241bf028840813b",
+   "kernel": "bioagent.policy",
+   "output_sha256": "49032dde2f44063cec624c00b660b64a065bb7b40d91db68983a676a0c9876d0",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=10.1016%2Fj.jep.2020.112345&format=json&pageSize=5"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "hitCount": 1,
+   "resultList": {
+    "result": [
+     {
+      "authorString": "Doe J, Roe R",
+      "doi": "10.1016/j.jep.2020.112345",
+      "journalTitle": "J Ethnopharmacol",
+      "pmid": "31415926",
+      "pubYear": "2020",
+      "source": "MED",
+      "title": "Hepatotoxicity of herbal medicines"
+     }
+    ]
+   }
+  },
+  "status": "succeeded",
+  "summary": "Europe PMC · search：已返回（HTTP 200）",
+  "summary_en": "Europe PMC · search: returned (HTTP 200)",
+  "text": "connector_call → connector.europepmc.search: succeeded\nSummary: Europe PMC · search：已返回（HTTP 200）\nLimits (state these when you use this result):\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"hitCount\":1,\"resultList\":{\"result\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journalTitle\":\"J Ethnopharmacol\",\"pubYear\":\"2020\",\"authorString\":\"Doe J, Roe R\",\"source\":\"MED\"}]}}",
+  "tool": "connector_call",
+  "via": "connector.europepmc.search"
+ },
+ "connector_call CC(=O)OC1=CC=CC=C1C(=O)O": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "adae3e09cd04028ac6a8808fa28f86ef7249e91d0bce7f91a73f01e579f9fdc0",
+     "ok": true,
+     "repairs": [],
+     "schema": "entry"
+    }
+   },
+   "input_sha256": "ec06febe7486e4d57ed84040e36d533b1f32b3e34419a2b94a2f4fbc16679f5f",
+   "kernel": "bioagent.policy",
+   "output_sha256": "49032dde2f44063cec624c00b660b64a065bb7b40d91db68983a676a0c9876d0",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=CC%28%3DO%29OC1%3DCC%3DCC%3DC1C%28%3DO%29O&format=json&pageSize=5"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "hitCount": 1,
+   "resultList": {
+    "result": [
+     {
+      "authorString": "Doe J, Roe R",
+      "doi": "10.1016/j.jep.2020.112345",
+      "journalTitle": "J Ethnopharmacol",
+      "pmid": "31415926",
+      "pubYear": "2020",
+      "source": "MED",
+      "title": "Hepatotoxicity of herbal medicines"
+     }
+    ]
+   }
+  },
+  "status": "succeeded",
+  "summary": "Europe PMC · search：已返回（HTTP 200）",
+  "summary_en": "Europe PMC · search: returned (HTTP 200)",
+  "text": "connector_call → connector.europepmc.search: succeeded\nSummary: Europe PMC · search：已返回（HTTP 200）\nLimits (state these when you use this result):\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"hitCount\":1,\"resultList\":{\"result\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journalTitle\":\"J Ethnopharmacol\",\"pubYear\":\"2020\",\"authorString\":\"Doe J, Roe R\",\"source\":\"MED\"}]}}",
+  "tool": "connector_call",
+  "via": "connector.europepmc.search"
+ },
+ "connector_call GSE123456": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "048c3246578e0bc9b46bb982db085b582c63e62d8f48ea6e91e0d224dd5e8931",
+     "ok": true,
+     "repairs": [],
+     "schema": "entry"
+    }
+   },
+   "input_sha256": "d63aac650042f97416931ffcbb0d52bc996fa00ce62a5d401f0a404ccd0115e6",
+   "kernel": "bioagent.policy",
+   "output_sha256": "49032dde2f44063cec624c00b660b64a065bb7b40d91db68983a676a0c9876d0",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=GSE123456&format=json&pageSize=5"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "hitCount": 1,
+   "resultList": {
+    "result": [
+     {
+      "authorString": "Doe J, Roe R",
+      "doi": "10.1016/j.jep.2020.112345",
+      "journalTitle": "J Ethnopharmacol",
+      "pmid": "31415926",
+      "pubYear": "2020",
+      "source": "MED",
+      "title": "Hepatotoxicity of herbal medicines"
+     }
+    ]
+   }
+  },
+  "status": "succeeded",
+  "summary": "Europe PMC · search：已返回（HTTP 200）",
+  "summary_en": "Europe PMC · search: returned (HTTP 200)",
+  "text": "connector_call → connector.europepmc.search: succeeded\nSummary: Europe PMC · search：已返回（HTTP 200）\nLimits (state these when you use this result):\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"hitCount\":1,\"resultList\":{\"result\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journalTitle\":\"J Ethnopharmacol\",\"pubYear\":\"2020\",\"authorString\":\"Doe J, Roe R\",\"source\":\"MED\"}]}}",
+  "tool": "connector_call",
+  "via": "connector.europepmc.search"
+ },
+ "connector_call NCT04280705": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "c2ed06cfa14e64ad8c602b359d0ce0def10c0becb8e573cb8c9b0b7a2e79ad96",
+     "ok": true,
+     "repairs": [],
+     "schema": "entry"
+    }
+   },
+   "input_sha256": "3d39201a49051112d862c193e4ef79fe36a313c8fdb6f38eeb07d2dfcdc6111e",
+   "kernel": "bioagent.policy",
+   "output_sha256": "49032dde2f44063cec624c00b660b64a065bb7b40d91db68983a676a0c9876d0",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=NCT04280705&format=json&pageSize=5"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "hitCount": 1,
+   "resultList": {
+    "result": [
+     {
+      "authorString": "Doe J, Roe R",
+      "doi": "10.1016/j.jep.2020.112345",
+      "journalTitle": "J Ethnopharmacol",
+      "pmid": "31415926",
+      "pubYear": "2020",
+      "source": "MED",
+      "title": "Hepatotoxicity of herbal medicines"
+     }
+    ]
+   }
+  },
+  "status": "succeeded",
+  "summary": "Europe PMC · search：已返回（HTTP 200）",
+  "summary_en": "Europe PMC · search: returned (HTTP 200)",
+  "text": "connector_call → connector.europepmc.search: succeeded\nSummary: Europe PMC · search：已返回（HTTP 200）\nLimits (state these when you use this result):\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"hitCount\":1,\"resultList\":{\"result\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journalTitle\":\"J Ethnopharmacol\",\"pubYear\":\"2020\",\"authorString\":\"Doe J, Roe R\",\"source\":\"MED\"}]}}",
+  "tool": "connector_call",
+  "via": "connector.europepmc.search"
+ },
+ "connector_call PMID 31415926": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "b3fbcc54ddd782ef5577d728a61f96237feb80f8a7cf2d831e0545869c92644a",
+     "ok": true,
+     "repairs": [],
+     "schema": "entry"
+    }
+   },
+   "input_sha256": "adf9adca4a1d6b90a2283726b5b845864111138dbd2e3a037569fc8e8831a961",
+   "kernel": "bioagent.policy",
+   "output_sha256": "49032dde2f44063cec624c00b660b64a065bb7b40d91db68983a676a0c9876d0",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMID+31415926&format=json&pageSize=5"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "hitCount": 1,
+   "resultList": {
+    "result": [
+     {
+      "authorString": "Doe J, Roe R",
+      "doi": "10.1016/j.jep.2020.112345",
+      "journalTitle": "J Ethnopharmacol",
+      "pmid": "31415926",
+      "pubYear": "2020",
+      "source": "MED",
+      "title": "Hepatotoxicity of herbal medicines"
+     }
+    ]
+   }
+  },
+  "status": "succeeded",
+  "summary": "Europe PMC · search：已返回（HTTP 200）",
+  "summary_en": "Europe PMC · search: returned (HTTP 200)",
+  "text": "connector_call → connector.europepmc.search: succeeded\nSummary: Europe PMC · search：已返回（HTTP 200）\nLimits (state these when you use this result):\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"hitCount\":1,\"resultList\":{\"result\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journalTitle\":\"J Ethnopharmacol\",\"pubYear\":\"2020\",\"authorString\":\"Doe J, Roe R\",\"source\":\"MED\"}]}}",
+  "tool": "connector_call",
+  "via": "connector.europepmc.search"
+ },
+ "connector_call PubChem CID 13912345678": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "dc68f7598c6be68381377cac70855058ed393cfbf22e151cb5bfb45cc327d874",
+     "ok": true,
+     "repairs": [],
+     "schema": "entry"
+    }
+   },
+   "input_sha256": "a3ced6fdaedf86a6ba395603128bce0272aeb49a025d2b99de291c258e62248c",
+   "kernel": "bioagent.policy",
+   "output_sha256": "49032dde2f44063cec624c00b660b64a065bb7b40d91db68983a676a0c9876d0",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PubChem+CID+13912345678&format=json&pageSize=5"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "hitCount": 1,
+   "resultList": {
+    "result": [
+     {
+      "authorString": "Doe J, Roe R",
+      "doi": "10.1016/j.jep.2020.112345",
+      "journalTitle": "J Ethnopharmacol",
+      "pmid": "31415926",
+      "pubYear": "2020",
+      "source": "MED",
+      "title": "Hepatotoxicity of herbal medicines"
+     }
+    ]
+   }
+  },
+  "status": "succeeded",
+  "summary": "Europe PMC · search：已返回（HTTP 200）",
+  "summary_en": "Europe PMC · search: returned (HTTP 200)",
+  "text": "connector_call → connector.europepmc.search: succeeded\nSummary: Europe PMC · search：已返回（HTTP 200）\nLimits (state these when you use this result):\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"hitCount\":1,\"resultList\":{\"result\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journalTitle\":\"J Ethnopharmacol\",\"pubYear\":\"2020\",\"authorString\":\"Doe J, Roe R\",\"source\":\"MED\"}]}}",
+  "tool": "connector_call",
+  "via": "connector.europepmc.search"
+ },
+ "connector_call berberine CYP3A4": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "f659bd8e3108c0e032de61381223f989975e7bdd08066f783db9213db9f368b4",
+     "ok": true,
+     "repairs": [],
+     "schema": "entry"
+    }
+   },
+   "input_sha256": "981d00bb3d53ba84ce790b56ec0651d17d5a8f973a322f838f213b0f046f69fb",
+   "kernel": "bioagent.policy",
+   "output_sha256": "49032dde2f44063cec624c00b660b64a065bb7b40d91db68983a676a0c9876d0",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=berberine+CYP3A4&format=json&pageSize=5"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "hitCount": 1,
+   "resultList": {
+    "result": [
+     {
+      "authorString": "Doe J, Roe R",
+      "doi": "10.1016/j.jep.2020.112345",
+      "journalTitle": "J Ethnopharmacol",
+      "pmid": "31415926",
+      "pubYear": "2020",
+      "source": "MED",
+      "title": "Hepatotoxicity of herbal medicines"
+     }
+    ]
+   }
+  },
+  "status": "succeeded",
+  "summary": "Europe PMC · search：已返回（HTTP 200）",
+  "summary_en": "Europe PMC · search: returned (HTTP 200)",
+  "text": "connector_call → connector.europepmc.search: succeeded\nSummary: Europe PMC · search：已返回（HTTP 200）\nLimits (state these when you use this result):\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"hitCount\":1,\"resultList\":{\"result\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journalTitle\":\"J Ethnopharmacol\",\"pubYear\":\"2020\",\"authorString\":\"Doe J, Roe R\",\"source\":\"MED\"}]}}",
+  "tool": "connector_call",
+  "via": "connector.europepmc.search"
+ },
+ "connector_call 王清任 血府逐瘀汤": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "eafdefeeb93bb0ae325ee8d018076cf51ee100deb08dc02b75f4eaffb2789387",
+     "ok": true,
+     "repairs": [],
+     "schema": "entry"
+    }
+   },
+   "input_sha256": "e55c734117d13e3a864d0b4a16aaec15adedca2e46241dbf97037d574633729e",
+   "kernel": "bioagent.policy",
+   "output_sha256": "49032dde2f44063cec624c00b660b64a065bb7b40d91db68983a676a0c9876d0",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=%E7%8E%8B%E6%B8%85%E4%BB%BB+%E8%A1%80%E5%BA%9C%E9%80%90%E7%98%80%E6%B1%A4&format=json&pageSize=5"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "hitCount": 1,
+   "resultList": {
+    "result": [
+     {
+      "authorString": "Doe J, Roe R",
+      "doi": "10.1016/j.jep.2020.112345",
+      "journalTitle": "J Ethnopharmacol",
+      "pmid": "31415926",
+      "pubYear": "2020",
+      "source": "MED",
+      "title": "Hepatotoxicity of herbal medicines"
+     }
+    ]
+   }
+  },
+  "status": "succeeded",
+  "summary": "Europe PMC · search：已返回（HTTP 200）",
+  "summary_en": "Europe PMC · search: returned (HTTP 200)",
+  "text": "connector_call → connector.europepmc.search: succeeded\nSummary: Europe PMC · search：已返回（HTTP 200）\nLimits (state these when you use this result):\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"hitCount\":1,\"resultList\":{\"result\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journalTitle\":\"J Ethnopharmacol\",\"pubYear\":\"2020\",\"authorString\":\"Doe J, Roe R\",\"source\":\"MED\"}]}}",
+  "tool": "connector_call",
+  "via": "connector.europepmc.search"
+ },
+ "connector_call 黄芪": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "26530428aa591402510fecd64d7b54397befdc6f60afc896c9f8a43f449442ad",
+     "ok": true,
+     "repairs": [],
+     "schema": "entry"
+    }
+   },
+   "input_sha256": "5e0eba40b70e3870cbdc65dd963d1b7ea70617fa7e71e6268373951800c0e7a4",
+   "kernel": "bioagent.policy",
+   "output_sha256": "49032dde2f44063cec624c00b660b64a065bb7b40d91db68983a676a0c9876d0",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=%E9%BB%84%E8%8A%AA&format=json&pageSize=5"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "hitCount": 1,
+   "resultList": {
+    "result": [
+     {
+      "authorString": "Doe J, Roe R",
+      "doi": "10.1016/j.jep.2020.112345",
+      "journalTitle": "J Ethnopharmacol",
+      "pmid": "31415926",
+      "pubYear": "2020",
+      "source": "MED",
+      "title": "Hepatotoxicity of herbal medicines"
+     }
+    ]
+   }
+  },
+  "status": "succeeded",
+  "summary": "Europe PMC · search：已返回（HTTP 200）",
+  "summary_en": "Europe PMC · search: returned (HTTP 200)",
+  "text": "connector_call → connector.europepmc.search: succeeded\nSummary: Europe PMC · search：已返回（HTTP 200）\nLimits (state these when you use this result):\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"hitCount\":1,\"resultList\":{\"result\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journalTitle\":\"J Ethnopharmacol\",\"pubYear\":\"2020\",\"authorString\":\"Doe J, Roe R\",\"source\":\"MED\"}]}}",
+  "tool": "connector_call",
+  "via": "connector.europepmc.search"
+ },
+ "literature_search 10.1016/j.jep.2020.112345": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "doi:10.1016/j.jep.2020.112345",
+    "id": "E1",
+    "kind": "doi",
+    "label": "doi:10.1016/j.jep.2020.112345",
+    "url": "https://doi.org/10.1016/j.jep.2020.112345"
+   },
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E2",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.",
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "0e29bbc3ca39d1eebc67224cca5a20216df37d1ab6b0fe0cb362fed75b5a090c",
+     "ok": true,
+     "repairs": [],
+     "schema": "core"
+    }
+   },
+   "input_sha256": "0e29bbc3ca39d1eebc67224cca5a20216df37d1ab6b0fe0cb362fed75b5a090c",
+   "kernel": "bioagent.policy",
+   "output_sha256": "531f82c18cb90d338d434b22bc8ddd1808f08fa22f80479f4864af91d73dad24",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=10.1016%2Fj.jep.2020.112345&format=json&pageSize=10"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "count": 1,
+   "hits": [
+    {
+     "authors": "Doe J, Roe R",
+     "doi": "10.1016/j.jep.2020.112345",
+     "journal": "J Ethnopharmacol",
+     "pmid": "31415926",
+     "source": "MED",
+     "title": "Hepatotoxicity of herbal medicines",
+     "year": "2020"
+    }
+   ],
+   "query": "10.1016/j.jep.2020.112345",
+   "source": "europepmc",
+   "total": 1
+  },
+  "status": "succeeded",
+  "summary": "文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）",
+  "summary_en": "Literature search (Europe PMC): 1 returned of 1 hits (a hit is not evidence)",
+  "text": "literature_search → connector.europepmc.search: succeeded\nSummary: 文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）\nLimits (state these when you use this result):\n- A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] doi:10.1016/j.jep.2020.112345 <https://doi.org/10.1016/j.jep.2020.112345>\n[E2] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"source\":\"europepmc\",\"query\":\"10.1016/j.jep.2020.112345\",\"total\":1,\"count\":1,\"hits\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journal\":\"J Ethnopharmacol\",\"year\":\"2020\",\"authors\":\"Doe J, Roe R\",\"source\":\"MED\"}]}",
+  "tool": "literature_search",
+  "via": "connector.europepmc.search"
+ },
+ "literature_search CC(=O)OC1=CC=CC=C1C(=O)O": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.",
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "adae3e09cd04028ac6a8808fa28f86ef7249e91d0bce7f91a73f01e579f9fdc0",
+     "ok": true,
+     "repairs": [],
+     "schema": "core"
+    }
+   },
+   "input_sha256": "adae3e09cd04028ac6a8808fa28f86ef7249e91d0bce7f91a73f01e579f9fdc0",
+   "kernel": "bioagent.policy",
+   "output_sha256": "871c5e84f7e5bc5a803a3b95580e0760ffaf7693fe5c6648bb24ab9880c98dc4",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=CC%28%3DO%29OC1%3DCC%3DCC%3DC1C%28%3DO%29O&format=json&pageSize=10"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "count": 1,
+   "hits": [
+    {
+     "authors": "Doe J, Roe R",
+     "doi": "10.1016/j.jep.2020.112345",
+     "journal": "J Ethnopharmacol",
+     "pmid": "31415926",
+     "source": "MED",
+     "title": "Hepatotoxicity of herbal medicines",
+     "year": "2020"
+    }
+   ],
+   "query": "CC(=O)OC1=CC=CC=C1C(=O)O",
+   "source": "europepmc",
+   "total": 1
+  },
+  "status": "succeeded",
+  "summary": "文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）",
+  "summary_en": "Literature search (Europe PMC): 1 returned of 1 hits (a hit is not evidence)",
+  "text": "literature_search → connector.europepmc.search: succeeded\nSummary: 文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）\nLimits (state these when you use this result):\n- A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"source\":\"europepmc\",\"query\":\"CC(=O)OC1=CC=CC=C1C(=O)O\",\"total\":1,\"count\":1,\"hits\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journal\":\"J Ethnopharmacol\",\"year\":\"2020\",\"authors\":\"Doe J, Roe R\",\"source\":\"MED\"}]}",
+  "tool": "literature_search",
+  "via": "connector.europepmc.search"
+ },
+ "literature_search GSE123456": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.",
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "048c3246578e0bc9b46bb982db085b582c63e62d8f48ea6e91e0d224dd5e8931",
+     "ok": true,
+     "repairs": [],
+     "schema": "core"
+    }
+   },
+   "input_sha256": "048c3246578e0bc9b46bb982db085b582c63e62d8f48ea6e91e0d224dd5e8931",
+   "kernel": "bioagent.policy",
+   "output_sha256": "008647dae195240b52cb89ef790385c3d7865c1912272bdad261b93ecca8916f",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=GSE123456&format=json&pageSize=10"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "count": 1,
+   "hits": [
+    {
+     "authors": "Doe J, Roe R",
+     "doi": "10.1016/j.jep.2020.112345",
+     "journal": "J Ethnopharmacol",
+     "pmid": "31415926",
+     "source": "MED",
+     "title": "Hepatotoxicity of herbal medicines",
+     "year": "2020"
+    }
+   ],
+   "query": "GSE123456",
+   "source": "europepmc",
+   "total": 1
+  },
+  "status": "succeeded",
+  "summary": "文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）",
+  "summary_en": "Literature search (Europe PMC): 1 returned of 1 hits (a hit is not evidence)",
+  "text": "literature_search → connector.europepmc.search: succeeded\nSummary: 文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）\nLimits (state these when you use this result):\n- A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"source\":\"europepmc\",\"query\":\"GSE123456\",\"total\":1,\"count\":1,\"hits\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journal\":\"J Ethnopharmacol\",\"year\":\"2020\",\"authors\":\"Doe J, Roe R\",\"source\":\"MED\"}]}",
+  "tool": "literature_search",
+  "via": "connector.europepmc.search"
+ },
+ "literature_search NCT04280705": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "nct:NCT04280705",
+    "id": "E1",
+    "kind": "nct",
+    "label": "NCT04280705",
+    "url": "https://clinicaltrials.gov/study/NCT04280705"
+   },
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E2",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.",
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "c2ed06cfa14e64ad8c602b359d0ce0def10c0becb8e573cb8c9b0b7a2e79ad96",
+     "ok": true,
+     "repairs": [],
+     "schema": "core"
+    }
+   },
+   "input_sha256": "c2ed06cfa14e64ad8c602b359d0ce0def10c0becb8e573cb8c9b0b7a2e79ad96",
+   "kernel": "bioagent.policy",
+   "output_sha256": "8f76487f87f0752d38f6613b6085b8d53bdf462ae6c99dcf372dce71a418fd03",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=NCT04280705&format=json&pageSize=10"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "count": 1,
+   "hits": [
+    {
+     "authors": "Doe J, Roe R",
+     "doi": "10.1016/j.jep.2020.112345",
+     "journal": "J Ethnopharmacol",
+     "pmid": "31415926",
+     "source": "MED",
+     "title": "Hepatotoxicity of herbal medicines",
+     "year": "2020"
+    }
+   ],
+   "query": "NCT04280705",
+   "source": "europepmc",
+   "total": 1
+  },
+  "status": "succeeded",
+  "summary": "文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）",
+  "summary_en": "Literature search (Europe PMC): 1 returned of 1 hits (a hit is not evidence)",
+  "text": "literature_search → connector.europepmc.search: succeeded\nSummary: 文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）\nLimits (state these when you use this result):\n- A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] NCT04280705 <https://clinicaltrials.gov/study/NCT04280705>\n[E2] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"source\":\"europepmc\",\"query\":\"NCT04280705\",\"total\":1,\"count\":1,\"hits\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journal\":\"J Ethnopharmacol\",\"year\":\"2020\",\"authors\":\"Doe J, Roe R\",\"source\":\"MED\"}]}",
+  "tool": "literature_search",
+  "via": "connector.europepmc.search"
+ },
+ "literature_search PMID 31415926": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "PMID 31415926",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.",
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "b3fbcc54ddd782ef5577d728a61f96237feb80f8a7cf2d831e0545869c92644a",
+     "ok": true,
+     "repairs": [],
+     "schema": "core"
+    }
+   },
+   "input_sha256": "b3fbcc54ddd782ef5577d728a61f96237feb80f8a7cf2d831e0545869c92644a",
+   "kernel": "bioagent.policy",
+   "output_sha256": "773384232a2b9f77721ebb8f696d9af6eb361ec63d237bdc407530831eaa81d4",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMID+31415926&format=json&pageSize=10"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "count": 1,
+   "hits": [
+    {
+     "authors": "Doe J, Roe R",
+     "doi": "10.1016/j.jep.2020.112345",
+     "journal": "J Ethnopharmacol",
+     "pmid": "31415926",
+     "source": "MED",
+     "title": "Hepatotoxicity of herbal medicines",
+     "year": "2020"
+    }
+   ],
+   "query": "PMID 31415926",
+   "source": "europepmc",
+   "total": 1
+  },
+  "status": "succeeded",
+  "summary": "文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）",
+  "summary_en": "Literature search (Europe PMC): 1 returned of 1 hits (a hit is not evidence)",
+  "text": "literature_search → connector.europepmc.search: succeeded\nSummary: 文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）\nLimits (state these when you use this result):\n- A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] PMID 31415926 <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"source\":\"europepmc\",\"query\":\"PMID 31415926\",\"total\":1,\"count\":1,\"hits\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journal\":\"J Ethnopharmacol\",\"year\":\"2020\",\"authors\":\"Doe J, Roe R\",\"source\":\"MED\"}]}",
+  "tool": "literature_search",
+  "via": "connector.europepmc.search"
+ },
+ "literature_search PubChem CID 13912345678": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [
+     "chinese_mobile_number"
+    ],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": false,
+     "TRUSTED_REMOTE": false,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "PHI",
+    "shareable": false
+   },
+   "labels": [
+    "PHI"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.",
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "dc68f7598c6be68381377cac70855058ed393cfbf22e151cb5bfb45cc327d874",
+     "ok": true,
+     "repairs": [],
+     "schema": "core"
+    }
+   },
+   "input_sha256": "dc68f7598c6be68381377cac70855058ed393cfbf22e151cb5bfb45cc327d874",
+   "kernel": "bioagent.policy",
+   "output_sha256": "f23f52aa643f41d316a7725041d7a300a3c69154ae67010ba0aaee8a77ca0d32",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PubChem+CID+13912345678&format=json&pageSize=10"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "count": 1,
+   "hits": [
+    {
+     "authors": "Doe J, Roe R",
+     "doi": "10.1016/j.jep.2020.112345",
+     "journal": "J Ethnopharmacol",
+     "pmid": "31415926",
+     "source": "MED",
+     "title": "Hepatotoxicity of herbal medicines",
+     "year": "2020"
+    }
+   ],
+   "query": "PubChem CID 13912345678",
+   "source": "europepmc",
+   "total": 1
+  },
+  "status": "succeeded",
+  "summary": "文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）",
+  "summary_en": "Literature search (Europe PMC): 1 returned of 1 hits (a hit is not evidence)",
+  "text": "literature_search → connector.europepmc.search: succeeded\nSummary: 文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）\nLimits (state these when you use this result):\n- A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"source\":\"europepmc\",\"query\":\"PubChem CID 13912345678\",\"total\":1,\"count\":1,\"hits\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journal\":\"J Ethnopharmacol\",\"year\":\"2020\",\"authors\":\"Doe J, Roe R\",\"source\":\"MED\"}]}",
+  "tool": "literature_search",
+  "via": "connector.europepmc.search"
+ },
+ "literature_search berberine CYP3A4": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.",
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "f659bd8e3108c0e032de61381223f989975e7bdd08066f783db9213db9f368b4",
+     "ok": true,
+     "repairs": [],
+     "schema": "core"
+    }
+   },
+   "input_sha256": "f659bd8e3108c0e032de61381223f989975e7bdd08066f783db9213db9f368b4",
+   "kernel": "bioagent.policy",
+   "output_sha256": "4e91d18acec5989c2836ae18cc90003d46840e26e6d8e76b8734e419365368a1",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=berberine+CYP3A4&format=json&pageSize=10"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "count": 1,
+   "hits": [
+    {
+     "authors": "Doe J, Roe R",
+     "doi": "10.1016/j.jep.2020.112345",
+     "journal": "J Ethnopharmacol",
+     "pmid": "31415926",
+     "source": "MED",
+     "title": "Hepatotoxicity of herbal medicines",
+     "year": "2020"
+    }
+   ],
+   "query": "berberine CYP3A4",
+   "source": "europepmc",
+   "total": 1
+  },
+  "status": "succeeded",
+  "summary": "文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）",
+  "summary_en": "Literature search (Europe PMC): 1 returned of 1 hits (a hit is not evidence)",
+  "text": "literature_search → connector.europepmc.search: succeeded\nSummary: 文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）\nLimits (state these when you use this result):\n- A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"source\":\"europepmc\",\"query\":\"berberine CYP3A4\",\"total\":1,\"count\":1,\"hits\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journal\":\"J Ethnopharmacol\",\"year\":\"2020\",\"authors\":\"Doe J, Roe R\",\"source\":\"MED\"}]}",
+  "tool": "literature_search",
+  "via": "connector.europepmc.search"
+ },
+ "literature_search 王清任 血府逐瘀汤": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.",
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "eafdefeeb93bb0ae325ee8d018076cf51ee100deb08dc02b75f4eaffb2789387",
+     "ok": true,
+     "repairs": [],
+     "schema": "core"
+    }
+   },
+   "input_sha256": "eafdefeeb93bb0ae325ee8d018076cf51ee100deb08dc02b75f4eaffb2789387",
+   "kernel": "bioagent.policy",
+   "output_sha256": "af81a2079949e27834a883ab9d104e64c4e082a814c7070c77793c8a6fb0db41",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=%E7%8E%8B%E6%B8%85%E4%BB%BB+%E8%A1%80%E5%BA%9C%E9%80%90%E7%98%80%E6%B1%A4&format=json&pageSize=10"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "count": 1,
+   "hits": [
+    {
+     "authors": "Doe J, Roe R",
+     "doi": "10.1016/j.jep.2020.112345",
+     "journal": "J Ethnopharmacol",
+     "pmid": "31415926",
+     "source": "MED",
+     "title": "Hepatotoxicity of herbal medicines",
+     "year": "2020"
+    }
+   ],
+   "query": "王清任 血府逐瘀汤",
+   "source": "europepmc",
+   "total": 1
+  },
+  "status": "succeeded",
+  "summary": "文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）",
+  "summary_en": "Literature search (Europe PMC): 1 returned of 1 hits (a hit is not evidence)",
+  "text": "literature_search → connector.europepmc.search: succeeded\nSummary: 文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）\nLimits (state these when you use this result):\n- A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"source\":\"europepmc\",\"query\":\"王清任 血府逐瘀汤\",\"total\":1,\"count\":1,\"hits\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journal\":\"J Ethnopharmacol\",\"year\":\"2020\",\"authors\":\"Doe J, Roe R\",\"source\":\"MED\"}]}",
+  "tool": "literature_search",
+  "via": "connector.europepmc.search"
+ },
+ "literature_search 黄芪": {
+  "approval": null,
+  "citations": [
+   {
+    "evidence_ref": "pmid:31415926",
+    "id": "E1",
+    "kind": "pmid",
+    "label": "Hepatotoxicity of herbal medicines",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/31415926/"
+   }
+  ],
+  "error": null,
+  "governance": {
+   "artifact": null,
+   "claims": [],
+   "evidence": [],
+   "kind": "connector",
+   "label": {
+    "advisory": true,
+    "categories": [],
+    "classifier": "psh.fallback",
+    "permits": {
+     "LOCAL_COMPUTE": true,
+     "LOCAL_MODEL": true,
+     "PERSISTENT": true,
+     "PUBLIC_REMOTE": true,
+     "TRUSTED_REMOTE": true,
+     "USER_OUTPUT": true
+    },
+    "sensitivity": "INTERNAL",
+    "shareable": false
+   },
+   "labels": [
+    "INTERNAL"
+   ],
+   "licences": [
+    {
+     "asset": "connector.europepmc",
+     "class": "open",
+     "commercial": true,
+     "licence": "CC-BY / mixed per article",
+     "note": "Europe PMC (www.ebi.ac.uk)"
+    }
+   ],
+   "limitations": [
+    "A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.",
+    "Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies."
+   ],
+   "outputs": [],
+   "policy": {
+    "allowed": true,
+    "reason": "CC-BY / mixed per article permits native use; network permitted by profile; no filesystem read access requested; no filesystem write access requested; no unconfined write requested",
+    "rulings": [
+     {
+      "decision": "ALLOW",
+      "reason": "CC-BY / mixed per article permits native use",
+      "rule": "license.none.native"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "network permitted by profile",
+      "rule": "perm.network.ok"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem read access requested",
+      "rule": "perm.fs_read.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no filesystem write access requested",
+      "rule": "perm.fs_write.none"
+     },
+     {
+      "decision": "ALLOW",
+      "reason": "no unconfined write requested",
+      "rule": "perm.fs_confinement.none"
+     }
+    ]
+   },
+   "refusals": [],
+   "released": null,
+   "verdict": null
+  },
+  "job": null,
+  "ok": true,
+  "receipt": {
+   "adapter": "http-backend",
+   "audit_head": null,
+   "composite_version": null,
+   "content_hash": null,
+   "device": "cpu",
+   "execution": {
+    "device": {
+     "assigned": "cpu",
+     "evidence": "selected",
+     "requested": "cpu",
+     "used": "cpu"
+    },
+    "engine": null,
+    "implementation": {
+     "host": "www.ebi.ac.uk",
+     "key": "europepmc",
+     "operation": "search",
+     "ref": "bioagent.providers.public_apis:europepmc.search",
+     "version": "0.2.7"
+    },
+    "kernel": null,
+    "runtime": "cpython",
+    "validation": {
+     "normalized_sha256": "26530428aa591402510fecd64d7b54397befdc6f60afc896c9f8a43f449442ad",
+     "ok": true,
+     "repairs": [],
+     "schema": "core"
+    }
+   },
+   "input_sha256": "26530428aa591402510fecd64d7b54397befdc6f60afc896c9f8a43f449442ad",
+   "kernel": "bioagent.policy",
+   "output_sha256": "f2dbfa8c35d49a0b850b8ae6b8efef6c802bed79524458f774d09066f75df839",
+   "profile": "biomedical-research",
+   "project_id": "p-egress",
+   "provenance": {
+    "datasets": [
+     {
+      "host": "www.ebi.ac.uk",
+      "id": "europepmc",
+      "licence": "CC-BY / mixed per article",
+      "release": null,
+      "retrieved_at": null
+     }
+    ],
+    "models": [],
+    "seeds": {}
+   },
+   "purpose": "academic",
+   "request": {
+    "attempts": 1,
+    "cached": false,
+    "host": "www.ebi.ac.uk",
+    "http_status": 200,
+    "method": "GET",
+    "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=%E9%BB%84%E8%8A%AA&format=json&pageSize=10"
+   },
+   "result": {
+    "artifacts": {
+     "expected": [],
+     "hash_mismatch": [],
+     "missing": []
+    },
+    "assurance": "none",
+    "checks": [],
+    "fallbacks": [],
+    "kind": "record",
+    "outcome": "succeeded",
+    "reference": null
+   },
+   "schema": "tcmstudio.receipt/1",
+   "where": "runner"
+  },
+  "result": {
+   "count": 1,
+   "hits": [
+    {
+     "authors": "Doe J, Roe R",
+     "doi": "10.1016/j.jep.2020.112345",
+     "journal": "J Ethnopharmacol",
+     "pmid": "31415926",
+     "source": "MED",
+     "title": "Hepatotoxicity of herbal medicines",
+     "year": "2020"
+    }
+   ],
+   "query": "黄芪",
+   "source": "europepmc",
+   "total": 1
+  },
+  "status": "succeeded",
+  "summary": "文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）",
+  "summary_en": "Literature search (Europe PMC): 1 returned of 1 hits (a hit is not evidence)",
+  "text": "literature_search → connector.europepmc.search: succeeded\nSummary: 文献检索（Europe PMC）：返回 1 条，共 1 条命中（命中不等于证据）\nLimits (state these when you use this result):\n- A search hit is a pointer to read, not evidence: no claim is licensed until the study itself has been assessed.\n- Live third-party data, as the source returned it; TCMScience has not reviewed it, and the source's licence applies.\nCitations (cite as [E1] …; do not invent others):\n[E1] Hepatotoxicity of herbal medicines <https://pubmed.ncbi.nlm.nih.gov/31415926/>\nResult: {\"source\":\"europepmc\",\"query\":\"黄芪\",\"total\":1,\"count\":1,\"hits\":[{\"title\":\"Hepatotoxicity of herbal medicines\",\"pmid\":\"31415926\",\"doi\":\"10.1016/j.jep.2020.112345\",\"journal\":\"J Ethnopharmacol\",\"year\":\"2020\",\"authors\":\"Doe J, Roe R\",\"source\":\"MED\"}]}",
+  "tool": "literature_search",
+  "via": "connector.europepmc.search"
+ }
+}

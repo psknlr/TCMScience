@@ -93,6 +93,9 @@ counts.
 5. **Confirmation before reaching out.** Jobs, network calls, sending a sequence to a third-party
    service (`allow_remote`) and the first call to a runner require the user's explicit approval:
    once, for this project, or never. Signing a clinic draft is a human act and is never a tool.
+   Approval does not let identifiers out: the dispatcher refuses a networked call whose arguments
+   carry an ID or record number, an email address or a credential (`EGRESS_IDENTIFIER`), in the
+   browser and on the runner alike, and writes the refusal to the project's audit chain.
 6. **No vendor named for Tao-S1.** The relay renames the model in both directions and rewrites
    upstream errors in its own words (the TaoChronos pattern).
 7. **`auto` is runner-first, and nothing falls back to a remote place.** A connected runner takes every

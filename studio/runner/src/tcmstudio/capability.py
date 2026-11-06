@@ -23,7 +23,8 @@ from typing import Any, Callable, Collection, Iterable, Mapping, Sequence
 
 __all__ = ["IMPLEMENTATION", "READINESS", "OUTCOME", "NEEDS", "REASON_NEED", "STATE_OF_NEED",
            "MAX_REQUEST_BYTES", "requirement", "requirements", "readiness", "selected_engines",
-           "runner_only", "FILE_ID", "hosts_for", "datasets_for", "refusal_requirements", "audit"]
+           "runner_only", "FILE_ID", "hosts_for", "reaches_network", "datasets_for",
+           "refusal_requirements", "audit"]
 
 #: Implementation states. tested ⇔ some committed verification level is PASS; implemented ⇔
 #: the implementation reference resolves; deprecated only from an explicit mark.
@@ -101,6 +102,20 @@ def hosts_for(entry: Mapping[str, Any], args: Mapping[str, Any] | None = None) -
             if isinstance(value, str) and isinstance(table, Mapping) and value in table:
                 return list(table[value])
     return list(entry.get("hosts") or (entry.get("skill") or {}).get("network") or ())
+
+
+def reaches_network(entry: Mapping[str, Any], args: Mapping[str, Any] | None = None) -> bool:
+    """Whether a call of ``entry`` with ``args`` (None: the entry as such) reaches its hosts:
+    the flag the page router's web-access gate reads (catalog.js networkByFlag), and an
+    entry with ``network_if`` only when the call sets that argument (allow_remote: a sequence
+    sent out, a structure fetched)."""
+    if entry.get("network_if"):
+        return bool((args or {}).get(entry["network_if"]))
+    if entry.get("network_unless") and args is not None:
+        # reaches its hosts unless this argument names what it would download (admet.models'
+        # local copy of the archive); the entry as such needs the network
+        return bool(entry.get("network")) and not args.get(entry["network_unless"])
+    return bool(entry.get("network"))
 
 
 def datasets_for(entry: Mapping[str, Any], args: Mapping[str, Any] | None = None) -> list[str]:
@@ -313,17 +328,7 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
         if lacking:
             out.append(("needs_dataset", _dataset_requirement(lacking, where)))
     out += [("needs_dataset", r) for r in data]
-    if entry.get("network_if"):
-        # reaches its hosts only when this argument is set (allow_remote: a sequence sent out,
-        # a structure fetched); the entry as such needs no network
-        needs_net = bool((args or {}).get(entry["network_if"]))
-    elif entry.get("network_unless") and args is not None:
-        # reaches its hosts unless this argument names what it would download (admet.models'
-        # local copy of the archive); the entry as such needs the network
-        needs_net = bool(entry.get("network")) and not args.get(entry["network_unless"])
-    else:
-        needs_net = bool(entry.get("network"))
-    if needs_net and not network:
+    if reaches_network(entry, args) and not network:
         out.append(("network_off", requirement("network", _NETWORK, _remedy("NETWORK_OFF"),
                                                hosts_for(entry, args))))
     out += [("needs_job_service", r) for r in other]

@@ -24,6 +24,8 @@ The groups (all by default):
 - direct: each entry called by its own id (the router hands the runtime the entry id when the
   model names it);
 - kernel: the seven tools with a CPU kernel, with inputs above the kernels' thresholds;
+- egress: a structured identifier in the arguments of a call that would leave the machine
+  (EGRESS_CALLS): both sides must refuse it with EGRESS_IDENTIFIER, before web access is asked;
 - workbook: calls that need the complete formula workbook, made before anything has loaded it in
   the page (a sequence of its own: its own page, project and native state root).
 
@@ -58,7 +60,16 @@ INPUTS = HERE / "sweep_inputs.json"
 
 BROWSER_CLASSES = ("1", "2", "3", "5")
 CONNECTOR_CLASS = "1g"
-GROUPS = ("entry", "core", "connector", "extra", "invalid", "reference", "direct", "kernel", "workbook")
+GROUPS = ("entry", "core", "connector", "egress", "extra", "invalid", "reference", "direct", "kernel",
+          "workbook")
+
+#: The egress gate (tcmstudio.governance.egress_check) by three routes to Europe PMC's search: a medical record
+#: number, a resident ID number and an email address, each refused before anything is sent, with web access off.
+EGRESS_CALLS = (
+    ("literature_search", {"query": "Patient Alice Smith MRN 04851923 hepatotoxicity"}),
+    ("call_tool", {"tool": "connector.europepmc.search", "arguments": {"query": "身份证号110101199003071234"}}),
+    ("connector_call", {"connector": "europepmc", "operation": "search", "arguments": {"query": "a@b.com"}}),
+)
 
 #: A formula only the complete workbook holds (check.mjs uses it too), and the calls that name it: the governed
 #: skills and the clinic check first (the Worker runs a stateful call once, without the reload-and-rerun a lookup
@@ -202,6 +213,12 @@ def _build(catalog: dict, matrix_rows: list[dict], formula_tools: set[str], inpu
     for i, (rid, label, args) in enumerate(kernel_cases()):
         put({"key": f"kernel:{rid}#{i}", "group": "kernel", "id": rid, "class": classes.get(rid, ""),
              "kind": "native", "input": label}, args, rid, False)
+    if "egress" in groups:
+        for i, (tool, args) in enumerate(EGRESS_CALLS):
+            rid = args["tool"] if tool == "call_tool" else tool
+            by_group["egress"].append({"key": f"egress:{rid}#{i}", "group": "egress", "id": rid, "class": "",
+                                       "kind": "", "input": "an identifier in the arguments", "tool": tool,
+                                       "args": args, "loads_workbook": False})
     # group by group, each in the matrix's order; then the workbook's lookups last (a stable sort)
     calls = sorted((c for g in GROUPS for c in by_group[g]), key=lambda c: c["loads_workbook"])
 

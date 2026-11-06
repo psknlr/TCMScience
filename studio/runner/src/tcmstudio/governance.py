@@ -4,19 +4,21 @@ Everything here reads decisions that were already made — a governed run's arti
 verdict, the policy kernel's rulings on a ``Runtime.invoke``, a tool's own result — and
 lays them out for the UI and the model: claims with their verdicts, evidence items, the
 six release states, refusals with codes and remedies, licences, limitations, advisory
-labels and output files. Nothing here decides anything.
+labels and output files. One decision is made here: the egress gate (``egress_check``),
+which refuses a call whose arguments would carry a structured identifier off the machine.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 from .envelope import jsonable, sha256_bytes
 
 __all__ = ["empty", "refusal", "remedy_for", "from_governed_run", "from_verdict_refusals",
            "from_call_result", "outputs_from", "licence_entry", "advisory_labels",
+           "HARD_IDENTIFIERS", "egress_categories", "egress_check",
            "LIMIT_NO_RECORD", "LIMIT_PREDICTED", "LIMIT_DRAFT", "LIMIT_CLASSICAL",
            "LIMIT_SEED", "LIMIT_NOT_SIGNIFICANT", "LIMIT_SIGNIFICANT", "LIMIT_PENDING",
            "LIMIT_LIVE",
@@ -111,6 +113,10 @@ _REMEDIES: dict[str, str] = {
     "NEEDS_RUNNER": "Start the local runner (tcmstudio serve) and connect it in Settings.",
     "MISSING_DEPENDENCY": "Install the optional dependency on the runner machine; Studio "
                           "never substitutes an approximation.",
+    "EGRESS_IDENTIFIER": "Take the identifier out of the arguments and call again: search by "
+                         "the herb, compound, gene, disease or study, never by a person's ID, "
+                         "record number, email address or a credential. Patient data stays on "
+                         "this machine; refer to a case by a pseudonymous code.",
 }
 
 _RULE_REMEDIES = (
@@ -261,7 +267,9 @@ def advisory_labels(value: Any, *, origin: str = "") -> tuple[list[str], dict[st
     """PSH's label for a value (PUBLIC < INTERNAL < RESEARCH_DEIDENTIFIED < SENSITIVE < PHI <
     SECRET), with the destinations it may reach. Advisory only: Studio shows it and never
     enforces it on the way to the model (the classifier reads Chinese herb names as name
-    cues, so enforcing it would block ordinary lookups)."""
+    cues, so enforcing it would block ordinary lookups). What is enforced is narrower:
+    ``egress_check`` refuses the categories in HARD_IDENTIFIERS in a networked call's
+    arguments."""
     global _CLASSIFIER
     try:
         if _CLASSIFIER is None:
@@ -287,6 +295,71 @@ def advisory_labels(value: Any, *, origin: str = "") -> tuple[list[str], dict[st
         return [name], detail
     except Exception:                                           # noqa: BLE001
         return [], None
+
+
+# ------------------------------------------------------------------------- egress
+
+#: The PSH classifier's categories (psh.kernel.classify, its built-in rules) that refuse a
+#: call whose arguments leave the machine: identifiers with a fixed shape or a label of
+#: their own, which no herb, compound, gene, disease or literature query carries. Every
+#: other category stays advisory. The name cues (name_cued, name_cued_cjk,
+#: chinese_patient_name) read herb names and classical authors as people (王清任 血府逐瘀汤),
+#: and chinese_mobile_number (like any phone rule) reads eleven-digit database identifiers
+#: and doses as phone numbers (PubChem CID 13912345678, berberine 15801234567 mg).
+HARD_IDENTIFIERS = frozenset({
+    "chinese_resident_id", "medical_record_number", "chinese_record_number",
+    "social_security_number", "email_address", "api_key", "bearer_token",
+    "private_key_block"})
+
+_EGRESS_CLASSIFIER: Any = None
+
+
+def _string_leaves(value: Any) -> Iterator[str]:
+    """The string values in ``value``, at any depth; mapping keys are not values."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            yield item
+        elif isinstance(item, Mapping):
+            stack.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            stack.extend(item)
+
+
+def egress_categories(args: Any, identifiers: Iterable[str] = HARD_IDENTIFIERS) -> list[str]:
+    """The ``identifiers`` the classifier finds in the string values of ``args`` (each
+    value on its own; keys, numbers and booleans are not read), sorted. The classifier is
+    PSH's with its built-in rules even where sable is installed: the browser runtime never
+    has sable, the refusal must be the same in both runtimes, and HARD_IDENTIFIERS are the
+    built-in rules' names."""
+    global _EGRESS_CLASSIFIER
+    if _EGRESS_CLASSIFIER is None:
+        from psh.kernel.classify import Classifier
+        _EGRESS_CLASSIFIER = Classifier(prefer_sable=False)
+    wanted = frozenset(identifiers)
+    found: set[str] = set()
+    for text in _string_leaves(args):
+        if text.strip():
+            found.update(c for c in _EGRESS_CLASSIFIER.classify_text(text).categories
+                         if c in wanted)
+    return sorted(found)
+
+
+def egress_check(entry: str, args: Any, *,
+                 identifiers: Iterable[str] = HARD_IDENTIFIERS) -> dict[str, Any] | None:
+    """The refusal (code EGRESS_IDENTIFIER, with the categories and the remedy) of a call
+    to ``entry`` whose arguments would carry one of ``identifiers`` off the machine, or
+    None. It names the categories, never the text that matched. The caller decides which
+    calls leave the machine (dispatch: a connector, a reviewed provider wrapper, a job or
+    skill that reaches the network with these arguments)."""
+    categories = egress_categories(args, identifiers)
+    if not categories:
+        return None
+    return refusal("EGRESS_IDENTIFIER",
+                   f"{entry} would send its arguments to a third-party service, and they carry "
+                   f"{', '.join(categories)}; the call was refused before anything was sent.",
+                   categories=categories, entry=entry)
 
 
 # ------------------------------------------------------------------ governed runs

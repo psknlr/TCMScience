@@ -188,6 +188,9 @@ tcmstudio serve
 - **使用你自己的 API 时**：模型调用直接从浏览器（或经本机 Runner）发往该服务，受该服务的条款约束。
 - **使用本地模型时**：模型调用不离开你的电脑。
 - 联网数据源只在你为项目打开「联网」并批准后才访问，访问的主机会在批准卡片上列出。
+- 联网工具（数据源连接器、已审核的第三方封装、开启 `allow_remote` 的任务）的参数在发出前先检查：含身份证号、病历号或住院号、
+  社保号、邮箱地址或密钥时，这次调用被拒绝，什么也不发出；拒绝写入项目的审计链，只记类别、工具和参数的哈希，不记内容。
+  浏览器与 Runner 运行同一段检查。人名和手机号只标注、不拦截：药名、古籍作者和 11 位的数据库编号会被误读为人名或手机号。
 - 浏览器数据库查询的 URL、查询正文和必要的数据库请求头会经 science.impf.ai 网关转发到对应数据源，返回数据也经过网关。
   网关不保存查询或响应，不接收环境 Cookie，不将数据库请求转发给模型；模型读取的工具结果仍按所选模型路径发送。
 - **对话记录（需要你同意）**：第一次提问时，网页询问能否记录对话以测试和改进 Studio；默认不记录，不同意也照常使用。同意后，
@@ -258,7 +261,8 @@ Chromium 依次取 `$CHROMIUM_PATH`、`$PLAYWRIGHT_BROWSERS_PATH`（或 `/opt/pw
 `npm run test:runtime`（真实 Pyodide 中约 20 个调用的信封与本机 Python 逐个比较，名单见
 [docs/BROWSER_COMPUTE.md §10](docs/BROWSER_COMPUTE.md#10-validation)）。它需要能访问 Pyodide 的 CDN（或用 `--pyodide-dir`
 提供本地副本），**只能手动运行，不在 CI 中**。浏览器扫描（`node web/test/runtime/sweep.mjs`）则在 CI 中运行：浏览器能运行的每个工具
-（1,167 个调用）的信封都与本机 Python 逐个比较，只允许 `sweep.mjs` 中按条目与字段声明并写明原因的差异（见同一节）。
+（1,170 个调用，其中 3 个是出站检查对身份标识的拒绝）的信封都与本机 Python 逐个比较，
+只允许 `sweep.mjs` 中按条目与字段声明并写明原因的差异（见同一节）。
 
 ## 部署
 
@@ -369,6 +373,12 @@ clinical tool or identifying details), and counts anonymous usage you can switch
 
 Privacy: project state and files remain local. Approved browser database queries, request bodies, supported database
 headers and responses pass through science.impf.ai to the registered source; the gateway does not retain these payloads.
+The arguments of a networked tool (a connector, a reviewed third-party wrapper, a job with `allow_remote`) are checked
+before they are sent, by the same code in the browser and on the runner: a resident ID number, a medical record or admission
+number, a social security number, an email address or a credential refuses the call (`EGRESS_IDENTIFIER`), nothing is
+sent, and the refusal goes into the project's audit chain with the categories and a hash of the arguments, never their
+text. Names and phone numbers are labelled, not refused: herb names, classical authors and eleven-digit database
+identifiers read as them.
 With Tao-S1, what the model reads is relayed to the upstream model service and not stored by the relay; with your own API it
 goes to that provider; with a local model it stays on your computer. Conversation records are opt-in (off until you agree,
 withdrawable with deletion under Settings → Privacy, kept 90 days, readable only by the site's administrators); anonymous
@@ -380,8 +390,9 @@ Tests: `node --test studio/edge/test/*.test.js`, `python3 -m pytest -q studio/ru
 that need Pyodide skip with the reason when its CDN is unreachable, and fail in CI; jsDelivr also serves the web fonts, and
 outside CI what a page could not fetch from it is not counted as a console error, while in CI it is). `npm run test:runtime` compares about
 twenty envelopes from real Pyodide with native CPython; it is run by hand, not in CI. The browser sweep
-(`web/test/runtime/sweep.mjs`) compares every browser tool's envelope (1,167 calls) the same way, in CI (passed in
-`studio` #120, 2026-10-28); a difference
+(`web/test/runtime/sweep.mjs`) compares every browser tool's envelope (1,170 calls, three of them the egress gate's
+refusals of an identifier) the same way, in CI (passed in `studio` #120, 2026-10-28, with the 1,167 calls before the
+egress gate); a difference
 passes only where it is declared by entry and field, with its reason ([docs/BROWSER_COMPUTE.md §10](docs/BROWSER_COMPUTE.md#10-validation)).
 Deployment: [edge/SETUP.md](edge/SETUP.md).
 

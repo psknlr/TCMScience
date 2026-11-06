@@ -47,6 +47,8 @@ from tcmstudio.browser_compute import install_js_kernels as _install_js_kernels
 from tcmstudio.repository_data import take_formula_store_wanted as _take_formula_store_wanted
 _install_source_transport(SOURCE_TRANSPORT)
 _install_js_kernels(JS_KERNELS)
+# audit events a call makes outside a stateful call (the egress gate's refusals) wait for this Worker's sync
+_dispatch.defer_audit(True)
 
 
 def tcms_call(tool, arguments_json, context_json, acceleration_json="null", options_json="{}"):
@@ -56,6 +58,14 @@ def tcms_call(tool, arguments_json, context_json, acceleration_json="null", opti
 
 def tcms_formula_store_wanted():
     return _take_formula_store_wanted()
+
+
+def tcms_audit_pending():
+    return _dispatch.audit_pending()
+
+
+def tcms_flush_audit():
+    return _dispatch.flush_audit()
 
 
 def tcms_modules():
@@ -232,6 +242,7 @@ async function init({ boot, siteUrl, indexUrl, debug: dbg = false, persist = tru
   api = {
     call: ns.get("tcms_call"), info: ns.get("tcms_info"), modules: ns.get("tcms_modules"),
     pycacheTar: ns.get("tcms_pycache_tar"), formulaStoreWanted: ns.get("tcms_formula_store_wanted"),
+    auditPending: ns.get("tcms_audit_pending"), flushAudit: ns.get("tcms_flush_audit"),
   };
   if (pycache.restored) pycache.modules = api.modules();
   mark("import");
@@ -332,6 +343,45 @@ function withPersistLock(fn) {
   return locks?.request ? locks.request(PERSIST_LOCK, { mode: "exclusive" }, fn) : fn();
 }
 
+/**
+ * Write the audit events a call that is not stateful left behind (tcmstudio.dispatch holds them: flush_audit) between
+ * a sync in and a sync out, as a stateful call's own writes are: written to memory alone, they would be deleted by the
+ * next stateful call's sync in. The call itself, and its request, ran outside the lock.
+ */
+async function flushAudit() {
+  if (state.persist.mode !== "idbfs") {
+    try {
+      api.flushAudit();
+      return { mode: state.persist.mode, durable: state.persist.durable };
+    } catch (err) {
+      return { mode: state.persist.mode, durable: false, error: `audit event not written: ${messageOf(err)}` };
+    }
+  }
+  return withPersistLock(async () => {
+    let durable = true;
+    let error = null;
+    try {
+      await syncfs(true);
+    } catch (err) {
+      durable = false;
+      error = `sync from IndexedDB failed: ${messageOf(err)}`;
+    }
+    try {
+      api.flushAudit();
+    } catch (err) {
+      durable = false;
+      error = `audit event not written: ${messageOf(err)}`;
+    }
+    try {
+      await syncfs(false);
+    } catch (err) {
+      durable = false;
+      error = `sync to IndexedDB failed: ${messageOf(err)}`;
+    }
+    return { mode: "idbfs", durable, error };
+  });
+}
+
 // ------------------------------------------------------------------------------------------------------------ calls
 
 async function call({ tool, arguments: args = {}, context = {}, packages = [], stateful = false, acceleration = "auto" }) {
@@ -382,6 +432,8 @@ async function call({ tool, arguments: args = {}, context = {}, packages = [], s
     // a lookup that turned out to need the complete formula workbook (a formula name in a compatibility check): load
     // it and run the call once more; such calls only read
     if (api.formulaStoreWanted?.() && await loadFormulaAsset()) text = run(state.persist.durable);
+    // an audit event the call made (the egress gate's refusal of a connector call) is written now, in a sync of its own
+    if (api.auditPending?.()) return { text, persist: await flushAudit() };
     return { text, persist: { mode: state.persist.mode, durable: state.persist.durable } };
   }
   return withPersistLock(async () => {
@@ -394,6 +446,12 @@ async function call({ tool, arguments: args = {}, context = {}, packages = [], s
       error = `sync from IndexedDB failed: ${messageOf(err)}`;
     }
     const text = run(durable);
+    try {
+      api.flushAudit?.();
+    } catch (err) {
+      durable = false;
+      error = `audit event not written: ${messageOf(err)}`;
+    }
     try {
       await syncfs(false);
     } catch (err) {

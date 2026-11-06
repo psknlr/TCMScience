@@ -33,7 +33,13 @@ network switch is on by default too. The approval flow still applies: each netwo
 call, naming its hosts, and sending data to a third-party service asks separately. A project can turn web access
 off, and `tcmstudio serve --no-network` turns the runner's off.
 Python policy checks, request rendering, parsers and error statuses run inside the
-Pyodide Worker; only HTTP transport crosses the edge. Approved database URLs,
+Pyodide Worker; only HTTP transport crosses the edge. Before any of it, the egress gate
+(the dispatcher's, the same Python as the runner's) refuses a call whose arguments carry
+a resident ID, a medical record or admission number, a social security number, an email
+address or a credential (`EGRESS_IDENTIFIER`): no request is made, and the refusal is
+written to the project's audit chain with the categories and a hash, never the text.
+Names and phone numbers are not refused (herb names and database ids read as them).
+Approved database URLs,
 query bodies and supported request headers therefore pass through science.impf.ai
 and the chosen source. Neither the edge gateway nor its invocation logs retain
 these payloads. The browser keeps local project state. A source can still be
