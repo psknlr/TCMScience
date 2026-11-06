@@ -81,3 +81,14 @@ test("compute: remote is a value of its own; one this version does not know is k
   localStorage.setItem(SETTINGS_KEY, JSON.stringify({ compute: null, webDefault: WEB_DEFAULT_VERSION }));
   assert.equal(loadSettings().compute, "auto");
 });
+
+test("idle limits: ms by provider id; an update merges them; a cleared or invalid one sets none", () => {
+  assert.deepEqual(loadSettings().idleLimits, {});
+  updateSettings({ idleLimits: { openai: 600_000 } });
+  updateSettings({ idleLimits: { deepseek: 0 } });
+  assert.deepEqual(loadSettings().idleLimits, { openai: 600_000, deepseek: 0 }, "a second provider's limit keeps the first's");
+  updateSettings({ idleLimits: { openai: null, qwen: "abc", zhipu: -5, moonshot: Number.NaN } });
+  assert.deepEqual(loadSettings().idleLimits, { deepseek: 0 });
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ idleLimits: [120_000], webDefault: WEB_DEFAULT_VERSION }));
+  assert.deepEqual(loadSettings().idleLimits, {});
+});

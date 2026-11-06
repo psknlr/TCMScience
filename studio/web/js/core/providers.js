@@ -9,9 +9,14 @@
 //
 // `stream` says how a service streams its text (llm/openai.js streamModes): "delta" for the services known to send
 // increments, so nothing is guessed; Tao-S1's reasoning comes as the whole text so far; custom endpoints are guessed.
+//
+// `idleMs` is how long a model stream may send nothing before it is cut and retried once (llm/sse.js idleTimeout:
+// 90 s, or 600 s for a server on the user's computer or network). Settings sets it for any provider (idleLimits, or a
+// custom endpoint's own idleMs); a preset sets it only for a service known to be silent for longer while it thinks.
 
 import { lang, t } from "./i18n.js";
 import { relayError } from "./llm/openai.js";
+import { idleMsOf } from "./llm/sse.js";
 import { fetchWithTimeout, isLoopbackUrl, trimSlash } from "./util.js";
 
 export const RELAY_ORIGIN = "https://science.impf.ai";
@@ -34,7 +39,9 @@ export const PRESETS = [
     id: "openai", label: "OpenAI", format: "openai", base_url: "https://api.openai.com/v1",
     models: ["gpt-5", "gpt-5-mini", "gpt-4.1"], default_model: "gpt-5", key_required: true, cors: "ok",
     max_tokens_param: "max_completion_tokens", reasoning: null, stream_usage: true, tools: true, stream: "delta",
-    docs: "https://platform.openai.com/api-keys",
+    // its models reason before they answer, and Chat Completions streams none of that reasoning: a hard question can
+    // send nothing for minutes
+    idleMs: 300_000, docs: "https://platform.openai.com/api-keys",
   },
   {
     id: "anthropic", label: "Anthropic Claude", format: "anthropic", base_url: "https://api.anthropic.com/v1",
@@ -134,6 +141,7 @@ export const PRESETS = [
 /** A user-defined endpoint (settings.customProviders) as a preset. */
 export function customPreset(c) {
   const format = c.format === "anthropic" ? "anthropic" : "openai";
+  const idleMs = idleMsOf(c.idleMs);
   return {
     id: String(c.id), label: c.label || c.id, format, base_url: c.base_url || "", models: c.model ? [c.model] : [],
     default_model: c.model || "", key_required: false, custom: true,
@@ -141,7 +149,7 @@ export function customPreset(c) {
     max_tokens_param: c.max_tokens_param || (format === "anthropic" ? "max_tokens" : "max_tokens"),
     reasoning: c.reasoning ?? (format === "anthropic" ? "thinking_blocks" : null),
     stream_usage: Boolean(c.stream_usage), tools: c.tools !== false, headers: c.headers || {}, extra_body: c.extra_body || {},
-    full_url: Boolean(c.full_url),
+    full_url: Boolean(c.full_url), ...(idleMs === null ? {} : { idleMs }),
   };
 }
 
@@ -195,8 +203,10 @@ export function activeProvider(settings = {}, override = {}) {
   // the relay's ceiling comes from its health check when the UI has one (override.maxOutput)
   const ceiling = preset.relay && Number(override.maxOutput) > 0 ? Number(override.maxOutput) : preset.max_output;
   const maxTokens = ceiling ? Math.min(Number(settings.maxTokens) || 8192, ceiling) : Number(settings.maxTokens) || 8192;
+  // the idle limit the user set for this provider in Settings wins over the preset's
+  const idleMs = idleMsOf((settings.idleLimits || {})[preset.id]);
   return {
-    ...preset, model, baseUrl, apiKey, route, maxTokens,
+    ...preset, model, baseUrl, apiKey, route, maxTokens, ...(idleMs === null ? {} : { idleMs }),
     temperature: settings.temperature ?? null,
     runner: route === "runner" && runner ? { url: trimSlash(runner.url), token: runner.token || "" } : null,
     needsKey: Boolean(preset.key_required && !apiKey),

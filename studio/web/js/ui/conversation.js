@@ -7,6 +7,7 @@
 
 import { citationsOf, claimsOf, evidenceOf, refusalsOf, releaseOf } from "../core/governance.js";
 import { lang, t } from "../core/i18n.js";
+import { isAccountError } from "../core/llm/sse.js";
 import { renderMarkdown } from "../core/markdown.js";
 import { siblingsOf } from "../core/store.js";
 import { clear, copyText, cssEscape, fill, formatClock, formatDateTime, formatDuration, guessLang, h, rafThrottle } from "./dom.js";
@@ -321,8 +322,9 @@ export function mountConversation(app, main) {
       const out = [];
       if (vm.error) {
         // a permanent error (a daily limit, a conversation too large, a relay that is not configured) has no Retry:
-        // retrying cannot fix it
-        const actions = vm.error.needsKey || /API Key|api key/i.test(vm.error.message)
+        // retrying cannot fix it; a key or an account the service refuses ("invalid x-api-key", out of credit) is
+        // fixed in the model settings
+        const actions = vm.error.needsKey || isAccountError(vm.error) || /API[ -]?Key/i.test(vm.error.message)
           ? [button({ label: t("ui.thread.open_models"), size: "sm", onClick: () => app.navigate({ name: "settings", tab: "models" }) })]
           : !live && !vm.error.permanent ? [button({ label: t("ui.action.retry"), size: "sm", icon: "regenerate", onClick: () => app.regenerate(vm.id) })] : [];
         // the service's own Chinese text on an English page is voiced as Chinese

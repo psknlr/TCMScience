@@ -1,7 +1,7 @@
 import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { INLINE_LIMIT, buildSystemPrompt, isIdentityQuestion } from "../js/core/prompt.js";
+import { ENVIRONMENT_HEADING, INLINE_LIMIT, buildSystemPrompt, isIdentityQuestion, splitSystemPrompt } from "../js/core/prompt.js";
 import { activeProvider } from "../js/core/providers.js";
 
 const relay = activeProvider({ provider: "tao" });
@@ -28,7 +28,7 @@ test("clinic privacy: through Tao-S1 or a cloud API the model is told to keep pa
 
 test("the sections come in the contract's order and carry the governance rules", () => {
   const p = buildSystemPrompt({ lang: "zh", provider: relay, project: { name: "葛根芩连汤复核", instructions: "只讨论经典记载。", defaults: { web: true } }, knowledge: [], env: { date: "2026-10-07", browser: { status: "ready" }, runner: { status: "offline" } } });
-  const order = ["# Identity", "# How TCMScience reasons", "# Tools", "# Research questions", "# Environment", "# Project"].map((h) => p.indexOf(h));
+  const order = ["# Identity", "# How TCMScience reasons", "# Tools", "# Research questions", "# Conversation", "# Project", "# Environment"].map((h) => p.indexOf(h));
   assert.ok(order.every((i) => i >= 0));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   for (const rule of [/types, not grades/, /never stated as a fact/, /no record ≠ safe/, /not irrelevant/, /attribution or a traditional use/, /licensed practitioner/, /\[E1\]/, /CLM005/, /catalog_search/, /call_tool/, /job_status/, /Never fabricate/]) {
@@ -46,6 +46,59 @@ test("the sections come in the contract's order and carry the governance rules",
   assert.match(en, /local runner connected at http:\/\/127\.0\.0\.1:8765 \(tcmstudio 0\.1\.0\)/);
   assert.match(en, /cuda:0 \(RTX 4090\)/);
   assert.match(en, /Web access for this project: off/);
+});
+
+test("a stable prefix: prompts that differ only in the environment are identical up to its section, which comes last", () => {
+  const project = { name: "葛根芩连汤复核", instructions: "只讨论经典记载。", defaults: { web: true } };
+  const knowledge = [{ name: "方剂.md", text: "葛根芩连汤：葛根、黄芩、黄连、炙甘草。", sha256: "ab".repeat(32) }];
+  const envs = [
+    { date: "2026-10-07", browser: { status: "idle" }, runner: { status: "offline" } },
+    { date: "2026-11-06", browser: { status: "ready" }, runner: { status: "ready", url: "http://127.0.0.1:8765", version: "0.1.1", devices: [{ id: "cuda:0", name: "RTX 4090", available: true }] }, jobs: { status: "ready", workers: 2, snapshots: true }, compute: "runner" },
+    { date: "2026-11-07", browser: { status: "loading" }, runner: { status: "connecting" }, jobs: { status: "unavailable" }, web: false },
+  ];
+  for (const lang of ["zh", "en"]) {
+    for (const provider of [relay, deepseek]) {
+      const prompts = envs.map((env) => buildSystemPrompt({ lang, provider, project, knowledge, env }));
+      const split = prompts.map(splitSystemPrompt);
+      for (const [k, [prefix, environment]] of split.entries()) {
+        assert.equal(prefix + environment, prompts[k], "the two parts are the whole text");
+        assert.ok(environment.startsWith(`${ENVIRONMENT_HEADING}\n`), "the environment comes last");
+        assert.ok(!environment.includes("\n# "), "and nothing comes after it");
+        assert.ok(prefix.includes("只讨论经典记载。") && prefix.endsWith("### 方剂.md\n```\n葛根芩连汤：葛根、黄芩、黄连、炙甘草。\n```\n\n"), "the project is in the prefix");
+      }
+      assert.equal(new Set(split.map(([prefix]) => prefix)).size, 1, `${lang} ${provider.id}: one prefix across dates, runtimes and jobs`);
+      assert.notEqual(new Set(split.map(([, environment]) => environment)).size, 1);
+      // the identity and privacy rules are part of the prefix, not of what changes
+      assert.match(split[0][0], /pseudonymous case id/);
+      assert.match(split[0][0], /Interface language: /);
+      assert.doesNotMatch(split[0][0], /Today: |local runner (not )?connected|Web access for this project/);
+    }
+  }
+  assert.deepEqual(splitSystemPrompt("SYS"), ["SYS", ""], "a text without the section is all prefix");
+});
+
+test("parallel calls: said to run together only when a runner takes them; in the browser they run one after another", () => {
+  const together = /Calls in one response run together on the local runner; any that run in this browser run one after another\./;
+  const oneByOne = /Calls in this browser run one after another: the calls of one response wait for each other\./;
+  const nowhere = /With this compute setting no tool runs, in this browser or elsewhere: each call comes back unavailable/;
+  const env = (runner, compute) => ({ date: "2026-11-06", runner: { status: runner }, ...(compute ? { compute } : {}) });
+  const cases = [
+    [env("ready"), together], [env("ready", "auto"), together], [env("ready", "runner"), together], [env("offline"), oneByOne],
+    [env("ready", "browser"), oneByOne], [env("connecting"), oneByOne],
+    // "remote" has no backend and a value this page does not know is not run as auto: the router runs nothing
+    [env("ready", "remote"), nowhere], [env("offline", "remote"), nowhere], [env("ready", "gpu-cluster"), nowhere],
+  ];
+  for (const lang of ["zh", "en"]) {
+    for (const [e, expected] of cases) {
+      const p = buildSystemPrompt({ lang, provider: relay, env: e });
+      const [prefix, environment] = splitSystemPrompt(p);
+      assert.match(environment, expected, `${lang} ${JSON.stringify(e)}`);
+      for (const other of [together, oneByOne, nowhere].filter((x) => x !== expected)) assert.doesNotMatch(environment, other, `${lang} ${JSON.stringify(e)}`);
+      // the stable part says only that independent calls share a response, and that the Environment section says
+      // whether they run together; never how they run
+      assert.doesNotMatch(prefix, /(?<!whether they )run together|run one after another|run in parallel|concurrently|at the same time|simultaneous/i, "the stable part makes no claim either way");
+    }
+  }
 });
 
 test("knowledge: listed with size and hash; texts under 8 kB are inlined, longer ones are not", () => {
@@ -101,7 +154,7 @@ test("citations: the model is told to cite only this turn's ids (an earlier resu
 
 test("research questions go past the curated corpus, and a mechanism answer is graded by its evidence", () => {
   const p = buildSystemPrompt({ lang: "en" });
-  const part = p.slice(p.indexOf("# Research questions"), p.indexOf("# Environment"));
+  const part = p.slice(p.indexOf("# Research questions"), p.indexOf("# Conversation"));
   for (const tool of ["tcm_formula", "literature_search", "ClinicalTrials.gov", "tcmdb.relations", "network_pharmacology_run", "tcmdb.status"]) {
     assert.ok(part.includes(tool), tool);
   }
@@ -125,7 +178,7 @@ test("orchestration: research_routes before a question that needs several source
   const part = p.slice(p.indexOf("# Tools"), p.indexOf("# Research questions"));
   assert.match(part, /call research_routes first/);
   assert.match(part, /whether it can run here, and what covers one that cannot/);
-  assert.match(part, /Calls that do not depend on each other go in the same response: they run together\./);
+  assert.match(part, /Calls that do not depend on each other go in the same response; the Environment section says whether they run together\./);
   // what a call needs from the user is unchanged
   assert.match(part, /Some calls need the user's approval/);
   assert.match(part, /do not substitute an approximation/);
@@ -134,7 +187,7 @@ test("orchestration: research_routes before a question that needs several source
 test("research method: frame, gather, rival explanations, discriminate, conclude, in that order", () => {
   for (const lang of ["zh", "en"]) {
     const p = buildSystemPrompt({ lang });
-    const part = p.slice(p.indexOf("# Research questions"), p.indexOf("# Environment"));
+    const part = p.slice(p.indexOf("# Research questions"), p.indexOf("# Conversation"));
     const steps = ["1. Frame it", "2. Gather", "3. Rival explanations", "4. Discriminate", "5. Conclude"].map((s) => part.indexOf(s));
     assert.ok(steps.every((i) => i >= 0), lang);
     assert.deepEqual([...steps].sort((a, b) => a - b), steps);

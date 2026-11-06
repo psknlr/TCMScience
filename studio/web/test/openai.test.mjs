@@ -53,6 +53,13 @@ test("incremental text, usage, and the replayable message", async () => {
   assert.deepEqual(done.wire, { role: "assistant", content: "桂枝汤出自《伤寒论》。" });
 });
 
+test("usage: the prompt tokens a service read from its prompt cache (cached_tokens; DeepSeek's cache hits)", async () => {
+  const usageOf = async (usage) => (await run(provider(), [sse([chunk({ content: "好" }), finish("stop"), { id: "c1", choices: [], usage }])])).events.find((e) => e.type === "usage");
+  assert.deepEqual(await usageOf({ prompt_tokens: 14262, completion_tokens: 57, prompt_tokens_details: { cached_tokens: 13824 } }), { type: "usage", input: 14262, output: 57, cache_read: 13824 });
+  assert.deepEqual(await usageOf({ prompt_tokens: 14262, completion_tokens: 57, prompt_cache_hit_tokens: 13824, prompt_cache_miss_tokens: 438 }), { type: "usage", input: 14262, output: 57, cache_read: 13824 });
+  assert.deepEqual(await usageOf({ prompt_tokens: 120, completion_tokens: 9, prompt_tokens_details: { cached_tokens: 0 } }), { type: "usage", input: 120, output: 9 }, "nothing read from the cache: no field");
+});
+
 test("cumulative streams (the relay's upstream): content and reasoning_details", async () => {
   const p = provider({ id: "tao", relay: true, reasoning: "reasoning_details", model: "Tao-S1", apiKey: "", key_required: false, max_tokens_param: "max_completion_tokens", max_output: 8192 });
   const det = (text) => ({ reasoning_details: [{ type: "reasoning.text", id: "r1", format: "Tao-v1", index: 0, text }] });

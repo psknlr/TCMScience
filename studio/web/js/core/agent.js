@@ -283,7 +283,8 @@ export async function runTurn({
           break;
         } catch (err) {
           if (isAbort(err) || signal?.aborted) throw err;
-          if (!err?.retryable || attempt >= retryDelays.length) throw err;
+          // an error may allow fewer retries than the turn's (a stalled stream: one)
+          if (!err?.retryable || attempt >= Math.min(retryDelays.length, err.maxRetries ?? Infinity)) throw err;
           // a service that says how long to wait is believed: a retry inside its window only fails again
           const after = retryAfterMs(err);
           if (after !== null && after > MAX_RETRY_AFTER_S * 1000) throw err;

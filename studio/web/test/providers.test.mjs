@@ -2,6 +2,7 @@ import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setLang } from "../js/core/i18n.js";
+import { IDLE_MS, LOCAL_IDLE_MS, MAX_IDLE_MS, idleTimeout } from "../js/core/llm/sse.js";
 import { PRESETS, activeProvider, allProviders, customPreset, localFix, relayBaseUrl, relayHealth, relayHealthError, routeFor, testConnection } from "../js/core/providers.js";
 import { anthropicSse, fakeFetch, sse, streamResponse } from "./fixtures/fakes.mjs";
 
@@ -200,4 +201,33 @@ test("presets say how they stream: increments for the known services; Tao-S1's r
   for (const id of ["openai", "deepseek", "qwen", "moonshot", "zhipu", "siliconflow", "openrouter", "ollama", "lmstudio", "vllm", "llamacpp"]) assert.equal(by[id].stream, "delta", id);
   assert.equal(by.custom_openai.stream, undefined, "a custom endpoint is guessed");
   assert.equal(activeProvider({ provider: "tao" }).stream.reasoning, "cumulative");
+});
+
+test("the idle limit reaches every provider: the OpenAI preset's longer one, a custom endpoint's own, the one set in Settings", () => {
+  // OpenAI's models reason before they answer, and Chat Completions streams none of it
+  const openai = activeProvider({ provider: "openai", keys: { openai: "sk" } });
+  assert.equal(openai.model, "gpt-5");
+  assert.equal(idleTimeout(openai), 300_000);
+  assert.equal(idleTimeout(activeProvider({ provider: "deepseek" })), IDLE_MS, "a service that streams its reasoning keeps 90 s");
+  // a custom endpoint's own idleMs (Settings → Models writes it into the endpoint's record)
+  const gemini = { id: "c1", format: "openai", base_url: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-2.5-pro", idleMs: 300_000 };
+  assert.equal(customPreset(gemini).idleMs, 300_000);
+  assert.equal(idleTimeout(activeProvider({ provider: "c1", customProviders: [gemini] })), 300_000);
+  assert.equal(customPreset({ ...gemini, idleMs: 3e9 }).idleMs, MAX_IDLE_MS);
+  assert.equal("idleMs" in customPreset({ ...gemini, idleMs: "soon" }), false);
+  assert.equal("idleMs" in customPreset({ ...gemini, idleMs: null }), false, "cleared: the default");
+  // a custom endpoint elsewhere on the user's network is a self-hosted server: the local default, but not "local"
+  // (it is not this computer: the prompt still says the conversation leaves it)
+  const lan = activeProvider({ provider: "c2", customProviders: [{ id: "c2", format: "openai", base_url: "http://192.168.1.20:8080/v1", model: "qwen3-32b" }] });
+  assert.equal(idleTimeout(lan), LOCAL_IDLE_MS);
+  assert.equal(lan.local, undefined);
+  assert.equal(idleTimeout(activeProvider({ provider: "ollama", baseUrls: { ollama: "http://192.168.1.20:11434/v1" } })), LOCAL_IDLE_MS);
+  // Settings' idleLimits (ms, by provider id) win over a preset's and an endpoint's own; a conversation's model chip
+  // picks the provider whose limit applies
+  assert.equal(idleTimeout(activeProvider({ provider: "deepseek", idleLimits: { deepseek: 240_000 } })), 240_000);
+  assert.equal(idleTimeout(activeProvider({ provider: "openai", idleLimits: { openai: 0 } })), 0, "0: no limit");
+  assert.equal(idleTimeout(activeProvider({ provider: "c1", customProviders: [gemini], idleLimits: { c1: 120_000 } })), 120_000);
+  assert.equal(idleTimeout(activeProvider({ provider: "tao", idleLimits: { openai: 600_000 } }, { provider: "openai" })), 600_000);
+  assert.equal(idleTimeout(activeProvider({ provider: "openai", idleLimits: { openai: null, deepseek: 1 } })), 300_000);
+  assert.equal(idleTimeout(activeProvider({ provider: "openai", idleLimits: { openai: 3e9 } })), MAX_IDLE_MS);
 });
