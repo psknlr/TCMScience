@@ -31,7 +31,8 @@ const EXPORT_SPECS = {
   turns: {
     key: ["day", "id"], // the day index's own order: a page seeks, never sorts the period
     sql: `SELECT id, day, ts, provider, model, status, first, steps, tool_rounds, calls, tools, tool_failures, ms, first_ms, tokens_in,
-      tokens_out, citations, citations_verified, citations_used, claims, claims_refused, recorded, excluded, error_kind, error_type, limit_reached, country
+      tokens_out, citations, citations_verified, citations_used, claims, claims_refused, recorded, excluded, error_kind, error_type, limit_reached, country,
+      citations_unresolved, banned_terms, refusal_unreported, released_wording, overclaim_inquiry, termination, truncated, synthesized_at_limit
       FROM usage_turns WHERE day >= ? AND day <= ?`,
   },
   tools: { key: ["day", "id"], sql: "SELECT id, day, ts, tool, kind, place, status, ms, error_type FROM usage_tools WHERE day >= ? AND day <= ?" },
@@ -46,6 +47,14 @@ export const METRICS = [
   "app_init", "app_browser", "visit", "pageview", "pageview_tab", "visitor", "asker", "turn_start", "conversation_start", "turn_end",
   "turn_recorded", "turn_excluded", "model_call", "tokens_in", "tokens_out", "tool_run", "tool_kind", "tool_place", "workflow",
   "app_error", "availability", "consent", "relay_call", "relay_tokens", "connector", "connector_ms", "telemetry_rejected",
+];
+
+// usage_turns' columns added after it was first made: the answer check's counts (web/js/core/answercheck.js) and how the
+// turn ended. A store made before them gains them by ALTER TABLE … ADD COLUMN (additive: its rows keep every value and
+// read NULL in these, "not checked"); a store made after has them from CREATE TABLE.
+export const TURN_COLUMNS_ADDED = [
+  ["citations_unresolved", "INTEGER"], ["banned_terms", "INTEGER"], ["refusal_unreported", "INTEGER"], ["released_wording", "INTEGER"],
+  ["overclaim_inquiry", "INTEGER"], ["termination", "TEXT"], ["truncated", "INTEGER"], ["synthesized_at_limit", "INTEGER"],
 ];
 
 export function percentile(sorted, p) {
@@ -73,7 +82,9 @@ export class UsageCore {
       model TEXT NOT NULL, status TEXT NOT NULL, first INTEGER NOT NULL, steps INTEGER, tool_rounds INTEGER, calls INTEGER, tools INTEGER,
       tool_failures INTEGER, ms INTEGER, first_ms INTEGER, tokens_in INTEGER, tokens_out INTEGER, citations INTEGER, citations_verified INTEGER,
       citations_used INTEGER, claims INTEGER, claims_refused INTEGER, recorded INTEGER, excluded TEXT, error_kind TEXT, error_type TEXT,
-      limit_reached INTEGER, country TEXT NOT NULL) WITHOUT ROWID`);
+      limit_reached INTEGER, country TEXT NOT NULL, ${TURN_COLUMNS_ADDED.map(([c, type]) => `${c} ${type}`).join(", ")}) WITHOUT ROWID`);
+    const has = new Set(sql.exec("PRAGMA table_info(usage_turns)").toArray().map((r) => r.name));
+    for (const [c, type] of TURN_COLUMNS_ADDED) if (!has.has(c)) sql.exec(`ALTER TABLE usage_turns ADD COLUMN ${c} ${type}`);
     sql.exec("CREATE INDEX IF NOT EXISTS usage_turns_day ON usage_turns (day)");
     sql.exec(`CREATE TABLE IF NOT EXISTS usage_tools (id TEXT PRIMARY KEY, day TEXT NOT NULL, ts INTEGER NOT NULL, tool TEXT NOT NULL,
       kind TEXT NOT NULL, place TEXT NOT NULL, status TEXT NOT NULL, ms INTEGER, error_type TEXT) WITHOUT ROWID`);
@@ -209,14 +220,19 @@ export class UsageCore {
           if (await this.firstSeen(day, "asker", visitor)) add("asker", country);
           break;
         case "turn_end": {
+          const flag = (v) => (v === undefined ? null : v ? 1 : 0);
           const fresh = this.sql.exec(`INSERT INTO usage_turns (id, day, ts, provider, model, status, first, steps, tool_rounds, calls, tools,
             tool_failures, ms, first_ms, tokens_in, tokens_out, citations, citations_verified, citations_used, claims, claims_refused, recorded,
-            excluded, error_kind, error_type, limit_reached, country) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            excluded, error_kind, error_type, limit_reached, country, citations_unresolved, banned_terms, refusal_unreported, released_wording,
+            overclaim_inquiry, termination, truncated, synthesized_at_limit)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT DO NOTHING RETURNING id`,
           e.turn, day, now, e.provider || "unknown", e.model || "", e.status, e.first ? 1 : 0, e.steps ?? null, e.tool_rounds ?? null,
           e.calls ?? null, e.tools ?? null, e.tool_failures ?? null, e.ms ?? null, e.first_ms ?? null, e.tokens_in ?? null, e.tokens_out ?? null,
           e.citations ?? null, e.citations_verified ?? null, e.citations_used ?? null, e.claims ?? null, e.claims_refused ?? null,
-          e.recorded ? 1 : 0, e.excluded ?? null, e.error_kind ?? null, e.error_type ?? null, e.limit_reached ? 1 : 0, country).toArray().length > 0;
+          e.recorded ? 1 : 0, e.excluded ?? null, e.error_kind ?? null, e.error_type ?? null, e.limit_reached ? 1 : 0, country,
+          e.citations_unresolved ?? null, e.banned_terms ?? null, e.refusal_unreported ?? null, e.released_wording ?? null,
+          e.overclaim_inquiry ?? null, e.termination ?? null, flag(e.truncated), flag(e.synthesized_at_limit)).toArray().length > 0;
           if (!fresh) break;
           this.#wrote(2); // the row and its day index
           const provider = e.provider || "unknown";
@@ -350,8 +366,20 @@ export class UsageCore {
       SUM(CASE WHEN status = 'completed' AND ms IS NOT NULL THEN 1 ELSE 0 END) AS ms_n, SUM(steps) AS steps_sum, COUNT(steps) AS steps_n,
       SUM(COALESCE(citations, 0)) AS citations, SUM(COALESCE(citations_verified, 0)) AS verified, SUM(COALESCE(citations_used, 0)) AS used,
       SUM(COALESCE(claims, 0)) AS claims, SUM(COALESCE(claims_refused, 0)) AS refused, SUM(recorded) AS recorded,
-      SUM(CASE WHEN excluded IS NOT NULL THEN 1 ELSE 0 END) AS excluded, SUM(limit_reached) AS limit_reached
+      SUM(CASE WHEN excluded IS NOT NULL THEN 1 ELSE 0 END) AS excluded, SUM(limit_reached) AS limit_reached,
+      SUM(CASE WHEN banned_terms IS NOT NULL THEN 1 ELSE 0 END) AS ac_checked,
+      SUM(CASE WHEN citations_unresolved > 0 OR banned_terms > 0 OR refusal_unreported > 0 OR released_wording > 0 OR overclaim_inquiry > 0
+        THEN 1 ELSE 0 END) AS ac_flagged,
+      SUM(CASE WHEN citations_unresolved > 0 THEN 1 ELSE 0 END) AS ac_unresolved, SUM(CASE WHEN banned_terms > 0 THEN 1 ELSE 0 END) AS ac_banned,
+      SUM(CASE WHEN refusal_unreported > 0 THEN 1 ELSE 0 END) AS ac_refusal, SUM(CASE WHEN released_wording > 0 THEN 1 ELSE 0 END) AS ac_released,
+      SUM(CASE WHEN overclaim_inquiry > 0 THEN 1 ELSE 0 END) AS ac_overclaim, SUM(COALESCE(truncated, 0)) AS ac_truncated,
+      SUM(COALESCE(synthesized_at_limit, 0)) AS ac_synthesized
       FROM usage_turns WHERE day >= ? AND day <= ? GROUP BY day, provider, model, country, status, ek, et`, from, to).toArray();
+    // the answer check (report-only, web/js/core/answercheck.js): of the turns it read (rows from before it have NULL),
+    // how many had a finding of each kind, by model and day
+    const AC = ["checked", "flagged", "unresolved", "banned", "refusal", "released", "overclaim", "truncated", "synthesized"];
+    const acZero = () => Object.fromEntries(AC.map((k) => [k, 0]));
+    const answerCheck = { totals: acZero(), daily: { checked: zeros(), flagged: zeros() }, models: new Map() };
     for (const r of grouped) {
       const n = Number(r.n) || 0;
       // unfiltered: what the filters may choose, and the turns of each place
@@ -380,6 +408,21 @@ export class UsageCore {
       if (r.status === "failed") {
         const ek = `${r.ek}\u0000${r.et}`;
         errorCounts.set(ek, (errorCounts.get(ek) || 0) + n);
+      }
+      if (Number(r.ac_checked) > 0) {
+        const am = answerCheck.models.get(mk) || { provider: r.provider, model: r.model, ...acZero(), daily: { checked: zeros(), flagged: zeros() } };
+        for (const k of AC) {
+          const v = Number(r[`ac_${k}`]) || 0;
+          am[k] += v;
+          answerCheck.totals[k] += v;
+        }
+        if (i !== undefined) {
+          for (const k of ["checked", "flagged"]) {
+            am.daily[k][i] += Number(r[`ac_${k}`]) || 0;
+            answerCheck.daily[k][i] += Number(r[`ac_${k}`]) || 0;
+          }
+        }
+        answerCheck.models.set(mk, am);
       }
       agg.n += n;
       agg.conversations += Number(r.first) || 0;
@@ -502,6 +545,8 @@ export class UsageCore {
         errors: errorsByType,
       },
       evidence: { citations: agg.citations, verified: agg.verified, used: agg.used, claims: agg.claims, claims_refused: agg.refused },
+      answer_check: { totals: answerCheck.totals, daily: answerCheck.daily,
+        models: [...answerCheck.models.values()].sort((a, b) => b.checked - a.checked).slice(0, 100) },
       models: { daily: modelDaily, totals: { calls: sum(modelDaily.calls), tokens_in: sum(modelDaily.tokens_in), tokens_out: sum(modelDaily.tokens_out) },
         previous: { calls: Number(before.calls) || 0, tokens_in: Number(before.tokens_in) || 0, tokens_out: Number(before.tokens_out) || 0 }, list: models },
       latency: { total: spread(latencyRows.map((r) => (r.ms === null ? NaN : Number(r.ms)))), first_token: spread(latencyRows.map((r) => (r.first_ms === null ? NaN : Number(r.first_ms)))) },

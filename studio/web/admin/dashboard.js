@@ -224,7 +224,7 @@ function render() {
   const grid = el("div", { class: "grid" });
   if (u) {
     grid.append(trafficCard(u, days), turnsCard(u, days), outcomesCard(u), modelsCard(u, days), latencyCard(u), toolsCard(u),
-      connectorsCard(u), relayCard(u, days), workflowsCard(u), evidenceCard(u), geographyCard(u), errorsCard(u, days));
+      connectorsCard(u), relayCard(u, days), workflowsCard(u), evidenceCard(u), answerCheckCard(u, days), geographyCard(u), errorsCard(u, days));
   } else {
     grid.append(card(t("traffic"), { wide: true }, unavailable()));
   }
@@ -490,6 +490,27 @@ function evidenceCard(u) {
     { k: t("ev_refused"), v: `${fmt.int(e.claims_refused)}${share(e.claims_refused, e.claims)}` },
   ];
   return card(t("evidence"), { note: t("evidence_note") }, dataTable([{ key: "k", label: t("col_series") }, { key: "v", label: t("col_value"), num: true }], rows));
+}
+
+/** The answer check (web/js/core/answercheck.js) by model and day: the share of checked turns it marked, and of each kind. */
+function answerCheckCard(u, days) {
+  const ac = u.answer_check;
+  if (!ac) return card(t("answer_check"), { note: t("answer_check_note") }, empty());
+  const rate = (a, b) => (b ? Math.round((a / b) * 1000) / 10 : 0);
+  const share = (k) => (v, r) => fmt.pct(r.checked ? r[k] / r.checked : null);
+  // the three models with most checked turns, each a line of its daily share marked
+  const series = ac.models.slice(0, 3).map((m, k) => ({
+    name: m.model || m.provider, slot: k + 1, values: days.map((_, i) => rate(m.daily.flagged[i] || 0, m.daily.checked[i] || 0)),
+  }));
+  return card(t("answer_check"), { note: t("answer_check_note"), wide: true },
+    facts(t("ac_line", { c: fmt.int(ac.totals.checked), f: fmt.int(ac.totals.flagged), t: fmt.int(ac.totals.truncated), s: fmt.int(ac.totals.synthesized) })),
+    ac.totals.checked ? lineChart({ days, series, format: (v) => `${v}%`, label: `${t("ac_flagged")} ${fmt.pct(ac.totals.flagged / ac.totals.checked)}` }) : null,
+    ac.models.length ? dataTable([
+      { key: "provider", label: t("col_provider"), mono: true },
+      { key: "model", label: t("col_model"), mono: true },
+      { key: "checked", label: t("col_checked"), num: true, format: fmt.int },
+      ...["flagged", "unresolved", "banned", "refusal", "released", "overclaim", "truncated"].map((k) => ({ key: k, label: t(`col_${k}`), num: true, format: share(k) })),
+    ], ac.models) : empty());
 }
 
 function geographyCard(u) {

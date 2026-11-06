@@ -40,6 +40,9 @@ export const WORKFLOW_PHASES = ["started", "submitted", "completed", "failed", "
 export const SERVICES = ["relay", "runner", "browser_runtime", "storage"];
 export const ERROR_CATEGORIES = ["js_error", "unhandled_rejection", "model", "network", "runtime", "storage"];
 export const ERROR_KINDS = ["model", "network", "runtime"];
+/** How a turn ended, as the agent names it (assistant.termination): answered, a synthesis at the step limit, cut off by
+ * the output limit, stopped, refused by the model, or an error of one of ERROR_KINDS. */
+export const TERMINATIONS = ["answered", "max_steps_synthesized", "truncated", "stopped", "refused_by_model", ...ERROR_KINDS.map((k) => `error:${k}`)];
 export const CONSENT_DECISIONS = ["granted", "declined", "withdrawn", "deleted"];
 /** Why a turn's content was not recorded (the turn is still counted, without its words). */
 export const EXCLUSIONS = ["no_consent", "uploaded_file", "project_files", "clinical_tool", "user_data_tool", "sensitive_text", "discarded", "unavailable"];
@@ -142,7 +145,13 @@ const EVENT_FIELDS = {
     first_ms: int(e.first_ms, 0, 24 * HOUR), tokens_in: int(e.tokens_in, 0, 1e10), tokens_out: int(e.tokens_out, 0, 1e10),
     citations: int(e.citations, 0, 100000), citations_verified: int(e.citations_verified, 0, 100000),
     citations_used: int(e.citations_used, 0, 100000), claims: int(e.claims, 0, 100000), claims_refused: int(e.claims_refused, 0, 100000),
-    limit_reached: bool(e.limit_reached), recorded: bool(e.recorded), excluded: oneOf(e.excluded, EXCLUSIONS),
+    limit_reached: bool(e.limit_reached),
+    // the answer check's findings (answercheck.js), counted by kind: never their words
+    citations_unresolved: int(e.citations_unresolved, 0, 100000), banned_terms: int(e.banned_terms, 0, 100000),
+    refusal_unreported: int(e.refusal_unreported, 0, 1000), released_wording: int(e.released_wording, 0, 100000),
+    overclaim_inquiry: int(e.overclaim_inquiry, 0, 100000),
+    termination: oneOf(e.termination, TERMINATIONS), truncated: bool(e.truncated), synthesized_at_limit: bool(e.synthesized_at_limit),
+    recorded: bool(e.recorded), excluded: oneOf(e.excluded, EXCLUSIONS),
     error_kind: oneOf(e.error_kind, ERROR_KINDS), error_type: token(e.error_type, 40),
   }),
   tool_end: (e) => ({

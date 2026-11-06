@@ -13,6 +13,60 @@ export const INLINE_TOTAL = 64 * 1024; // and no more than this in all, so a lar
 export const ENVIRONMENT_HEADING = "# Environment";
 
 /**
+ * The vocabulary the governance rule states, in its order: for each language the word to use, the words it replaces
+ * (`not`) and when those are licensed after all (`unless`); and, in Chinese, the words never to use (`never`). The
+ * rule's text is rendered from it, and BANNED_TERMS below is read from it: what the answer check (core/answercheck.js)
+ * reports is what the model was told.
+ */
+export const VOCABULARY = deepFreeze({
+  zh: {
+    words: [
+      { use: "记载", not: ["证明", "证实"] },
+      { use: "预测 or 计算推断", not: ["发现", "揭示"] },
+      { use: "机制假说", not: ["作用机制"], unless: "bench evidence licenses a mechanism" },
+      { use: "关联", not: ["导致", "有效"], unless: "a trial licenses efficacy" },
+      { use: "无记录（不等于安全）" },
+      { use: "不显著（不等于无关）" },
+      { use: "安全信号", not: ["副作用确认"] },
+      { use: "已拒绝（CLM005）" },
+      { use: "未核验" },
+      { use: "内核判定" },
+    ],
+    never: ["证明", "确认有效", "发现了机制", "安全", "精准"],
+  },
+  en: {
+    words: [
+      { use: "recorded", not: ["proven"] },
+      { use: "predicted", not: ["discovered"] },
+      { use: "mechanism hypothesis", not: ["mechanism"], unless: "bench evidence licenses it" },
+      { use: "associated", not: ["causes", "effective"], unless: "a trial licenses efficacy" },
+      { use: "no record", not: ["safe"] },
+      { use: "not significant", not: ["irrelevant"] },
+      { use: "safety signal", not: ["confirmed side effect"] },
+      { use: "refused (CLM005)" },
+      { use: "not verified" },
+    ],
+    never: [],
+  },
+});
+
+/**
+ * The words the rule forbids whatever the evidence: those it replaces without an `unless`, and those it never allows.
+ * [{lang, term, use (the word the rule gives instead, or null), never (named in "Do not use")}], in the rule's order.
+ */
+export const BANNED_TERMS = deepFreeze(Object.entries(VOCABULARY).flatMap(([lang, v]) => {
+  const out = new Map();
+  for (const w of v.words) if (w.not && !w.unless) for (const term of w.not) out.set(term, { lang, term, use: w.use, never: false });
+  for (const term of v.never) out.set(term, { ...(out.get(term) || { lang, term, use: null }), never: true });
+  return [...out.values()];
+}));
+
+function deepFreeze(o) {
+  if (o && typeof o === "object") for (const v of Object.values(o)) deepFreeze(v);
+  return Object.freeze(o);
+}
+
+/**
  * buildSystemPrompt({lang, provider, project, knowledge, env}) → string.
  * provider: activeProvider(); project: {name, description, instructions, defaults:{web}};
  * knowledge: [{name, bytes, sha256, type?, text?}]; env: {date, web, compute, browser:{status, device}, runner:{status,
@@ -72,9 +126,14 @@ function governance(lang) {
     "- Call a result released only when the tool says release is authorized; otherwise say which checks are unverified. An artifact's limitations are part of the answer.",
     "- Your own reasoning is not evidence. Separate what a tool returned from what you infer, and mark inference as such.",
     zh
-      ? "- In Chinese, use the TCMScience vocabulary: 记载 (not 证明/证实), 预测 or 计算推断 (not 发现/揭示), 机制假说 (not 作用机制, unless bench evidence licenses a mechanism), 关联 (not 导致/有效, unless a trial licenses efficacy), 无记录（不等于安全）, 不显著（不等于无关）, 安全信号 (not 副作用确认), 已拒绝（CLM005）, 未核验, 内核判定. Do not use 证明、确认有效、发现了机制、安全、精准 or superlatives."
-      : "- Use precise words: recorded (not proven), predicted (not discovered), mechanism hypothesis (not mechanism, unless bench evidence licenses it), associated (not causes/effective, unless a trial licenses efficacy), no record (not safe), not significant (not irrelevant), safety signal (not confirmed side effect), refused (CLM005), not verified. No superlatives.",
+      ? `- In Chinese, use the TCMScience vocabulary: ${vocabulary(VOCABULARY.zh)}. Do not use ${VOCABULARY.zh.never.join("、")} or superlatives.`
+      : `- Use precise words: ${vocabulary(VOCABULARY.en)}. No superlatives.`,
   ].join("\n");
+}
+
+/** 记载 (not 证明/证实), 关联 (not 导致/有效, unless a trial licenses efficacy), 未核验 … */
+function vocabulary(v) {
+  return v.words.map((w) => (w.not ? `${w.use} (not ${w.not.join("/")}${w.unless ? `, unless ${w.unless}` : ""})` : w.use)).join(", ");
 }
 
 function tools() {

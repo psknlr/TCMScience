@@ -1,7 +1,8 @@
 import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { ENVIRONMENT_HEADING, INLINE_LIMIT, buildSystemPrompt, isIdentityQuestion, splitSystemPrompt } from "../js/core/prompt.js";
+import { BANNED_TERMS, ENVIRONMENT_HEADING, INLINE_LIMIT, VOCABULARY, buildSystemPrompt, isIdentityQuestion, splitSystemPrompt } from "../js/core/prompt.js";
 import { activeProvider } from "../js/core/providers.js";
 
 const relay = activeProvider({ provider: "tao" });
@@ -99,6 +100,22 @@ test("parallel calls: said to run together only when a runner takes them; in the
       assert.doesNotMatch(prefix, /(?<!whether they )run together|run one after another|run in parallel|concurrently|at the same time|simultaneous/i, "the stable part makes no claim either way");
     }
   }
+});
+
+test("the rendered prompt is byte-identical to the stable-prefix prompt's in zh and en (the vocabulary moved into data, not its words)", () => {
+  // sha256 of buildSystemPrompt's output as the stable-prefix change (feat/llm-prompt 78e2ef9, P2.2) left it, before the
+  // governance vocabulary became VOCABULARY / BANNED_TERMS; 530031f's were 393beb17…, da82a0f4…, 2248fca2… and 8c9f70b3…,
+  // and P2.2 changed them on purpose. A change of the prompt's words is a change of this digest, made on purpose.
+  const env = { date: "2026-10-07", browser: { status: "ready" }, runner: { status: "offline" } };
+  const digest = (lang, provider) => createHash("sha256").update(buildSystemPrompt({ lang, provider, env })).digest("hex");
+  assert.equal(digest("zh", relay), "fb05f66884a2c33bbe5fb191beadd25e9ec4eb445b3329187d7231c702a6f75e");
+  assert.equal(digest("en", relay), "79ee5976630fa842702d1c7a2b34142df280ad6162505ecd1637d8ea5cfdf8aa");
+  assert.equal(digest("zh", deepseek), "6bc381ae8f3630672c962865d6ce4a3c450701b4ae62d6356b82f5345073d7a5");
+  assert.equal(digest("en", deepseek), "19b85107af0055a0f66960a0f30baa8a265dccfd71f5968ba25a660c146f0d82");
+  // what the answer check reads is what the rule says
+  assert.match(buildSystemPrompt({ lang: "zh", provider: relay }), new RegExp(`Do not use ${VOCABULARY.zh.never.join("、")} or superlatives\\.`));
+  assert.deepEqual(BANNED_TERMS.filter((b) => b.lang === "en").map((b) => b.term), ["proven", "discovered", "safe", "irrelevant", "confirmed side effect"]);
+  assert.deepEqual(BANNED_TERMS.filter((b) => b.lang === "zh").map((b) => b.term), ["证明", "证实", "发现", "揭示", "副作用确认", "确认有效", "发现了机制", "安全", "精准"]);
 });
 
 test("knowledge: listed with size and hash; texts under 8 kB are inlined, longer ones are not", () => {

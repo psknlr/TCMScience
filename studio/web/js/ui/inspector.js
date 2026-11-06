@@ -7,11 +7,11 @@ import { claimsOf, evidenceOf, refusalsOf, releaseOf, resultOf, sourceView } fro
 import { glossary, lang, t } from "../core/i18n.js";
 import { canonicalJson, isLoopbackUrl } from "../core/util.js";
 import { clamp, debounce, fill, formatBytes, formatDateTime, formatDuration, h, rafThrottle } from "./dom.js";
-import { viewOfStored } from "./conversation.js";
+import { answerCheckOf, viewOfStored } from "./conversation.js";
 import { filePreview, jsonTree } from "./files.js";
 import {
-  artifactCard, auditHeadView, candidateChip, claimCard, compositeVersionView, evidenceGroups, evidenceTable, hashBadge, limitationsBlock, reasonList,
-  releaseChecklist, sourceCard, verdictPill,
+  answerCheckList, artifactCard, auditHeadView, candidateChip, claimCard, compositeVersionView, evidenceGroups, evidenceTable, hashBadge, limitationsBlock,
+  reasonList, releaseChecklist, sourceCard, verdictPill,
 } from "./governance.js";
 import { icon } from "./icons.js";
 import { button, chip, copyButton, emptyState, iconButton, keyValue, segmented, tabList } from "./primitives.js";
@@ -179,7 +179,7 @@ export function mountInspector(app, host) {
   function highlightSelection() {
     const sel = app.state.inspector.selection;
     if (!sel || !sel.id || Date.now() - sel.at > 1500) return;
-    const attr = { evidence: "data-evidence", claim: "data-claim-key", call: "data-call-row", source: "data-source", jobfile: "data-file" }[sel.kind];
+    const attr = { evidence: "data-evidence", claim: "data-claim-key", call: "data-call-row", source: "data-source", jobfile: "data-file", check: "data-check-for" }[sel.kind];
     if (!attr) return;
     const el = panel.querySelector(`[${attr}="${CSS.escape(sel.id)}"]`) || (sel.kind === "evidence" ? panel.querySelector(`[data-cite-id="${CSS.escape(sel.id)}"]`) : null);
     if (!el) return;
@@ -235,8 +235,21 @@ export function mountInspector(app, host) {
         h("p.run__total.muted", [
           x.live ? t("ui.run.live") : total ? t("ui.run.total", { d: formatDuration(total) }) : null,
           x.vm.usage ? t("ui.run.tokens", { input: x.vm.usage.input, output: x.vm.usage.output }) : null,
-        ].filter(Boolean).join(" · ")));
+        ].filter(Boolean).join(" · ")),
+        x.live ? null : checkBlock(x.vm));
     }));
+  }
+
+  /** The answer check of a finished turn (core/answercheck.js): what it marked, as a note; nothing when there is no
+   * answer, or when the check could not read the turn. */
+  function checkBlock(vm) {
+    const check = answerCheckOf(app, vm);
+    if (check.failed || !check.content.trim()) return null;
+    const n = check.findings.length;
+    return h("div.run__check", { "data-check-for": vm.id },
+      h("h3.run__check-title", t("ui.check.title"), n ? verdictPill({ tone: "caveat", icon: "!", label: t("ui.check.badge", { n }) }, { size: "sm" }) : null),
+      h("p.inspector__note", icon("info", { size: 12 }), t("ui.check.note")),
+      answerCheckList(check, check.content));
   }
 
   function runRow({ n, icon: ic, name, kind, duration, status, note, noteLang = null, where, hashes, onClick, key, mono }) {

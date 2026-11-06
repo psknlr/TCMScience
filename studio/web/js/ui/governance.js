@@ -1,8 +1,10 @@
 // Governance components (DESIGN §3.4, §6): hash badges, evidence-family chips, verdict badges, reason-code chips,
 // the licensing ladder, claim cards, the release checklist, artifact cards, composite versions, quality pills,
 // evidence items and the evidence table, source cards, and citation chips with their hover cards.
-// They render what the kernel decided (core/governance.js reads it from the envelope) and never decide anything.
+// They render what the kernel decided (core/governance.js reads it from the envelope) and never decide anything; the
+// answer check's badge and list render what core/answercheck.js reported of an answer, as a note.
 
+import { excerpt } from "../core/answercheck.js";
 import {
   claimsOf, compositeVersionOf, evidenceOf, familyOfTier, licensingLadder, refusalsOf, releaseOf, shortHash, verdictBadge,
 } from "../core/governance.js";
@@ -497,6 +499,52 @@ export function limitationsBlock(limits, { compact = true, onMore } = {}) {
     compact && list.length > shown.length
       ? (onMore ? h("button.limits__more", { type: "button", onClick: onMore }, t("ui.artifact.more_limits", { n: list.length - shown.length })) : h("p.limits__more.muted", t("ui.artifact.more_limits", { n: list.length - shown.length })))
       : null);
+}
+
+// ------------------------------------------------------------------------------------------------- answer check
+
+/**
+ * The answer check's badge on a message (core/answercheck.js checkAnswer's result): 「回答检查：2 处」, ochre, a note and
+ * never a verdict; it opens the details in the inspector. A clean answer carries none. The answer itself is untouched.
+ */
+export function answerCheckBadge(check, { onOpen } = {}) {
+  const n = check?.findings?.length || 0;
+  if (!n) return null;
+  return h("button", {
+    type: "button", class: ["verdict", "verdict--caveat", "verdict--sm", "answer-check"], "data-answer-check": String(n),
+    "data-tip": t("ui.check.tip"), "aria-label": t("ui.check.aria", { n }), onClick: (e) => { e.stopPropagation(); onOpen?.(); },
+  }, icon("alert", { size: 12 }), h("span.verdict__label", t("ui.check.badge", { n })));
+}
+
+/** The answer check's findings for the inspector: each kind in words, what it found, and the words around it. */
+export function answerCheckList(check, content) {
+  if (!check?.findings?.length) return h("p.muted.small", t("ui.check.none"));
+  return h("ul.check-list", { role: "list" }, check.findings.map((f) => {
+    const around = excerpt(content, f);
+    return h("li.check-list__item", { "data-check-kind": f.kind },
+      h("p.check-list__kind", icon("alert", { size: 12 }), t(`ui.check.kind.${f.kind}`)),
+      h("p.check-list__detail", checkDetail(f)),
+      around ? kernelText("blockquote", around, { class: "check-list__quote" }) : null);
+  }));
+}
+
+function checkDetail(f) {
+  const zh = lang() === "zh";
+  switch (f.kind) {
+    case "unresolved_citation": return t("ui.check.detail.unresolved_citation", { id: f.id });
+    case "banned_term": return f.use
+      ? t("ui.check.detail.banned_term_use", { term: f.form || f.term, use: zh ? f.use.replace(/ or /g, "或") : f.use })
+      : t("ui.check.detail.banned_term", { term: f.form || f.term });
+    case "released_wording": return t("ui.check.detail.released_wording", { term: f.term });
+    case "refusal_unreported": return t("ui.check.detail.refusal_unreported", { codes: (f.codes || []).join(zh ? "、" : ", ") || "—" });
+    case "uncited_with_evidence": return t("ui.check.detail.uncited_with_evidence", { n: f.citations });
+    case "overclaim_inquiry": {
+      const verdict = glossary.verdictState(f.verdict, undefined, "inquiry");
+      const key = `ui.check.certainty.${f.certainty}`;
+      return t("ui.check.detail.overclaim_inquiry", { term: f.term, verdict: zh ? verdict : verdict.toLowerCase(), certainty: t(key) !== key ? t(key) : f.certainty || "—" });
+    }
+    default: return "";
+  }
 }
 
 // ------------------------------------------------------------------------------------------------- envelope summaries

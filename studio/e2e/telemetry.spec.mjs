@@ -9,8 +9,8 @@ import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { expect, test } from "@playwright/test";
-import { startMockLLM } from "./mock-llm.mjs";
-import { seedSettings, send, shot, waitForAnswers, waitForApp, watchConsole } from "./lib/app.mjs";
+import { FABRICATED_ANSWER, startMockLLM } from "./mock-llm.mjs";
+import { readDb, seedSettings, send, shot, waitForAnswers, waitForApp, watchConsole } from "./lib/app.mjs";
 import { startWorker, workerSkipReason } from "./lib/servers.mjs";
 
 test.use({ ignoreHTTPSErrors: true });
@@ -237,6 +237,47 @@ test("a reload in the middle of an answer reports that turn as interrupted", asy
     await flush(page);
     return (await summary(request)).usage.conversations.totals.interrupted - interrupted0;
   }, { timeout: 60000, intervals: [2000] }).toBe(1);
+  watch.expectClean();
+});
+
+test("the answer check: a citation no tool gave and words the rule forbids are marked beside the answer, never in it; turn_end counts them, without text", async ({ page, request }) => {
+  const watch = watchConsole(page);
+  const ac0 = (await summary(request)).usage.answer_check.totals;
+  // what the page sends to /api/telemetry/events: the turn's end, as it leaves the browser
+  const ends = [];
+  page.on("request", (req) => {
+    if (req.method() !== "POST" || !/\/api\/telemetry\/events$/.test(req.url())) return;
+    try { ends.push(...JSON.parse(req.postData() || "{}").events.filter((e) => e.type === "turn_end")); } catch { /* not a batch */ }
+  });
+  await openApp(page);
+  await send(page, "编造引用：桂枝汤的组成与疗效？");
+  await consent(page).locator('[data-consent="decline"]').click();
+  const answer = await waitForAnswers(page, 1);
+  // the answer is stored exactly as the model gave it, and shown as it was before the check (an id no tool gave is the
+  // 「E?」 chip it always was); the check is a badge beside it
+  const stored = (await readDb(page)).messages.filter((m) => m.role === "assistant").map((m) => m.content);
+  expect(stored).toEqual([FABRICATED_ANSWER]);
+  const prose = await answer.locator(".msg__prose").innerHTML();
+  const badge = answer.locator("[data-answer-check]");
+  await expect(badge).toHaveText("回答检查：3 处");
+  await badge.click();
+  const block = page.locator(".inspector [data-check-for]");
+  await expect(block).toBeVisible();
+  await expect(block.locator("[data-check-kind]")).toHaveCount(3);
+  await expect(block).toContainText("[E7] 不是本对话中任何工具给出的引文编号");
+  expect(await answer.locator(".msg__prose").innerHTML()).toBe(prose);
+  await shot(page, "telemetry-answer-check");
+  await flush(page);
+  await expect.poll(() => ends.length, { timeout: 30000 }).toBeGreaterThan(0);
+  const end = ends.at(-1);
+  expect([end.citations_unresolved, end.banned_terms, end.refusal_unreported, end.released_wording, end.overclaim_inquiry]).toEqual([1, 2, 0, 0, 0]);
+  expect([end.truncated, end.synthesized_at_limit]).toEqual([false, false]);
+  expect(JSON.stringify(end)).not.toMatch(/桂枝|证明|安全|E7/);
+  // the Worker keeps them: the dashboard's answer check counts the turn as checked and marked
+  await expect.poll(async () => {
+    const ac = (await summary(request)).usage.answer_check.totals;
+    return [ac.checked - ac0.checked, ac.flagged - ac0.flagged, ac.unresolved - ac0.unresolved, ac.banned - ac0.banned];
+  }, { timeout: 30000 }).toEqual([1, 1, 1, 1]);
   watch.expectClean();
 });
 

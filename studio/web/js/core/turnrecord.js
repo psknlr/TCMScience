@@ -10,9 +10,10 @@
 // these, none of its later turns is recorded either (the app keeps that on the conversation: a project file removed
 // later, or a branch without the upload, does not make it recordable). A tool's arguments are never recorded.
 
+import { checkTurn, citedIds } from "./answercheck.js";
 import { citationsOf, claimsOf, evidenceOf, releaseOf } from "./governance.js";
 import { redactText, sensitiveAny } from "./sensitive.js";
-import { CONSENT_VERSION, LIMITS, PLACES, RECORD_VERSION, TOOL_KINDS, WORKFLOW_KINDS, normalizeRecord, token } from "./telemetry-contract.js";
+import { CONSENT_VERSION, LIMITS, PLACES, RECORD_VERSION, TERMINATIONS, TOOL_KINDS, WORKFLOW_KINDS, normalizeRecord, token } from "./telemetry-contract.js";
 import { objectArgument } from "./util.js";
 
 // tools that take the visitor's own data: an imported store, a pipeline over their files, the clinic's case records
@@ -154,14 +155,8 @@ export function exclusionOf({ path = [], tools = [], projectFiles = 0, discarded
 /** The reasons that hold for a whole conversation once one turn had them (all but a deleted conversation's). */
 export const STICKY_EXCLUSIONS = ["uploaded_file", "project_files", "clinical_tool", "user_data_tool", "sensitive_text"];
 
-const CITE = /[[【]\s*(E\d+(?:\s*[,，、;；]\s*E\d+)*)\s*[\]】]/g;
-
-/** The citation ids an answer cites ([E1], [E2, E3], 【E4】). */
-export function citedIds(text) {
-  const out = new Set();
-  for (const m of String(text || "").matchAll(CITE)) for (const id of m[1].split(/\s*[,，、;；]\s*/)) out.add(id.trim());
-  return out;
-}
+/** The citation ids an answer cites ([E1], [E2, E3], 【E4】): the answer check's (answercheck.js). */
+export { citedIds };
 
 /**
  * What the turn's tools gave and the answer used, counted: citations (total, quote verified, cited in the answer, cited
@@ -236,14 +231,28 @@ export function toolRounds(assistant) {
 const iso = (t) => (Number.isFinite(t) && t > 0 ? new Date(t).toISOString() : undefined);
 const safeText = (s) => (typeof s === "string" ? s : "");
 
+/** How the turn ended, as the agent names it (assistant.termination), when it is one the contract knows. */
+export function terminationOf(assistant) {
+  const t = assistant?.termination;
+  return typeof t === "string" && TERMINATIONS.includes(t) ? t : undefined;
+}
+
+/** Was the answer cut off by the output limit (the agent's termination, or the provider's finish reason)? */
+export function truncatedOf(assistant) {
+  return assistant?.termination === "truncated" || ["length", "max_tokens"].includes(assistant?.finishReason);
+}
+
 /**
  * The usage event of a finished turn ("turn_end"): counts and timings, never text. turn: {id, provider, model, status,
- * first, startedAt, endedAt, firstAt, calls, assistant, tools, known, excluded, recorded}.
+ * first, startedAt, endedAt, firstAt, calls, assistant, tools, known, onPath, excluded, recorded}. The answer check's
+ * findings (answercheck.js) are counted by kind, an [E#] resolved as the page resolves it (onPath: the tool messages of
+ * the turn's own branch; known when not given); their words never leave the page.
  */
 export function turnEndEvent(turn) {
   const a = turn.assistant || {};
   const tools = turn.tools || [];
   const stats = evidenceStats(tools, safeText(a.content), turn.known || tools);
+  const check = answerCounts(safeText(a.content), tools, turn.onPath || turn.known || tools) || {};
   return {
     type: "turn_end", turn: turn.id, provider: turn.provider, model: turn.model, status: turn.status, first: Boolean(turn.first),
     steps: a.steps, tool_rounds: toolRounds(a), calls: turn.calls || a.steps, tools: tools.length,
@@ -256,9 +265,26 @@ export function turnEndEvent(turn) {
     tokens_in: a.usage?.input, tokens_out: a.usage?.output,
     citations: stats.citations.total, citations_verified: stats.citations.verified, citations_used: stats.citations.used,
     claims: stats.claims.total, claims_refused: stats.claims.refused, limit_reached: Boolean(a.limitReached),
+    citations_unresolved: check.unresolved_citation, banned_terms: check.banned_term, refusal_unreported: check.refusal_unreported,
+    released_wording: check.released_wording, overclaim_inquiry: check.overclaim_inquiry,
+    termination: terminationOf(a), truncated: truncatedOf(a), synthesized_at_limit: a.termination === "max_steps_synthesized",
     recorded: Boolean(turn.recorded), excluded: turn.excluded || undefined,
     error_kind: a.error?.kind, error_type: a.error?.type || (a.error?.status ? `http_${a.error.status}` : undefined),
   };
+}
+
+/**
+ * The answer check's counts for turn_end, or null — no counts, so the turn is not one the check read — when the turn
+ * has no answer (nothing was said: an error or a stop before any text) or the check cannot read it. It never throws:
+ * the event keeps every other field.
+ */
+function answerCounts(content, tools, known) {
+  if (!content.trim()) return null;
+  try {
+    return checkTurn({ content, tools, known }).counts;
+  } catch {
+    return null;
+  }
 }
 
 /**
