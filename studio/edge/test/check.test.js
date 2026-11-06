@@ -109,6 +109,25 @@ test("what goes wrong is named: no _headers, no key, a refused key, a wrong orig
     /503 upstream_quota.*balance is used up: top up the MiniMax account/);
 });
 
+test("the relay's upstream breaker, open: named with its reason and until when, no wait for a key, a failure only with --require-model", async () => {
+  const PLAN_SPENT = { type: "error", error: { type: "rate_limit_error", message: "已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。 (2056)" } };
+  const s = site({ upstream: async () => jsonReply(PLAN_SPENT, 429) });
+  // the model call meets the spent plan: told as a spent quota, not as "busy"
+  await assert.rejects(check({ requireModel: true }, io(s)), /503 upstream_quota.*Token Plan key, its plan's quota is spent/);
+  // from then on health says so, and the check names it at once (no settle loop: nothing is on its way)
+  const logs = [];
+  const seen = s.seen.length;
+  await assert.rejects(check({ requireModel: true }, io(s, logs)),
+    /Tao-S1 is paused by the relay's upstream breaker until 2026-10-07T12:10:00\.000Z \(upstream_quota\): the model service's quota is spent/);
+  assert.deepEqual(s.seen.slice(seen).map(([m, p]) => `${m} ${p}`), ["GET /v1/health", "GET /"]);
+  assert.ok(!logs.some((l) => /waiting for Tao-S1's key/.test(l)));
+  const warned = [];
+  const out = await check({}, io(s, warned));
+  assert.equal(out.call, "skipped (upstream_quota until 2026-10-07T12:10:00.000Z)");
+  assert.match(warned.join("\n"), /warning: Tao-S1 is paused by the relay's upstream breaker/);
+  assert.equal(s.r.calls.length, 1);
+});
+
 test("a pause committed in wrangler.toml (RELAY = \"off\") is the owner's choice: the check passes without a call", async () => {
   const logs = [];
   const s = site({ env: { RELAY: "off" } }); // the key is there: only the pause turns Tao-S1 off

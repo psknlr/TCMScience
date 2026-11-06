@@ -410,6 +410,7 @@ export const RELAY_ERROR_TYPES = new Set([
   "https_required", "not_found", "method_not_allowed", "forbidden_origin", "not_configured", "bad_request", "too_large",
   "model_not_allowed", "rate_limited", "daily_limit", "total_limit", "unavailable", "upstream_unreachable",
   "upstream_auth", "upstream_rate", "upstream_quota", "upstream_error", "upstream_rejected", "relay_error", "not_relay",
+  "upstream_unknown",
 ]);
 const RELAY_KEY = { method_not_allowed: "not_found" };
 const CJK = /[\u3400-\u9fff]/;

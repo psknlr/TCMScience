@@ -224,17 +224,21 @@ export function localFix(provider, origin = pageOrigin() || RELAY_ORIGIN) {
 }
 
 /**
- * GET {relay}/health → {ok, model, limits, max_output_tokens, error?, error_type?, error_lang?, said?}; never throws.
- * An error of a known type is told in the page's language (relayError); `error_lang` is "zh" when the relay's own
- * Chinese message is shown on a page in another language. `said` keeps what the relay answered, so that the error can
- * be told again in another language after a switch (relayHealthError).
+ * GET {relay}/health → {ok, model, limits, max_output_tokens, reason?, until?, error?, error_type?, error_lang?, said?};
+ * never throws. An error of a known type is told in the page's language (relayError); `error_lang` is "zh" when the
+ * relay's own Chinese message is shown on a page in another language. `said` keeps what the relay answered, so that the
+ * error can be told again in another language after a switch (relayHealthError). `reason` and `until` (an ISO time):
+ * the relay's upstream breaker is open (upstream_quota: its quota is spent; upstream_error: it kept failing) until then.
  */
 export async function relayHealth({ fetch: fetchImpl = globalThis.fetch, baseUrl = relayBaseUrl(), timeoutMs = 10000 } = {}) {
   try {
     const r = await fetchWithTimeout(fetchImpl, `${trimSlash(baseUrl)}/health`, { headers: { Accept: "application/json" } }, timeoutMs);
     const j = await r.json().catch(() => ({}));
+    // the upstream's breaker, open: why, and until when (only a reason the page knows, with a time it can read)
+    const paused = r.ok && !j.ok && ["upstream_quota", "upstream_error"].includes(j.reason) && Number.isFinite(Date.parse(j.until))
+      ? { reason: j.reason, until: new Date(Date.parse(j.until)).toISOString() } : null;
     const said = (fallback) => ({
-      type: typeof j.error?.type === "string" ? j.error.type : "",
+      type: typeof j.error?.type === "string" ? j.error.type : paused ? paused.reason : "",
       message: typeof j.error?.message === "string" ? j.error.message : "",
       message_en: typeof j.error?.message_en === "string" ? j.error.message_en : "",
       fallback,
@@ -242,7 +246,7 @@ export async function relayHealth({ fetch: fetchImpl = globalThis.fetch, baseUrl
     const told = (s) => ({ ...relayHealthError({ said: s }), said: s });
     return {
       ok: Boolean(r.ok && j.ok), model: j.model || "Tao-S1", models: j.models || ["Tao-S1"], limits: j.limits || null,
-      max_output_tokens: Number(j.max_output_tokens) || null, version: j.version || null,
+      max_output_tokens: Number(j.max_output_tokens) || null, version: j.version || null, ...paused,
       // what the site records (src/telemetry/config.js telemetryPublic); a server that says nothing records nothing
       ...(j.telemetry && typeof j.telemetry === "object" && !Array.isArray(j.telemetry) ? { telemetry: j.telemetry } : {}),
       ...(r.ok ? {} : { status: r.status, ...told(said({ text: `HTTP ${r.status}` })) }),

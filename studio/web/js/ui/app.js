@@ -45,6 +45,7 @@ export class App {
   #sending = false;
   #capsP = null;
   #relayCheck = null;
+  #relayAgain = null; // the next health check, when the relay said until when Tao-S1 is paused
   #namesFor = undefined; // the catalog #toolNames was read from
   #names = new Set();
   #jobsReported = new Set();
@@ -300,6 +301,10 @@ export class App {
     // what this site records comes with the relay's health, when the relay is this page's own site
     this.telemetry.configure(this.state.relay, { relayBase: relayBaseUrl() });
     this.telemetry.track("availability", { service: "relay", ok: Boolean(this.state.relay.ok), detail: this.state.relay.error_type });
+    // paused until a time (the upstream's breaker): asked again then, so the composer's banner goes when Tao-S1 is back
+    clearTimeout(this.#relayAgain);
+    const until = Date.parse(this.state.relay.until || "");
+    if (Number.isFinite(until) && until > Date.now()) this.#relayAgain = setTimeout(() => this.checkRelay(), Math.min(until - Date.now() + 1000, 2 ** 31 - 1));
     this.emit("relay", this.state.relay);
     return this.state.relay;
   }
@@ -1174,6 +1179,8 @@ export class App {
     if (this.state.conversation?.id === conv.id) await this.loadMessages();
     await this.refreshConversations();
     this.emit("turn", { type: "end", live });
+    // a relay error that may have opened its upstream breaker: its health says until when, and the composer says so
+    if (["upstream_quota", "upstream_error", "upstream_unknown"].includes(assistant.error?.type)) this.checkRelay();
     const n = toolMessages.length;
     if (discarded) announce(t("core.agent.stopped"));
     else if (assistant.status === "error") announce(t("ui.turn.failed_announce"), { assertive: true });

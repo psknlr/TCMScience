@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { WORKER_IP, config, forwardingZone, handle, ipKey, publicText, upstreamCode, withoutReasoning } from "../src/relay.js";
+import { isPermanentType } from "../../web/js/core/llm/sse.js";
 import { KEY, NOON, PAGE, ask, cut, events, jsonReply, post, quiet, relay, sse, tidy } from "./helpers.js";
 
 // ------------------------------------------------------------------ the call itself
@@ -373,6 +374,293 @@ test("the upstream's failures become this service's own words, with the right st
   // every failure is answered in Chinese, telling the visitor what to do
   const auth = await relay({ upstream: async () => jsonReply(said, 401) }).call("/v1/chat/completions", post(tidy));
   assert.match((await auth.json()).error.message, /设置 → 模型/);
+}));
+
+// ------------------------------------------------------------------ a spent quota, unknown codes, the breaker
+// what the upstream answered when its Token Plan was spent (the post-deploy check of studio #130, 2026-11-04)
+const PLAN_SPENT = { type: "error", error: { type: "rate_limit_error", message: "已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。 (2056)" } };
+const MINUTE = { error: { type: "rate_limit_error", message: "rate limit exceeded (1002)" } }; // a per-minute limit
+const OK_EVENTS = ['{"id":"a","choices":[{"index":0,"delta":{"content":"好"}}],"model":"MiniMax-M3"}', "[DONE]"];
+
+test("a plan-quota 429 is upstream_quota, not 'busy': permanent for the page, and the breaker answers the next calls at once", () => quiet(async () => {
+  let t = NOON;
+  let answer = async () => jsonReply(PLAN_SPENT, 429);
+  const r = relay({ now: () => t, upstream: (...a) => answer(...a) });
+  const res = await r.call("/v1/chat/completions", post(tidy));
+  const e = (await res.json()).error;
+  assert.deepEqual([res.status, e.type, res.headers.get("Retry-After")], [503, "upstream_quota", null]);
+  assert.equal(isPermanentType(e.type), true); // the page neither retries it nor offers Retry
+  assert.match(e.message, /额度/);
+  assert.doesNotMatch(e.message, /繁忙|Token Plan|2056/);
+  await r.settle();
+  assert.deepEqual(r.reports, ["upstream_quota"]);
+  // health says so, and until when (no reset time from the upstream: BREAKER_OPEN_SECONDS)
+  const until = new Date(NOON + 600000).toISOString();
+  const h = await (await r.call("/v1/health")).json();
+  assert.deepEqual([h.ok, h.reason, h.until, h.model], [false, "upstream_quota", until, "Tao-S1"]);
+  // inside the window: answered here, never sent, never counted
+  const [fetches, gates] = [r.calls.length, r.gates.length];
+  t = NOON + 5 * 60000;
+  for (let i = 0; i < 3; i++) {
+    const again = await r.call("/v1/chat/completions", post(tidy));
+    assert.deepEqual([again.status, (await again.json()).error.type, again.headers.get("Retry-After")], [503, "upstream_quota", "300"]);
+  }
+  assert.deepEqual([r.calls.length - fetches, r.gates.length - gates], [0, 0]);
+  // after the window: exactly one call tries the upstream (the probe); the others wait for its answer
+  t = NOON + 10 * 60000 + 1000;
+  let release;
+  answer = () => new Promise((resolve) => { release = () => resolve(sse(OK_EVENTS)); });
+  const probe = r.call("/v1/chat/completions", post(tidy));
+  for (let i = 0; i < 20 && !release; i++) await new Promise((x) => setTimeout(x, 1));
+  // while it is out, the others (and health) are told to ask again in a few seconds, not at the end of its window
+  const waiting = await r.call("/v1/chat/completions", post(tidy));
+  assert.deepEqual([waiting.status, (await waiting.json()).error.type, waiting.headers.get("Retry-After")], [503, "upstream_quota", "15"]);
+  const probing = await (await r.call("/v1/health")).json();
+  assert.deepEqual([probing.ok, probing.reason, probing.until], [false, "upstream_quota", new Date(t + 15000).toISOString()]);
+  assert.equal(r.calls.length - fetches, 1);
+  release();
+  const answered = await probe;
+  assert.equal(answered.status, 200);
+  assert.match(await answered.text(), /好/);
+  await r.settle();
+  // a 200 closes it: health is ok again, and calls go to the upstream
+  const closed = await (await r.call("/v1/health")).json();
+  assert.deepEqual([closed.ok, "reason" in closed, "until" in closed], [true, false, false]);
+  answer = async () => sse(OK_EVENTS);
+  assert.equal((await r.call("/v1/chat/completions", post(tidy))).status, 200);
+  assert.equal(r.calls.length - fetches, 2);
+  assert.deepEqual(r.reports, ["upstream_quota", "ok"]);
+}));
+
+test("the upstream's reset time keeps the breaker open until then; a probe that fails reopens it", () => quiet(async () => {
+  let t = NOON;
+  let answer = async () => new Response(JSON.stringify(PLAN_SPENT), { status: 429, headers: { "Content-Type": "application/json", "Retry-After": "3600" } });
+  const r = relay({ now: () => t, upstream: () => answer() });
+  const res = await r.call("/v1/chat/completions", post(tidy));
+  assert.deepEqual([res.status, (await res.json()).error.type, res.headers.get("Retry-After")], [503, "upstream_quota", "3600"]);
+  assert.equal((await (await r.call("/v1/health")).json()).until, new Date(NOON + 3600000).toISOString());
+  t = NOON + 30 * 60000; // past BREAKER_OPEN_SECONDS, not past the reset
+  assert.equal((await r.call("/v1/chat/completions", post(tidy))).status, 503);
+  assert.equal(r.calls.length, 1);
+  // the probe after the reset meets the spent quota again (no reset time now): open for BREAKER_OPEN_SECONDS more
+  t = NOON + 3600000 + 1000;
+  answer = async () => jsonReply(PLAN_SPENT, 429);
+  assert.equal((await (await r.call("/v1/chat/completions", post(tidy))).json()).error.type, "upstream_quota");
+  assert.equal(r.calls.length, 2);
+  assert.equal((await (await r.call("/v1/health")).json()).until, new Date(t + 600000).toISOString());
+  // a probe the counters refuse never reached the upstream: the next call tries instead
+  t += 600000 + 1000;
+  const refused = relay({ now: () => t, upstream: async () => sse(OK_EVENTS) });
+  refused.limiter.saveBreaker({ until: t - 1, reason: "upstream_quota", probe: false, failures: [] });
+  const gate = refused.deps.gate;
+  refused.deps.gate = async () => ({ ok: false, reason: "day", retry: 60 });
+  assert.equal((await (await refused.call("/v1/chat/completions", post(tidy))).json()).error.type, "daily_limit");
+  refused.deps.gate = gate;
+  assert.deepEqual(refused.reports, ["released"]);
+  const next = await refused.call("/v1/chat/completions", post(tidy));
+  assert.equal(next.status, 200);
+  await next.text();
+  await refused.settle();
+  assert.deepEqual([refused.calls.length, refused.reports], [1, ["released", "ok"]]);
+  // a reset sooner than a minute is a minute: a breaker open for less would only let the spent quota answer again
+  const soon = relay({ upstream: async () => new Response(JSON.stringify(PLAN_SPENT), { status: 429, headers: { "Content-Type": "application/json", "Retry-After": "1" } }) });
+  const brief = await soon.call("/v1/chat/completions", post(tidy));
+  assert.deepEqual([brief.status, (await brief.json()).error.type, brief.headers.get("Retry-After")], [503, "upstream_quota", "60"]);
+  assert.equal((await (await soon.call("/v1/health")).json()).until, new Date(NOON + 60000).toISOString());
+}));
+
+test("a probe whose stream brings no event is released, however it ends (empty, stopped by the visitor, broken): the next call probes", () => quiet(async () => {
+  const stream = (start) => new Response(new ReadableStream({ start }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  const cases = [
+    // the upstream's 200 stream closes with no event (also through the reasoning filter, for a request without reasoning)
+    ["empty", tidy, () => sse([]), async (res) => assert.equal(await res.text(), "")],
+    ["empty, no reasoning", { ...tidy, thinking: { type: "disabled" } }, () => sse([]), async (res) => assert.equal(await res.text(), "")],
+    // the visitor stops it after the headers, before the first token
+    ["stopped", tidy, () => stream(() => {}), (res) => res.body.cancel()],
+    // it breaks before its first event (a keep-alive comment is no event)
+    ["broken", tidy, () => stream((c) => {
+      c.enqueue(new TextEncoder().encode(": keep-alive\n\n"));
+      c.error(new TypeError("terminated"));
+    }), (res) => assert.rejects(res.text())],
+  ];
+  for (const [name, body, first, finish] of cases) {
+    let t = NOON + 1000;
+    let answer = first;
+    const r = relay({ now: () => t, upstream: () => answer() });
+    r.limiter.saveBreaker({ until: NOON, reason: "upstream_quota", probe: false, failures: [] });
+    const probe = await r.call("/v1/chat/completions", post(body));
+    assert.equal(probe.status, 200, name);
+    await finish(probe);
+    await r.settle();
+    assert.deepEqual(r.reports, ["released"], name);
+    // not another window: health says Tao-S1 is usable, and the next call is the probe
+    t += 5000;
+    assert.equal((await (await r.call("/v1/health")).json()).ok, true, name);
+    answer = async () => sse(OK_EVENTS);
+    const next = await r.call("/v1/chat/completions", post(tidy));
+    assert.equal(next.status, 200, name);
+    assert.match(await next.text(), /好/, name);
+    await r.settle();
+    assert.deepEqual([r.calls.length, r.reports], [2, ["released", "ok"]], name);
+  }
+  // a call that is no probe tells nothing of its stream's end
+  const plain = relay({ upstream: async () => sse([]) });
+  assert.equal(await (await plain.call("/v1/chat/completions", post(tidy))).text(), "");
+  await plain.settle();
+  assert.deepEqual(plain.reports, []);
+  // a probe whose reply (not streamed) breaks off is released too, and the visitor told the service could not be reached
+  const cut = relay({ now: () => NOON + 1000, upstream: async () => new Response(new ReadableStream({ start: (c) => c.error(new TypeError("terminated")) }), { status: 200, headers: { "Content-Type": "application/json" } }) });
+  cut.limiter.saveBreaker({ until: NOON, reason: "upstream_quota", probe: false, failures: [] });
+  const res = await cut.call("/v1/chat/completions", post({ ...tidy, stream: false }));
+  assert.deepEqual([res.status, (await res.json()).error.type], [502, "upstream_unreachable"]);
+  assert.deepEqual(cut.reports, ["released"]);
+}));
+
+test("a 429 without a marker is still a minute's limit: upstream_rate with Retry-After, and the breaker stays closed", () => quiet(async () => {
+  const r = relay({ upstream: async () => new Response(JSON.stringify(MINUTE), { status: 429, headers: { "Content-Type": "application/json", "Retry-After": "12" } }) });
+  for (let i = 0; i < 5; i++) {
+    const res = await r.call("/v1/chat/completions", post(tidy));
+    const e = (await res.json()).error;
+    assert.deepEqual([res.status, e.type, res.headers.get("Retry-After")], [429, "upstream_rate", "12"]);
+    assert.equal(isPermanentType(e.type), false);
+  }
+  await r.settle();
+  assert.equal(r.calls.length, 5);
+  assert.deepEqual(r.reports, []);
+  assert.equal((await (await r.call("/v1/health")).json()).ok, true);
+  // the same body under rate_limit_error but naming no marker, without Retry-After: 30, as before
+  const plain = relay({ upstream: async () => jsonReply({ error: { type: "rate_limit_error", message: "too many requests" } }, 429) });
+  const p = await plain.call("/v1/chat/completions", post(tidy));
+  assert.deepEqual([p.status, (await p.json()).error.type, p.headers.get("Retry-After")], [429, "upstream_rate", "30"]);
+}));
+
+test("quota markers are the owner's configuration: a code, a type or words of the message, inside a reply or a stream", () => quiet(async () => {
+  const kind = async (upstream, env = {}) => {
+    const r = relay({ env, upstream });
+    const res = await r.call("/v1/chat/completions", post(tidy));
+    const text = await res.text();
+    assert.doesNotMatch(text, /Token Plan|2056|MiniMax|status_msg/, text);
+    return res.status === 200 ? events(text).find((x) => x.error)?.error.type : JSON.parse(text).error.type;
+  };
+  // the documented answer, as a base_resp in a 200 reply and as the first event of a stream (probe A4 and A3)
+  assert.equal(await kind(async () => jsonReply({ id: "x", base_resp: { status_code: 2056, status_msg: "usage limit exceeded" } })), "upstream_quota");
+  assert.equal(await kind(() => sse(['{"id":"x","choices":[],"base_resp":{"status_code":2056,"status_msg":"usage limit exceeded"}}', "[DONE]"])), "upstream_quota");
+  // the words alone (no code), in a 429
+  assert.equal(await kind(async () => jsonReply({ error: { type: "rate_limit_error", message: "已达到 Token Plan 用量上限" } }, 429)), "upstream_quota");
+  // the owner's own list replaces the default: here 2056 is no longer a marker, a type is
+  const own = { QUOTA_MARKERS: "plan_exhausted" };
+  assert.equal(await kind(async () => jsonReply({ error: { type: "rate_limit_error", message: "x (2056)" } }, 429), own), "upstream_rate");
+  assert.equal(await kind(async () => jsonReply({ error: { type: "plan_exhausted", message: "x" } }, 429), own), "upstream_quota");
+  assert.deepEqual(config(own).quotaMarkers, ["plan_exhausted"]);
+  assert.deepEqual(config({}).quotaMarkers, ["2056", "Token Plan 用量上限"]);
+  // a number inside a message is not a code: only "(NNNN)" at its end is
+  assert.equal(await kind(async () => jsonReply({ error: { type: "rate_limit_error", message: "2056 requests in this minute" } }, 429)), "upstream_rate");
+}));
+
+test("a base_resp code the relay does not know is upstream_unknown, told to the owner with its code; TRANSIENT_CODES stay upstream_error", () => quiet(async () => {
+  const logged = [];
+  const saved = console.error;
+  console.error = (...a) => logged.push(a.join(" "));
+  try {
+    const unknown = relay({ upstream: async () => jsonReply({ id: "x", base_resp: { status_code: 4321, status_msg: "MiniMax: something new" } }) });
+    const res = await unknown.call("/v1/chat/completions", post(tidy));
+    const text = await res.text();
+    assert.deepEqual([res.status, JSON.parse(text).error.type], [502, "upstream_unknown"]);
+    assert.doesNotMatch(text, /MiniMax|4321|something new/);
+    assert.match(JSON.parse(text).error.message, /Tao-S1/);
+    assert.ok(logged.some((l) => /4321/.test(l) && /upstream_unknown/.test(l)), logged.join("\n"));
+    assert.ok(!logged.some((l) => /something new/.test(l))); // the code, never the upstream's message
+    // inside a stream too
+    const streamed = relay({ upstream: () => sse(['{"id":"x","choices":[],"base_resp":{"status_code":4321,"status_msg":"new"}}', "[DONE]"]) });
+    assert.equal(events(await (await streamed.call("/v1/chat/completions", post(tidy))).text())[0].error.type, "upstream_unknown");
+    // a code the owner lists as transient is the upstream's passing fault: upstream_error, which the page retries
+    const listed = relay({ env: { TRANSIENT_CODES: "1013,4321" }, upstream: async () => jsonReply({ base_resp: { status_code: 4321 } }) });
+    assert.equal((await (await listed.call("/v1/chat/completions", post(tidy))).json()).error.type, "upstream_error");
+    for (const code of [1000, 1001, 1013]) {
+      assert.equal((await (await relay({ upstream: async () => jsonReply({ base_resp: { status_code: code } }) }).call("/v1/chat/completions", post(tidy))).json()).error.type, "upstream_error", String(code));
+    }
+  } finally {
+    console.error = saved;
+  }
+}));
+
+test("the breaker opens on BREAKER_ERRORS upstream errors or unknown codes within BREAKER_ERROR_SECONDS, never on spaced ones", () => quiet(async () => {
+  let t = NOON;
+  let answer = async () => new Response("boom", { status: 500 });
+  const r = relay({ now: () => t, upstream: () => answer() });
+  const status = async (ip) => (await r.call("/v1/chat/completions", post(tidy, { "CF-Connecting-IP": ip }))).status;
+  assert.equal(await status("203.0.113.1"), 502);
+  t += 61000;
+  assert.equal(await status("203.0.113.2"), 502); // the first is past the minute
+  t += 1000;
+  answer = async () => jsonReply({ base_resp: { status_code: 4321 } });
+  assert.equal(await status("203.0.113.3"), 502);
+  assert.equal(r.calls.length, 3);
+  assert.equal((await (await r.call("/v1/health")).json()).ok, true); // two within the minute: still closed
+  t += 1000;
+  assert.equal(await status("203.0.113.2"), 502); // the third (two of one visitor's among them): open
+  const h = await (await r.call("/v1/health")).json();
+  assert.deepEqual([h.ok, h.reason, h.until], [false, "upstream_error", new Date(t + 600000).toISOString()]);
+  const paused = await r.call("/v1/chat/completions", post(tidy));
+  const e = (await paused.json()).error;
+  assert.deepEqual([paused.status, e.type, paused.headers.get("Retry-After")], [503, "upstream_error", "600"]);
+  assert.match(e.message, /Tao-S1 出错了/);
+  assert.equal(r.calls.length, 4);
+  // the owner's settings
+  const strict = relay({ env: { BREAKER_ERRORS: "1", BREAKER_OPEN_SECONDS: "120" }, upstream: async () => new Response("boom", { status: 503 }) });
+  await strict.call("/v1/chat/completions", post(tidy));
+  assert.equal((await (await strict.call("/v1/health")).json()).until, new Date(NOON + 120000).toISOString());
+  assert.deepEqual(config({ BREAKER_ERRORS: "0", BREAKER_OPEN_SECONDS: "soon" }).breaker, { open: 600, errors: 3, window: 60 });
+  // what the breaker does not count: rejected requests, a refused key, a minute's limit, an unreachable upstream
+  for (const upstream of [async () => jsonReply({ error: { message: "bad" } }, 400), async () => jsonReply({}, 401), async () => jsonReply(MINUTE, 429),
+    async () => { throw new TypeError("fetch failed"); }]) {
+    const other = relay({ upstream });
+    for (let i = 0; i < 4; i++) await other.call("/v1/chat/completions", post(tidy));
+    assert.deepEqual([other.calls.length, other.reports], [4, []]);
+  }
+}));
+
+test("one visitor's failures alone never open the breaker for everyone; with another visitor's among them, they do", () => quiet(async () => {
+  let t = NOON;
+  // a code tied to what the request says: the upstream fails one visitor's request, not the service
+  const r = relay({ now: () => t, upstream: async (url, init) => (/poison/.test(init.body) ? jsonReply({ base_resp: { status_code: 1042, status_msg: "illegal characters" } }) : sse(OK_EVENTS)) });
+  const bad = { ...tidy, messages: [{ role: "user", content: "poison" }] };
+  const from = (ip, body = tidy) => r.call("/v1/chat/completions", post(body, { "CF-Connecting-IP": ip }));
+  for (let i = 0; i < 6; i++) { // a turn's three attempts, twice, within the minute
+    const res = await from("198.51.100.9", bad);
+    assert.deepEqual([res.status, (await res.json()).error.type], [502, "upstream_unknown"]);
+    t += 1500;
+  }
+  const other = await from("203.0.113.50");
+  assert.equal(other.status, 200);
+  assert.match(await other.text(), /好/);
+  assert.equal(r.calls.length, 7);
+  assert.equal((await (await r.call("/v1/health")).json()).ok, true);
+  // the breaker's row keeps no more of one visitor's failures than it needs
+  assert.equal(r.limiter.breakerState().failures.length, 3);
+  // a second visitor's failure within the minute: the upstream fails more than one visitor, and the breaker opens
+  t += 1000;
+  assert.equal((await from("203.0.113.50", bad)).status, 502);
+  const h = await (await r.call("/v1/health")).json();
+  assert.deepEqual([h.ok, h.reason], [false, "upstream_error"]);
+  assert.equal((await from("203.0.113.77")).status, 503);
+  assert.equal(r.calls.length, 8);
+}));
+
+test("a breaker that cannot be read lets the call on (the counters still decide); health then says what it knows", () => quiet(async () => {
+  const r = relay();
+  r.deps.breaker = async () => { throw new Error("Durable Object: overloaded"); };
+  const res = await r.call("/v1/chat/completions", post(tidy));
+  assert.equal(res.status, 200);
+  await res.text();
+  assert.deepEqual([r.calls.length, r.gates.length], [1, 1]);
+  assert.equal((await (await r.call("/v1/health")).json()).ok, true);
+  // health reads no breaker while Tao-S1 is off anyway
+  const off = relay({ env: { RELAY: "off" } });
+  let read = 0;
+  off.deps.breaker = async () => { read++; return { open: false }; };
+  assert.equal((await (await off.call("/v1/health")).json()).ok, false);
+  assert.equal(read, 0);
 }));
 
 // ------------------------------------------------------------------ limits

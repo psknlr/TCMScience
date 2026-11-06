@@ -91,6 +91,30 @@ test("relayHealth reads the relay's health and never throws", async () => {
   assert.match(down.error, /Failed to fetch/);
 });
 
+test("relayHealth reads the relay's upstream breaker: why Tao-S1 cannot answer, and until when", async () => {
+  const until = "2026-11-04T09:30:00.000Z";
+  const health = (body) => relayHealth({ fetch: fakeFetch(() => new Response(JSON.stringify({ model: "Tao-S1", max_output_tokens: 8192, ...body }))) });
+  const quota = await health({ ok: false, reason: "upstream_quota", until });
+  assert.deepEqual([quota.ok, quota.reason, quota.until, quota.error_type], [false, "upstream_quota", until, "upstream_quota"]);
+  assert.match(quota.error, /^Tao-S1 的模型额度暂时用完了/, "the quota, not 'not configured'");
+  const failing = await health({ ok: false, reason: "upstream_error", until: "2026-11-04T09:30:00Z" });
+  assert.deepEqual([failing.reason, failing.until, failing.error_type], ["upstream_error", until, "upstream_error"]);
+  setLang("en");
+  try {
+    assert.match(relayHealthError(quota).error, /^Tao-S1's model quota is used up/);
+  } finally {
+    setLang("zh");
+  }
+  // a reason the page does not know, an unreadable time, or a healthy relay: no breaker read into it
+  for (const body of [{ ok: false, reason: "maintenance", until }, { ok: false, reason: "upstream_quota", until: "soon" }, { ok: true, reason: "upstream_quota", until }]) {
+    const h = await health(body);
+    assert.deepEqual(["reason" in h, "until" in h], [false, false], JSON.stringify(body));
+  }
+  const off = await health({ ok: false });
+  assert.deepEqual([off.reason, off.until], [undefined, undefined]);
+  assert.match(off.error, /^Tao-S1 暂未开放/);
+});
+
 test("testConnection: a tool-calling round trip, with latency", async () => {
   const f = fakeFetch(() => streamResponse([sse([
     { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "c", function: { name: "ping", arguments: "{\"echo\":\"ok\"}" } }] } }] },

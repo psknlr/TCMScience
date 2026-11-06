@@ -7,7 +7,9 @@
 // 2. GET / is the app, with the headers from _headers (cross-origin isolation, the content policy);
 // 3. one tiny non-streaming model call (max_tokens 8) with the page's Origin, unless the relay has no key — then a
 //    warning, or a failure with --require-model — or is paused: RELAY = "off" in wrangler.toml (read next to this
-//    script unless --relay says otherwise) is the owner's choice, not a failure.
+//    script unless --relay says otherwise) is the owner's choice, not a failure. A health that names a `reason` is the
+//    relay's upstream breaker, open (the upstream's quota is spent, or it kept failing): said, with until when, without
+//    waiting for a key, and a failure with --require-model.
 // With --require-telemetry: the telemetry routes answer, and the admin side is closed to anyone not signed in (the
 // dashboard's code and its API answer 401, or 503 while no ADMIN_TOKEN is set — never 200).
 // With --datasets: the first byte of a small reviewed file through the dataset relay (/api/datasets/files/*), whose
@@ -249,12 +251,13 @@ export async function check(options = {}, io = {}) {
     await sleep(10000);
   }
 
-  // a key put moments ago takes a little while to reach every location: the version before it says ok:false
+  // a key put moments ago takes a little while to reach every location: the version before it says ok:false. Health
+  // with a reason is the relay's upstream breaker, open: no key is on its way, so nothing to wait for.
   const paused = OFF.test(String(options.relay ?? "").trim());
-  if (!health.ok && options.requireModel && !paused) {
+  if (!health.ok && options.requireModel && !paused && !health.reason) {
     const settle = Number(options.settle ?? 120);
     const until = now() + settle * 1000;
-    while (!health.ok && now() < until) {
+    while (!health.ok && !health.reason && now() < until) {
       log(`waiting for Tao-S1's key to take effect at ${url} (health ok:false)`);
       await sleep(5000);
       try {
@@ -296,6 +299,16 @@ export async function check(options = {}, io = {}) {
       log("Tao-S1 is paused (RELAY = \"off\" in wrangler.toml); the site works with visitors' own models");
       return { ...summary, call: "skipped (RELAY off)" };
     }
+    if (health.reason) {
+      // the breaker opened on the upstream's own answers: what the upstream says now is the owner's next step
+      const why = health.reason === "upstream_quota"
+        ? "the model service's quota is spent (the key's balance, or its plan's quota until the plan resets; QUOTA_MARKERS in wrangler.toml)"
+        : "the model service kept failing";
+      const said = `Tao-S1 is paused by the relay's upstream breaker until ${health.until} (${health.reason}): ${why}`;
+      if (options.requireModel) throw new Error(`${said}${options.upstream ? ` — ${await diagnose(options.upstream, fetcher)}` : ""}`);
+      log(`warning: ${said}; the site works with visitors' own models`);
+      return { ...summary, call: `skipped (${health.reason} until ${health.until})` };
+    }
     if (options.requireModel) {
       const why = options.relay == null ? "no MINIMAX_API_KEY secret on the Worker, or RELAY = \"off\" in wrangler.toml" : "no MINIMAX_API_KEY secret on the Worker";
       throw new Error(`the relay answers but Tao-S1 is off: ${why}`);
@@ -319,7 +332,7 @@ export async function check(options = {}, io = {}) {
     const e = reply?.error || {};
     const hint = e.type === "upstream_auth"
       ? " — the model service refused the key: a key from the international platform (platform.minimax.io) needs UPSTREAM_BASE = \"https://api.minimax.io/v1\" in studio/edge/wrangler.toml, a mainland key https://api.minimax.cn/v1; or the key is wrong"
-      : e.type === "upstream_quota" ? " — the model service says this key's balance is used up: top up the MiniMax account the key belongs to, or put a key with balance in MINIMAX_API_KEY"
+      : e.type === "upstream_quota" ? " — the model service says this key's balance is used up: top up the MiniMax account the key belongs to, or put a key with balance in MINIMAX_API_KEY; for a Token Plan key, its plan's quota is spent until the plan resets"
       : e.type === "forbidden_origin" ? ` — ${origin} is not in ALLOWED_ORIGINS` : "";
     const upstreamSays = options.upstream && /^upstream_|^content_/.test(String(e.type || ""))
       ? ` — ${await diagnose(options.upstream, fetcher)}` : "";

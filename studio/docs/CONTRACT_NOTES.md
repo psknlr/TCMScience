@@ -11,6 +11,21 @@ Append-only notes where a part assumes something CONTRACTS.md does not say. One 
 - Upstream statuses: 401/403 → 503 `upstream_auth`; 429 → 429 `upstream_rate` (`Retry-After`: the upstream's, else 30);
   ≥500 and 404 → 502 `upstream_error`; other 4xx → 400 `upstream_rejected`; unreachable → 502 `upstream_unreachable`.
   A refusal on content moderation is 400 `upstream_rejected` with a message that says to rephrase.
+- A spent quota → 503 `upstream_quota` (permanent for the page): HTTP 402, code 1008, or a body that matches a
+  `QUOTA_MARKERS` entry (a code or type equal to the upstream's `base_resp.status_code`, `error.code`, `error.type` or
+  the "(NNNN)" that ends its message; or words found in its message). The default markers are what the upstream answered
+  when its Token Plan was spent on 2026-11-04: HTTP 429 `rate_limit_error` "已达到 Token Plan 用量上限：… (2056)". A
+  `base_resp` code with no entry of its own and not in `TRANSIENT_CODES` → 502 `upstream_unknown`, logged with its code.
+- The upstream breaker (`LimiterCore.breaker` / `breakerReport`, one row `upstream` in the `Limiter` object): opened by a
+  spent quota (until the upstream's `Retry-After`, at least a minute and at most a day, else `BREAKER_OPEN_SECONDS`) or by
+  `BREAKER_ERRORS` `upstream_error` / `upstream_unknown` within `BREAKER_ERROR_SECONDS`, not all met by one caller (the
+  counters' visitor key; any one failure when `BREAKER_ERRORS` is 1). Open: chat → 503 at once, no upstream fetch, no gate
+  hit; `/v1/health` → `ok:false, reason, until`. After `until` the next chat call is the one probe of a new window: its
+  200 closes the breaker, a spent quota or an error reopens it, a probe that never reached the upstream, or whose answer
+  ended, was stopped or broke before its first event, lets the next call try; while it is out, the other calls get
+  `Retry-After: 15` and health an `until` 15 s ahead, for a minute at most (then the next call probes). Each trip and each close is one Worker log line. Health and chat
+  read the breaker at most once per 10 s per isolate (`src/index.js`); once a window has passed, chat always asks the
+  object, which grants the one probe.
 - An error the upstream reports *inside* a stream arrives as one SSE event `data: {"error":{"message","type"}}` (then
   usually `data: [DONE]`). web-core's `llm/openai.js` should surface it as a model error, not as text.
 - A page on another allowed origin (the runner's `http://127.0.0.1:8765`) can read `Retry-After`
@@ -22,6 +37,10 @@ Append-only notes where a part assumes something CONTRACTS.md does not say. One 
   stream `content` / `reasoning_details` cumulatively rather than as increments; the client should accept both.
 - Kill switch besides a missing key: `RELAY = "off"` in `studio/edge/wrangler.toml` → `health.ok:false`, chat 503
   `not_configured`.
+- web-core: `relayHealth` returns `reason` and `until` when the breaker is open (and tells the error by `reason`); the
+  composer then shows "Tao-S1 is unavailable until HH:MM" with a one-click switch of the conversation's model to another
+  configured provider (`ui/composer.js relayBanner`); the app checks health again after a relay error of a kind that may
+  have opened the breaker, and when `until` has passed.
 
 ## edge: static serving, for web-ui and browser-runtime
 

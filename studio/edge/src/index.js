@@ -49,6 +49,14 @@ export class Limiter extends DurableObject {
   sourceSlot(host, rps, prefixes) {
     return this.core.sourceSlot(host, rps, Date.now(), prefixes);
   }
+
+  breaker(probe, settings) {
+    return this.core.breaker(probe, settings, Date.now());
+  }
+
+  breakerReport(outcome, settings, reset, who) {
+    return this.core.breakerReport(outcome, settings, reset, Date.now(), who);
+  }
 }
 
 /** When the next daily retention pass runs: 03:17 UTC (quiet in Beijing and in Europe). */
@@ -282,15 +290,38 @@ function burstOf(env) {
 
 const deferOf = (ctx) => (promise) => ctx.waitUntil(Promise.resolve(promise).catch((err) => console.error("deferred", err?.name || "Error")));
 
+// The breaker as this isolate last read or told it, by Limiter binding: health and model calls read the object at most
+// once in ten seconds each isolate (health answers anyone, and the Free plan's daily Durable Object requests are the
+// limits' too, which every model call already makes once). A breaker opened elsewhere is known here ten seconds later at
+// most, sooner when a call from here meets the upstream's failure and tells it; once its window has passed, a model call
+// always asks the object, which grants the one probe.
+const BREAKER_SEEN_MS = 10000;
+const breakerSeen = new WeakMap(); // env.LIMITER → {at, state}
+
 /** The relay's dependencies, bound to this Worker's bindings. */
 export function relayDeps(env, ctx) {
   const limiter = () => env.LIMITER.get(env.LIMITER.idFromName("limits")); // one object: exact counts for everyone
   const defer = deferOf(ctx);
   const cfg = telemetryConfig(env);
+  const keyed = env.LIMITER && typeof env.LIMITER === "object";
+  // a probe's grant is that call's alone (the breaker is open to every other call): not kept
+  const seen = (state) => {
+    if (keyed && state && typeof state === "object" && !state.probe) breakerSeen.set(env.LIMITER, { at: Date.now(), state });
+    return state;
+  };
   return {
     // throws when the object cannot be reached: the relay then refuses the call (fail closed)
     gate: ({ who, kind, limits, reserve }) => limiter().hit(who, kind, limits, reserve),
     spend: (who, kind, tokens) => limiter().spend(who, kind, tokens),
+    breaker: async ({ probe, settings }) => {
+      const held = keyed ? breakerSeen.get(env.LIMITER) : null;
+      const now = Date.now();
+      // a window that has passed waits for a model call to probe it: health may tell it from here, a model call asks
+      const fresh = held && now - held.at < BREAKER_SEEN_MS && !(held.state.open && now >= held.state.until);
+      if (fresh && !(probe && held.state.due)) return held.state;
+      return seen(await limiter().breaker(Boolean(probe), settings));
+    },
+    breakerReport: async ({ outcome, settings, reset, who }) => seen(await limiter().breakerReport(outcome, settings, reset, who)),
     pace: (host, rps, prefixes) => limiter().sourceSlot(host, rps, prefixes),
     burst: burstOf(env),
     defer,

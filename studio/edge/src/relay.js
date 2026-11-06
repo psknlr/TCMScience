@@ -1,12 +1,13 @@
 // The Tao-S1 relay under https://science.impf.ai/v1/* (CONTRACTS.md §1). A port of TaoChronos relay/src/relay.js
 // without its sentinel; the usage statistics and conversation records are the telemetry's (src/telemetry/, /api/telemetry/*):
 // here a call's outcome and tokens are counted (deps.metric), and health tells the page what is recorded.
-//   GET  /v1/health            {ok, service, version, model, models, max_output_tokens, limits}
+//   GET  /v1/health            {ok, reason?, until?, service, version, model, models, max_output_tokens, limits}
 //   GET  /v1/models            the public model only
 //   POST /v1/chat/completions  forwarded (streamed) to the upstream with the key, which only this Worker holds
 // The upstream is never named to a visitor: the model is renamed both ways, its own fields are dropped, and its errors
 // are told in this service's words. Errors are OpenAI-style {error: {message, type}}; the message is Chinese and says
-// what to do, the page may localize by `type`.
+// what to do, the page may localize by `type`. The upstream's breaker (one key in the Limiter) answers every call at
+// once while the upstream's quota is spent or it keeps failing, and health says so, with until when.
 
 import { asksIdentity } from "./identity.js";
 import { day } from "./limiter.js";
@@ -34,6 +35,11 @@ export const DEFAULTS = {
   TOKENS_PER_DAY: "10000000",
   TOTAL_TOKENS_PER_DAY: "200000000",
   ALLOWED_ORIGINS: "https://science.impf.ai,http://127.0.0.1:8765,http://localhost:8765",
+  QUOTA_MARKERS: "2056,Token Plan 用量上限",
+  TRANSIENT_CODES: "1000,1001,1013",
+  BREAKER_OPEN_SECONDS: "600",
+  BREAKER_ERRORS: "3",
+  BREAKER_ERROR_SECONDS: "60",
 };
 
 export function config(env = {}) {
@@ -64,6 +70,13 @@ export function config(env = {}) {
       perMinute: num("PER_MINUTE"), perDay: num("PER_DAY"), total: num("TOTAL_PER_DAY"),
       tokensPerDay: num("TOKENS_PER_DAY"), totalTokens: num("TOTAL_TOKENS_PER_DAY"),
     },
+    // what in an upstream failure says its plan's quota is spent (a code or type, or words of its message), and the
+    // base_resp codes that are a passing fault: any other code the upstream reports is one this relay does not know
+    quotaMarkers: list("QUOTA_MARKERS"),
+    transient: new Set(list("TRANSIENT_CODES")),
+    // the breaker opens for `open` seconds (unless the upstream says when its quota resets), on a spent quota or on
+    // `errors` failures within `window` seconds
+    breaker: { open: num("BREAKER_OPEN_SECONDS", 1), errors: num("BREAKER_ERRORS", 1), window: num("BREAKER_ERROR_SECONDS", 1) },
   };
 }
 
@@ -92,6 +105,7 @@ const MSG = {
   upstream_rate: `Tao-S1 的模型服务暂时繁忙，请稍后再试，${OWN}`,
   upstream_quota: `Tao-S1 的模型额度暂时用完了，请稍后再试，${OWN}`,
   upstream_error: `Tao-S1 出错了，请稍后再试，${OWN}`,
+  upstream_unknown: `Tao-S1 的模型服务报告了一个中继不认识的错误，这次回答没有完成：请稍后再试，${OWN}`,
   upstream_rejected: "Tao-S1 无法完成这个请求：请检查“设置 → 模型”里的温度、最大输出等选项，或新开一个对话后重试",
   content_rejected: `Tao-S1 无法回答这个请求（内容未通过模型服务的审核）：请换一种说法，${OWN}`,
   relay_error: `Tao-S1 中继出错了，请稍后再试，${OWN}`,
@@ -104,6 +118,7 @@ const FAILURE = {
   upstream_rate: [429, "upstream_rate", MSG.upstream_rate],
   upstream_quota: [503, "upstream_quota", MSG.upstream_quota],
   upstream_error: [502, "upstream_error", MSG.upstream_error],
+  upstream_unknown: [502, "upstream_unknown", MSG.upstream_unknown],
   upstream_unreachable: [502, "upstream_unreachable", MSG.upstream_unreachable],
   upstream_rejected: [400, "upstream_rejected", MSG.upstream_rejected],
   content_rejected: [400, "upstream_rejected", MSG.content_rejected],
@@ -115,16 +130,82 @@ const BASE_RESP = {
   1026: "content_rejected", 1027: "content_rejected", // the input / the output did not pass moderation
   2013: "upstream_rejected", // invalid parameters
 };
-const failureOf = (code) => FAILURE[BASE_RESP[code] || "upstream_error"];
+// what the breaker counts: a spent quota opens it at once, these failures when they come close together
+const TRIPS = new Set(["upstream_quota", "upstream_error", "upstream_unknown"]);
+const CODE = /^[\w.-]{1,40}$/;
+const MAX_RESET = 86400; // seconds: a quota reset further off than a day is asked again, by a probe, after a day
+// seconds: a reset sooner than a minute is a minute (as BREAKER_OPEN_SECONDS is): a breaker open for less only lets the
+// spent quota answer again, and the page's banner come and go
+const MIN_RESET = 60;
+
+/** The failure codes and messages in an upstream's error reply: base_resp, an OpenAI-style error (its code and type),
+ * and the code MiniMax writes at the end of a message ("… (2056)"). */
+function signals(j) {
+  const codes = new Set();
+  const texts = [];
+  const code = (v) => {
+    if (v !== undefined && v !== null && v !== "" && v !== 0) codes.add(String(v));
+  };
+  const base = j.base_resp;
+  if (base && typeof base === "object") {
+    code(base.status_code);
+    if (typeof base.status_msg === "string") texts.push(base.status_msg);
+  }
+  const e = j.error;
+  if (e && typeof e === "object") {
+    code(e.code);
+    code(e.type);
+    if (typeof e.message === "string") texts.push(e.message);
+  } else if (typeof e === "string") texts.push(e);
+  for (const t of texts) {
+    const m = /\((\d{3,6})\)\s*$/.exec(t);
+    if (m) codes.add(m[1]);
+  }
+  return { codes, texts };
+}
+
+/** Whether an upstream's error reply says its plan's quota is spent: a QUOTA_MARKERS entry is one of its codes or its
+ * type, or (an entry of words, not a code) part of its message. Only the markers say so: a 429 alone is a minute's limit. */
+function quotaSpent(j, markers) {
+  if (!j || typeof j !== "object" || Array.isArray(j) || !markers.length) return false;
+  const { codes, texts } = signals(j);
+  return markers.some((m) => (CODE.test(m) ? codes.has(m) : texts.some((t) => t.includes(m))));
+}
+
+/** What a failure the upstream reports inside a reply or a stream is: its base_resp code's own kind, a spent quota (a
+ * marker), a passing fault (TRANSIENT_CODES, or no code at all), else a code this relay does not know. */
+function failureKind(j, cfg) {
+  const code = j.base_resp?.status_code;
+  if (code && BASE_RESP[code]) return BASE_RESP[code];
+  if (quotaSpent(j, cfg.quotaMarkers)) return "upstream_quota";
+  if (!code || cfg.transient.has(String(code))) return "upstream_error";
+  return "upstream_unknown";
+}
+
+/** What an HTTP error from the upstream is. Its body is read only for a spent quota, and never shown. */
+function httpFailure(status, said, code, cfg) {
+  if (status === 401 || status === 403) return "upstream_auth";
+  let j = null;
+  try {
+    j = JSON.parse(String(said).slice(0, 65536));
+  } catch { /* not JSON */ }
+  // MiniMax answers an empty balance with 402 insufficient_balance_error (1008), and a spent Token Plan with a 429
+  // rate_limit_error whose message ends in (2056): the quota is spent, not the request wrong nor a minute's limit
+  if (status === 402 || code === "1008" || code === "insufficient_balance_error" || quotaSpent(j, cfg.quotaMarkers)) return "upstream_quota";
+  if (status === 429) return "upstream_rate";
+  if (status >= 500 || status === 404) return "upstream_error";
+  return "upstream_rejected";
+}
 
 // ------------------------------------------------------------------ the handler
 const ROUTES = { "/v1/health": "GET", "/v1/models": "GET", "/v1/chat/completions": "POST" };
 
 /**
  * deps: {gate({who, kind, limits, reserve}) → {ok, reason?, retry?, remaining?, reserved?}, spend(who, kind, tokens),
- * burst(key) → boolean, defer(promise), fetch(url, init), now() → ms, and optionally metric(list, request) and
- * securityEvent(kind, request, facts) for the telemetry}. The Worker (index.js) binds them to the Durable Objects, the
- * ratelimit binding and ctx.waitUntil; the tests bind them to fakes.
+ * burst(key) → boolean, defer(promise), fetch(url, init), now() → ms, and optionally the upstream's breaker:
+ * breaker({probe, settings}) → {open, reason?, until?, retry?, probe?} and breakerReport({outcome, settings, reset, who}) (src/limiter.js),
+ * metric(list, request) and securityEvent(kind, request, facts) for the telemetry}. The Worker (index.js) binds them to
+ * the Durable Objects, the ratelimit binding and ctx.waitUntil; the tests bind them to fakes.
  */
 export async function handle(request, env, deps) {
   const cfg = config(env);
@@ -154,7 +235,7 @@ export async function handle(request, env, deps) {
     if (method !== want) {
       return error(405, MSG.method_not_allowed, "method_not_allowed", { ...cors, Allow: want === "GET" ? "GET, HEAD" : want });
     }
-    if (url.pathname === "/v1/health") return health(env, cfg, cors);
+    if (url.pathname === "/v1/health") return await health(env, cfg, cors, deps);
     if (url.pathname === "/v1/models") return json({ object: "list", data: [{ id: cfg.publicModel, object: "model", owned_by: "impf" }] }, 200, cors);
     const res = await chat(request, env, cfg, cors, allowed, deps);
     observe(res, request, deps);
@@ -271,15 +352,38 @@ function limited(gate, limits, cors) {
 
 function failed(kind, cors, retryAfter) {
   const [status, type, message] = FAILURE[kind];
-  return error(status, message, type, status === 429 ? { ...cors, "Retry-After": retryAfter || "30" } : cors);
+  if (status === 429) return error(status, message, type, { ...cors, "Retry-After": retryAfter || "30" });
+  return error(status, message, type, retryAfter ? { ...cors, "Retry-After": retryAfter } : cors);
+}
+
+/** A call while the breaker is open, answered here at once in its own words: a spent quota, or a service that keeps
+ * failing; Retry-After is when the breaker lets a call try the upstream again (from its `until`: the state may be what
+ * this isolate read a few seconds ago). */
+function paused(state, cors, now) {
+  const [, type, message] = FAILURE[state.reason === "upstream_quota" ? "upstream_quota" : "upstream_error"];
+  const left = Number(state.until) > 0 ? (Number(state.until) - now) / 1000 : Number(state.retry);
+  const retry = Math.max(1, Math.ceil(Number.isFinite(left) ? left : 60));
+  return error(503, message, type, { ...cors, "Retry-After": String(retry) });
 }
 
 const cancel = (response) => response.body?.cancel().catch(() => {});
 
 // ------------------------------------------------------------------ endpoints
-function health(env, cfg, cors) {
+async function health(env, cfg, cors, deps) {
+  const on = cfg.enabled && Boolean(env.MINIMAX_API_KEY);
+  // the upstream's breaker, while it is open: why Tao-S1 cannot answer, and until when (the page offers the visitor's
+  // own model meanwhile). A breaker that cannot be read says nothing here: a model call then fails closed on its own.
+  let open = null;
+  if (on && deps.breaker) {
+    try {
+      const s = await deps.breaker({ probe: false, settings: cfg.breaker });
+      if (s?.open) open = { reason: s.reason === "upstream_quota" ? "upstream_quota" : "upstream_error", until: new Date(Number(s.until)).toISOString() };
+    } catch (err) {
+      console.error("breaker", err?.name || "Error");
+    }
+  }
   return json({
-    ok: cfg.enabled && Boolean(env.MINIMAX_API_KEY),
+    ok: on && !open, ...open,
     service: SERVICE, version: VERSION, model: cfg.publicModel, models: [cfg.publicModel],
     max_output_tokens: cfg.maxTokens,
     limits: { per_minute: cfg.chat.perMinute, per_day: cfg.chat.perDay, tokens_per_day: cfg.chat.tokensPerDay },
@@ -289,7 +393,8 @@ function health(env, cfg, cors) {
 }
 
 // Checks run cheapest first, and a refused request is never counted: origin → another zone's Worker → configured →
-// ten-second gate (before the body is read) → body size → JSON → messages → model → the counters → the upstream.
+// ten-second gate (before the body is read) → body size → JSON → messages → model → the breaker → the counters → the
+// upstream.
 async function chat(request, env, cfg, cors, allowed, deps) {
   if (!allowed) return error(403, MSG.forbidden_origin, "forbidden_origin", cors);
   const zone = forwardingZone(request);
@@ -317,6 +422,19 @@ async function chat(request, env, cfg, cors, allowed, deps) {
   if (asked !== undefined && asked !== null && asked !== "" && asked !== cfg.publicModel) {
     return error(400, MSG.model_not_allowed(cfg.publicModel), "model_not_allowed", cors);
   }
+  // the upstream's breaker: while it is open the call is answered here, never sent and never counted; once its window is
+  // over, one call (this one, when `probe`) tries the upstream again, and its outcome closes or reopens it. A breaker
+  // that cannot be read lets the call on: the counters still decide, and fail closed.
+  let state = null;
+  if (deps.breaker) {
+    try {
+      state = await deps.breaker({ probe: true, settings: cfg.breaker });
+    } catch (err) {
+      console.error("breaker", err?.name || "Error");
+    }
+  }
+  if (state?.open) return paused(state, cors, deps.now());
+  let probe = state?.probe === true;
   const fields = Object.fromEntries(Object.entries(cfg.upstreamFields).filter(([k]) => !(k in body)));
   let rewrite = false;
   let capped = false;
@@ -356,6 +474,19 @@ async function chat(request, env, cfg, cors, allowed, deps) {
   const noReasoning = body.thinking?.type === "disabled";
 
   const who = await caller(request, env, deps.now());
+  // the breaker hears every failure it counts, with whose call met it, and the probe's outcome once: "ok", or "released"
+  // when the probe did not learn whether the upstream answers (refused here, unreachable, answered with an error the
+  // breaker does not count, or a stream that ended, was stopped or broke before its first event)
+  const tell = async (kind, reset = null) => {
+    const trips = TRIPS.has(kind);
+    if (!deps.breakerReport || (!trips && !probe)) return;
+    probe = false;
+    try {
+      await deps.breakerReport({ outcome: trips ? kind : kind === "ok" ? "ok" : "released", settings: cfg.breaker, reset, who });
+    } catch (err) {
+      console.error("breaker", err?.name || "Error");
+    }
+  };
   const reserve = Math.ceil(read.bytes / 3); // about a token per three bytes of request, charged now, settled by the answer
   let gate;
   try {
@@ -365,9 +496,13 @@ async function chat(request, env, cfg, cors, allowed, deps) {
     console.error("gate", err?.name || "Error");
   }
   if (!gate || typeof gate.ok !== "boolean") { // fail closed: never an uncounted call
+    await tell("unavailable");
     return error(503, MSG.unavailable, "unavailable", { ...cors, "Retry-After": "60" });
   }
-  if (!gate.ok) return limited(gate, cfg.chat, cors);
+  if (!gate.ok) {
+    await tell("limited");
+    return limited(gate, cfg.chat, cors);
+  }
 
   const counting = cfg.chat.tokensPerDay > 0 || cfg.chat.totalTokens > 0;
   let charged = Number(gate.reserved) || 0;
@@ -415,6 +550,7 @@ async function chat(request, env, cfg, cors, allowed, deps) {
   } catch (err) {
     if (!request.signal?.aborted) console.error("upstream unreachable", err?.name || "Error");
     refund();
+    await tell("upstream_unreachable");
     return failed("upstream_unreachable", cors);
   }
   const type = upstream.headers.get("Content-Type") || "";
@@ -425,35 +561,52 @@ async function chat(request, env, cfg, cors, allowed, deps) {
     const code = upstreamCode(said);
     console.error("upstream", upstream.status, code);
     refund();
-    if (upstream.status === 401 || upstream.status === 403) return failed("upstream_auth", cors);
-    // MiniMax answers an empty balance with 402 insufficient_balance_error (1008): the quota is spent, not the request wrong
-    if (upstream.status === 402 || code === "1008" || code === "insufficient_balance_error") return failed("upstream_quota", cors);
-    if (upstream.status === 429) return failed("upstream_rate", cors, retryAfterOf(upstream));
-    if (upstream.status >= 500 || upstream.status === 404) return failed("upstream_error", cors);
-    return failed("upstream_rejected", cors);
+    const kind = httpFailure(upstream.status, said, code, cfg);
+    // a spent quota: the upstream's Retry-After, when it gives one, is when it resets (the breaker stays open until then)
+    const reset = kind === "upstream_quota" ? resetOf(upstream) : null;
+    await tell(kind, reset);
+    return failed(kind, cors, kind === "upstream_rate" ? retryAfterOf(upstream) : reset && String(reset));
   }
   const headers = { ...cors, "Content-Type": type, "Cache-Control": "no-store" };
   if (type.includes("event-stream") && upstream.body) {
     const source = noReasoning ? upstream.body.pipeThrough(reasoningFilter()) : upstream.body;
-    return new Response(source.pipeThrough(publicFilter(cfg, spend)), { status: upstream.status, headers });
+    const filter = publicFilter(cfg, spend, (kind) => deps.defer(tell(kind)));
+    // the stream's end, however it comes (the last event, the visitor stopping it, the upstream breaking it): a probe
+    // that saw no event by then learned nothing and is released, so that the next call tries; told before the Worker goes
+    const ended = source.pipeTo(filter.writable).catch(() => {}).then(() => tell("ended"));
+    if (probe) deps.defer(ended);
+    return new Response(filter.readable, { status: upstream.status, headers });
   }
   if (!type.includes("json")) {
     await cancel(upstream);
     console.error("upstream content type", type.split(";")[0] || "none");
     refund();
+    await tell("upstream_error");
     return failed("upstream_error", cors);
   }
-  const text = await upstream.text();
+  let text;
+  try {
+    text = await upstream.text();
+  } catch (err) {
+    // the visitor stopped it, or the upstream broke off its reply: nothing to pass on, and a probe learned nothing
+    if (!request.signal?.aborted) console.error("upstream reply", err?.name || "Error");
+    refund();
+    await tell("upstream_unreachable");
+    return failed("upstream_unreachable", cors);
+  }
   let j = null;
   try {
     j = JSON.parse(text);
   } catch { /* told below */ }
   const code = j?.base_resp?.status_code;
   if (!j || typeof j !== "object" || Array.isArray(j) || code || j.error) {
-    console.error("upstream error in a reply", code || "error");
+    const kind = j && typeof j === "object" && !Array.isArray(j) ? failureKind(j, cfg) : "upstream_error";
+    console.error("upstream error in a reply", code || "error", kind); // a code the relay does not know, for the owner
     refund();
-    return failed(BASE_RESP[code] || "upstream_error", cors);
+    await tell(kind);
+    return failed(kind, cors);
   }
+  await tell("ok");
   const out = noReasoning ? JSON.stringify(withoutReasoning(j)) : text;
   return new Response(publicText(out, cfg, spend), { status: upstream.status, headers });
 }
@@ -473,6 +626,13 @@ export function upstreamCode(text) {
 function retryAfterOf(response) {
   const v = response.headers.get("Retry-After");
   return v && /^\d{1,4}$/.test(v.trim()) ? v.trim() : null;
+}
+
+/** When a spent quota resets, in seconds from now, as the upstream's Retry-After says (a minute at least, a day at most);
+ * else null. */
+function resetOf(response) {
+  const v = String(response.headers.get("Retry-After") || "").trim();
+  return /^\d{1,9}$/.test(v) && Number(v) > 0 ? Math.min(Math.max(Number(v), MIN_RESET), MAX_RESET) : null;
 }
 
 // ------------------------------------------------------------------ what a visitor sees of the upstream: nothing
@@ -550,9 +710,9 @@ function renamed(text, cfg) {
 /**
  * A reply, or one event's data, as a visitor may see it: the public model name, the reasoning formats renamed, the
  * upstream's own fields dropped, and an error it reports inside a reply told in this service's words. Text only in the
- * common case. `onUsage` is told the usage a reply carries (what the answer cost).
+ * common case. `onUsage` is told the usage a reply carries (what the answer cost), `onFailure` the kind of its error.
  */
-export function publicText(text, cfg, onUsage) {
+export function publicText(text, cfg, onUsage, onFailure) {
   const out = renamed(text, cfg);
   if (!VENDOR_FIELD.test(out)) return out;
   let j;
@@ -564,8 +724,14 @@ export function publicText(text, cfg, onUsage) {
   if (!j || typeof j !== "object" || Array.isArray(j)) return out;
   const code = j.base_resp?.status_code;
   if (j.error || code) {
-    console.error("upstream error in a stream", code || "error");
-    const [, type, message] = failureOf(code);
+    const kind = failureKind(j, cfg);
+    console.error("upstream error in a stream", code || "error", kind);
+    if (onFailure) {
+      try {
+        onFailure(kind);
+      } catch { /* the breaker is not the visitor's concern */ }
+    }
+    const [, type, message] = FAILURE[kind];
     return JSON.stringify({ error: { message, type } });
   }
   for (const k of VENDOR_KEYS) delete j[k];
@@ -598,23 +764,37 @@ function streamPattern(cfg) {
  * The stream's events as a visitor may see them, passed on up to the last whole line that has arrived, in one pass
  * over the text: the model's and the reasoning formats' names replaced; a stretch naming one of the upstream's own
  * fields (its final usage, or an error) is read event by event (publicText). Every byte of an answer passes through
- * here and the Worker's CPU is counted per request, so nothing is done twice.
+ * here and the Worker's CPU is counted per request, so nothing is done twice. `onOutcome` is told "ok" once, at the
+ * first event that is not an error (the upstream is answering), and the kind of every error event.
  */
-export function publicFilter(cfg, onUsage) {
+export function publicFilter(cfg, onUsage, onOutcome) {
   const decoder = new TextDecoder();
   const pattern = streamPattern(cfg);
   const model = `"model":${JSON.stringify(cfg.publicModel)}`;
   const format = `"format":"${PUBLIC_FORMAT}`;
   let buffer = "";
+  let answering = !onOutcome;
+  const ok = () => {
+    answering = true;
+    try {
+      onOutcome("ok");
+    } catch { /* the breaker is not the visitor's concern */ }
+  };
   const pass = (text) => {
     let vendor = false;
     // the match starts with a quote: "m(odel), "f(ormat), or else a vendor field
     const out = text.replace(pattern, (m) => (m.charCodeAt(1) === 0x6d ? model : m.charCodeAt(1) === 0x66 ? format : ((vendor = true), m)));
-    if (!vendor) return encoder.encode(out);
+    if (!vendor) {
+      if (!answering && /^data:\s?\{/m.test(out)) ok();
+      return encoder.encode(out);
+    }
     return encoder.encode(out.split(/\r?\n/).map((line) => {
       const m = /^data:\s?(.*)$/.exec(line);
       if (!m || m[1].trim() === "[DONE]") return line;
-      return `data: ${publicText(m[1], cfg, onUsage)}`;
+      const shown = publicText(m[1], cfg, onUsage, onOutcome);
+      // an error event is told (publicText); any other whole event means the upstream answers
+      if (!answering && m[1].trimStart().startsWith("{") && !shown.startsWith('{"error":')) ok();
+      return `data: ${shown}`;
     }).join("\n"));
   };
   return new TransformStream({

@@ -18,6 +18,8 @@
 //                        then "任务状态：<state>"
 //   慢速 / slow          a long answer, 400 pieces 30 ms apart (for the stop button)
 //   你是谁 / who are you an identity answer, no reasoning
+//   额度用完 / plan quota  as the relay's upstream: HTTP 429 with the body the upstream sent when its Token Plan was
+//                        spent (2026-11-04); a plain service answers it as anything else
 //   (a ping tool offered) the connection test of Settings → Models: one call of ping {echo:"ok"}
 //   anything else        a short answer with a little reasoning
 //
@@ -40,7 +42,11 @@ export const SCENARIOS = {
   literature: { match: (s) => /文献|literature/i.test(s) },
   slow: { match: (s) => /慢速|slow/i.test(s) },
   identity: { match: (s) => /你是谁|who are you/i.test(s) },
+  quota: { match: (s) => /额度用完|plan quota/i.test(s) },
 };
+
+/** What the relay's upstream answered when its Token Plan was spent (the post-deploy check of studio #130, 2026-11-04). */
+export const PLAN_SPENT = { type: "error", error: { type: "rate_limit_error", message: "已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。 (2056)" } };
 
 export function scenarioOf(text) {
   for (const [name, sc] of Object.entries(SCENARIOS)) if (sc.match(text)) return name;
@@ -189,6 +195,11 @@ export function startMockLLM({ port = 0, host = "127.0.0.1", log = false, flavor
     const entry = { at: Date.now(), scenario, body, via: req.headers.origin ? "direct" : "proxy", completed: false, aborted: false };
     requests.push(entry);
     if (log) console.log(JSON.stringify({ scenario, messages: body.messages?.length, tools: body.tools?.length || 0 }));
+    if (upstream && scenario === "quota") {
+      res.writeHead(429, { ...h, "Content-Type": "application/json" }).end(JSON.stringify(PLAN_SPENT));
+      entry.completed = true;
+      return;
+    }
 
     if (!body.stream) {
       const text = events.map((e) => e.delta?.content || "").join("");

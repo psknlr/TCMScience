@@ -131,6 +131,73 @@ test("fail closed: the Durable Object out of reach refuses the call; the ratelim
   }
 }));
 
+test("the upstream's breaker lives in the Limiter object; health and model calls read it at most once in ten seconds per isolate", () => quiet(async () => {
+  const w = setup();
+  const reads = [];
+  const read = w.limiter.breaker.bind(w.limiter);
+  w.limiter.breaker = (probe, settings) => {
+    reads.push(probe);
+    return read(probe, settings);
+  };
+  const sent = [];
+  const realNow = Date.now;
+  let shift = 0;
+  Date.now = () => realNow() + shift; // the isolate's clock, the object's and the relay's alike
+  try {
+    assert.equal((await (await w.call("/v1/health")).json()).ok, true);
+    assert.equal((await (await w.call("/v1/health")).json()).ok, true);
+    assert.deepEqual(reads, [false]); // the second from this isolate's copy: health costs no object call each time
+    globalThis.fetch = async (url) => {
+      sent.push(String(url));
+      return new Response(JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。 (2056)" } }),
+        { status: 429, headers: { "Content-Type": "application/json" } });
+    };
+    // a model call within the ten seconds is no object call either (the gate's hit() is its one)
+    const res = await w.call("/v1/chat/completions", chat());
+    assert.deepEqual([res.status, (await res.json()).error.type], [503, "upstream_quota"]);
+    assert.deepEqual(reads, [false]);
+    // the outcome's state is what health tells now, without another read
+    const h = await (await w.call("/v1/health")).json();
+    assert.deepEqual([h.ok, h.reason, Date.parse(h.until) > Date.now() + 590000], [false, "upstream_quota", true]);
+    assert.deepEqual(reads, [false]);
+    // in the object's storage, one key; the next model call is answered here, unsent and uncounted
+    const [row] = w.limiter.core.sql.exec("SELECT k, v FROM breaker").toArray();
+    assert.deepEqual([row.k, JSON.parse(row.v).reason], ["upstream", "upstream_quota"]);
+    shift = 5000; // its Retry-After counts down from the breaker's until, not from when this isolate read it
+    const again = await w.call("/v1/chat/completions", chat());
+    assert.deepEqual([again.status, (await again.json()).error.type], [503, "upstream_quota"]);
+    assert.ok(Number(again.headers.get("Retry-After")) <= 596, again.headers.get("Retry-After"));
+    assert.deepEqual([sent.length, reads], [1, [false]]);
+    // ten seconds on, a model call asks the object again
+    shift = 11000;
+    const later = await w.call("/v1/chat/completions", chat());
+    assert.deepEqual([later.status, (await later.json()).error.type], [503, "upstream_quota"]);
+    assert.deepEqual([sent.length, reads], [1, [false, true]]);
+    assert.equal(w.limiter.core.sql.exec("SELECT n FROM hits WHERE k LIKE 'd:chat:%'").toArray()[0].n, 1);
+    // past the window: health tells Tao-S1 usable, and the next model call still asks the object, which makes it the
+    // probe; its answer closes the breaker, and the calls after it are let on from here
+    shift = 601000;
+    globalThis.fetch = async (url) => {
+      sent.push(String(url));
+      return new Response(`data: ${JSON.stringify({ id: "a", choices: [{ index: 0, delta: { content: "好" } }] })}\n\ndata: [DONE]\n\n`, { headers: { "Content-Type": "text/event-stream" } });
+    };
+    assert.equal((await (await w.call("/v1/health")).json()).ok, true);
+    const probe = await w.call("/v1/chat/completions", chat());
+    assert.equal(probe.status, 200);
+    assert.match(await probe.text(), /好/);
+    await Promise.all(w.waits);
+    assert.deepEqual([sent.length, reads], [2, [false, true, false, true]]);
+    assert.equal(JSON.parse(w.limiter.core.sql.exec("SELECT v FROM breaker").toArray()[0].v).until, 0);
+    const after = await w.call("/v1/chat/completions", chat());
+    assert.equal(after.status, 200);
+    await after.text();
+    assert.deepEqual([sent.length, reads], [3, [false, true, false, true]]);
+  } finally {
+    Date.now = realNow;
+    await w.done();
+  }
+}));
+
 test("a path that matches no file: a navigation gets the app (with the page headers), anything else a true 404", async () => {
   const w = setup();
   try {

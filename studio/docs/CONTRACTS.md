@@ -15,15 +15,22 @@ Same origin as the app. OpenAI-compatible. The browser never sends a key.
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/v1/health` | `{ok, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, limits:{per_minute, per_day, tokens_per_day}, telemetry:{analytics, conversations, consent_version, geo, retention_days:{conversations, events, aggregates, security}}}`. `ok:false` when `MINIMAX_API_KEY` is not set. `telemetry` says what the site takes (`docs/TELEMETRY.md`); a page sends usage events and asks for consent only when the health of its **own** origin says so (the runner's health has no `telemetry`: nothing is sent). |
+| GET | `/v1/health` | `{ok, reason?, until?, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, limits:{per_minute, per_day, tokens_per_day}, telemetry:{analytics, conversations, consent_version, geo, retention_days:{conversations, events, aggregates, security}}}`. `ok:false` when `MINIMAX_API_KEY` is not set, and while the upstream breaker is open: then `reason` (`upstream_quota` or `upstream_error`) and `until` (an ISO time) say why and until when. `telemetry` says what the site takes (`docs/TELEMETRY.md`); a page sends usage events and asks for consent only when the health of its **own** origin says so (the runner's health has no `telemetry`: nothing is sent). |
 | GET | `/v1/models` | `{object:"list", data:[{id:"Tao-S1", object:"model", owned_by:"impf"}]}` |
 | POST | `/v1/chat/completions` | OpenAI chat-completions request/stream. `model` must be `"Tao-S1"` (or absent). Write `model` as the **first** JSON key (the relay edits the text). Streaming SSE is returned with `model` renamed to `Tao-S1`, reasoning formats `MiniMax-…` → `Tao-…`, and vendor-only fields removed. `thinking:{type:"disabled"}` in the request removes all reasoning from the answer; the relay sets it itself when the last user message asks about the assistant's identity or model (the page's own detector, run again as defence in depth). |
 
 Errors are always `{error:{message, type}}`, with a Chinese `message` that tells the visitor what to do. Types: `forbidden_origin`, `not_configured`, `bad_request`,
 `too_large`, `model_not_allowed`, `rate_limited`, `daily_limit`, `total_limit`, `blocked` (reserved; not emitted in v1),
-`unavailable`, `upstream_auth`, `upstream_rate`, `upstream_quota`, `upstream_error`,
+`unavailable`, `upstream_auth`, `upstream_rate`, `upstream_quota`, `upstream_error`, `upstream_unknown`,
 `upstream_rejected`, `upstream_unreachable`, `relay_error`, `https_required`, `not_found`, `method_not_allowed`. A `429`
-carries `Retry-After` (exposed to other allowed origins). An error the upstream reports inside a stream arrives as one
+carries `Retry-After` (exposed to other allowed origins). `upstream_quota` is the upstream's quota spent (402, code 1008,
+or a `QUOTA_MARKERS` entry in a 429 or a `base_resp`), not a per-minute limit (`upstream_rate`); `upstream_unknown` (502)
+is a `base_resp` code the relay has no entry for and `TRANSIENT_CODES` does not list. The upstream breaker (one key in the
+`Limiter` object) opens on a spent quota, or on `BREAKER_ERRORS` upstream errors within `BREAKER_ERROR_SECONDS` not all
+met by one visitor; while it is open every chat call is answered `503` at once (`upstream_quota`, else `upstream_error`,
+with `Retry-After`), never sent upstream and never counted, until the upstream's reset time (a minute at least) or for
+`BREAKER_OPEN_SECONDS`; then one call probes the upstream, and a success closes it (while the probe is out, the other
+calls and health say to ask again in 15 s; they wait for it a minute at most). An error the upstream reports inside a stream arrives as one
 event `data: {"error":{message, type}}`; the client treats it as a model error. The upstream's own model names are
 refused like any other (`model_not_allowed`). `RELAY = "off"` (a var) stops Tao-S1: `health.ok:false`, chat `503
 not_configured`. `/v1/health` answers `200` in every state, with `ok` saying whether Tao-S1 can be used.
