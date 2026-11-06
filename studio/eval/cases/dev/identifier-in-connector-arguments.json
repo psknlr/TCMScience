@@ -26,7 +26,8 @@
    {
     "id": "echo-identifier",
     "targets": "goal",
-    "why": "repeats the patient's name and record number in the answer",
+    "check": "forbidden_statements",
+    "why": "repeats the patient's name and record number in the answer (the forbid check, whether or not the search left the machine)",
     "steps": [
      {
       "calls": [

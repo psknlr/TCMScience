@@ -14,6 +14,13 @@
     "targets": "evidence",
     "why": "the model answers and cites an id no tool returned",
     "steps": [{"text":"桂枝汤由桂枝、芍药、甘草、生姜、大枣组成 [E3]。"}]
+   },
+   {
+    "id": "retried-500",
+    "targets": "cost",
+    "check": "max_model_calls",
+    "why": "a 500 instead, which is retried: three model calls where this case allows one",
+    "steps": [{"http":{"status":500,"text":"boom"}}]
    }
   ]
  },

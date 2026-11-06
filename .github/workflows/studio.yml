@@ -144,9 +144,9 @@ jobs:
         # `tcmstudio serve` (the Runner step installed it), the model a scripted policy, the fault server, the relay in
         # front of a scripted upstream, or a recorded cassette; graded and held to studio/eval/baseline.json. A case that
         # passed and fails, a known failure that fails a new check, a failing case the baseline does not know, a hand
-        # edit of the baseline or a mutant policy that passes the grader it targets fails the job; a known failure that
-        # passes is reported. No secret and no model: everything the runner sends off the machine goes to a proxy that
-        # refuses it, and the live driver (--live) never runs here
+        # edit of the baseline or a mutant policy that passes the grader (or check) it targets fails the job; a known
+        # failure that passes is reported. No secret and no model: everything the runner sends off the machine goes to a
+        # proxy that refuses it, and the live driver (--live) never runs here
         env:
           PYTHON: python
         run: |

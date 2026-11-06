@@ -79,9 +79,17 @@ async function withEnv(vars, fn) {
   }
 }
 
-/** The policy spec a run plays: the gold one or the named mutant. */
+/**
+ * The policy spec a run plays: the gold one, with the case's `fallback` when it has none of its own, or the named
+ * mutant as written. A mutant never takes the case's fallback: that is the gold's honest answer, and a mutant whose
+ * references break (a fix refuses the call they name) still answers as the bad model it is, from its own `fallback`
+ * or its last plain answer.
+ */
 export function policyOf(caseDoc, id = "gold") {
-  if (id === "gold") return caseDoc.policies?.gold || { steps: [] };
+  if (id === "gold") {
+    const gold = caseDoc.policies?.gold || { steps: [] };
+    return { ...gold, fallback: gold.fallback ?? caseDoc.policies?.fallback };
+  }
   const m = (caseDoc.policies?.mutants || []).find((x) => x.id === id);
   if (!m) throw new Error(`case ${caseDoc.id} has no mutant ${id}`);
   return m;
@@ -121,8 +129,7 @@ function approver(caseDoc, log) {
 
 /** One turn. mode: undefined (the case's own driver), "record", "replay" (with `cassette`) or "live". */
 export async function runCase({ caseDoc, catalog, runtimes, egress, fault, policy: policyId = "gold", mode, cassette, serial = 1 }) {
-  const spec = policyOf(caseDoc, policyId);
-  const policy = new Policy({ ...spec, fallback: spec.fallback ?? caseDoc.policies?.fallback });
+  const policy = new Policy(policyOf(caseDoc, policyId));
   const driver = await driverFor({ caseDoc, policy, fault, mode, cassette });
   Object.assign(driver.provider, caseDoc.provider || {});
   const web = Boolean(caseDoc.settings?.web);

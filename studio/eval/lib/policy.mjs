@@ -3,7 +3,9 @@
 // are written once.
 //
 // Steps (one per model request, retries included; the last repeats once they run out):
-//   {calls: [{id, name, args}], text?, reasoning?}   tool calls (args may hold {"$from": callId, "path": "result.x"})
+//   {calls: [{id, name, args}], text?, reasoning?}   tool calls (args may hold {"$from": callId, "path": "result.x"},
+//                                                     and {"$repeat": "text", "times": n}: the text n times, a model
+//                                                     that pastes a whole document into a call)
 //   {text, finish?: "stop" | "length", reasoning?}   an answer ("{{cite:c1}}" is c1's first citation id, "{{cite:c1:2}}"
 //                                                     its second, as the loop renumbered them)
 //   {repeat: {name, parallel, args}}                 `parallel` calls on every request; "{n}" and "{k}" in string
@@ -14,7 +16,8 @@
 //   {http: {status, headers?, json? | text?}}  {stream_error: {...}, after_text?}  {stall: {after_text}}
 //   {base_resp: {status_code, status_msg}, as?: "sse" | "json"}
 // A reference that cannot be resolved (the call it names failed, or was never made) ends the policy: from then on it
-// answers with its fallback (the case's `fallback`, else its last plain answer), as a model with nothing to go on would.
+// answers with its fallback (its own `fallback`, for the gold policy the case's, else its last plain answer), as a model
+// with nothing to go on would. A mutant never answers with the case's fallback (harness.mjs policyOf).
 
 import { citationsOf } from "../../web/js/core/governance.js";
 import { get } from "./util.mjs";
@@ -62,6 +65,7 @@ export class Policy {
   value(v) {
     if (Array.isArray(v)) return v.map((x) => this.value(x));
     if (v && typeof v === "object") {
+      if (typeof v.$repeat === "string") return v.$repeat.repeat(Math.max(0, Math.floor(Number(v.times) || 0)));
       if (typeof v.$from === "string") {
         const env = this.envelopes.get(v.$from);
         const got = env ? get(env, v.path || "result") : undefined;

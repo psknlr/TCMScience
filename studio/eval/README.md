@@ -60,10 +60,19 @@ what each grader expects. The dev split has the twelve research scenarios of `tc
 are the scenarios' own), the Guizhi benchmark's stage-11 trap, an honest gap, the proof of concept's answer with a
 fabricated citation, an identifier in a connector's arguments, three research_inquiry adversaries, and the fault, growth
 and relay probes. A policy step is `{calls: [...]}`, `{text}`, `{repeat: {...}}` or one of the HTTP-level faults
-(`lib/policy.mjs` lists them); an argument may name an earlier call's result (`{"$from": "c1", "path": "result.x"}`) and an
-answer an earlier call's citation (`{{cite:c1}}`). A mutant is a bad model behaviour (a fabricated citation, a missing
-call, a negative finding made of a missing store) written to fail the grader it names; a run fails when a mutant passes
-it. Cases measure behaviour, not how the code does it: a fix may take any form that makes the turn end as the case says.
+(`lib/policy.mjs` lists them); an argument may name an earlier call's result (`{"$from": "c1", "path": "result.x"}`) or be
+a text repeated (`{"$repeat": "黄芪", "times": 350000}`), and an answer may name an earlier call's citation
+(`{{cite:c1}}`). A reference that cannot be resolved ends the policy with its fallback: the gold policy's is the case's
+`fallback`, a mutant's is its own (or its last plain answer), never the case's honest one.
+
+A mutant is a bad behaviour of the model or of the service (a fabricated citation, a missing call, a negative finding
+made of a missing store; a 500 where the case has a 413, a Retry-After of 1 s) written to fail the grader it names, and
+when it names a `check`, that check of the grader: every fault and relay case has one aimed at the structural or cost
+check it exists for (`retry_offered`, `error_kind`, `retry_waits`, `max_model_calls`, `max_upstream_calls`,
+`max_peak_request_bytes`). A run fails when a mutant passes what it targets. A check the loop alone decides, such as
+`states_how_it_ended`, has no mutant (no model behaviour can make a fixed loop leave out the notice); `graders.test.mjs`
+tests it. Cases measure behaviour, not how the code does it: a fix may take any form that makes the turn end as the case
+says.
 
 ## The baseline
 
@@ -72,7 +81,8 @@ its failing checks and what they said. It is written by `--update-baseline` only
 run fails when they disagree. A run fails when a case that passed fails, when a known failure fails a check it did not
 fail before, or when a failing case is not in the baseline; a known failure that passes is reported, and the update
 script records it. `--update-baseline` refuses to write down a regression unless it is named with
-`--accept-regression <suite>/<case>`.
+`--accept-regression <suite>/<case>`; it writes nothing, and exits 1, over a baseline edited by hand (which could have
+marked a regression as known) or when a mutant passed what it targets, and it exits 1 when a case crashed.
 
 The known failures recorded at 530031f are the harms the plan names: the step limit with an empty answer, a cut-off
 answer with no notice, a request past the relay's 2,000,000 bytes by request 15, a plan-quota 429 that offers Retry, an

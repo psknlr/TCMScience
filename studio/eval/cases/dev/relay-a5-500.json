@@ -13,6 +13,16 @@
     "targets": "evidence",
     "why": "the model answers and cites an id no tool returned",
     "steps": [{"text":"桂枝汤主治太阳中风证 [E4]。"}]
+   },
+   {
+    "id": "looks-up-then-500",
+    "targets": "cost",
+    "check": "max_upstream_calls",
+    "why": "a lookup first, then the 500s, each retried: four upstream calls where this case allows three",
+    "steps": [
+     {"calls":[{"id":"c1","name":"tcm_formula","args":{"name":"桂枝汤"}}]},
+     {"http":{"status":500,"text":"boom"}}
+    ]
    }
   ]
  },

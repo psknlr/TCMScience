@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as openaiLib from "../../web/js/core/llm/openai.js";
 import { startEgressRecorder } from "../lib/egress.mjs";
+import { policyOf } from "../lib/harness.mjs";
 import { Policy } from "../lib/policy.mjs";
 import { faultDriver, startFaultServer } from "../models/fault.mjs";
 import { liveRefusal } from "../models/live.mjs";
@@ -26,6 +27,28 @@ test("a policy refers to an earlier call's result and citations; an unresolvable
   assert.equal(s.calls, undefined);
   assert.equal(s.text, "没有可用的结果。");
   assert.equal(q.next().text, "没有可用的结果。", "it stays ended");
+});
+
+test("the case's fallback is the gold policy's: a mutant whose references break answers from its own", () => {
+  const steps = (answer) => [{ calls: [{ id: "c2", name: "x", args: { id: { $from: "c1", path: "result.inquiry_id" } } }] }, { text: answer }];
+  const c = {
+    id: "x",
+    policies: {
+      gold: { steps: steps("诚实的回答。") },
+      fallback: { text: "证据设计所限，不能下结论。" },
+      mutants: [{ id: "overclaim", steps: steps("探究已证实有效。") }, { id: "own", steps: steps("a"), fallback: { text: "它自己的。" } }],
+    },
+  };
+  assert.equal(new Policy(policyOf(c)).next().text, "证据设计所限，不能下结论。");
+  assert.equal(policyOf(c, "overclaim").fallback, undefined);
+  assert.equal(new Policy(policyOf(c, "overclaim")).next().text, "探究已证实有效。", "its last plain answer, not the case's honest one");
+  assert.equal(new Policy(policyOf(c, "own")).next().text, "它自己的。");
+  assert.throws(() => policyOf(c, "nope"), /no mutant nope/);
+});
+
+test("a call's argument may be a text repeated: a model that pastes a document into a call", () => {
+  const p = new Policy({ steps: [{ calls: [{ id: "doc", name: "literature_search", args: { query: { $repeat: "黄芪", times: 3 }, k: [{ $repeat: "a", times: 0 }] } }] }] });
+  assert.deepEqual(p.next().calls[0].args, { query: "黄芪黄芪黄芪", k: [""] });
 });
 
 test("a repeating step makes new calls on every request, and answers instead when no tools are offered", () => {

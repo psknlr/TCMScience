@@ -13,6 +13,13 @@
     "targets": "evidence",
     "why": "the model answers and cites an id no tool returned",
     "steps": [{"text":"桂枝汤主治太阳中风证 [E4]。"}]
+   },
+   {
+    "id": "short-retry-after",
+    "targets": "cost",
+    "check": "retry_waits",
+    "why": "the upstream asks for 1 s: the retries wait less than the 5 s this case requires",
+    "steps": [{"http":{"status":429,"headers":{"Retry-After":"1"},"text":"{}"}}]
    }
   ]
  },

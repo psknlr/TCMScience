@@ -11,14 +11,16 @@
 //   --report file        where agent_eval_report.json goes (default: the system's temporary directory)
 //   --baseline file      default eval/baseline.json
 //   --update-baseline    rewrite the baseline from this run (known failures fixed are moved to passing; a case that
-//                        passed and now fails is refused unless named with --accept-regression id)
+//                        passed and now fails is refused unless named with --accept-regression id); nothing is
+//                        written over a baseline edited by hand or when a mutant passed what it targets
 //   --record             record the cassettes of the cases tagged "cassette" through the fault server's echo of their
 //                        gold policies (never a case tagged hidden), into --cassettes (default eval/cassettes/dev)
 //   --no-mutants         skip the mutant policies (the mutation check then does not run)
 //   --live               run the scripted cases' questions with a real model at EVAL_LIVE_BASE_URL (EVAL_LIVE_MODEL,
 //                        EVAL_LIVE_API_KEY): asked for by name only, and in CI only from workflow_dispatch
 //
-// Exit status: 0 when nothing regressed and every mutant failed the grader it targets; 1 otherwise; 2 on a usage error.
+// Exit status: 0 when nothing regressed and every mutant failed the grader (or the check) it targets; 1 otherwise, and
+// with --update-baseline also when the update refused a case, was not written, or a case crashed; 2 on a usage error.
 // Scripted, fault and relay runs measure the loop, the router, the runner, the tools and the graders: the model is a
 // script, so nothing here measures a model's choices, and the report says so (model: "scripted").
 
@@ -91,10 +93,22 @@ export function caseProblems(c) {
   for (const m of mutants) {
     if (!m.id) out.push(`${where}: a mutant without an id`);
     if (!ORDER.includes(m.targets)) out.push(`${where}/${m.id}: targets must be one of ${ORDER.join(", ")}`);
+    if (m.check !== undefined && !/^[a-z_]+$/.test(String(m.check))) out.push(`${where}/${m.id}: check must name one check of the ${m.targets} grader`);
     if (!Array.isArray(m.steps) || !m.steps.length) out.push(`${where}/${m.id}: no steps`);
   }
   for (const k of Object.keys(c?.expect || {})) if (!ORDER.includes(k)) out.push(`${where}: expect.${k} is not a grader`);
   return out;
+}
+
+/**
+ * Did a mutant get past what it targets? Its grader passed, or, for a mutant that names the `check` it is written to
+ * fail, that check passed or did not run (a check that never ran shows nothing).
+ */
+export function mutantSurvived(grades, m) {
+  const target = graderOf(grades, m.targets);
+  if (!target || target.pass) return true;
+  if (m.check === undefined) return false;
+  return target.checks.find((c) => c.name === m.check)?.pass !== false;
 }
 
 const gh = Boolean(process.env.GITHUB_ACTIONS);
@@ -131,7 +145,8 @@ async function record(harness, cases, o) {
   return 0;
 }
 
-async function evaluate(harness, cases, o, t0) {
+/** Run `cases` on `harness` with options `o` (parseArgs), report, compare or update the baseline: the exit status. */
+export async function evaluate(harness, cases, o, t0 = Date.now()) {
   const baseline = loadBaseline(o.baseline);
   const gold = [];
   const mutants = [];
@@ -154,8 +169,7 @@ async function evaluate(harness, cases, o, t0) {
       if (o.mutants && ["scripted", "fault", "relay"].includes(suite)) {
         for (const m of c.policies.mutants || []) {
           const mr = await harness.run(c, { policy: m.id });
-          const target = graderOf(mr.grades, m.targets);
-          mutants.push({ case: c.id, suite, mutant: m.id, targets: m.targets, failed: mr.grades.failed, survived: Boolean(target?.pass), why: m.why || "" });
+          mutants.push({ case: c.id, suite, mutant: m.id, targets: m.check ? `${m.targets}.${m.check}` : m.targets, failed: mr.grades.failed, survived: mutantSurvived(mr.grades, m), why: m.why || "" });
         }
       }
     }
@@ -191,11 +205,18 @@ async function evaluate(harness, cases, o, t0) {
     for (const r of comparison.stale) annotate("warning", `${r.id}: cassette_stale (${r.reason}); re-record with --record`);
   }
   if (o.mutants && !live) {
-    for (const m of survived) { failed = true; annotate("error", `mutant ${m.case}/${m.mutant} passed the ${m.targets} grader it targets`); }
-    console.log(`mutants: ${mutants.length - survived.length}/${mutants.length} failed the grader they target`);
+    for (const m of survived) { failed = true; annotate("error", `mutant ${m.case}/${m.mutant} passed the ${m.targets} ${m.targets.includes(".") ? "check" : "grader"} it targets`); }
+    console.log(`mutants: ${mutants.length - survived.length}/${mutants.length} failed what they target`);
   }
-  for (const r of gold.filter((g) => g.run.obs.crash)) { failed = true; annotate("error", `${r.id}: the harness caught ${String(r.run.obs.crash).split("\n")[0]}`); }
+  const crashed = gold.filter((g) => g.run.obs.crash);
+  for (const r of crashed) { failed = true; annotate("error", `${r.id}: the harness caught ${String(r.run.obs.crash).split("\n")[0]}`); }
   if (o.update && comparison) {
+    // what the update would write down is what the graders said: not over a hand edit (it could pre-mark a regression as
+    // known), and not when a grader let a mutant through (its verdicts are not to be recorded)
+    if (!comparison.digest_ok || survived.length) {
+      annotate("error", `baseline not written: ${!comparison.digest_ok ? `${path.basename(o.baseline)} was edited by hand (restore it, e.g. with git checkout, and run the update again)` : `${survived.length} mutant(s) passed what they target`}`);
+      return 1;
+    }
     const present = new Set(cases.map((c) => c.id));
     const ran = new Set(o.suites);
     const drop = Object.keys(baseline.cases || {}).filter((id) => { const [s, c] = id.split("/"); return ran.has(s) && !present.has(c) && !o.cases.length; });
@@ -203,7 +224,7 @@ async function evaluate(harness, cases, o, t0) {
     for (const r of refused) annotate("error", `not written: ${r.id} passed before and now fails ${r.failing.join(", ")} (fix it, or name it with --accept-regression)`);
     writeBaseline(o.baseline, next);
     console.log(`baseline written: ${o.baseline} (${Object.values(next.cases).filter((e) => e.status === "known_failing").length} known_failing of ${Object.keys(next.cases).length})`);
-    return refused.length ? 1 : 0;
+    return refused.length || crashed.length ? 1 : 0;
   }
   const n = gold.length;
   const pass = gold.filter((g) => g.grades?.pass).length;

@@ -13,6 +13,13 @@
     "targets": "evidence",
     "why": "the model answers and cites an id no tool returned",
     "steps": [{"text":"桂枝汤主治太阳中风证 [E4]。"}]
+   },
+   {
+    "id": "retried-500",
+    "targets": "cost",
+    "check": "max_upstream_calls",
+    "why": "an upstream 500 instead, which is retried: three upstream calls where this case allows one",
+    "steps": [{"http":{"status":500,"text":"boom"}}]
    }
   ]
  },

@@ -30,6 +30,20 @@
       "on_no_tools": {"text":"参见 [E9]。"}
      }
     ]
+   },
+   {
+    "id": "retried-500s",
+    "targets": "cost",
+    "check": "max_model_calls",
+    "why": "two 500s on the first request, each retried: two model calls more than this case allows",
+    "steps": [
+     {"http":{"status":500,"text":"boom"}},
+     {"http":{"status":500,"text":"boom"}},
+     {
+      "repeat": {"name":"tcm_herb","parallel":1,"args":{"name":"h{n}"}},
+      "on_no_tools": {"text":"根据已查到的四条本草记录作答：步数已到上限，答案可能不完整。"}
+     }
+    ]
    }
   ]
  },

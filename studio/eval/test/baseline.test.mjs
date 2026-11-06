@@ -3,13 +3,14 @@
 // the baseline does not know that fails, fails the run; a hand edit (the digest disagrees) fails the run; and removing a
 // known_failing entry without its case passing leaves a case expected to pass that fails.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { ORDER } from "../graders/index.mjs";
 import { compareBaseline, digestOf, failingChecks, updateBaseline } from "../lib/report.mjs";
 import { EVAL } from "../lib/util.mjs";
-import { loadCases } from "../run.mjs";
+import { evaluate, loadCases, parseArgs } from "../run.mjs";
 
 /** A grading whose failing checks are `failing` ("grader.check"); every grader also has one passing check. */
 const grades = (failing = []) => ({
@@ -77,6 +78,74 @@ test("the update script moves a fixed case to passing, records a new failure, an
   const accepted = updateBaseline(b, results, { accept: ["fault/a"] });
   assert.equal(accepted.refused.length, 0);
   assert.equal(accepted.baseline.cases["fault/a"].status, "known_failing");
+});
+
+/**
+ * run.mjs's evaluate over a harness that plays nothing: `grading(caseId, policy)` is each run's failing checks, and
+ * `crash(caseId)` the gold run's crash. Returns {code, written (the baseline file after), log}.
+ */
+async function update(baselineDoc, cases, { grading, crash = () => null, args = [] }) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "eval-update-"));
+  const file = path.join(dir, "baseline.json");
+  const before = `${JSON.stringify(baselineDoc, null, 1)}\n`;
+  writeFileSync(file, before);
+  const harness = {
+    catalog: { core: [], entries: [] }, startupEgress: 0,
+    run: async (c, { policy = "gold" } = {}) => ({
+      obs: { case: c.id, policy, driver: c.driver, model: "scripted", status: "ok", steps: 1, ms: 1, stale: null, crash: policy === "gold" ? crash(c.id) : null, assistant: null, tools: [], approvals: [], retries: [], egress: [] },
+      grades: grades(grading(c.id, policy)),
+    }),
+  };
+  const log = [];
+  const saved = console.log;
+  console.log = (...a) => log.push(a.join(" "));
+  try {
+    const code = await evaluate(harness, cases, parseArgs(["--suite", "fault", "--baseline", file, "--report", path.join(dir, "report.json"), "--update-baseline", ...args]));
+    return { code, changed: readFileSync(file, "utf8") !== before, written: JSON.parse(readFileSync(file, "utf8")), log: log.join("\n") };
+  } finally {
+    console.log = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+const faultCase = (id) => ({ id, driver: "fault", question: "q", policies: { gold: { steps: [{ text: "a" }] }, mutants: [{ id: "m", targets: "structural", check: "retry_offered", steps: [{ text: "b" }] }] } });
+
+test("--update-baseline writes nothing over a hand edit: a regression pre-marked as known is not recorded", async () => {
+  // relay-a2's repro: a passing case marked known_failing by hand with the checks it is about to fail, digest left stale
+  const honest = { "fault/a": { status: "passing" } };
+  const edited = { ...baselineOf(honest), cases: { "fault/a": known("structural.retry_offered", "cost.retry_waits") } };
+  const r = await update(edited, [faultCase("a")], { grading: (id, p) => (p === "gold" ? ["structural.retry_offered", "cost.retry_waits"] : ["structural.retry_offered"]) });
+  assert.equal(r.code, 1);
+  assert.equal(r.changed, false, "the baseline file is left as it was");
+  assert.match(r.log, /baseline not written: .*edited by hand/);
+  assert.doesNotMatch(r.log, /baseline written/);
+});
+
+test("--update-baseline writes nothing when a mutant passed what it targets, and exits 1 when a case crashed", async () => {
+  const b = baselineOf({ "fault/a": { status: "passing" } });
+  const survived = await update(b, [faultCase("a")], { grading: () => [] });
+  assert.equal(survived.code, 1);
+  assert.equal(survived.changed, false);
+  assert.match(survived.log, /baseline not written: 1 mutant\(s\) passed what they target/);
+  const otherCheck = await update(b, [faultCase("a")], { grading: (id, p) => (p === "gold" ? [] : ["structural.status"]) });
+  assert.equal(otherCheck.code, 1, "the mutant failed structural, but not the retry_offered check it names");
+  assert.equal(otherCheck.changed, false);
+  const crashed = await update(b, [faultCase("a"), faultCase("b")], { grading: (id, p) => (p === "gold" ? (id === "b" ? ["structural.ended_by_itself"] : []) : ["structural.retry_offered"]), crash: (id) => (id === "b" ? "Error: boom" : null) });
+  assert.equal(crashed.code, 1);
+  assert.equal(crashed.written.cases["fault/b"].status, "known_failing", "the crash is written down as what it is, and the run still fails");
+});
+
+test("--update-baseline records a fixed known failure and a new one, and exits 0", async () => {
+  const b = baselineOf({ "fault/a": known("structural.retry_offered") });
+  const r = await update(b, [faultCase("a"), faultCase("c")], { grading: (id, p) => (p === "gold" ? (id === "c" ? ["cost.max_model_calls"] : []) : ["structural.retry_offered"]) });
+  assert.equal(r.code, 0, r.log);
+  assert.deepEqual(r.written.cases["fault/a"], { status: "passing" });
+  assert.deepEqual(r.written.cases["fault/c"].failing_checks, ["cost.max_model_calls"]);
+  assert.equal(r.written.digest, digestOf(r.written.cases));
+  const regression = await update(b, [faultCase("a")], { grading: (id, p) => (p === "gold" ? ["structural.retry_offered", "cost.max_model_calls"] : ["structural.retry_offered"]) });
+  assert.equal(regression.code, 1, "a regression is refused");
+  const accepted = await update(b, [faultCase("a")], { grading: (id, p) => (p === "gold" ? ["structural.retry_offered", "cost.max_model_calls"] : ["structural.retry_offered"]), args: ["--accept-regression", "fault/a"] });
+  assert.equal(accepted.code, 0, "and written when it is named");
+  assert.deepEqual(accepted.written.cases["fault/a"].failing_checks, ["structural.retry_offered", "cost.max_model_calls"]);
 });
 
 test("the committed baseline: its digest holds, every case of every suite is in it, and nothing else is", () => {

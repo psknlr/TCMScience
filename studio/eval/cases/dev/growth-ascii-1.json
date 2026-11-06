@@ -32,6 +32,20 @@
       "on_no_tools": {"text":"见 [E999]。"}
      }
     ]
+   },
+   {
+    "id": "pastes-a-document",
+    "targets": "cost",
+    "check": "max_peak_request_bytes",
+    "why": "the model pastes a 2.1 MB document into a call's arguments: every request after it carries them, whatever is done to the tool results",
+    "steps": [
+     {"calls":[{"id":"doc","name":"literature_search","args":{"query":{"$repeat":"黄芪","times":350000}}}]},
+     {
+      "repeat": {"name":"literature_search","parallel":1,"args":{"query":"q{n}-{k}"}},
+      "honour_tool_choice": true,
+      "on_no_tools": {"text":"以上检索已汇总；步数已到上限，未检索的部分没有结果。"}
+     }
+    ]
    }
   ]
  },
