@@ -25,6 +25,7 @@ import { sha256Hex, sleep, uuid } from "../core/util.js";
 import { copyText, debounce, h, throttle } from "./dom.js";
 import { announce, closeTopOverlay, hasOverlay, installTooltips, toast } from "./overlay.js";
 import { inlinedInPrompt } from "./files.js";
+import { isLocalModel, pendingKnowledge, phiGate, rememberAsWritten } from "./phidialog.js";
 import { HashRouter, routeHref } from "./router.js";
 import { registerUiStrings } from "./strings.js";
 import { emptyEvidence, noteEvidence, recordJob, recordRun } from "./runlog.js";
@@ -907,6 +908,11 @@ export class App {
     await this.#consentGate();
     // web access (or compute) just switched: the turn starts once that is stored, so its tools see what the switch shows
     await this.webSettled();
+    // what identifies a person goes to a model outside this computer only as the person chooses (ui/phidialog.js):
+    // redacted, as written, to a local model, or not yet (nothing is stored, and the text stays in the box)
+    const gate = await this.#phiGate(content, { files, editOf });
+    if (!gate) return false;
+    content = gate.content;
     let project = this.state.project;
     if (!project) {
       project = this.state.projects[0] || await this.store.projects.create({ name: t("ui.project.default_name"), web: this.state.settings.web });
@@ -942,8 +948,12 @@ export class App {
     const user = await this.store.messages.put({
       conversationId: conv.id, parentId, role: "user", content,
       attachments: records.map((r) => r.id), attachmentNames: records.map((r) => r.name),
+      // the choice made for identifying text (never the text it replaced)
+      ...(gate.phi ? { phi: gate.phi } : {}),
     });
-    conv = await this.store.conversations.update(conv.id, { leafId: user.id, title: conv.title || autoTitle(content) });
+    conv = await this.store.conversations.update(conv.id, {
+      leafId: user.id, title: conv.title || autoTitle(content), ...(gate.remember ? rememberAsWritten(conv, gate.remember) : {}),
+    });
     this.state.conversation = conv;
     await this.loadMessages();
     await this.refreshConversations();
@@ -952,17 +962,45 @@ export class App {
       if (typing) this.state.focusComposerOnMount = true;
       this.navigate({ name: "conversation", projectId: project.id, convId: conv.id }, { replace: route.name === "project" || route.name === "home" });
     }
-    this.#runAssistant(conv, user);
+    this.#runAssistant(conv, user, { phi: gate.phi?.choice });
     return true;
+  }
+
+  /**
+   * The check before a question (or, with `content` null, a regenerated answer) goes to the model in use
+   * (ui/phidialog.js phiGate), over the project's files with the attachments about to join them, and over the branch
+   * the turn sends. → {content, phi?, remember?}, or null when nothing is to be sent. A local model chosen there is
+   * this conversation's model from now on.
+   */
+  async #phiGate(content, { files = [], editOf = null, path = null } = {}) {
+    if (isLocalModel(this.provider())) return { content };
+    const knowledge = [...(this.state.project ? await this.#knowledge(this.state.project.id) : []), ...(await pendingKnowledge(files))];
+    const conv = this.state.conversation;
+    const branch = path || (editOf ? (editOf.parentId ? threadPath(this.state.messages, editOf.parentId) : []) : conv ? threadPath(this.state.messages, conv.leafId) : []);
+    const gate = await phiGate(this, { text: content, knowledge, path: branch });
+    if (gate?.local) await this.chooseModel(gate.local);
+    return gate;
   }
 
   async regenerate(assistantId) {
     // a question being sent (the notice may be open before it) is a turn about to start
     if (this.state.turn || this.#sending) return;
     const a = this.state.messages.find((m) => m.id === assistantId);
-    const user = a && this.state.messages.find((m) => m.id === a.parentId);
+    let user = a && this.state.messages.find((m) => m.id === a.parentId);
     if (!user) return;
-    this.#runAssistant(this.state.conversation, user);
+    // asked again, perhaps of another model service (the model was switched since): the same check as a question
+    this.#sending = true;
+    let gate = null;
+    try {
+      gate = await this.#phiGate(null, { path: threadPath(this.state.messages, user.id) });
+      if (!gate) return;
+      const conv = this.state.conversation;
+      if (gate.remember) this.state.conversation = (await this.store.conversations.note(conv.id, rememberAsWritten(conv, gate.remember))) || conv;
+      if (gate.phi) user = await this.store.messages.put({ ...user, phi: gate.phi });
+    } finally {
+      this.#sending = false;
+    }
+    this.#runAssistant(this.state.conversation, user, { phi: gate.phi?.choice });
   }
 
   /**
@@ -975,17 +1013,33 @@ export class App {
     // only the branch's last answer: a later question was asked after it as it is
     if (this.path().at(-1)?.id !== assistantId) return false;
     const a = this.state.messages.find((m) => m.id === assistantId);
-    const user = a && this.state.messages.find((m) => m.id === a.parentId);
+    let user = a && this.state.messages.find((m) => m.id === a.parentId);
     if (!user || !canContinue(a, this.provider(), this.toolMessagesOf(a.id))) return false;
-    this.#runAssistant(this.state.conversation, user, { resume: a });
+    // what goes on is sent again, with the project's files as they are now: the same check as a regenerated answer
+    // (ui/phidialog.js), and the choice it makes is counted with this run
+    this.#sending = true;
+    let gate = null;
+    try {
+      gate = await this.#phiGate(null, { path: threadPath(this.state.messages, user.id) });
+      if (!gate) return false;
+      const conv = this.state.conversation;
+      if (gate.remember) this.state.conversation = (await this.store.conversations.note(conv.id, rememberAsWritten(conv, gate.remember))) || conv;
+      if (gate.phi) user = await this.store.messages.put({ ...user, phi: gate.phi });
+    } finally {
+      this.#sending = false;
+    }
+    // a local model chosen in the check is another provider: this answer cannot go on there, and nothing is sent to
+    // the one that made it (Retry asks the local model afresh)
+    if (!canContinue(a, this.provider(), this.toolMessagesOf(a.id))) return false;
+    this.#runAssistant(this.state.conversation, user, { resume: a, phi: gate.phi?.choice });
     return true;
   }
 
   /** Editing a user message adds a sibling with the same parent (a branch) and answers it. */
   async editMessage(messageId, text) {
     const m = this.state.messages.find((x) => x.id === messageId);
-    if (!m || this.state.turn) return;
-    await this.send(text, { editOf: m });
+    if (!m || this.state.turn) return false;
+    return this.send(text, { editOf: m });
   }
 
   async switchBranch(messageId, dir) {
@@ -1044,7 +1098,11 @@ export class App {
     };
   }
 
-  async #runAssistant(conv, user, { resume = null } = {}) {
+  /**
+   * `resume`: the stored answer a Continue goes on in (continueTurn). `phi`: the choice the check before sending made
+   * for this run (ui/phidialog.js), counted with this run only.
+   */
+  async #runAssistant(conv, user, { resume = null, phi } = {}) {
     const provider = this.provider();
     const project = this.state.project;
     // a continued answer (continueTurn) keeps its message: what this run adds goes on in it
@@ -1057,7 +1115,7 @@ export class App {
     // what the telemetry calls this run: the message's id, or for a continued answer an id of its own (the earlier run
     // was reported under the message's id; the Worker keeps the first report of an id and drops a second)
     const reportId = resume ? uuid() : draftId;
-    const turn = { conversationId: conv.id, projectId: conv.projectId || project?.id, userId: user.id, live, abort, discarded: false, saving: () => saving, resume, reportId };
+    const turn = { conversationId: conv.id, projectId: conv.projectId || project?.id, userId: user.id, live, abort, discarded: false, saving: () => saving, resume, reportId, phi };
     this.state.turn = turn;
     // a question, and the first of its conversation or not; the turn beats while it runs, so that the next page load
     // can tell one that was cut off (core/telemetry.js staleTurns)
@@ -1072,7 +1130,7 @@ export class App {
     this.telemetry.track("turn_start", { provider: provider.id, model: provider.model, first: turn.first });
     this.telemetry.turnBegan({
       id: reportId, messageId: draftId, ...(resume ? { continues: true } : {}), conversationId: conv.id, projectId: turn.projectId, provider: provider.id,
-      model: provider.model, first: turn.first, consent: turn.consent, startedAt: live.startedAt,
+      model: provider.model, first: turn.first, consent: turn.consent, phi, startedAt: live.startedAt,
     });
     turn.beat = setInterval(() => this.telemetry.turnBeat(reportId), 5000);
     this.state.inspector = { ...this.state.inspector, messageId: draftId, selection: null };
@@ -1264,7 +1322,7 @@ export class App {
           recorded = true;
         }
       }
-      tel.track("turn_end", turnEndEvent({ ...base, excluded: excluded || undefined, recorded }));
+      tel.track("turn_end", turnEndEvent({ ...base, excluded: excluded || undefined, recorded, phi: turn?.phi }));
     } catch { /* never the conversation's concern */ } finally {
       tel.turnEnded(turn?.reportId || live?.id || assistant?.id);
     }
@@ -1391,10 +1449,10 @@ export class App {
         if (!conv || !user) {
           // the conversation deleted since, or cut off before anything of the turn was saved
           this.telemetry.track("turn_end", turnEndEvent({ id: m.id, provider: m.provider, model: m.model, status: "interrupted", first: m.first,
-            startedAt: m.startedAt, endedAt: m.beat, assistant, tools: [], excluded: conv ? "unavailable" : "discarded" }));
+            startedAt: m.startedAt, endedAt: m.beat, assistant, tools: [], excluded: conv ? "unavailable" : "discarded", phi: m.phi }));
           continue;
         }
-        await this.#reportTurn({ conv, user, assistant, toolMessages: tools, live, turn: { first: m.first, consent: m.consent === true, reportId: m.id }, interrupted: true, endedAt: m.beat });
+        await this.#reportTurn({ conv, user, assistant, toolMessages: tools, live, turn: { first: m.first, consent: m.consent === true, reportId: m.id, phi: m.phi }, interrupted: true, endedAt: m.beat });
       } catch { /* the next page load tries no more: it was taken off the list */ }
     }
   }

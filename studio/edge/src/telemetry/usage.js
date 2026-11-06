@@ -10,6 +10,7 @@
 //   visitor      a distinct visitor that day (salted, above); "asker" the same for visitors who asked
 //   turn_start   a question sent; conversation_start the first question of a conversation
 //   turn_end     a turn finished, by status (completed / cancelled / failed / interrupted)
+//   turn_phi     a question that identified a person, by what the visitor chose (redacted / as_written / local)
 //   model_call   one request to a model: a turn makes one per round of tool use, and one per retry
 //   tool_run     one tool execution, by tool and status
 //   relay_call, relay_tokens, connector   seen by the Worker itself (Tao-S1 calls, database gateway requests by database)
@@ -45,7 +46,7 @@ const EXPORT_SPECS = {
 };
 export const METRICS = [
   "app_init", "app_browser", "visit", "pageview", "pageview_tab", "visitor", "asker", "turn_start", "conversation_start", "turn_end",
-  "turn_recorded", "turn_excluded", "model_call", "tokens_in", "tokens_out", "tool_run", "tool_kind", "tool_place", "workflow",
+  "turn_recorded", "turn_excluded", "turn_phi", "model_call", "tokens_in", "tokens_out", "tool_run", "tool_kind", "tool_place", "workflow",
   "app_error", "availability", "consent", "relay_call", "relay_tokens", "connector", "connector_ms", "telemetry_rejected",
 ];
 
@@ -242,6 +243,8 @@ export class UsageCore {
           add("tokens_out", provider, e.model || "", e.tokens_out || 0);
           if (e.recorded) add("turn_recorded", provider);
           if (e.excluded) add("turn_excluded", e.excluded);
+          // what the visitor chose for a question that identified a person, by model service (never the question)
+          if (e.phi) add("turn_phi", e.phi, provider);
           break;
         }
         case "tool_end": {

@@ -180,6 +180,12 @@ test("exclusion: uploads, project files, clinical and user-data tools, identifyi
   assert.equal(exclusionOf({ path: [q("x")], tools: [tool("tcmdb_relations", { store_path: "/home/me/store" }, "tcmdb")] }), "user_data_tool");
   assert.equal(exclusionOf({ path: [q("x")], tools: [tool("literature_search", { query: "TP53" })] }), null);
   assert.equal(exclusionOf({ path: [q("患者，男，60岁"), q("桂枝汤呢？")] }), "sensitive_text"); // an earlier question
+  // a question the check before sending held (ui/phidialog.js), whatever was sent: redacted, a name may still be there
+  for (const choice of ["redacted", "as_written", "local"]) {
+    const held = q("Patient Alice Smith MRN [redacted:record_number] hepatotoxicity", { phi: { reason: "identifier", choice } });
+    assert.equal(exclusionOf({ path: [held] }), "sensitive_text", choice);
+    assert.equal(exclusionOf({ path: [held, q("桂枝汤呢？")] }), "sensitive_text", choice);
+  }
   assert.equal(exclusionOf({ path: [q("x")], discarded: true }), "discarded");
   // an earlier turn's reason, kept on the conversation, holds for every later turn (a project file removed since)
   assert.equal(exclusionOf({ path: [q("桂枝汤")], projectFiles: 0, before: "project_files" }), "project_files");

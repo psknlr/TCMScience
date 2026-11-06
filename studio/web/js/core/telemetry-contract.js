@@ -50,6 +50,8 @@ export const TERMINATIONS = [
 export const CONSENT_DECISIONS = ["granted", "declined", "withdrawn", "deleted"];
 /** Why a turn's content was not recorded (the turn is still counted, without its words). */
 export const EXCLUSIONS = ["no_consent", "uploaded_file", "project_files", "clinical_tool", "user_data_tool", "sensitive_text", "discarded", "unavailable"];
+/** What the person chose when a question bound for a model outside their computer identified a person (ui/phidialog.js). */
+export const PHI_CHOICES = ["redacted", "as_written", "local"];
 
 export const EVENT_TYPES = ["app_init", "visit", "pageview", "turn_start", "turn_end", "tool_end", "workflow", "error", "availability", "consent"];
 
@@ -157,6 +159,7 @@ const EVENT_FIELDS = {
     termination: oneOf(e.termination, TERMINATIONS), truncated: bool(e.truncated), synthesized_at_limit: bool(e.synthesized_at_limit),
     recorded: bool(e.recorded), excluded: oneOf(e.excluded, EXCLUSIONS),
     error_kind: oneOf(e.error_kind, ERROR_KINDS), error_type: token(e.error_type, 40),
+    phi: oneOf(e.phi, PHI_CHOICES),
   }),
   tool_end: (e) => ({
     call: id(e.call), tool: token(e.tool, 80), kind: oneOf(e.kind, TOOL_KINDS) || "unknown", place: oneOf(e.place, PLACES) || "unknown",

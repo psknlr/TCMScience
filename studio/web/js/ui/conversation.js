@@ -45,6 +45,7 @@ export function mountConversation(app, main) {
   let liveView = null;
   let stick = true;
   let editing = null; // message id being edited
+  let edited = null; // {id, text} as edited, when sending it sent nothing (the check before sending: back to edit)
 
   scroller.addEventListener("scroll", () => {
     const gap = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
@@ -148,24 +149,31 @@ export function mountConversation(app, main) {
 
   function editBox(m) {
     const ta = h("textarea.input.textarea.msg__edit-input", { rows: "3", "aria-label": t("ui.msg.edit") });
-    ta.value = m.content;
-    const save = () => {
+    ta.value = edited?.id === m.id ? edited.text : m.content;
+    const close = () => { editing = null; edited = null; renderAll(); };
+    const save = async () => {
       const v = ta.value.trim();
       if (!v) return;
       editing = null;
-      app.editMessage(m.id, v);
+      edited = null;
+      // nothing was sent (ui/phidialog.js: back to edit): the box comes back with the text as edited, and keeps it
+      if ((await app.editMessage(m.id, v)) === false) {
+        editing = m.id;
+        edited = { id: m.id, text: v };
+        renderAll();
+      }
     };
     ta.addEventListener("keydown", (e) => {
       if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); save(); }
-      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); editing = null; renderAll(); }
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
     });
     requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); ta.style.height = `${Math.min(ta.scrollHeight + 2, 320)}px`; });
     return h("div.msg__edit",
       ta,
       h("p.msg__edit-note", t("ui.msg.edit_note")),
       h("div.msg__edit-actions",
-        button({ label: t("ui.action.cancel"), size: "sm", variant: "ghost", onClick: () => { editing = null; renderAll(); } }),
+        button({ label: t("ui.action.cancel"), size: "sm", variant: "ghost", onClick: close }),
         button({ label: t("ui.msg.edit_send"), size: "sm", variant: "primary", onClick: save })));
   }
 

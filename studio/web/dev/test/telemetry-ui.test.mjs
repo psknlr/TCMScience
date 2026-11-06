@@ -82,6 +82,14 @@ async function makeApp({ fail = false, reply, slowMs = 0 } = {}) {
   return { app, requests: t.requests, project: p };
 }
 
+/** A question the check before sending holds (ui/phidialog.js: Tao-S1 is a model outside this computer), sent as
+ * written: the turn then goes on as it did before that check. */
+async function sentAsWritten(sending) {
+  for (let i = 0; i < 500 && !document.querySelector("dialog.dialog--phi"); i++) await delay(2);
+  document.querySelector('dialog.dialog--phi [data-phi="as_written"]').dispatchEvent(new window.Event("click"));
+  return sending;
+}
+
 async function finished(app) {
   for (let i = 0; i < 400 && (app.state.turn || !app.state.messages.some((m) => m.role === "assistant" && !m.draft)); i++) await delay(10);
   await delay(30); // the record and the usage event follow the stored answer
@@ -204,7 +212,7 @@ test("agreed, but never recorded: an uploaded file, a patient's case — and the
   const { app, requests } = await makeApp();
   const file = new window.Blob(["患者，女，32岁"], { type: "text/plain" });
   file.name = "case.txt";
-  await app.send("请读一下附件", { files: [file] });
+  await sentAsWritten(app.send("请读一下附件", { files: [file] }));
   await finished(app);
   await app.send("桂枝汤主治什么？"); // the same conversation: still out
   await finished(app);
@@ -212,10 +220,29 @@ test("agreed, but never recorded: an uploaded file, a patient's case — and the
   assert.deepEqual(events(requests, "turn_end").map((e) => e.excluded), ["uploaded_file", "uploaded_file"]);
 
   const second = await makeApp();
-  await second.app.send("患者，男，60岁，咳嗽三天，舌红苔黄");
+  await sentAsWritten(second.app.send("患者，男，60岁，咳嗽三天，舌红苔黄"));
   await finished(second.app);
   assert.deepEqual(records(second.requests), []);
   assert.equal(events(second.requests, "turn_end")[0].excluded, "sensitive_text");
+});
+
+test("agreed, but a question sent redacted is never recorded: the name in running text is still there, and the conversation stays out", async () => {
+  resetChoices();
+  setContentConsent(true);
+  for (const q of ["Patient Alice Smith MRN 04851923 hepatotoxicity", "患者张三，身份证号110101199003071234，胃痛"]) {
+    const { app, requests } = await makeApp();
+    const sending = app.send(q);
+    for (let i = 0; i < 500 && !document.querySelector("dialog.dialog--phi[open]"); i++) await delay(2);
+    document.querySelector('dialog.dialog--phi[open] [data-phi="redacted"]').dispatchEvent(new window.Event("click"));
+    assert.equal(await sending, true, q);
+    await finished(app);
+    assert.match(app.state.messages.find((m) => m.role === "user").content, /\[redacted:(record|id)_number\]/, q);
+    await app.send("桂枝汤主治什么？"); // the same conversation: still out
+    await finished(app);
+    assert.deepEqual(records(requests), [], q);
+    assert.deepEqual(events(requests, "turn_end").map((e) => [e.recorded, e.excluded, e.phi]), [[false, "sensitive_text", "redacted"], [false, "sensitive_text", undefined]], q);
+    assert.equal((await app.store.conversations.get(app.state.conversation.id)).recordExcluded, "sensitive_text", q);
+  }
 });
 
 test("a project file the model was given keeps the conversation out, even once the file is removed", async () => {

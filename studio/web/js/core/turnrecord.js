@@ -148,7 +148,10 @@ export function exclusionOf({ path = [], tools = [], projectFiles = 0, discarded
       return "user_data_tool";
     }
   }
-  if (sensitiveAny(path.filter((m) => m?.role === "user").map((m) => m.content))) return "sensitive_text";
+  // a question the check before sending held (ui/phidialog.js: message.phi) identified a person as it was typed, whatever
+  // was sent and stored: redacted, its name in running text may still be there
+  const asked = path.filter((m) => m?.role === "user");
+  if (asked.some((m) => m.phi) || sensitiveAny(asked.map((m) => m.content))) return "sensitive_text";
   return null;
 }
 
@@ -270,6 +273,8 @@ export function turnEndEvent(turn) {
     termination: terminationOf(a), truncated: truncatedOf(a), synthesized_at_limit: a.termination === "max_steps_synthesized",
     recorded: Boolean(turn.recorded), excluded: turn.excluded || undefined,
     error_kind: a.error?.kind, error_type: a.error?.type || (a.error?.status ? `http_${a.error.status}` : undefined),
+    // the choice made when the question identified a person (ui/phidialog.js): the choice, never the text
+    phi: turn.phi || undefined,
   };
 }
 
