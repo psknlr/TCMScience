@@ -422,6 +422,23 @@ export function verdictBadge(x, vocabulary, l = currentLang()) {
   return { tone: "neutral", icon: "○", label: id };
 }
 
+/**
+ * A research_inquiry conclusion in a call's result (bioagent.research.inquiries.conclude): its verdict badge (the
+ * inquiry vocabulary above) with a tip that says who classified the outcomes, by_runtime and by_agent, since only those
+ * the runtime classified can decide acceptance; a saved inquiry the 2026-11 acceptance rule re-evaluated adds its
+ * note. null for any other result.
+ */
+export function inquiryOf(envelope, l = currentLang()) {
+  const r = envelope?.result;
+  const c = r && typeof r === "object" ? r.conclusion : null;
+  if (!c || typeof c !== "object" || !STATES.inquiry?.[c.verdict]) return null;
+  const count = (n) => (Number.isInteger(n) && n >= 0 ? n : 0);
+  const byRuntime = count(r.by_runtime), byAgent = count(r.by_agent);
+  const note = c.re_evaluated && typeof c.re_evaluated === "object" ? L(c.re_evaluated, l) : "";
+  const tip = [t("core.inquiry.tip", { runtime: byRuntime, agent: byAgent }, l), note].filter(Boolean).join(l === "zh" ? "；" : "; ");
+  return { verdict: c.verdict, by_runtime: byRuntime, by_agent: byAgent, badge: verdictBadge(c.verdict, "inquiry", l), tip };
+}
+
 function guessVocabulary(id) {
   for (const v of ["inquiry", "goal", "artifact", "call", "job"]) if (STATES[v]?.[id]) return v;
   return "call";

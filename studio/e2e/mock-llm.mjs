@@ -14,6 +14,8 @@
 //   文献 / literature    calls literature_search; round 2 echoes the status (and "（未联网）" for network_off)
 //   后台任务             round 1 submits job.skill.run through call_tool; then job_status until the job is done;
 //                        then "任务状态：<state>"
+//   探究 / inquiry       research_inquiry: open its own two-trial efficacy inquiry, record both outcomes itself
+//                        (citing "PMID 1" and "PMID 2"), conclude; then "探究结论：<verdict>"
 //   慢速 / slow          a long answer, 400 pieces 30 ms apart (for the stop button)
 //   你是谁 / who are you an identity answer, no reasoning
 //   (a ping tool offered) the connection test of Settings → Models: one call of ping {echo:"ok"}
@@ -33,6 +35,7 @@ export const UPSTREAM_MODEL = "MiniMax-M3";
 // first match wins
 export const SCENARIOS = {
   job: { match: (s) => /后台任务|background job/i.test(s) },
+  inquiry: { match: (s) => /探究|inquiry/i.test(s) },
   safety: { match: (s) => /甘草/.test(s) && /甘遂/.test(s) },
   pipeline: { match: (s) => /RNA-?seq|流程/i.test(s) },
   literature: { match: (s) => /文献|literature/i.test(s) },
@@ -104,6 +107,29 @@ export function plan(body) {
       call("call_job_2", "job_status", { job_id: job[1], wait_s: 30 });
     } else {
       say(`任务状态：${job ? job[2] : head ? head[3] : "unknown"}。`);
+      out.push({ finish: "stop" });
+    }
+  } else if (scenario === "inquiry") {
+    // the rounds of this turn so far: the tool results after the last user message
+    const since = messages.slice(messages.lastIndexOf(lastUser) + 1).filter((m) => m.role === "tool").map((m) => textOf(m.content));
+    const iid = /inq_[0-9a-f]{16}/.exec(since[0] || "")?.[0];
+    const trial = (id, extra = {}) => ({ id, title: `RCT ${id}`, design: "randomised_trial", outcomes: ["benefit", "none"], ...extra });
+    const sealed = { works: { benefit: 0.99, none: 0.01 }, null: { benefit: 0.01, none: 0.99 } };
+    if (since.length === 0) {
+      reason("先写下竞争解释和各自的预测，再记录结果。");
+      call("call_inq_1", "research_inquiry", {
+        action: "open", question: "Does herb X cure disease Y in humans?",
+        explanations: [{ id: "works", proposition: "X is clinically efficacious for Y", claim_kind: "efficacy", prior: 0.475 },
+          { id: "null", proposition: "X has no clinical effect on Y", claim_kind: "efficacy", prior: 0.475 }],
+        analyses: [trial("t1"), trial("t1r", { replicates: "t1" })], predictions: { t1: sealed, t1r: sealed } });
+    } else if (iid && since.length < 3) {
+      const [analysis_id, evidence_ref] = since.length === 1 ? ["t1", "PMID 1"] : ["t1r", "PMID 2"];
+      call(`call_inq_${since.length + 1}`, "research_inquiry", { action: "record", inquiry_id: iid, analysis_id, outcome: "benefit", evidence_ref });
+    } else if (iid && since.length === 3) {
+      call("call_inq_4", "research_inquiry", { action: "conclude", inquiry_id: iid });
+    } else {
+      const verdict = /"verdict":\s*"(\w+)"/.exec(since.at(-1) || "")?.[1] || "unknown";
+      say(`探究结论：${verdict}。`);
       out.push({ finish: "stop" });
     }
   } else if (scenario === "literature") {

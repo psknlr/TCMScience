@@ -552,6 +552,120 @@ def test_an_artefact_conclusion_is_a_finding_about_the_analysis():
     assert conclusion.leader == "coverage"
     assert conclusion.role is Role.ARTEFACT
     assert conclusion.claim_kind is None and conclusion.licensing is None
+    assert "a finding about the analysis, not about the world" in conclusion.describe()
+
+
+def test_an_artefact_verdict_is_no_surer_than_the_designs_it_rests_on():
+    """An artefact is capped like a claim: two docking runs make a tentative finding about
+    the docking, however high the posterior they leave."""
+    inquiry = Inquiry("q", [
+        Explanation("pose", "the pose is an artefact of the scoring function",
+                    role=Role.ARTEFACT, prior=0.475),
+        Explanation("grid", "the pose is an artefact of the search box", role=Role.ARTEFACT,
+                    prior=0.475)],
+        [Analysis("dock", "docking", SILICO, BINARY),
+         Analysis("dock2", "docking, second program", SILICO, BINARY, replicates="dock")])
+    for a in ("dock", "dock2"):
+        inquiry.declare(a, {"pose": row(0.99), "grid": row(0.01)})
+    conclusion = run_inquiry(inquiry, lambda a, s: Executed("enriched"))
+    assert conclusion.verdict is Verdict.ACCEPTED and conclusion.leader_posterior > 0.95
+    assert conclusion.designs == (SILICO,)
+    assert conclusion.certainty is Certainty.TENTATIVE
+
+
+# =============================== an outcome counts towards acceptance only if decisive
+
+def counted(decisive=None, inquiry_id="inq_00000000000000aa"):
+    return declare_all(Inquiry("Is the concentration of measured targets in pathway A "
+                               "real?", explanations(), analyses(), inquiry_id=inquiry_id,
+                               decisive=decisive))
+
+
+def test_by_default_every_observation_is_decisive():
+    plain = run_inquiry(counted(), world())
+    every = run_inquiry(counted(lambda update: True), world())
+    assert plain.verdict is Verdict.ACCEPTED
+    assert every.as_dict() == plain.as_dict()
+
+
+def test_an_outcome_that_cannot_decide_moves_belief_and_supplies_no_test():
+    """The same outcomes, the same trail and the same advice: only the verdict changes, and
+    the conclusion names the outcomes that could not decide it."""
+    plain, strict = counted(), counted(lambda update: False)
+    run_inquiry(plain, world())
+    run_inquiry(strict, world())
+    assert strict.as_dict() == plain.as_dict() and strict.next_step() == plain.next_step()
+    conclusion = strict.conclude()
+    assert conclusion.leader == "target" and conclusion.leader_posterior > 0.95
+    assert conclusion.verdict is Verdict.PROVISIONAL
+    assert conclusion.certainty is Certainty.TENTATIVE
+    assert conclusion.severe_tests == {} and conclusion.replications == {}
+    assert set(conclusion.untested) == {"coverage", "nonspecific"}
+    assert "the stopping rule is met" not in conclusion.reason
+    observed = ", ".join(u.analysis_id for u in strict.updates)
+    assert any(line.startswith("outcomes that cannot decide acceptance") and observed in line
+               for line in conclusion.limitations)
+
+
+def test_a_replication_that_cannot_decide_leaves_the_test_unreplicated():
+    inquiry = counted(lambda update: update.analysis_id not in ("assayed-seed", "random-2"))
+    conclusion = run_inquiry(inquiry, world())
+    assert conclusion.verdict is Verdict.PROVISIONAL
+    assert set(conclusion.severe_tests) == {"coverage", "nonspecific"}
+    assert conclusion.replications == {}
+    assert set(conclusion.unreplicated) == {"coverage", "nonspecific"}
+
+
+@pytest.mark.parametrize("aside", ["r1", "r2"])
+def test_a_replication_that_went_the_other_way_counts_whoever_classified_it(aside):
+    """r1 failed the test a and r2 upheld it, so a is not replicated by a majority. Setting
+    either aside does not change that: an outcome that cannot decide acceptance cannot
+    uphold a test, and a replication that went the other way still counts against it."""
+    specs = [("a", ""), ("r1", "a"), ("r2", "a"), ("b", ""), ("c", "")]
+    inquiry = Inquiry("q", [
+        Explanation("target", "acts on the target", MECH, prior=0.45),
+        Explanation("noise", "assay noise", role=Role.ARTEFACT, prior=0.45)],
+        [Analysis(i, i, SILICO, BINARY, replicates=r) for i, r in specs],
+        StoppingRule(accept_at=0.9), decisive=lambda update: update.analysis_id != aside)
+    for i, _ in specs:
+        inquiry.declare(i, {"target": row(.9), "noise": row(.05)})
+    outcomes = {"a": "enriched", "r1": "not_enriched", "r2": "enriched", "b": "enriched",
+                "c": "enriched"}
+    for a in ("a", "r1", "r2", "b", "c"):
+        inquiry.observe(a, outcomes[a])
+    conclusion = inquiry.conclude()
+    assert conclusion.verdict is Verdict.PROVISIONAL
+    assert conclusion.unreplicated == ("noise",)
+    assert conclusion.failed_replications == {"noise": ("r1",)}
+
+
+def test_only_the_conclusion_asks_whether_an_outcome_is_decisive():
+    """The advice and the trail never consult the predicate, so a trail replays the advice
+    it recorded whatever predicate it is loaded with."""
+    def asked(update):
+        raise AssertionError("asked outside conclude")
+    inquiry = counted(asked)
+    inquiry.plan(2)
+    for update in ("assayed", "random"):
+        inquiry.observe(update, world()(inquiry.analysis(update), None).outcome)
+    inquiry.next_step(), inquiry.ranked(), inquiry.batch(2), inquiry.sensitivity()
+    with pytest.raises(AssertionError, match="outside conclude"):
+        inquiry.conclude()
+
+
+def test_a_trail_loaded_with_a_predicate_replays_byte_for_byte():
+    inquiry = counted()
+    inquiry.plan(2)
+    run_inquiry(inquiry, world())
+    data = inquiry.as_dict()
+    strict = Inquiry.from_dict(data, decisive=lambda update: False)
+    assert strict.as_dict() == data and strict.head == inquiry.head
+    assert strict.next_step() == inquiry.next_step()
+    assert inquiry.conclude().verdict is Verdict.ACCEPTED
+    assert strict.conclude().verdict is Verdict.PROVISIONAL
+    tampered = copy.deepcopy(data)
+    first(tampered, "observed")["body"]["outcome"] = "not_enriched"
+    refused("INQ150", Inquiry.from_dict, tampered, decisive=lambda update: False)
 
 
 def test_evidence_that_reaches_a_claim_only_by_extrapolation_says_so():

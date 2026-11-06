@@ -73,11 +73,18 @@ model may say what it expects; it does not decide what was learned.**
    replication. A test counts as replicated when more of its replicates favour the leader
    than do not: running replicates until one agrees does not replicate it. Every
    replication that went the other way is listed in the conclusion (`failed_replications`
-   and the limitations), whatever the verdict.
+   and the limitations), whatever the verdict. An inquiry can be told which observations
+   are **decisive** (`Inquiry(…, decisive=…)`): only those supply a severe test or a
+   replication that upholds one. The others move belief like any observation, and a
+   replication among them that went the other way still counts against its test. A leader
+   resting on them is provisional, and the limitations name them. The engine's advice
+   counts every observation, so a saved trail replays the advice it recorded whatever the
+   predicate; by default every observation is decisive.
 5. **The posterior is not a licence.** How strongly a conclusion may be stated is capped by
    the designs of the observations that bore on it (`MAX_CERTAINTY`) and by the claim kind
    those designs reach (`LICENSING`). Ten in-silico analyses at a posterior of 0.99 license
-   a *tentative mechanism hypothesis*, which is what one of them licenses.
+   a *tentative mechanism hypothesis*, which is what one of them licenses. An artefact, a
+   finding about the analysis rather than the world, is capped by the same designs.
 
 An analysis that cannot run at all (the data it needs are absent) is **withdrawn** with its
 reason, and never given an outcome. The conclusion then lists what could not be run.
@@ -241,9 +248,13 @@ engine.
 the form the engine needs. Each has rivals, tests, sealed predictions and the tools that
 produce each test's result. `action: "scaffolds"` lists them, and `open` with a scaffold and
 its values starts an inquiry. An agent can also open one from its own rivals, analyses and
-predictions, and the engine's refusals apply to it unchanged. The core tool `research_routes`
-names, for each kind of research question, the scaffold that decides between its explanations
-and every source that can produce the evidence ([studio/docs/ROUTES.md](../studio/docs/ROUTES.md)).
+predictions, and the engine's refusals apply to it unchanged. Each explanation gives its
+claim kind, or the role `artefact` when the method or the data make the signal. One with
+neither is refused (`INQ103`), never read as an artefact, which no licensing reaches. A
+prediction that sums to within 0.01 of 1 (0.33 three times) is sealed divided by its sum,
+and `randomized_*` reads as `randomised_*`. The core tool `research_routes` names, for
+each kind of research question, the scaffold that decides between its explanations and
+every source that can produce the evidence ([studio/docs/ROUTES.md](../studio/docs/ROUTES.md)).
 
 | Scaffold | Question | Rivals | Tests | Who classifies an outcome |
 | --- | --- | --- | ---: | --- |
@@ -255,6 +266,25 @@ and every source that can produce the evidence ([studio/docs/ROUTES.md](../studi
 | `safety_signal` | is the adverse event the herb's? | causal · confounded · wrong material | 5 | the agent, citing the reports |
 | `herb_drug_interaction` | does the herb change the drug? | PK · PD · none | 5 | the runtime from the published interval (clinical tests); the agent (in vitro) |
 | `target_engagement` | does the compound bind the target? | binds · indirect · interference | 6 | the agent, citing the assays |
+
+**Only outcomes the runtime classified decide acceptance** (the 2026-11 acceptance rule).
+An outcome the agent reports moves belief like any other. Whatever source it cites, it is
+never the severe test or the replication an acceptance rests on: a cited PMID shows that a
+source exists, not that the agent read its outcome correctly. In the chat, then,
+`formula_vs_constituent`, `combination`, `exposure`, `efficacy` and `herb_drug_interaction`
+(on its clinical tests) can reach "accepted". `pathway_signal`, `safety_signal`,
+`target_engagement` and an inquiry an agent opens from its own analyses end provisional at
+most, and their conclusions say so. Planting each rival's most likely outcomes on every
+test, with the agent reporting what no tool classifies, the first five accept every rival
+and the last three none (`BioScience-Harness/tests/test_inquiries.py` checks it). An analysis an agent adds beside a scaffold's tests, not as a
+replicate of one, takes a reported outcome and decides nothing: the conclusion's reason
+names the runtime-classified tests still to record, and `to_decide` lists them. The
+engine's advice still counts every outcome, so that a saved trail replays the advice it
+recorded; `next` can therefore name an analysis that cannot decide. An inquiry saved
+before the rule is concluded under it. When that changes its verdict, the conclusion
+carries the note "re-evaluated under the 2026-11 acceptance rule" in English and Chinese
+(`re_evaluated`). On the call's card, the verdict badge's tip gives how many outcomes the
+runtime and the agent classified.
 
 **What decides an outcome is sealed too.** An equivalence margin, the smallest important
 benefit, a combination's reference model and a clinically relevant change are values of the
@@ -320,7 +350,7 @@ through `tcm_applicability` and the release gate, and the tool's summary says so
 | --- | --- |
 | INQ101 | a closed world: the catch-all opens below its floor |
 | INQ102 | fewer than two named explanations |
-| INQ103 / 104 / 105 | a malformed explanation, analysis or stopping rule |
+| INQ103 / 104 / 105 | a malformed explanation (in the chat, also one with neither a claim kind nor a role), analysis or stopping rule |
 | INQ110 | running an analysis before every live explanation it bears on, and for a replicate every explanation that predicted its original, has a sealed prediction |
 | INQ111 | an unknown analysis or explanation |
 | INQ112 | a prediction that is not a distribution over the declared outcomes |
@@ -342,9 +372,11 @@ through `tcm_applicability` and the release gate, and the tool's summary says so
 - **Information gain looks one step ahead.** That step is one analysis, or one batch
   chosen before any of its outcomes is known. A two-step lookahead did worse on the
   scaffolds ([above](#running-analyses-together-and-how-sure-the-predictions-were)).
-- **Outcomes are discrete.** Each analysis declares an exhaustive set, and its executor
-  classifies the result into one of them with a fixed rule. The classifier is code in the
-  repository, not a model's judgement.
+- **Outcomes are discrete.** Each analysis declares an exhaustive set, and the result is
+  classified into one of them. In the pathway inquiry and in a scaffold's runtime-classified
+  tests the classifier is code in the repository. A test the agent classifies (the table
+  above) is the agent's judgement of the source it cites, which is why, in the chat, such an
+  outcome cannot decide acceptance.
 - **Execution is in-process here.** The pathway inquiry runs its analyses in this process
   and says so (`governed_execution: false`). The executor is the port where the kernel's
   execution broker goes, as it does in the research loop.
@@ -370,8 +402,8 @@ write-ahead refusal),
 - **预测先于结果封存。** 事后声明的似然被拒绝（INQ115），已封存的预测不可修改（INQ116）。审计轨迹可以重放，信念无法复算、或某一条目无法重放即被拒绝（INQ150）。重算哈希链不能让改过的信念通过，但哈希不带密钥：能写入存储文件的人可以改动已封存的预测，重放结果并重算全部哈希，轨迹仍能加载。所以预测是否确实事先封存，取决于谁能写入存储。在 Studio 中由运行时保存，智能体只能通过工具访问；记录器另把每个条目的哈希写入内核审计链，但加载时不核对它。保存的探究注明它开始时所用的规则版本（`engine`；版本 2 之前没有这一字段）。按早期规则开始的探究，重放时沿用审计轨迹记录的建议（每次观察的目的、针对的对手和推荐的步骤，以及每个计划），因为选出这些建议的规则已经改变；其信念、预测和结果照常重算，现在的结论按现行规则得出。
 - **证据类型不能许可的主张，其信念不能被它移动。** 例如对接结果不能携带对临床疗效的预测（INQ113）。该解释的概率被精确固定，等价于"这一观察与它无关"。
 - **世界永不封闭。** 始终保留"以上皆非"兜底项，开局有概率下限（INQ101）。结果出乎所有已有解释的预料时，概率流向兜底项，超过警戒线后引擎要求提出新解释。新解释只能从兜底项的当前概率中分得份额，不能为它事后拟合的数据邀功。
-- **后验高不足以停止。** 领先解释必须通过针对每个存活对手的严格检验：对手为真时大概率不利于领先者，领先者为真时大概率有利于它。针对每个对手，至少有一个这样的检验还须被重复。对手若被一个它给出概率 0 的结果否定，这一分析就算对它的检验，这一否定同样须被重复，所以一个过于自信的 0 不能结束探究。重复检验对照的是对手为重复检验封存的预测，所以凡对原检验作过预测的解释，无论是否已被否定，都须对重复检验作出预测（INQ110），引擎会要求补上；设计无法许可对手主张、因而无法带有其预测的重复检验，不作为该检验的重复来运行。一个检验只有在支持领先者的重复多于不支持的重复时才算被重复，反复做重复直到有一次一致并不算数。未能支持领先者的重复，无论裁决如何，都列在结论中（`failed_replications` 和局限）。
-- **后验不是许可。** 十个计算机模拟分析即使使后验达到 0.99，也只许可一个"试探性的机制假说"。
+- **后验高不足以停止。** 领先解释必须通过针对每个存活对手的严格检验：对手为真时大概率不利于领先者，领先者为真时大概率有利于它。针对每个对手，至少有一个这样的检验还须被重复。对手若被一个它给出概率 0 的结果否定，这一分析就算对它的检验，这一否定同样须被重复，所以一个过于自信的 0 不能结束探究。重复检验对照的是对手为重复检验封存的预测，所以凡对原检验作过预测的解释，无论是否已被否定，都须对重复检验作出预测（INQ110），引擎会要求补上；设计无法许可对手主张、因而无法带有其预测的重复检验，不作为该检验的重复来运行。一个检验只有在支持领先者的重复多于不支持的重复时才算被重复，反复做重复直到有一次一致并不算数。未能支持领先者的重复，无论裁决如何，都列在结论中（`failed_replications` 和局限）。可以规定哪些观察是**决定性的**（`decisive`）：只有它们能作为严格检验或支持性的重复；其余观察照常移动信念，其中未能支持领先者的重复仍计入反对；领先者若依赖它们，结论为暂定，局限中列出这些观察。引擎的建议计入所有观察，所以无论规定如何，保存的轨迹都重放其记录的建议；默认所有观察都是决定性的。
+- **后验不是许可。** 十个计算机模拟分析即使使后验达到 0.99，也只许可一个"试探性的机制假说"。伪影解释（关于分析本身、而非关于世界的发现）同样受这些证据设计封顶。
 
 **葛根芩连汤通路信号的应用：**
 - **竞争解释：** 选择性作用（机制假说）、检测覆盖伪影、化合物"滥交"性。
@@ -392,9 +424,10 @@ write-ahead refusal),
 
 **在 Studio 对话中（`research_inquiry`）：**
 - **工具：** 核心工具 `research_inquiry`（目录条目 `study.inquiry`，浏览器和 Runner 均可运行）让对话中的智能体使用同一引擎。它先写下竞争解释和各自的预测，信念、下一步和停止由引擎决定。
-- **八套模板：** `bioagent.research.rivals` 为常见问题准备了竞争解释、检验、封存的预测和产生结果的工具，包括通路信号、复方与主要成分、联合用药、体内暴露、疗效、安全信号、药材–药物相互作用、靶点结合。`action: "scaffolds"` 列出全部模板，也可以自己提出竞争解释。
+- **八套模板：** `bioagent.research.rivals` 为常见问题准备了竞争解释、检验、封存的预测和产生结果的工具，包括通路信号、复方与主要成分、联合用药、体内暴露、疗效、安全信号、药材–药物相互作用、靶点结合。`action: "scaffolds"` 列出全部模板，也可以自己提出竞争解释。每个解释须给出主张类型，或在信号来自方法或数据时给出角色 `artefact`；两者都没有的解释被拒绝（INQ103），不再默认为伪影（伪影不受证据许可约束）。概率之和与 1 相差不超过 0.01 的预测（如三个 0.33）按其和归一后封存；`randomized_*` 视同 `randomised_*`。
 - **判定标准同样封存：** 等效界值、最小重要获益、联合作用的参照模型、临床相关变化都是模板参数，写入检验标题，与预测一起进入审计轨迹。按其他标准分析的数据被拒绝。
 - **谁判定的结果写在轨迹里：** 提供 `data` 时，模板指定的工具在同一次调用中运行，由运行时按模板规则判定，证据记为 `runtime:<工具>:<摘要>`。同一数据不能记录两次：比较的是判定器读取的数字，改换试验标签、多加字段或把 1 写成 1.0 仍是同一数据；每个试验的估计值与其标准误、每个孔的数值与其字段保持配对，同样的数字换一种配对则是另一组数据。没有判定器的检验由智能体报告结果，必须给出 `evidence_ref`，记为 `agent:`；重复检验不能引用原检验的来源（不论由谁判定；PMID 或 DOI 无论怎样书写，带不带标签、写成网址、用全角字符或后附标点、说明，都视为同一来源）。智能体为运行时判定的检验添加的重复检验，同样按原检验的规则从数据判定，不接受报告的结果。结论分别计数两类结果。
+- **只有运行时判定的结果决定是否接受（2026-11 接受规则）：** 智能体报告的结果照常移动信念，但无论引用什么来源，都不能作为接受所依据的严格检验或重复：引用的 PMID 只说明来源存在，不说明智能体对结果的判断正确。因此在对话中，复方与主要成分、联合用药、体内暴露、疗效以及药材–药物相互作用（其临床检验）可以达到"接受"；通路信号、安全信号、靶点结合，以及智能体用自己的分析开启的探究，至多为"暂定"，结论会说明。在每个检验上设定各解释最可能的结果、无工具判定的检验由智能体报告时，前五套模板的每个解释都被接受，后三套都不被接受。智能体在模板检验之外另加的分析（不是其重复检验）只接受报告的结果，不决定是否接受；结论的理由列出仍需记录的运行时判定检验，`to_decide` 也列出它们。引擎的建议仍计入所有结果，以便保存的轨迹重放其记录的建议，所以 `next` 可能指向不能决定接受的分析。此规则之前保存的探究按此规则作结；裁决因此改变时，结论附中英文一句说明"已按 2026-11 接受规则重新评估"（`re_evaluated`）。调用卡片上的裁决徽章在提示中给出运行时判定和智能体报告的结果数。
 - **门槛只能提高：** `rule` 可以提高接受阈值、严格度或兜底下限，降低警戒线或减少步数，但不能关闭重复要求，也不能放宽任何一项。探究按项目保存，每次加载都重放审计轨迹（INQ150）。
 - **撤回也是发现：** 无法运行的检验连同原因撤回，结论在 `to_decide` 中列出它们，以及其他能严格区分存活解释、尚未运行的检验，也就是能解决问题的研究。安全信号不等待接受：暂定或未决不等于安全。
 - **同时运行：** `action: "plan"`（`size` 为 2 到 4）封存引擎的批次，并给出每项分析的运行工具和增加的信息量；智能体并行运行后逐项记录。每个结论附带 `sensitivity`；领先者改变时，这一点排在模板警示之后的第一条局限，摘要也用一句话说明。

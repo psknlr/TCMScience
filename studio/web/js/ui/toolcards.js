@@ -8,7 +8,7 @@
 // in a runtime: it is shown as 未运行 (or, when a runtime may have started it and gave no answer, 无结果), never under
 // the browser's or the runner's badge. A legacy envelope's kind is derived, and says so.
 
-import { resultOf, refusalsOf, releaseOf, claimsOf } from "../core/governance.js";
+import { inquiryOf, resultOf, refusalsOf, releaseOf, claimsOf } from "../core/governance.js";
 import { glossary, lang, t } from "../core/i18n.js";
 import { scrubProjectRefs } from "../core/publiclinks.js";
 import { isLoopbackUrl } from "../core/util.js";
@@ -289,6 +289,7 @@ export function toolCallCard(call, envelope = null, { catalog, runnerUrl, onOpen
     const where = decidedInPage ? null : receipt?.where || call.where || null;
     const duration = envelope ? envelope.duration_ms : call.endedAt && call.startedAt ? call.endedAt - call.startedAt : null;
     const rel = envelope ? releaseOf(envelope) : null;
+    const inquiry = envelope && status === "succeeded" ? inquiryOf(envelope) : null;
     const claims = envelope ? claimsOf(envelope) : [];
     const refusedClaims = claims.filter((c) => c.allowed === false).length;
     const statusLabel = view.label;
@@ -313,6 +314,8 @@ export function toolCallCard(call, envelope = null, { catalog, runnerUrl, onOpen
       h("span.tool-card__meta",
         // the artifact card that follows in the thread carries the release verdict: it is said there once
         rel && !compact && !(artifactFollows && status === "succeeded") ? verdictPill(rel.badge, { size: "sm" }) : null,
+        // an inquiry's verdict, and in its tip who classified the outcomes it rests on
+        inquiry ? verdictPill(inquiry.badge, { size: "sm", title: inquiry.tip }) : null,
         refusedClaims ? chip({ label: t("ui.tool.claims_refused", { n: refusedClaims }), tone: "vermilion", icon: "ban" }) : null,
         status === "refused" && !declined ? h("span.tool-card__refused", statusLabel) : null,
         declined ? h("span.tool-card__declined", statusLabel) : null,

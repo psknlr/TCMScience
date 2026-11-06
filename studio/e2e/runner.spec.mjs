@@ -187,3 +187,27 @@ test("a project file with a Chinese name goes to the runner with its name and ha
   expect(rec.runnerUploadId).toBe(up.id);
   watch.expectClean();
 });
+
+test("an inquiry's verdict is on its card, and its tip says who classified the outcomes", async ({ page }) => {
+  // the scripted model writes its own rivals, trials, outcomes and sources ("PMID 1", "PMID 2"): before the 2026-11
+  // acceptance rule that was "accepted, strong"; outcomes the agent classified now move belief and decide nothing
+  const watch = watchConsole(page);
+  await seedSettings(page, {}, { custom: { id: "custom-e2e", base_url: `${mock.url}/v1`, model: "mock-sci-1" } });
+  await openPaired(page, runner);
+  await newProject(page, "E2E 探究");
+  await send(page, "探究：X 能否治疗 Y？");
+  expect(await approve(page, "project")).toMatch(/第一次在本机 Runner 上运行/);
+  const answer = await waitForAnswers(page, 1);
+  await expect(answer).toContainText("探究结论：provisional");
+  await expect(page.locator(".tool-card")).toHaveCount(4);
+  // only the conclusion has a verdict: provisional, at most tentative, and the tip counts who classified what
+  const pill = page.locator(".tool-card .verdict");
+  await expect(pill).toHaveCount(1);
+  await expect(pill).toContainText("暂定");
+  await expect(pill).toHaveAttribute("data-tip", "探究结论：运行时判定的结果 0 项，智能体报告的结果 2 项；只有运行时判定的结果能决定是否接受");
+  const tool = (await readDb(page)).messages.filter((m) => m.role === "tool").at(-1);
+  expect(tool.envelope.result.conclusion.verdict).toBe("provisional");
+  expect(tool.envelope.result.conclusion.certainty).toBe("tentative");
+  expect([tool.envelope.result.by_runtime, tool.envelope.result.by_agent]).toEqual([0, 2]);
+  watch.expectClean();
+});

@@ -16,7 +16,7 @@ import pytest
 from bioagent.research import inquiries as inq
 from bioagent.research import rivals
 from bioagent.studies.contrast import Group, contrast_formula_monomer
-from psh.scientist import InquiryRefused
+from psh.scientist import Inquiry, InquiryRefused
 
 FVC = {"formula": "葛根芩连汤", "constituent": "berberine", "endpoint": "fasting glucose",
        "margin": 0.5, "better": "lower"}
@@ -210,6 +210,142 @@ def test_an_agent_can_open_its_own_inquiry_under_the_engines_rules(store):
     assert done["conclusion"]["verdict"] != "accepted"
 
 
+def test_an_explanation_says_its_claim_kind_or_that_it_is_an_artefact(store):
+    """An explanation with neither was read as an artefact, which no licensing reaches, so
+    a docking run could carry a cure claim. Open and admit refuse it instead."""
+    bare = [{k: v for k, v in e.items() if k != "claim_kind"} for e in CUSTOM["explanations"]]
+    with pytest.raises(InquiryRefused) as exc:
+        inq.open_inquiry(store, **{**CUSTOM, "explanations": bare})
+    assert exc.value.code == "INQ103"
+    assert exc.value.detail == ('raises gives neither claim_kind nor role: give claim_kind, '
+                                'or role "artefact" if the method or the data make the signal')
+    assert store.ids() == []
+    iid = inq.open_inquiry(store, **CUSTOM)["inquiry_id"]
+    with pytest.raises(InquiryRefused, match="INQ103"):
+        inq.admit(store, iid, [{"id": "c", "proposition": "C"}], {"c": 0.5})
+    view = inq.open_inquiry(store, question="q", explanations=[
+        {"id": "real", "proposition": "R", "claim_kind": "mechanism_hypothesis", "prior": 0.4},
+        {"id": "noise", "proposition": "N", "role": "artefact", "prior": 0.4}])
+    inquiry, record = store.load(view["inquiry_id"])
+    assert inquiry.explanation("noise").role.value == "artefact"
+    assert record["acceptance_rule"] == inq.ACCEPTANCE_RULE
+
+
+TRIALS = {
+    "question": "Does 黄芪 raise white-cell counts after chemotherapy?",
+    "explanations": [{**e, "prior": 0.475} for e in CUSTOM["explanations"]],
+    "analyses": [{"id": "rct", "title": "a randomised trial", "design": "randomised_trial",
+                  "outcomes": ["raised", "unchanged"]},
+                 {"id": "rct2", "title": "a second randomised trial",
+                  "design": "randomised_trial", "outcomes": ["raised", "unchanged"],
+                  "replicates": "rct"}],
+    "predictions": {a: {"raises": {"raised": 0.99, "unchanged": 0.01},
+                        "no_change": {"raised": 0.01, "unchanged": 0.99}}
+                    for a in ("rct", "rct2")}}
+
+
+def test_only_outcomes_the_runtime_classified_decide_acceptance(store):
+    """The store loads each inquiry with the engine's decisive rule set to who classified
+    the outcome: 'runtime:' evidence decides, 'agent:' evidence moves belief only."""
+    iid = inq.open_inquiry(store, **TRIALS)["inquiry_id"]
+    inq.record_reported(store, iid, "rct", "raised", "PMID 1")
+    inq.record_reported(store, iid, "rct2", "raised", "PMID 2")
+    done = inq.conclude(store, iid)
+    c = done["conclusion"]
+    assert c["leader"] == "raises" and c["leader_posterior"] > 0.95
+    assert c["verdict"] == "provisional" and c["certainty"] == "tentative"
+    assert c["limitations"][0] == ("2 of the 2 outcomes were classified by the agent (rct, "
+                                   "rct2) from the sources it cites: they move belief but "
+                                   "cannot decide acceptance; check them against those "
+                                   "sources")
+    assert c["reason"].endswith("no test of this inquiry is classified by the runtime, so "
+                                "outcomes the agent reports leave it provisional at most")
+    inquiry, _ = store.load(iid)
+    assert Inquiry.from_dict(inquiry.as_dict()).conclude().accepted     # the rule, nothing else
+
+
+REACH = {"formula_vs_constituent": True, "combination": True, "exposure": True,
+         "efficacy": True, "herb_drug_interaction": True, "pathway_signal": False,
+         "safety_signal": False, "target_engagement": False}
+
+
+@pytest.mark.parametrize("scaffold_id", list(REACH))
+def test_which_scaffolds_can_reach_acceptance_in_the_chat(scaffold_id):
+    """docs/inquiry.md: each rival's most likely outcome planted on every test the engine
+    runs, the runtime classifying its tests and the agent reporting the rest. Five scaffolds
+    accept every rival; the three the agent classifies accept none."""
+    from test_rivals import VALUES
+    s = rivals.scaffold(scaffold_id)
+    assert set(REACH) == set(rivals.SCAFFOLDS)
+    for rival in s.rivals:
+        inquiry = Inquiry.from_dict(rivals.open_scaffold(scaffold_id, VALUES[scaffold_id])
+                                    .as_dict(), decisive=inq._decisive)
+        tests = {t.id: t for t in s.tests}
+        while (step := inquiry.next_step()).action == "run":
+            t = tests[step.analysis_id]
+            q = t.predictions[rival.id]
+            inquiry.observe(t.id, max(q, key=q.get),
+                            evidence_ref=f"{'runtime' if t.classifier else 'agent'}:{t.id}")
+        c = inquiry.conclude()
+        assert c.leader == rival.id
+        assert c.accepted is REACH[scaffold_id], (rival.id, c.verdict, c.reason)
+
+
+def test_predictions_within_a_hundredth_of_one_are_normalised_before_sealing(store):
+    iid = inq.open_inquiry(store, **{**TRIALS, "predictions": {
+        "rct": {"raises": {"raised": 0.66, "unchanged": 0.33},
+                "no_change": {"raised": 0.495, "unchanged": 0.5}}}})["inquiry_id"]
+    inquiry, _ = store.load(iid)
+    assert inquiry.predictions("rct")["no_change"] == pytest.approx(
+        {"raised": 0.495 / 0.995, "unchanged": 0.5 / 0.995})
+    assert inquiry.trail[1]["body"]["predictions"]["no_change"] == pytest.approx(
+        {"raised": 0.495 / 0.995, "unchanged": 0.5 / 0.995})       # sealed as normalised
+    inq.declare(store, iid, "rct2", {"raises": {"raised": 0.6, "unchanged": 0.405},
+                                     "no_change": {"raised": 0.2, "unchanged": 0.8}})
+    with pytest.raises(InquiryRefused, match="INQ112"):
+        inq.open_inquiry(store, **{**TRIALS, "predictions": {
+            "rct": {"raises": {"raised": 0.7, "unchanged": 0.28}}}})
+
+
+@pytest.mark.parametrize("spelled,design", [("randomized_trial", "randomised_trial"),
+                                            ("non_randomized_trial", "non_randomised_trial")])
+def test_the_american_spelling_of_a_randomised_design_is_read(store, spelled, design):
+    iid = inq.open_inquiry(store, **{**TRIALS, "analyses": [
+        {**a, "design": spelled} for a in TRIALS["analyses"]]})["inquiry_id"]
+    inquiry, _ = store.load(iid)
+    assert {a.design.value for a in inquiry.analyses} == {design}
+    assert inq.DESIGN_ALIASES[spelled] == design
+
+
+def _saved_before_the_rule(store, iid):
+    path = store.path(iid)
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    del doc["record"]["acceptance_rule"]
+    path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+
+
+def test_a_saved_inquiry_is_concluded_under_the_rule_and_says_its_verdict_changed(store):
+    iid = inq.open_inquiry(store, **TRIALS)["inquiry_id"]
+    inq.record_reported(store, iid, "rct", "raised", "PMID 1")
+    inq.record_reported(store, iid, "rct2", "raised", "PMID 2")
+    assert "re_evaluated" not in inq.conclude(store, iid)["conclusion"]
+    _saved_before_the_rule(store, iid)
+    c = inq.conclude(store, iid)["conclusion"]
+    assert c["verdict"] == "provisional"
+    assert c["re_evaluated"] == {
+        "rule": "2026-11", "earlier_verdict": "accepted",
+        "en": "re-evaluated under the 2026-11 acceptance rule: an earlier engine gave "
+              "accepted; outcomes the agent classified no longer decide acceptance",
+        "zh": "已按 2026-11 接受规则重新评估：早先的引擎判为接受；智能体判定的结果不再决定是否接受"}
+    assert c["limitations"][0] == c["re_evaluated"]["en"]
+    # a later write keeps it a saved inquiry: the rule is recorded when one is opened
+    inq.declare(store, iid, "rct3", TRIALS["predictions"]["rct"],
+                analysis={**TRIALS["analyses"][0], "id": "rct3"})
+    _, record = store.load(iid)
+    assert "acceptance_rule" not in record
+    assert "re_evaluated" in inq.conclude(store, iid)["conclusion"]
+
+
 def test_a_closed_world_is_refused(store):
     closed = {**CUSTOM, "explanations": [{**e, "prior": 0.5} for e in CUSTOM["explanations"]]}
     with pytest.raises(InquiryRefused) as exc:
@@ -299,7 +435,8 @@ ZEROED = {
     "explanations": [
         {"id": "real", "proposition": "the compound acts on the pathway",
          "claim_kind": "mechanism_hypothesis", "prior": 0.45},
-        {"id": "artefact", "proposition": "the signal is an assay artefact", "prior": 0.45}],
+        {"id": "artefact", "proposition": "the signal is an assay artefact",
+         "role": "artefact", "prior": 0.45}],
     "analyses": [{"id": a, "title": f"screen {a}", "design": "in_silico",
                   "outcomes": ["hit", "miss"]} for a in ("a", "b", "c")],
     # one confident zero carries the answer: "real" calls a miss in a impossible
@@ -326,7 +463,9 @@ def test_a_conclusion_carried_by_how_sure_a_prediction_was_says_so_first(store):
 
 def test_one_reported_outcome_that_refutes_the_only_rival_is_not_an_acceptance(store):
     """An agent's own predictions with a zero: one reported outcome removes the rival, and
-    the replicate of that outcome is still the next step and a study that would decide."""
+    the replicate of that outcome is still the next step and a study that would decide.
+    Replicated, it is still not an acceptance: outcomes the agent reports decide nothing,
+    where the same outcomes classified by the runtime would accept it."""
     screen = {"title": "screen", "design": "in_silico", "outcomes": ["hit", "miss", "unclear"]}
     # the refutation is not a severe test of target (it predicts the hit at 0.75 only)
     rows = {"target": {"hit": 0.75, "miss": 0.15, "unclear": 0.1},
@@ -335,7 +474,8 @@ def test_one_reported_outcome_that_refutes_the_only_rival_is_not_an_acceptance(s
         store, question="Is the screen's hit real?",
         explanations=[{"id": "target", "proposition": "it acts on the target",
                        "claim_kind": "mechanism_hypothesis", "prior": 0.475},
-                      {"id": "noise", "proposition": "assay noise", "prior": 0.475}],
+                      {"id": "noise", "proposition": "assay noise", "role": "artefact",
+                       "prior": 0.475}],
         analyses=[{"id": "a", **screen}, {"id": "a-seed", **screen, "replicates": "a"}],
         predictions={"a": rows, "a-seed": rows},
         rule={"require_replication": True})["inquiry_id"]
@@ -344,13 +484,16 @@ def test_one_reported_outcome_that_refutes_the_only_rival_is_not_an_acceptance(s
     assert (view["next"]["action"], view["next"]["analysis_id"]) == ("run", "a-seed")
     done = inq.conclude(store, iid)
     c = done["conclusion"]
-    assert c["verdict"] == "provisional" and c["unreplicated"] == ["noise"]
-    assert c["severe_tests"] == {"noise": ["a"]} and c["replications"] == {}
+    assert c["verdict"] == "provisional" and c["untested"] == ["noise"]
+    assert c["severe_tests"] == {} and c["replications"] == {}
     assert [(g["analysis_id"], g.get("would_test_against")) for g in done["to_decide"]] == [
         ("a-seed", ["noise"])]
     inq.record_reported(store, iid, "a-seed", "hit", "PMID:87654321")
     c = inq.conclude(store, iid)["conclusion"]
-    assert c["verdict"] == "accepted" and c["replications"] == {"noise": ["a-seed"]}
+    assert c["verdict"] == "provisional" and c["replications"] == {}
+    inquiry, _ = store.load(iid)
+    counted = Inquiry.from_dict(inquiry.as_dict()).conclude()       # every outcome decisive
+    assert counted.accepted and counted.replications == {"noise": ("a-seed",)}
 
 
 def test_the_replicate_of_a_refutation_asks_for_the_refuted_rivals_prediction(store):
@@ -364,7 +507,8 @@ def test_the_replicate_of_a_refutation_asks_for_the_refuted_rivals_prediction(st
         store, question="Does compound X act on target T?",
         explanations=[{"id": "target", "proposition": "X acts on T",
                        "claim_kind": "mechanism_hypothesis", "prior": 0.475},
-                      {"id": "noise", "proposition": "assay artefact", "prior": 0.475}],
+                      {"id": "noise", "proposition": "assay artefact", "role": "artefact",
+                       "prior": 0.475}],
         analyses=[{"id": "a", **screen}, {"id": "a-seed", **screen, "replicates": "a"}],
         predictions={"a": {"target": target, "noise": noise}},
         rule={"require_replication": True})["inquiry_id"]
@@ -379,8 +523,10 @@ def test_the_replicate_of_a_refutation_asks_for_the_refuted_rivals_prediction(st
     assert (view["next"]["action"], view["next"]["analysis_id"],
             view["next"]["purpose"]) == ("run", "a-seed", "replicate")
     inq.record_reported(store, iid, "a-seed", "hit", "PMID:87654321")
-    c = inq.conclude(store, iid)["conclusion"]
-    assert c["verdict"] == "accepted" and c["replications"] == {"noise": ["a-seed"]}
+    inquiry, _ = store.load(iid)
+    counted = Inquiry.from_dict(inquiry.as_dict()).conclude()       # every outcome decisive
+    assert counted.accepted and counted.replications == {"noise": ("a-seed",)}
+    assert inq.conclude(store, iid)["conclusion"]["verdict"] == "provisional"
 
 
 # ================================================== what counts as a replication

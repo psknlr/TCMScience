@@ -3546,6 +3546,30 @@ _INQUIRY_LIMITS = (
     "A conclusion is not a release or a recommendation: its certainty is capped by the "
     "designs of the evidence that bore on it, and a claim still needs tcm_applicability and "
     "the release gate.")
+#: How to call each action, for arguments the engine never saw (its refusals carry their own).
+_INQUIRY_HINTS = {
+    "scaffolds": "Omit scaffold to list them all, or give one scaffold id to see it in full.",
+    "open": "Open either {scaffold, values} (action scaffolds with the scaffold lists its "
+            "values) or {question, explanations, analyses, predictions}: each explanation "
+            "with claim_kind, or role \"artefact\"; predictions as {analysis id: {explanation "
+            "id: {outcome: probability}}}; a rule only stricter than the defaults (accept_at "
+            "0.95 or more, min_severity 0.8 or more, replication on).",
+    "status": "Give the inquiry_id open returned (inq_ and 16 hex digits); action list shows "
+              "this project's inquiries.",
+    "plan": "Give the inquiry_id open returned and a size 2 to 4: how many analyses to run "
+            "at once.",
+    "declare": "Give inquiry_id, analysis_id and predictions {explanation id: {outcome: "
+               "probability}} for that one analysis; to add an analysis, give analysis {id, "
+               "title, design, outcomes, replicates?} as well.",
+    "record": "Give inquiry_id and analysis_id, then for a test the runtime classifies data "
+              "(the arguments of the tool it names), for any other outcome (one of its "
+              "declared outcomes) with evidence_ref (PMID, DOI, NCT id, a receipt hash).",
+    "withdraw": "Give inquiry_id, analysis_id and reason: the reason it cannot be run.",
+    "admit": "Give inquiry_id, explanations (each with claim_kind, or role \"artefact\") and "
+             "shares {explanation id: share of the catch-all's mass}, together at most 0.95.",
+    "conclude": "Give the inquiry_id open returned (inq_ and 16 hex digits); action list "
+                "shows this project's inquiries.",
+}
 
 
 def _inquiry_next(view: Mapping[str, Any]) -> tuple[str, str]:
@@ -3584,9 +3608,13 @@ def _inquiry_summary(action: str, r: Any, args: Mapping[str, Any]) -> tuple[str,
         c = r["conclusion"]
         verdict, cert = c.get("verdict", ""), c.get("certainty", "")
         who = c.get("leader") or "—"
-        zh = (f"探究结论：{_VERDICT_ZH.get(verdict, verdict)}（{who}，至多表述为"
+        # an artefact leads: the verdict is about the analysis, and says so
+        about_zh, about_en = (("关于分析本身的发现、不是关于世界的结论，",
+                               "a finding about the analysis, not about the world, ")
+                              if c.get("role") == "artefact" else ("", ""))
+        zh = (f"探究结论：{_VERDICT_ZH.get(verdict, verdict)}（{who}，{about_zh}至多表述为"
               f"{_CERTAINTY_ZH.get(cert, cert)}）")
-        en = f"Inquiry conclusion: {verdict} ({who}, stated at most {cert})"
+        en = f"Inquiry conclusion: {verdict} ({who}, {about_en}stated at most {cert})"
         rows = (r.get("sensitivity") or {}).get("tempers") or ()
         if rows and c.get("leader"):
             holds = (r["sensitivity"].get("leader_holds_to") or 0.0) >= rows[-1]["temper"]
@@ -3597,6 +3625,10 @@ def _inquiry_summary(action: str, r: Any, args: Mapping[str, Any]) -> tuple[str,
             en += (f"; still leads with every prediction {t:.0%} less sure" if holds
                    else f"; the leader changes with every prediction {t:.0%} less sure, so "
                         "it rests on how sure the predictions were")
+        note = c.get("re_evaluated") or {}
+        if note:                    # saved before the acceptance rule, which changed it
+            zh += f"；{note.get('zh', '')}"
+            en += f"; {note.get('en', '')}"
         return zh, en
     iid = r.get("inquiry_id", "")
     leader, p = _inquiry_leader(r)
@@ -3700,7 +3732,12 @@ def _study_inquiry(args: Mapping[str, Any], ctx: Context) -> Outcome:
             return _failure("study", "bad_arguments", f"no inquiry action {action!r}",
                             "One of " + ", ".join(INQUIRY_ACTIONS) + ".")
     except InquiryRefused as exc:
-        return _failure("study", "refused", str(exc), exc.remedy, status="refused",
+        hint = exc.remedy
+        if exc.code in ("INQ110", "INQ111"):
+            # a missing or misshapen prediction: the one to fill in, ids and outcomes written
+            skeleton = _inquiry_skeleton(store, args, action)
+            hint = f"{hint}. {skeleton}" if skeleton else hint
+        return _failure("study", "refused", str(exc), hint, status="refused",
                         summary=f"探究引擎拒绝（{exc.code}）：{_short(exc.detail)}",
                         summary_en=f"Refused by the inquiry engine ({exc.code}): "
                                    f"{_short(exc.detail)}",
@@ -3715,7 +3752,7 @@ def _study_inquiry(args: Mapping[str, Any], ctx: Context) -> Outcome:
                         "where it was opened (the local runner, or this browser).")
     except (ValueError, TypeError, KeyError) as exc:
         return _failure("study", "bad_arguments", f"{type(exc).__name__}: {exc}",
-                        "action scaffolds shows each scaffold's parameters and tests.")
+                        _INQUIRY_HINTS.get(action, _INQUIRY_HINTS["scaffolds"]))
     g = gv.empty("study")
     if action == "conclude":
         g["limitations"] = [_INQUIRY_LIMITS[1], *(r["conclusion"].get("limitations") or ())]
@@ -3724,6 +3761,52 @@ def _study_inquiry(args: Mapping[str, Any], ctx: Context) -> Outcome:
     zh, en = _inquiry_summary(action, r, args)
     # the result names the inquiry and its trail head: the receipt's output digest binds them
     return Outcome(result=r, governance=g, summary=zh, summary_en=en)
+
+
+def _inquiry_skeleton(store: Any, args: Mapping[str, Any], action: str) -> str:
+    """After INQ110 or INQ111: the predictions still to seal, in the shape the action takes,
+    with every explanation and outcome written in and each probability left null."""
+    from bioagent.research import inquiries as inq
+    from psh.scientist import CATCH_ALL
+    from psh.sir.values import LICENSING, ClaimKind, Licensing, StudyDesign
+
+    def blank(outcomes: Any) -> dict[str, None]:
+        return dict.fromkeys(str(o) for o in outcomes or ())
+
+    def bears(explanation: Mapping[str, Any], design: Any) -> bool:
+        try:
+            kind = ClaimKind(explanation.get("claim_kind"))
+            design = StudyDesign(inq.DESIGN_ALIASES.get(design, design))
+        except (ValueError, TypeError):
+            return True                     # an artefact, or a name open refuses anyway
+        return LICENSING.get(kind, {}).get(design) not in (None, Licensing.UNLICENSED)
+
+    try:
+        if action == "open":
+            named = [e for e in args.get("explanations") or () if isinstance(e, Mapping)]
+            rows = {str(a.get("id")): {str(e.get("id")): blank(a.get("outcomes"))
+                                       for e in named if bears(e, a.get("design"))}
+                    for a in args.get("analyses") or () if isinstance(a, Mapping)}
+            return ("predictions takes this shape, each null a probability and each row "
+                    "summing to 1 (a design that cannot license an explanation's claim kind "
+                    f"has no row for it): {json.dumps(rows, ensure_ascii=False)}")
+        inquiry, _ = store.load(str(args.get("inquiry_id") or ""))
+        known = [a.id for a in inquiry.analyses]
+        wanted = str(args.get("analysis_id") or "")
+        for analysis_id in [wanted] if wanted in known else known:
+            missing = inquiry.missing(analysis_id)
+            if missing and not inquiry.observed(analysis_id) \
+                    and analysis_id not in inquiry.withdrawn:
+                outcomes = inquiry.analysis(analysis_id).outcomes
+                seal = {"action": "declare", "inquiry_id": inquiry.inquiry_id,
+                        "analysis_id": analysis_id,
+                        "predictions": {h: blank(outcomes) for h in missing}}
+                return ("Seal them first, each null a probability and each row summing to 1: "
+                        f"{json.dumps(seal, ensure_ascii=False)}")
+        names = [e.id for e in inquiry.explanations if e.id != CATCH_ALL]
+        return f"Its explanations are {', '.join(names)}; its analyses {', '.join(known)}."
+    except Exception:                                           # noqa: BLE001
+        return ""
 
 
 def _inquiry_record_data(store: Any, args: Mapping[str, Any], ctx: Context) -> Any:

@@ -15,9 +15,9 @@ import copy
 from typing import Any, Mapping
 
 __all__ = ["CORE_TOOLS", "CORE_BY_NAME", "CATEGORY_IDS", "ENTRY_KINDS", "CLAIM_KINDS",
-           "STUDY_DESIGNS", "INQUIRY_ACTIONS", "INQUIRY_SCAFFOLDS", "INQUIRY_SCHEMA",
-           "INTAKE_SCHEMA", "VISIT_SCHEMA", "HERB_LINE_SCHEMA", "MODIFICATION_SCHEMA",
-           "PIPELINES", "ROUTE_IDS", "ROUTES_SCHEMA", "route", "core_for", "core_tools", "S", "I",
+           "STUDY_DESIGNS", "DESIGN_ALIASES", "INQUIRY_ACTIONS", "INQUIRY_SCAFFOLDS",
+           "INQUIRY_SCHEMA", "INTAKE_SCHEMA", "VISIT_SCHEMA", "HERB_LINE_SCHEMA",
+           "MODIFICATION_SCHEMA", "PIPELINES", "ROUTE_IDS", "ROUTES_SCHEMA", "route", "core_for", "core_tools", "S", "I",
            "N", "B", "arr", "obj"]
 
 # ------------------------------------------------------------------ schema helpers
@@ -73,6 +73,8 @@ STUDY_DESIGNS = ("classical_text", "commentary", "expert_consensus", "in_silico"
                  "animal", "case_report", "case_series", "cross_sectional", "case_control",
                  "cohort", "non_randomised_trial", "randomised_trial", "systematic_review",
                  "guideline", "unknown")
+#: bioagent.research.inquiries.DESIGN_ALIASES: other spellings an analysis's design takes
+DESIGN_ALIASES = ("randomized_trial", "non_randomized_trial")
 #: bioagent.research.rivals.SCAFFOLDS
 INQUIRY_SCAFFOLDS = ("pathway_signal", "formula_vs_constituent", "combination", "exposure",
                      "efficacy", "safety_signal", "herb_drug_interaction", "target_engagement")
@@ -145,16 +147,22 @@ VISIT_SCHEMA = obj({
 
 # --------------------------------------------------------------- inquiry schema
 
+# Each explanation needs claim_kind or role. That is said in the descriptions and refused
+# at open (INQ103, with the remedy), not written as a JSON Schema anyOf: the dispatcher's
+# validator would refuse it first, without the engine's code and remedy.
 _EXPLANATION_SCHEMA = obj({
     "id": S("a short id, e.g. formula_adds"), "proposition": S("what it says is true"),
-    "claim_kind": S("what kind of claim it makes about the world; omit for an artefact",
+    "claim_kind": S("what kind of claim it makes about the world: licensing reads it",
                     enum=list(CLAIM_KINDS)),
-    "role": S("artefact: the signal is produced by the method or the data",
-              enum=["substantive", "artefact"]),
+    "role": S("artefact: the signal is produced by the method or the data, not the world; "
+              "substantive: with claim_kind", enum=["substantive", "artefact"]),
     "prior": N("its probability before any analysis; the named priors leave the catch-all "
-               "at least 0.05", minimum=0, maximum=1)}, required=("id", "proposition"))
+               "at least 0.05", minimum=0, maximum=1)}, required=("id", "proposition"),
+    description="give claim_kind, or role \"artefact\" (one of the two is required)")
 _ANALYSIS_SCHEMA = obj({
-    "id": S(), "title": S("what is run, on what"), "design": S(enum=list(STUDY_DESIGNS)),
+    "id": S(), "title": S("what is run, on what"),
+    "design": S("randomized_* is read as randomised_*",
+                enum=[*STUDY_DESIGNS, *DESIGN_ALIASES]),
     "outcomes": arr(S(), "discrete, exhaustive outcomes", minItems=2),
     "cost": N("relative effort", default=1), "replicates": S("the analysis it repeats "
                                                               "under changed conditions"),
@@ -453,11 +461,11 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         Decide a research question by competing rival explanations (PSH's inquiry engine),
         not by taking the first that fits. Open one from a scaffold (scaffolds lists the
         eight) or from your own rivals, analyses and predictions. Predictions are sealed
-        before any outcome; the runtime keeps the inquiry per project. status names the next
-        analysis by expected information per cost; plan seals up to four to run at once,
-        valued jointly. Run each with the tools named, then record: a test the runtime
-        classifies takes data (the tool's arguments or published numbers), never a reported
-        outcome; any other takes outcome with evidence_ref. Withdraw an analysis that cannot
+        before any outcome; the runtime keeps them. status names the next analysis by
+        expected information per cost; plan seals up to four to run at once. Run each with
+        the tools named, then record: a test the runtime classifies takes data (the tool's
+        arguments or published numbers), never an outcome; any other takes outcome with
+        evidence_ref, which moves belief but cannot decide acceptance. Withdraw what cannot
         be run, saying why. Acceptance needs posterior 0.95 and a replicated severe test
         against every rival; the bar can be raised, never lowered. conclude gives the
         verdict, capped by what the designs license, and how it holds with less sure
