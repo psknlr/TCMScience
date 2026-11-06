@@ -258,6 +258,8 @@ export function turnEndEvent(turn) {
     claims: stats.claims.total, claims_refused: stats.claims.refused, limit_reached: Boolean(a.limitReached),
     recorded: Boolean(turn.recorded), excluded: turn.excluded || undefined,
     error_kind: a.error?.kind, error_type: a.error?.type || (a.error?.status ? `http_${a.error.status}` : undefined),
+    // the choice made when the question identified a person (ui/phidialog.js): the choice, never the text
+    phi: turn.phi || undefined,
   };
 }
 

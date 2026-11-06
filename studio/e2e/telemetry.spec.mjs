@@ -185,6 +185,8 @@ test("identifying details and an uploaded file keep a conversation out, though t
   await openApp(page);
   await send(page, "患者，女，32岁，主诉头痛三天，舌红苔黄，请问是什么证？");
   await consent(page).locator('[data-consent="agree"]').click();
+  // Tao-S1 is a model outside the visitor's computer: a patient's case is sent only as they choose (web/js/ui/phidialog.js)
+  await page.locator('dialog.dialog--phi [data-phi="as_written"]').click();
   await waitForAnswers(page, 1);
   // a new project, a question with a file attached
   await page.evaluate(() => globalThis.__studio.createProject({ name: "E2E upload" }));

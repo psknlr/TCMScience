@@ -92,6 +92,22 @@ test("usage: a retried batch and a turn reported twice are counted once; a visit
   assert.equal(u.stats({ from: next, to: next }).traffic.totals.visitor_days, 1); // the same person, counted anew
 });
 
+test("usage: a question that identified a person is counted by the visitor's choice and the model service, never its text", async () => {
+  const u = new UsageCore(sqlStore());
+  const ctx = { day: DAY, country: "CN", visitor: "visitor-phi", now: NOW };
+  await u.ingest(batch([
+    { type: "turn_end", turn: "p1", provider: "tao", model: "Tao-S1", status: "completed", phi: "redacted" },
+    { type: "turn_end", turn: "p2", provider: "tao", model: "Tao-S1", status: "completed", phi: "as_written" },
+    { type: "turn_end", turn: "p3", provider: "ollama", model: "qwen3:8b", status: "completed", phi: "local" },
+    { type: "turn_end", turn: "p4", provider: "deepseek", model: "deepseek-chat", status: "completed", phi: "患者张三" }, // not a choice
+    { type: "turn_end", turn: "p5", provider: "tao", model: "Tao-S1", status: "completed" },
+  ]), ctx);
+  const counted = rows(u, "usage_counts").filter((r) => r.metric === "turn_phi").map((r) => [r.a, r.b, Number(r.n)]);
+  assert.deepEqual(counted.sort(), [["as_written", "tao", 1], ["local", "ollama", 1], ["redacted", "tao", 1]]);
+  assert.equal(rows(u, "usage_turns").length, 5, "each turn is counted, whatever it carried");
+  assert.doesNotMatch(JSON.stringify([rows(u, "usage_counts"), rows(u, "usage_turns")]), /患者/);
+});
+
 test("usage: filters, periods, the previous period, and the Worker's own counts", async () => {
   const u = new UsageCore(sqlStore());
   for (const [day, provider, model, status, ms] of [[DAY, "tao", "Tao-S1", "completed", 1000], [DAY, "openai", "gpt-5", "failed", 500],

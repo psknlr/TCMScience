@@ -25,6 +25,7 @@ import { sha256Hex, sleep, uuid } from "../core/util.js";
 import { copyText, debounce, h, throttle } from "./dom.js";
 import { announce, closeTopOverlay, hasOverlay, installTooltips, toast } from "./overlay.js";
 import { inlinedInPrompt } from "./files.js";
+import { isLocalModel, pendingKnowledge, phiGate, rememberAsWritten } from "./phidialog.js";
 import { HashRouter, routeHref } from "./router.js";
 import { registerUiStrings } from "./strings.js";
 import { emptyEvidence, noteEvidence, recordJob, recordRun } from "./runlog.js";
@@ -901,6 +902,11 @@ export class App {
     await this.#consentGate();
     // web access (or compute) just switched: the turn starts once that is stored, so its tools see what the switch shows
     await this.webSettled();
+    // what identifies a person goes to a model outside this computer only as the person chooses (ui/phidialog.js):
+    // redacted, as written, to a local model, or not yet (nothing is stored, and the text stays in the box)
+    const gate = await this.#phiGate(content, { files, editOf });
+    if (!gate) return false;
+    content = gate.content;
     let project = this.state.project;
     if (!project) {
       project = this.state.projects[0] || await this.store.projects.create({ name: t("ui.project.default_name"), web: this.state.settings.web });
@@ -936,8 +942,12 @@ export class App {
     const user = await this.store.messages.put({
       conversationId: conv.id, parentId, role: "user", content,
       attachments: records.map((r) => r.id), attachmentNames: records.map((r) => r.name),
+      // the choice made for identifying text (never the text it replaced)
+      ...(gate.phi ? { phi: gate.phi } : {}),
     });
-    conv = await this.store.conversations.update(conv.id, { leafId: user.id, title: conv.title || autoTitle(content) });
+    conv = await this.store.conversations.update(conv.id, {
+      leafId: user.id, title: conv.title || autoTitle(content), ...(gate.remember ? rememberAsWritten(conv, gate.remember) : {}),
+    });
     this.state.conversation = conv;
     await this.loadMessages();
     await this.refreshConversations();
@@ -950,12 +960,40 @@ export class App {
     return true;
   }
 
+  /**
+   * The check before a question (or, with `content` null, a regenerated answer) goes to the model in use
+   * (ui/phidialog.js phiGate), over the project's files with the attachments about to join them, and over the branch
+   * the turn sends. → {content, phi?, remember?}, or null when nothing is to be sent. A local model chosen there is
+   * this conversation's model from now on.
+   */
+  async #phiGate(content, { files = [], editOf = null, path = null } = {}) {
+    if (isLocalModel(this.provider())) return { content };
+    const knowledge = [...(this.state.project ? await this.#knowledge(this.state.project.id) : []), ...(await pendingKnowledge(files))];
+    const conv = this.state.conversation;
+    const branch = path || (editOf ? (editOf.parentId ? threadPath(this.state.messages, editOf.parentId) : []) : conv ? threadPath(this.state.messages, conv.leafId) : []);
+    const gate = await phiGate(this, { text: content, knowledge, path: branch });
+    if (gate?.local) await this.chooseModel(gate.local);
+    return gate;
+  }
+
   async regenerate(assistantId) {
     // a question being sent (the notice may be open before it) is a turn about to start
     if (this.state.turn || this.#sending) return;
     const a = this.state.messages.find((m) => m.id === assistantId);
-    const user = a && this.state.messages.find((m) => m.id === a.parentId);
+    let user = a && this.state.messages.find((m) => m.id === a.parentId);
     if (!user) return;
+    // asked again, perhaps of another model service (the model was switched since): the same check as a question
+    this.#sending = true;
+    let gate = null;
+    try {
+      gate = await this.#phiGate(null, { path: threadPath(this.state.messages, user.id) });
+      if (!gate) return;
+      const conv = this.state.conversation;
+      if (gate.remember) this.state.conversation = (await this.store.conversations.note(conv.id, rememberAsWritten(conv, gate.remember))) || conv;
+      if (gate.phi) user = await this.store.messages.put({ ...user, phi: gate.phi });
+    } finally {
+      this.#sending = false;
+    }
     this.#runAssistant(this.state.conversation, user);
   }
 
@@ -1220,7 +1258,7 @@ export class App {
           recorded = true;
         }
       }
-      tel.track("turn_end", turnEndEvent({ ...base, excluded: excluded || undefined, recorded }));
+      tel.track("turn_end", turnEndEvent({ ...base, excluded: excluded || undefined, recorded, phi: user.phi?.choice }));
     } catch { /* never the conversation's concern */ } finally {
       tel.turnEnded(live?.id || assistant?.id);
     }
