@@ -16,8 +16,15 @@
 //                        then "任务状态：<state>"
 //   慢速 / slow          a long answer, 400 pieces 30 ms apart (for the stop button)
 //   你是谁 / who are you an identity answer, no reasoning
+//   截断 / truncated     an answer cut off at the output limit (finish_reason "length")
+//   (Continue your answer …, the agent's own request to go on) the rest of the cut-off answer
+//   继续测试 / flaky     catalog_search twice (桂枝, then 麻黄); then, the first time only, a 429 with Retry-After 60
+//                        (longer than the agent waits within a turn); after it, "两次检索都已完成"
+//   永久失败 / permanent  the same, with a 429 of type daily_limit (an error a retry cannot fix) the first time
 //   (a ping tool offered) the connection test of Settings → Models: one call of ping {echo:"ok"}
 //   anything else        a short answer with a little reasoning
+// The agent's own request for the answer (at the step limit, or when the context is full) is not a question: the
+// scenario is the person's question before it, and the result read is the one before the request.
 //
 // Test hooks: GET /__requests → every chat request received (bodies, newest last); POST /__reset clears them. A request
 // with an Origin came from a page directly ("direct"); the runner's model proxy never forwards one ("proxy").
@@ -32,6 +39,11 @@ export const UPSTREAM_MODEL = "MiniMax-M3";
 
 // first match wins
 export const SCENARIOS = {
+  // the agent's request to go on with a cut-off answer (agent.js CONTINUE_TEXT), or a person's
+  continuation: { match: (s) => /^Continue your answer from exactly where it stopped|从上次停下的地方接着写/.test(s) },
+  truncated: { match: (s) => /截断|truncated/i.test(s) },
+  flaky: { match: (s) => /继续测试|flaky/i.test(s) },
+  permanent: { match: (s) => /永久失败|permanent failure/i.test(s) },
   job: { match: (s) => /后台任务|background job/i.test(s) },
   safety: { match: (s) => /甘草/.test(s) && /甘遂/.test(s) },
   pipeline: { match: (s) => /RNA-?seq|流程/i.test(s) },
@@ -51,13 +63,24 @@ function textOf(content) {
   return "";
 }
 
-/** The events of one answer: [{delta?, finish?, usage?, delayMs?}] in order. */
-export function plan(body) {
+const ANSWER_ASK = /\s*(?:The limit of model calls for this turn is reached|This turn's tool results fill the model's context)[\s\S]*$/;
+
+/** The rest of the cut-off answer of the "truncated" scenario. */
+export const TRUNCATED = ["桂枝汤由桂枝、芍药、", "生姜、大枣、甘草组成。"];
+
+/**
+ * The events of one answer: [{delta?, finish?, usage?, delayMs?}] in order; or {error: {status, headers, body}} for an
+ * HTTP error instead. `state` is the server's memory across requests (what has failed once already).
+ */
+export function plan(body, state = {}) {
   const messages = body.messages || [];
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
-  const said = textOf(lastUser?.content);
+  // the agent's own request for the answer (agent.js ANSWER_TEXT: the step limit, a full context) is not the person's
+  // question: the scenario is the question's, and the result read is the one before the request
+  const asked = ANSWER_ASK.test(textOf(lastUser?.content));
+  const said = textOf(lastUser?.content).replace(ANSWER_ASK, "") || textOf([...messages].reverse().filter((m) => m.role === "user")[1]?.content);
   const scenario = scenarioOf(said);
-  const tail = messages[messages.length - 1];
+  const tail = asked && messages.at(-1)?.role === "user" && !textOf(messages.at(-1).content).replace(ANSWER_ASK, "") ? messages.at(-2) : messages.at(-1);
   const toolResult = tail?.role === "tool" ? textOf(tail.content) : null;
   const tools = new Set((body.tools || []).map((t) => t.function?.name || t.name));
   const out = [];
@@ -71,7 +94,30 @@ export function plan(body) {
     out.push({ finish: "tool_calls" });
   };
 
-  if (tools.has("ping") && toolResult === null) {
+  const results = messages.filter((m) => m.role === "tool").length;
+  if (scenario === "flaky" || scenario === "permanent") {
+    // two lookups the page answers itself (catalog_search: no runner or Pyodide needed), then one failure, once
+    if (results === 0) call("call_cat_1", "catalog_search", { query: "桂枝" });
+    else if (results === 1) call("call_cat_2", "catalog_search", { query: "麻黄" });
+    else if (!state[scenario]) {
+      state[scenario] = true;
+      return {
+        scenario,
+        error: scenario === "flaky"
+          ? { status: 429, headers: { "Retry-After": "60" }, body: { error: { message: "rate limit reached, retry in 60 s", type: "rate_limit_exceeded" } } }
+          : { status: 429, headers: {}, body: { error: { message: "daily quota used up", type: "daily_limit" } } },
+      };
+    } else {
+      say(`两次检索都已完成（${results} 个结果）。`);
+      out.push({ finish: "stop" });
+    }
+  } else if (scenario === "truncated") {
+    say(TRUNCATED[0]);
+    out.push({ finish: "length" });
+  } else if (scenario === "continuation") {
+    say(TRUNCATED[1]);
+    out.push({ finish: "stop" });
+  } else if (tools.has("ping") && toolResult === null) {
     // Settings → Models → Test: the connection check asks for one call of its ping tool
     call("call_ping_1", "ping", { echo: "ok" });
   } else if (scenario === "safety") {
@@ -150,6 +196,7 @@ function cors(req) {
  */
 export function startMockLLM({ port = 0, host = "127.0.0.1", log = false, flavor = "openai", key = "e2e-upstream-key", model } = {}) {
   const requests = [];
+  const state = {}; // what a scenario remembers between requests (flaky: failed once already)
   const upstream = flavor === "upstream";
   const modelName = model || (upstream ? UPSTREAM_MODEL : MODEL);
   const server = http.createServer(async (req, res) => {
@@ -157,7 +204,7 @@ export function startMockLLM({ port = 0, host = "127.0.0.1", log = false, flavor
     const url = new URL(req.url, "http://x");
     if (req.method === "OPTIONS") { res.writeHead(204, h).end(); return; }
     if (url.pathname === "/__requests") { res.writeHead(200, { ...h, "Content-Type": "application/json" }).end(JSON.stringify(requests)); return; }
-    if (url.pathname === "/__reset" && req.method === "POST") { requests.length = 0; res.writeHead(204, h).end(); return; }
+    if (url.pathname === "/__reset" && req.method === "POST") { requests.length = 0; for (const k of Object.keys(state)) delete state[k]; res.writeHead(204, h).end(); return; }
     if (req.method === "GET" && /\/v1\/models$/.test(url.pathname)) {
       res.writeHead(200, { ...h, "Content-Type": "application/json" }).end(JSON.stringify({ object: "list", data: [{ id: modelName, object: "model", owned_by: "e2e" }] }));
       return;
@@ -177,10 +224,16 @@ export function startMockLLM({ port = 0, host = "127.0.0.1", log = false, flavor
       res.writeHead(401, { ...h, "Content-Type": "application/json" }).end(JSON.stringify({ error: { message: `invalid api key (${UPSTREAM_VENDOR})`, type: "authentication_error" } }));
       return;
     }
-    const { scenario, events } = plan(body);
-    const entry = { at: Date.now(), scenario, body, via: req.headers.origin ? "direct" : "proxy", completed: false, aborted: false };
+    const { scenario, events, error } = plan(body, state);
+    const entry = { at: Date.now(), scenario, body, via: req.headers.origin ? "direct" : "proxy", completed: false, aborted: false, ...(error ? { status: error.status } : {}) };
     requests.push(entry);
     if (log) console.log(JSON.stringify({ scenario, messages: body.messages?.length, tools: body.tools?.length || 0 }));
+    if (error) {
+      // the page reads Retry-After across origins only when it is exposed
+      res.writeHead(error.status, { ...h, "Access-Control-Expose-Headers": "Retry-After", "Content-Type": "application/json", ...error.headers }).end(JSON.stringify(error.body));
+      entry.completed = true;
+      return;
+    }
 
     if (!body.stream) {
       const text = events.map((e) => e.delta?.content || "").join("");

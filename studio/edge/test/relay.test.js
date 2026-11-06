@@ -277,6 +277,8 @@ test("health and models say only what the page needs (CONTRACTS.md §1), nothing
   const h = await res.json();
   assert.deepEqual(h, {
     ok: true, service: "tcmscience-studio", version: "1", model: "Tao-S1", models: ["Tao-S1"], max_output_tokens: 8192,
+    // what one request may hold: the page fits each request of a turn to them (web/js/core/budget.js)
+    context_tokens: 128000, max_body_bytes: 2000000,
     limits: { per_minute: 40, per_day: 1200, tokens_per_day: 10000000 },
     // what the site records (off here: these fakes have no telemetry bindings); never anything of the admin side
     telemetry: {
@@ -292,6 +294,11 @@ test("health and models say only what the page needs (CONTRACTS.md §1), nothing
   assert.deepEqual(m, { object: "list", data: [{ id: "Tao-S1", object: "model", owned_by: "impf" }] });
   const head = await r.call("/v1/health", { method: "HEAD" });
   assert.equal(head.status, 200);
+  // the window and the body cap are the owner's to set
+  const sized = await (await relay({ env: { CONTEXT_TOKENS: "204800", MAX_BODY_BYTES: "1500000" } }).call("/v1/health")).json();
+  assert.deepEqual([sized.context_tokens, sized.max_body_bytes], [204800, 1500000]);
+  const typo = await (await relay({ env: { CONTEXT_TOKENS: "lots" } }).call("/v1/health")).json();
+  assert.equal(typo.context_tokens, 128000, "a mistyped window falls back to the default");
   // the kill switches: no key, or RELAY = "off"
   assert.equal((await (await relay({ env: { MINIMAX_API_KEY: "" } }).call("/v1/health")).json()).ok, false);
   const off = relay({ env: { RELAY: "off" } });

@@ -4,7 +4,7 @@
 // licences, downloads, verification and readiness. Compute's job list follows the runner's jobs live (ui/jobs.js).
 
 import { lang, setLang, t } from "../../core/i18n.js";
-import { activeProvider, localFix, newCustomProvider, PRESETS, testConnection } from "../../core/providers.js";
+import { activeProvider, contextWindow, customPreset, localFix, newCustomProvider, PRESETS, testConnection } from "../../core/providers.js";
 import { clearKeys } from "../../core/settings.js";
 import { cssEscape, debounce, fill, formatDateTime, formatDuration, formatNumber, h } from "../dom.js";
 import { icon } from "../icons.js";
@@ -191,6 +191,7 @@ function providerCard(app, p, { local = false, detected = null, rerender }) {
       h("label.field__label", { for: `${listId}-in` }, t("ui.models.model")),
       Object.assign(h("input.input.input--mono", { id: `${listId}-in`, list: listId, placeholder: p.default_model || t("ui.models.model_ph"), autocomplete: "off", spellcheck: "false", onInput: (e) => save({ models: { [p.id]: e.target.value.trim() } }) }), { value: s.models?.[p.id] || "" }),
       h("datalist", { id: listId }, models.map((m) => h("option", { value: m })))),
+    local ? textField({ label: t("ui.models.context_tokens"), value: String(contextWindow(p, s.models?.[p.id] || p.default_model, s)), type: "number", inputmode: "numeric", mono: true, help: t("ui.models.context_tokens_help"), attrs: { "data-key": `field:${p.id}:context` }, onInput: (v) => save({ contextTokens: { [p.id]: Math.floor(Number(v)) || 0 } }) }) : null,
     local ? h("p.provider-card__fix", icon("info", { size: 12 }), localFix(p)) : null,
     h("div.provider-card__actions",
       button({ label: t("ui.models.test"), size: "sm", icon: "zap", onClick: () => runTest(app, p.id, result) }),
@@ -294,6 +295,8 @@ function customCard(app, c, i, rerender) {
         textField({ label: t("ui.models.model"), value: c.model || "", mono: true, onInput: (v) => update({ model: v.trim() }) }),
         keyField(app, c.id),
         selectField({ label: t("ui.models.max_tokens_param"), value: c.max_tokens_param || "max_tokens", options: [{ value: "max_tokens", label: "max_tokens" }, { value: "max_completion_tokens", label: "max_completion_tokens" }], onChange: (v) => update({ max_tokens_param: v }) }),
+        // what the agent budgets each request against (core/budget.js)
+        textField({ label: t("ui.models.context_tokens"), value: String(customPreset(c).context_tokens), type: "number", inputmode: "numeric", mono: true, help: t("ui.models.context_tokens_help"), attrs: { "data-key": `field:${c.id}:context` }, onInput: (v) => update({ context_tokens: Math.floor(Number(v)) || null }) }),
         jsonField(t("ui.models.headers"), "headers"),
         jsonField(t("ui.models.extra_body"), "extra_body"),
         h("div.provider-card__actions",

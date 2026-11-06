@@ -178,7 +178,7 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 1. 浏览器打开 <https://science.impf.ai/v1/health>，应看到：
 
    ```json
-   {"ok":true,"service":"tcmscience-studio","version":"1","model":"Tao-S1","models":["Tao-S1"],"max_output_tokens":8192,"limits":{"per_minute":40,"per_day":1200,"tokens_per_day":10000000}}
+   {"ok":true,"service":"tcmscience-studio","version":"1","model":"Tao-S1","models":["Tao-S1"],"max_output_tokens":8192,"context_tokens":128000,"max_body_bytes":2000000,"limits":{"per_minute":40,"per_day":1200,"tokens_per_day":10000000}}
    ```
 
    如果是 `"ok":false`，说明 Worker 已上线但没有密钥（或 `RELAY = "off"`）：补上 `MINIMAX_API_KEY` 后重跑 studio 工作流。

@@ -26,7 +26,7 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
-| GET | `/v1/health` | `{ok, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, limits:{per_minute, per_day, tokens_per_day}}`。没有密钥或 `RELAY = "off"` 时 `ok:false`，网页据此改用访客自己的模型 |
+| GET | `/v1/health` | `{ok, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, context_tokens, max_body_bytes, limits:{per_minute, per_day, tokens_per_day}}`（网页按 `context_tokens` 与 `max_body_bytes` 控制每次请求的大小）。没有密钥或 `RELAY = "off"` 时 `ok:false`，网页据此改用访客自己的模型 |
 | GET | `/v1/models` | `{object:"list", data:[{id:"Tao-S1", object:"model", owned_by:"impf"}]}` |
 | POST | `/v1/chat/completions` | OpenAI 格式（流式或非流式）。`model` 只能是 `Tao-S1` 或不写；网页把 `model` 写成 JSON 的**第一个键**，中继就只改这一段文本、不重新序列化整段对话 |
 | GET | `/api/sources/health` | 网关状态、已注册数据库及操作数量、数据大小与调用频率上限；不要求模型密钥 |
@@ -124,6 +124,7 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 | `UPSTREAM_FIELDS` | `{"reasoning_split":true}` | 网页没写的这些键加进上游请求 |
 | `FORMAT_PREFIX` | `MiniMax-` | 上游思考格式的前缀，对访客显示为 `Tao-` |
 | `MAX_OUTPUT_TOKENS` | `8192` | 输出 token 上限 |
+| `CONTEXT_TOKENS` | `128000` | 上游模型的上下文窗口（token），经 health 告诉网页：网页让每次请求不超过它的 80%（扣除输出上限），超出时先缩短较早的工具结果。请填上游模型自己的窗口 |
 | `MAX_BODY_BYTES` | `2000000` | 请求体上限（字节） |
 | `PER_MINUTE` / `PER_DAY` / `TOTAL_PER_DAY` | `40` / `1200` / `20000` | 模型调用次数：每人每分钟、每人每天、全体每天（`0` 不限） |
 | `TOKENS_PER_DAY` / `TOTAL_TOKENS_PER_DAY` | `10000000` / `200000000` | token：每人每天、全体每天（`0` 不限） |

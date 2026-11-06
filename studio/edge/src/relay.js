@@ -1,7 +1,7 @@
 // The Tao-S1 relay under https://science.impf.ai/v1/* (CONTRACTS.md §1). A port of TaoChronos relay/src/relay.js
 // without its sentinel; the usage statistics and conversation records are the telemetry's (src/telemetry/, /api/telemetry/*):
 // here a call's outcome and tokens are counted (deps.metric), and health tells the page what is recorded.
-//   GET  /v1/health            {ok, service, version, model, models, max_output_tokens, limits}
+//   GET  /v1/health            {ok, service, version, model, models, max_output_tokens, context_tokens, max_body_bytes, limits}
 //   GET  /v1/models            the public model only
 //   POST /v1/chat/completions  forwarded (streamed) to the upstream with the key, which only this Worker holds
 // The upstream is never named to a visitor: the model is renamed both ways, its own fields are dropped, and its errors
@@ -27,6 +27,7 @@ export const DEFAULTS = {
   UPSTREAM_FIELDS: '{"reasoning_split":true}',
   FORMAT_PREFIX: "MiniMax-",
   MAX_OUTPUT_TOKENS: "8192",
+  CONTEXT_TOKENS: "128000",
   MAX_BODY_BYTES: "2000000",
   PER_MINUTE: "40",
   PER_DAY: "1200",
@@ -58,6 +59,7 @@ export function config(env = {}) {
     upstreamFields: fields,
     formatPrefix: String(get("FORMAT_PREFIX")),
     maxTokens: num("MAX_OUTPUT_TOKENS", 1),
+    contextTokens: num("CONTEXT_TOKENS", 1),
     maxBody: num("MAX_BODY_BYTES", 1),
     origins: list("ALLOWED_ORIGINS"),
     chat: {
@@ -282,6 +284,8 @@ function health(env, cfg, cors) {
     ok: cfg.enabled && Boolean(env.MINIMAX_API_KEY),
     service: SERVICE, version: VERSION, model: cfg.publicModel, models: [cfg.publicModel],
     max_output_tokens: cfg.maxTokens,
+    // what one request may hold: the page fits each request of a turn to these (web/js/core/budget.js)
+    context_tokens: cfg.contextTokens, max_body_bytes: cfg.maxBody,
     limits: { per_minute: cfg.chat.perMinute, per_day: cfg.chat.perDay, tokens_per_day: cfg.chat.tokensPerDay },
     // what this site records, so its page knows whether to ask (src/telemetry/config.js telemetryPublic)
     telemetry: telemetryPublic(env),

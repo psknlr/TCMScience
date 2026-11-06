@@ -104,21 +104,50 @@ against the Python tables when `python3 -c "import bioagent, psh"` works (CI's t
 one test.
 
 **Agent (`core/agent.js`).**
-- `runTurn` takes, besides §6: `onApproval(request)` (optional), `tools` (core tools; default `catalog.core`), and for
-  tests `llm`, `retryDelays`, `sleep`. `history` is the stored branch ending with the new user message.
+- `runTurn` takes, besides §6: `onApproval(request)` (optional), `tools` (core tools; default `catalog.core`), `resume`
+  (below), and for tests `llm`, `retryDelays`, `sleep`. `history` is the stored branch ending with the new user message.
 - Events beyond §6 (additive; ignore what you do not use): `tool.pending {index, name, step}` while the model is still
   writing a call; `model.retry {step, attempt, delay_ms, message, notice}` — **drop the partial text/reasoning of that
   step**, the attempt is repeated; `step` on text/reasoning/tool.*; `usage` carries running totals plus `round`.
   `tool.start` for unparseable arguments has `args: {}` and `raw`. A stop emits `error {kind:"aborted"}` then
-  `done {status:"stopped"}`.
+  `done {status:"stopped"}`. `context {step, bytes, tokens, budget, compacted, answering}` before each model call: the
+  request's size as sent, the budget it was fitted to, and how many results the turn has shortened so far. `done` also
+  carries `termination`.
 - `tool.approval {callId, request}`: `request = {callId, tool, entry, reason, reasons[], what, hosts[], args, projectId,
   text, respond?}`. Without `onApproval`, answer with `request.respond("once"|"project"|"deny")`; a stop cancels it.
-- Max steps: never more model calls than `settings.maxSteps` (16). The last allowed call is made with
-  `tool_choice: "none"`; tools asked for anyway are recorded as not run (envelope `cancelled`) and the turn ends with
-  `status: "max_steps"`.
+- Max steps: never more model calls that may run tools than `settings.maxSteps` (16). The last allowed call is made
+  with `tool_choice: "none"`; tools asked for anyway are recorded as not run (envelope `cancelled`, outcome
+  `not_executed`), and one more call asks for the answer from the results gathered: on the OpenAI-compatible path with
+  no `tools` and no `tool_choice` (a "none" some services ignore), on Anthropic with the tools and
+  `tool_choice: {type:"none"}`, which it enforces. The turn ends with `status: "max_steps"`. If that call fails, the turn
+  ends as it did without it (no error, the step-limit notice).
+- Termination: `assistant.termination` names every way a turn ends: `answered`, `max_steps_synthesized` (the step
+  limit, then the answer), `max_steps` (no answer after it), `context_synthesized` / `context_full` (the context budget,
+  then the answer, or none), `truncated` (the answer stopped at the output limit, `finish_reason` length or max_tokens:
+  with a notice), `stopped`, `refused_by_model`, or `error:<kind>`. The `status` values are unchanged.
+- Context budget (`core/budget.js`): before each model call the request is measured as sent (UTF-8 bytes exactly;
+  tokens estimated as one per CJK code point plus one per four other bytes, with a 20% margin) and fitted to
+  min(0.8 × `provider.contextTokens` − `maxTokens`; 0.9 × `provider.maxBodyBytes` on the relay). Over it, the results of
+  earlier turns are compacted first, then this turn's older results (oldest first), then earlier assistant text; a
+  compacted result keeps its envelope header (status, summary, limits, release, the verdict on each claim, refusals,
+  citations) and its Outcome line, its body replaced by a pointer to the inspector. The system prompt and the newest
+  step's results are never compacted for a call that may run tools: when nothing more fits and the turn has results,
+  the call offers no tools and asks for the answer (`context_synthesized`). Under budget the request is unchanged. The
+  stored `wire` keeps every result whole; `assistant.compacted` counts the results a request carried shortened. A
+  model error that says the request is too long (`context_length_exceeded`, the relay's 413 `too_large`: `isCompactable`)
+  gets exactly one shorter retry; a second is final (`permanent`).
+- Resume (Continue): `resume` = a stored assistant message that ended with an error or a stop (or whose answer was cut
+  off), its `toolCalls` each with the `envelope` of its tool record; `history` ends with its question. Its wire is sent
+  again as it was (on Anthropic without its thinking blocks, and without thinking), its settled results are not run
+  again, a call under way when it stopped runs again if it is pure and is reported as unknown (outcome `state_unknown`)
+  if it may have changed something, the steps it used count against the limit, citation numbers go on from its
+  `citeTop`, and an answer that stopped in its text is asked to go on (`CONTINUE_TEXT`). The result is the same message
+  with this run added; `toolMessages` and `usage` are this run's. `canContinue(message, provider, toolRecords)` →
+  `"continue"` | `"answer"` | null: only on the provider (and format) that wrote it.
 - `TurnResult.assistant` (§7 message) also has: `segments: [{type:"reasoning"|"text"|"tools", step, text|callIds}]`
-  (render order), `wireFormat` ("openai"|"anthropic"), `steps`, `finishReason`, and when relevant `hideReasoning`
-  (identity turn), `limitReached` + `notice` (max steps; `status` stays "ok"), `refusal {category, explanation}` (the
+  (render order), `wireFormat` ("openai"|"anthropic"), `steps`, `finishReason`, `termination`, `citeTop`, and when
+  relevant `hideReasoning` (identity turn), `limitReached` + `notice` (max steps; `status` stays "ok"), `notice` (a
+  cut-off answer, a full context), `compacted`, `refusal {category, explanation}` (the
   model declined: a result), `servedBy`/`fallback` (another model answered), `error {message, kind, status?, type?}`.
   `content` is all text segments joined with a blank line. `toolMessages[i]`: `{id, conversationId, parentId:
   assistant.id, role:"tool", toolCallId, name, args, content: envelope.text, envelope, step, where, status}`, in call

@@ -9,7 +9,13 @@
 //
 // `stream` says how a service streams its text (llm/openai.js streamModes): "delta" for the services known to send
 // increments, so nothing is guessed; Tao-S1's reasoning comes as the whole text so far; custom endpoints are guessed.
+//
+// `context_tokens` is the context window the agent budgets a request against (core/budget.js): at or below the
+// smallest window of the preset's listed models, `model_context` naming a listed model with a smaller one. Tao-S1's
+// comes from its health check (context_tokens, with max_body_bytes, the relay's body cap) when it answers; local
+// servers and custom endpoints take the window from Settings (32 000 until it is set).
 
+import { DEFAULT_CONTEXT_TOKENS } from "./budget.js";
 import { lang, t } from "./i18n.js";
 import { relayError } from "./llm/openai.js";
 import { fetchWithTimeout, isLoopbackUrl, trimSlash } from "./util.js";
@@ -23,6 +29,7 @@ export const PRESETS = [
     id: "tao", label: "Tao-S1", format: "openai", base_url: "/v1", models: ["Tao-S1"], default_model: "Tao-S1",
     key_required: false, relay: true, cors: "ok", max_tokens_param: "max_completion_tokens", reasoning: "reasoning_details",
     stream_usage: true, thinking_off: { thinking: { type: "disabled" } }, max_output: 8192, tools: true,
+    context_tokens: 128000, max_body_bytes: 2000000,
     // the relay's upstream sends reasoning_details as the whole text so far; its content may come either way
     stream: { content: "auto", reasoning: "cumulative" },
     help: {
@@ -34,13 +41,13 @@ export const PRESETS = [
     id: "openai", label: "OpenAI", format: "openai", base_url: "https://api.openai.com/v1",
     models: ["gpt-5", "gpt-5-mini", "gpt-4.1"], default_model: "gpt-5", key_required: true, cors: "ok",
     max_tokens_param: "max_completion_tokens", reasoning: null, stream_usage: true, tools: true, stream: "delta",
-    docs: "https://platform.openai.com/api-keys",
+    context_tokens: 128000, docs: "https://platform.openai.com/api-keys",
   },
   {
     id: "anthropic", label: "Anthropic Claude", format: "anthropic", base_url: "https://api.anthropic.com/v1",
     models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-haiku-4-5"], default_model: "claude-opus-5-5",
     key_required: true, cors: "ok", max_tokens_param: "max_tokens", reasoning: "thinking_blocks", stream_usage: true, tools: true,
-    docs: "https://console.anthropic.com/settings/keys",
+    context_tokens: 200000, docs: "https://console.anthropic.com/settings/keys",
     help: {
       zh: "浏览器直连 Anthropic 时会带上 anthropic-dangerous-direct-browser-access 请求头；密钥只保存在本浏览器。",
       en: "Direct browser calls to Anthropic send the anthropic-dangerous-direct-browser-access header; the key stays in this browser.",
@@ -50,37 +57,37 @@ export const PRESETS = [
     id: "deepseek", label: "DeepSeek", format: "openai", base_url: "https://api.deepseek.com/v1",
     models: ["deepseek-chat", "deepseek-reasoner"], default_model: "deepseek-chat", key_required: true, cors: "ok",
     max_tokens_param: "max_tokens", reasoning: "reasoning_content", stream_usage: true, tools: true, stream: "delta",
-    docs: "https://platform.deepseek.com/api_keys",
+    context_tokens: 128000, docs: "https://platform.deepseek.com/api_keys",
   },
   {
     id: "qwen", label: "通义千问 Qwen", format: "openai", base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
     models: ["qwen-plus", "qwen-max", "qwen-turbo", "qwen3-max"], default_model: "qwen-plus", key_required: true, cors: "ok",
     max_tokens_param: "max_tokens", reasoning: null, stream_usage: true, tools: true, stream: "delta",
-    docs: "https://bailian.console.aliyun.com/",
+    context_tokens: 128000, model_context: { "qwen-max": 32000 }, docs: "https://bailian.console.aliyun.com/",
   },
   {
     id: "moonshot", label: "Kimi (Moonshot)", format: "openai", base_url: "https://api.moonshot.cn/v1",
     models: ["kimi-k2-turbo-preview", "kimi-k2-0905-preview", "moonshot-v1-32k"], default_model: "kimi-k2-turbo-preview",
     key_required: true, cors: "ok", max_tokens_param: "max_tokens", reasoning: "reasoning_content", stream_usage: true, tools: true, stream: "delta",
-    docs: "https://platform.moonshot.cn/console/api-keys",
+    context_tokens: 128000, model_context: { "moonshot-v1-32k": 32000 }, docs: "https://platform.moonshot.cn/console/api-keys",
   },
   {
     id: "zhipu", label: "智谱 GLM", format: "openai", base_url: "https://open.bigmodel.cn/api/paas/v4",
     models: ["glm-4.6", "glm-4.5", "glm-4.5-air"], default_model: "glm-4.6", key_required: true, cors: "ok",
     max_tokens_param: "max_tokens", reasoning: "reasoning_content", stream_usage: true, tools: true, stream: "delta",
-    docs: "https://open.bigmodel.cn/usercenter/apikeys",
+    context_tokens: 128000, docs: "https://open.bigmodel.cn/usercenter/apikeys",
   },
   {
     id: "siliconflow", label: "SiliconFlow 硅基流动", format: "openai", base_url: "https://api.siliconflow.cn/v1",
     models: ["deepseek-ai/DeepSeek-V3.2", "Qwen/Qwen3-235B-A22B-Instruct-2507", "moonshotai/Kimi-K2-Instruct-0905"],
     default_model: "deepseek-ai/DeepSeek-V3.2", key_required: true, cors: "ok", max_tokens_param: "max_tokens",
-    reasoning: null, stream_usage: true, tools: true, stream: "delta", docs: "https://cloud.siliconflow.cn/account/ak",
+    reasoning: null, stream_usage: true, tools: true, stream: "delta", context_tokens: 128000, docs: "https://cloud.siliconflow.cn/account/ak",
   },
   {
     id: "openrouter", label: "OpenRouter", format: "openai", base_url: "https://openrouter.ai/api/v1",
     models: ["openai/gpt-5", "anthropic/claude-opus-5-5", "deepseek/deepseek-chat-v3.1", "qwen/qwen3-235b-a22b"],
     default_model: "openai/gpt-5", key_required: true, cors: "ok", max_tokens_param: "max_tokens",
-    reasoning: "reasoning_details", stream_usage: true, tools: true, stream: "delta", docs: "https://openrouter.ai/keys",
+    reasoning: "reasoning_details", stream_usage: true, tools: true, stream: "delta", context_tokens: 128000, docs: "https://openrouter.ai/keys",
   },
   {
     id: "ollama", label: "Ollama", format: "openai", base_url: "http://127.0.0.1:11434/v1",
@@ -141,8 +148,20 @@ export function customPreset(c) {
     max_tokens_param: c.max_tokens_param || (format === "anthropic" ? "max_tokens" : "max_tokens"),
     reasoning: c.reasoning ?? (format === "anthropic" ? "thinking_blocks" : null),
     stream_usage: Boolean(c.stream_usage), tools: c.tools !== false, headers: c.headers || {}, extra_body: c.extra_body || {},
-    full_url: Boolean(c.full_url),
+    full_url: Boolean(c.full_url), context_tokens: positive(c.context_tokens) || DEFAULT_CONTEXT_TOKENS,
   };
+}
+
+const positive = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : 0);
+
+/**
+ * The context window the agent budgets for (core/budget.js), in tokens: the relay's health (`relay`), else what
+ * Settings say for this provider (settings.contextTokens[id]; a custom endpoint keeps its own), else the preset's for
+ * the model, else 32 000.
+ */
+export function contextWindow(preset, model, settings = {}, relay = 0) {
+  if (preset?.relay && positive(relay)) return positive(relay);
+  return positive((settings.contextTokens || {})[preset?.id]) || positive(preset?.model_context?.[model]) || positive(preset?.context_tokens) || DEFAULT_CONTEXT_TOKENS;
 }
 
 export function newCustomProvider(format = "openai", n = 1) {
@@ -177,8 +196,9 @@ function pageOrigin() {
 /**
  * The provider in use: the preset plus {model, baseUrl, apiKey, route, runner?, maxTokens, temperature, needsKey}.
  * `override` (a conversation's model chip) may name {provider, model}; `override.runner` = {url, token, connected}
- * says whether model calls can go through the local runner; `override.maxOutput` is the relay's
- * health.max_output_tokens.
+ * says whether model calls can go through the local runner; `override.maxOutput`, `override.contextTokens` and
+ * `override.maxBody` are the relay's health.max_output_tokens, context_tokens and max_body_bytes. The result's
+ * `contextTokens` (contextWindow) and `maxBodyBytes` (the relay's only) bound what one request may hold.
  */
 export function activeProvider(settings = {}, override = {}) {
   const id = override.provider || settings.provider || "tao";
@@ -197,6 +217,8 @@ export function activeProvider(settings = {}, override = {}) {
   const maxTokens = ceiling ? Math.min(Number(settings.maxTokens) || 8192, ceiling) : Number(settings.maxTokens) || 8192;
   return {
     ...preset, model, baseUrl, apiKey, route, maxTokens,
+    contextTokens: contextWindow(preset, model, settings, override.contextTokens),
+    maxBodyBytes: preset.relay ? positive(override.maxBody) || positive(preset.max_body_bytes) || null : null,
     temperature: settings.temperature ?? null,
     runner: route === "runner" && runner ? { url: trimSlash(runner.url), token: runner.token || "" } : null,
     needsKey: Boolean(preset.key_required && !apiKey),
@@ -224,7 +246,8 @@ export function localFix(provider, origin = pageOrigin() || RELAY_ORIGIN) {
 }
 
 /**
- * GET {relay}/health → {ok, model, limits, max_output_tokens, error?, error_type?, error_lang?, said?}; never throws.
+ * GET {relay}/health → {ok, model, limits, max_output_tokens, context_tokens, max_body_bytes, error?, error_type?,
+ * error_lang?, said?}; never throws.
  * An error of a known type is told in the page's language (relayError); `error_lang` is "zh" when the relay's own
  * Chinese message is shown on a page in another language. `said` keeps what the relay answered, so that the error can
  * be told again in another language after a switch (relayHealthError).
@@ -243,6 +266,8 @@ export async function relayHealth({ fetch: fetchImpl = globalThis.fetch, baseUrl
     return {
       ok: Boolean(r.ok && j.ok), model: j.model || "Tao-S1", models: j.models || ["Tao-S1"], limits: j.limits || null,
       max_output_tokens: Number(j.max_output_tokens) || null, version: j.version || null,
+      // what one request may hold (core/budget.js): the upstream model's window and the relay's body cap
+      context_tokens: positive(j.context_tokens) || null, max_body_bytes: positive(j.max_body_bytes) || null,
       // what the site records (src/telemetry/config.js telemetryPublic); a server that says nothing records nothing
       ...(j.telemetry && typeof j.telemetry === "object" && !Array.isArray(j.telemetry) ? { telemetry: j.telemetry } : {}),
       ...(r.ok ? {} : { status: r.status, ...told(said({ text: `HTTP ${r.status}` })) }),
@@ -250,7 +275,7 @@ export async function relayHealth({ fetch: fetchImpl = globalThis.fetch, baseUrl
     };
   } catch (err) {
     // no answer at all (offline, a timeout): `unreachable`, so that nothing is concluded from it (core/telemetry.js)
-    return { ok: false, unreachable: true, model: "Tao-S1", limits: null, max_output_tokens: null, error: err?.message || String(err) };
+    return { ok: false, unreachable: true, model: "Tao-S1", limits: null, max_output_tokens: null, context_tokens: null, max_body_bytes: null, error: err?.message || String(err) };
   }
 }
 

@@ -81,3 +81,12 @@ test("compute: remote is a value of its own; one this version does not know is k
   localStorage.setItem(SETTINGS_KEY, JSON.stringify({ compute: null, webDefault: WEB_DEFAULT_VERSION }));
   assert.equal(loadSettings().compute, "auto");
 });
+
+test("a local server's context window is kept per provider, merged like the other per-provider maps", () => {
+  assert.deepEqual(loadSettings().contextTokens, {});
+  updateSettings({ contextTokens: { ollama: 131072 } });
+  updateSettings({ contextTokens: { vllm: 65536 } });
+  assert.deepEqual(loadSettings().contextTokens, { ollama: 131072, vllm: 65536 });
+  saveSettings({ ...loadSettings(), contextTokens: "lots" });
+  assert.deepEqual(loadSettings().contextTokens, {}, "anything but a map is none");
+});
