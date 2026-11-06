@@ -1,0 +1,37 @@
+{
+ "id": "fault-maxsteps-ignores-tool-choice",
+ "split": "dev",
+ "title": "A model that ignores tool_choice none at the step limit (maxSteps 4): the turn still ends with an answer and a notice (probe-maxsteps)",
+ "tags": ["fault","termination"],
+ "driver": "fault",
+ "preset": "openai",
+ "router": "stub",
+ "stub": {"result_chars":200,"charset":"ascii"},
+ "question": "查一下这些本草的性味归经。",
+ "settings": {"maxSteps":4},
+ "policies": {
+  "gold": {
+   "steps": [
+    {
+     "repeat": {"name":"tcm_herb","parallel":1,"args":{"name":"h{n}"}},
+     "on_no_tools": {"text":"根据已查到的四条本草记录作答：步数已到上限，答案可能不完整。"}
+    }
+   ]
+  },
+  "mutants": [
+   {
+    "id": "fabricated-citation",
+    "targets": "evidence",
+    "why": "every step's text cites an id no tool returned",
+    "steps": [
+     {
+      "repeat": {"name":"tcm_herb","parallel":1,"args":{"name":"h{n}"}},
+      "text": "参见 [E9]。",
+      "on_no_tools": {"text":"参见 [E9]。"}
+     }
+    ]
+   }
+  ]
+ },
+ "expect": {"structural":{"status":["ok","max_steps"]},"cost":{"max_model_calls":5}}
+}

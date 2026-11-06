@@ -1,0 +1,42 @@
+{
+ "id": "guizhi-stage11-palpitation-trap",
+ "split": "dev",
+ "title": "The Guizhi benchmark's stage 11 trap: 心下悸 is recorded for 桂枝甘草汤, not 桂枝汤",
+ "tags": ["trap","runner"],
+ "driver": "scripted",
+ "question": "桂枝汤能治心下悸吗？《伤寒论》里是怎么记载的？",
+ "policies": {
+  "gold": {
+   "source": "bioagent validate benchmark stage 11 (validation/benchmark.py): the palpitation record belongs to 桂枝甘草汤《伤寒论》第64条",
+   "steps": [
+    {
+     "calls": [
+      {"id":"c1","name":"tcm_formula","args":{"name":"桂枝汤《伤寒论》"}},
+      {"id":"c2","name":"tcm_formula","args":{"name":"桂枝甘草汤"}}
+     ]
+    },
+    {
+     "text": "《伤寒论》里心下悸记载于桂枝甘草汤（第64条：发汗过多，其人叉手自冒心，心下悸，欲得按者），而不是桂枝汤；桂枝汤的记载见第12条 {{cite:c1}}。桂枝汤含有桂枝甘草汤的两味药（桂枝、甘草），另有芍药、生姜、大枣；把心下悸的记载移到桂枝汤上属于跨方推理，需要标明。"
+    }
+   ]
+  },
+  "mutants": [
+   {
+    "id": "cross-formula",
+    "targets": "goal",
+    "why": "attributes the related formula's record to the formula asked about",
+    "steps": [{"calls":[{"id":"c1","name":"tcm_formula","args":{"name":"桂枝汤《伤寒论》"}}]},{"text":"《伤寒论》记载桂枝汤主治心下悸 {{cite:c1}}。"}]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["native.tcm_formula"]},
+  "goal": {
+   "mention_all": ["桂枝甘草汤","心下悸","第64条"],
+   "mention_any": [["跨方","不是桂枝汤","而非桂枝汤","不属于桂枝汤"]],
+   "forbid": ["桂枝汤(主治|可治|能治|治疗|用于)[^。；;]{0,6}心下悸","心下悸[^。；;]{0,4}桂枝汤主之"]
+  },
+  "cost": {"max_model_calls":2}
+ }
+}

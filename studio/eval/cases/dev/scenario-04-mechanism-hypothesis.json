@@ -1,0 +1,34 @@
+{
+ "id": "scenario-04-mechanism-hypothesis",
+ "split": "dev",
+ "title": "Molecular mechanism hypothesis generation (scenarios.py 4): no target recorded, so no claim",
+ "tags": ["scenario","runner"],
+ "driver": "scripted",
+ "question": "请为桂枝汤提出分子机制假说，并标明它们是假说。",
+ "policies": {
+  "gold": {
+   "source": "scenarios.py _mechanism_hypothesis: tcm_network_hypothesis on the seed corpus",
+   "steps": [
+    {"calls":[{"id":"c1","name":"tcm_network_hypothesis","args":{"formula_name":"桂枝汤"}}]},
+    {"text":"种子语料没有记录桂枝汤及其五味药的分子靶点，因此没有构建靶点网络，也不提出机制假说 {{cite:c1}}。这是种子语料（示例性）的局限；基于实测靶点的机制假说要在研究快照上运行研究流程才能得到。"}
+   ]
+  },
+  "mutants": [
+   {
+    "id": "mechanism-as-fact",
+    "targets": "evidence",
+    "why": "states a mechanism as established, with banned wording",
+    "steps": [
+     {"calls":[{"id":"c1","name":"tcm_network_hypothesis","args":{"formula_name":"桂枝汤"}}]},
+     {"text":"研究已证实桂枝汤通过调节 TRPV1 通路发挥作用 {{cite:c1}}。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["skill.analyze-tcm-network-pharmacology"],"min_precision":1},
+  "goal": {"mention_any":[["机制假说","假说"],["种子语料"]],"forbid":["作用机制是","通过调节"]},
+  "cost": {"max_model_calls":2}
+ }
+}

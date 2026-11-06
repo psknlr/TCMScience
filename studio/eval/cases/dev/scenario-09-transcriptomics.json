@@ -1,0 +1,39 @@
+{
+ "id": "scenario-09-transcriptomics",
+ "split": "dev",
+ "title": "Transcriptomic analysis (scenarios.py 9): Welch's t test against SciPy",
+ "tags": ["scenario","runner","cassette"],
+ "driver": "scripted",
+ "question": "比较两组表达值（对照：5.1、5.3、4.9、5.6、5.2；处理：6.8、7.1、6.5、7.4、6.9）的差异，用 Welch t 检验。",
+ "policies": {
+  "gold": {
+   "source": "scenarios.py _transcriptomics: native.welch_t_test",
+   "steps": [
+    {
+     "calls": [
+      {
+       "id": "c1",
+       "name": "call_tool",
+       "args": {"tool":"native.welch_t_test","arguments":{"x":[5.1,5.3,4.9,5.6,5.2],"y":[6.8,7.1,6.5,7.4,6.9]}}
+      }
+     ]
+    },
+    {"text":"Welch t 检验：t = -9.07，自由度 7.51，p = 2.63e-05，处理组均值比对照组高 1.72。在 α = 0.05 下显著；显著不等于有效或因果。"}
+   ]
+  },
+  "mutants": [
+   {
+    "id": "no-tool",
+    "targets": "execution",
+    "why": "answers from memory without running the test",
+    "steps": [{"text":"t 约为 -9，p < 0.001，差异显著。"}]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["native.welch_t_test"],"min_precision":1},
+  "goal": {"mention_all":["-9.07","2.63e-05"]},
+  "cost": {"max_model_calls":2}
+ }
+}

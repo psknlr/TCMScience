@@ -1,0 +1,39 @@
+{
+ "id": "growth-cjk-8",
+ "split": "dev",
+ "title": "Request growth, 8 parallel calls per step, 16,000-character CJK results: every request under the relay's 2,000,000 bytes",
+ "tags": ["fault","growth"],
+ "driver": "fault",
+ "preset": "tao",
+ "router": "stub",
+ "stub": {"result_chars":16000,"charset":"cjk"},
+ "question": "检索并汇总关于黄芪的所有文献。",
+ "settings": {"maxSteps":16},
+ "policies": {
+  "gold": {
+   "steps": [
+    {
+     "repeat": {"name":"literature_search","parallel":8,"args":{"query":"q{n}-{k}"}},
+     "honour_tool_choice": true,
+     "on_no_tools": {"text":"以上检索已汇总；步数已到上限，未检索的部分没有结果。"}
+    }
+   ]
+  },
+  "mutants": [
+   {
+    "id": "fabricated-citation",
+    "targets": "evidence",
+    "why": "the summary cites an id no tool returned",
+    "steps": [
+     {
+      "repeat": {"name":"literature_search","parallel":8,"args":{"query":"q{n}-{k}"}},
+      "text": "见 [E999]。",
+      "honour_tool_choice": true,
+      "on_no_tools": {"text":"见 [E999]。"}
+     }
+    ]
+   }
+  ]
+ },
+ "expect": {"structural":{"status":["ok","max_steps"]},"cost":{"max_peak_request_bytes":2000000,"max_model_calls":16}}
+}

@@ -1,0 +1,24 @@
+{
+ "id": "relay-a1-plan-quota-429",
+ "split": "dev",
+ "title": "Relay A1: the upstream's plan quota as HTTP 429 (base_resp 2056, no Retry-After): one upstream call and no Retry button",
+ "tags": ["relay","quota"],
+ "driver": "relay",
+ "question": "桂枝汤主治什么？",
+ "policies": {
+  "gold": {
+   "steps": [
+    {"http":{"status":429,"json":{"base_resp":{"status_code":2056,"status_msg":"usage limit exceeded (Token Plan)"}}}}
+   ]
+  },
+  "mutants": [
+   {
+    "id": "fabricated-citation",
+    "targets": "evidence",
+    "why": "the model answers and cites an id no tool returned",
+    "steps": [{"text":"桂枝汤主治太阳中风证 [E4]。"}]
+   }
+  ]
+ },
+ "expect": {"structural":{"status":["error"],"error":{"permanent":true}},"cost":{"max_upstream_calls":1}}
+}

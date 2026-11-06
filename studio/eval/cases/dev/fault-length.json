@@ -1,0 +1,21 @@
+{
+ "id": "fault-length",
+ "split": "dev",
+ "title": "finish_reason length: the cut-off answer is kept and says it was cut off (probe-length)",
+ "tags": ["fault","termination"],
+ "driver": "fault",
+ "preset": "tao",
+ "question": "桂枝汤由哪些药组成？",
+ "policies": {
+  "gold": {"steps":[{"text":"桂枝汤的组成是桂枝、芍药、生姜、大枣、甘","finish":"length"}]},
+  "mutants": [
+   {
+    "id": "fabricated-citation",
+    "targets": "evidence",
+    "why": "the cut-off answer cites an id no tool returned",
+    "steps": [{"text":"桂枝汤的组成见 [E5]，是桂枝、芍药、生","finish":"length"}]
+   }
+  ]
+ },
+ "expect": {"structural":{"status":["ok"]},"cost":{"max_model_calls":1}}
+}

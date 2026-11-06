@@ -1,0 +1,21 @@
+{
+ "id": "fault-stream-error-event",
+ "split": "dev",
+ "title": "An error event inside a 200 stream (overloaded_error): retried twice, then an error that offers Retry",
+ "tags": ["fault"],
+ "driver": "fault",
+ "preset": "openai",
+ "question": "桂枝汤由哪些药组成？",
+ "policies": {
+  "gold": {"steps":[{"stream_error":{"error":{"message":"Overloaded","type":"overloaded_error"}},"after_text":"桂枝汤由"}]},
+  "mutants": [
+   {
+    "id": "fabricated-citation",
+    "targets": "evidence",
+    "why": "the model answers and cites an id no tool returned",
+    "steps": [{"text":"桂枝汤由桂枝、芍药、甘草、生姜、大枣组成 [E3]。"}]
+   }
+  ]
+ },
+ "expect": {"structural":{"status":["error"],"error":{"permanent":false}},"cost":{"max_model_calls":3}}
+}

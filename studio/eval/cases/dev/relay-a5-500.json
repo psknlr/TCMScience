@@ -1,0 +1,20 @@
+{
+ "id": "relay-a5-500",
+ "split": "dev",
+ "title": "Relay A5: an upstream 500 every time: an error after at most three upstream calls, as today",
+ "tags": ["relay"],
+ "driver": "relay",
+ "question": "桂枝汤主治什么？",
+ "policies": {
+  "gold": {"steps":[{"http":{"status":500,"text":"boom"}}]},
+  "mutants": [
+   {
+    "id": "fabricated-citation",
+    "targets": "evidence",
+    "why": "the model answers and cites an id no tool returned",
+    "steps": [{"text":"桂枝汤主治太阳中风证 [E4]。"}]
+   }
+  ]
+ },
+ "expect": {"structural":{"status":["error"]},"cost":{"max_upstream_calls":3}}
+}
