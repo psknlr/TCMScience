@@ -5,12 +5,13 @@
 // once each through #announcer (DESIGN §8.2). A turn's start appends the live message and its end replaces only that
 // message, so the rest of the thread (focus, open tool cards) is not rebuilt.
 
+import { checkAnswer } from "../core/answercheck.js";
 import { citationsOf, claimsOf, evidenceOf, refusalsOf, releaseOf } from "../core/governance.js";
 import { lang, t } from "../core/i18n.js";
 import { renderMarkdown } from "../core/markdown.js";
 import { siblingsOf } from "../core/store.js";
 import { clear, copyText, cssEscape, fill, formatClock, formatDateTime, formatDuration, guessLang, h, rafThrottle } from "./dom.js";
-import { artifactCard, citationChip, claimCard, limitationsBlock, reasonList } from "./governance.js";
+import { answerCheckBadge, artifactCard, citationChip, claimCard, limitationsBlock, reasonList } from "./governance.js";
 import { icon } from "./icons.js";
 import { toast } from "./overlay.js";
 import { button, iconButton, notice, spinner } from "./primitives.js";
@@ -307,7 +308,9 @@ export function mountConversation(app, main) {
           : h("span.msg__status", spinner({ size: 12 }), running ? t("ui.thread.running_tools", { n: running }) : t("ui.thread.generating")));
         if (vm.retry) items.push(h("span.msg__retry", vm.retry));
       } else {
-        items.push(attribution(vm));
+        // the answer check: a note beside the attribution, never a change to the answer (core/answercheck.js)
+        const badge = answerCheckBadge(answerCheckOf(app, vm), { onOpen: () => app.select({ tab: "run", kind: "check", id: vm.id, messageId: vm.id }) });
+        items.push(badge ? h("div.msg__meta", attribution(vm), badge) : attribution(vm));
         items.push(h("div.msg__actions",
           branchSwitcher({ id: vm.id }, siblingsOf(app.state.messages, vm.id)),
           iconButton({ icon: "copy", label: t("ui.msg.copy_md"), size: "sm", onClick: async () => toast((await copyText(answerMarkdown(app, vm.record || vm))) ? t("ui.toast.answer_copied") : t("ui.toast.copy_failed")) }),
@@ -544,6 +547,17 @@ export function messageContext(vm, { earlier } = {}) {
   const cite = (id) => cites.get(id) || (earlier ? before().cites.get(id) : null) || null;
   const evidenceFor = (id) => (cites.has(id) ? evidence.get(id) || null : earlier ? before().evidence.get(id) || null : null);
   return { cites, cite, envelopes, evidenceFor };
+}
+
+/**
+ * The answer check of a message's view model (core/answercheck.js): its answer read against its turn's envelopes, an
+ * [E#] resolved as messageContext resolves it (this turn's, then the earlier turns' on the path). Report-only.
+ * → {findings, counts, content} (content: the answer that was read).
+ */
+export function answerCheckOf(app, vm) {
+  const content = typeof vm.record?.content === "string" ? vm.record.content : vm.segments.filter((s) => s.type === "text").map((s) => s.text).join("\n\n");
+  const c = messageContext(vm, { earlier: () => earlierViews(app, vm.id) });
+  return { ...checkAnswer(content, { turnEnvelopes: c.envelopes.map((e) => e.env), conversationCites: (id) => Boolean(c.cite(id)) }), content };
 }
 
 /** The view models of the assistant messages before `id` on the app's current path, oldest first. */

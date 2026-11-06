@@ -13,7 +13,7 @@ import {
 } from "../js/core/consent.js";
 import { redactText, sensitiveReason } from "../js/core/sensitive.js";
 import {
-  CONSENT_VERSION, LIMITS, PROVIDER_MODELS, normalizeBatch, normalizeEvent, normalizeRecord, ownerOf,
+  CONSENT_VERSION, LIMITS, PROVIDER_MODELS, TERMINATIONS, normalizeBatch, normalizeEvent, normalizeRecord, ownerOf,
 } from "../js/core/telemetry-contract.js";
 import { PRESETS, newCustomProvider } from "../js/core/providers.js";
 import { OUTBOX_PREFIX, RECORDS_KEY, STALE_TURN_MS, TURNS_KEY, Telemetry, VISIT_IDLE_MS } from "../js/core/telemetry.js";
@@ -299,6 +299,66 @@ test("a turn's record and usage event from a real kernel envelope: citations, cl
   // an answer too long for one request is shortened to fit; the question stays whole
   const big = buildRecord({ id: "a2", conversation: "c1", index: 2, owner, question: "q", assistant: { ...assistant, content: "答".repeat(11000) }, tools, status: "completed" });
   assert.ok(new TextEncoder().encode(JSON.stringify(big)).length <= LIMITS.recordBytes);
+});
+
+// the fields the answer check adds to turn_end (answercheck.js), and how the turn ended
+const CHECK_COUNTS = ["citations_unresolved", "banned_terms", "refusal_unreported", "released_wording", "overclaim_inquiry"];
+const pick = (o, ks) => Object.fromEntries(ks.map((k) => [k, o[k]]));
+
+test("turn_end counts the answer check's findings and says how the turn ended; no word of the answer is in it", () => {
+  // the proof of concept's bad answer: a citation no tool returned, 证明 and 安全
+  const content = "桂枝汤由桂枝、芍药、甘草、生姜、大枣组成 [E1]，临床证明安全有效 [E7]。";
+  const tools = [{ role: "tool", name: "tcm_formula", envelope: { status: "succeeded", citations: [{ id: "E1" }, { id: "E2" }] } }];
+  const assistant = { content, status: "ok", steps: 2, finishReason: "stop" };
+  const ev = normalizeEvent(turnEndEvent({ id: "a1", provider: "tao", model: "Tao-S1", status: "completed", assistant, tools }));
+  assert.deepEqual(pick(ev, CHECK_COUNTS), { citations_unresolved: 1, banned_terms: 2, refusal_unreported: 0, released_wording: 0, overclaim_inquiry: 0 });
+  assert.deepEqual(pick(ev, ["termination", "truncated", "synthesized_at_limit"]), { termination: undefined, truncated: false, synthesized_at_limit: false });
+  // the unresolved count is the one the turn's evidence statistics already had (and dropped before)
+  assert.equal(ev.citations_unresolved, evidenceStats(tools, content).citations.unresolved);
+  assert.doesNotMatch(JSON.stringify(ev), /证明|安全|桂枝|E7/, "a usage event holds no text");
+  // an earlier turn's citation resolves (the conversation's tool messages)
+  const earlier = [{ role: "tool", envelope: { citations: [{ id: "E7" }] } }];
+  assert.equal(turnEndEvent({ id: "a1", status: "completed", assistant, tools, known: [...earlier, ...tools] }).citations_unresolved, 0);
+  // a refusal the answer leaves out, from a real kernel envelope
+  const refused = [{ role: "tool", envelope: FIX("envelope_claims_refused.json") }];
+  assert.equal(turnEndEvent({ id: "a2", status: "completed", assistant: { content: "葛根可以减轻炎症 [E1]。" }, tools: refused }).refusal_unreported, 1);
+  assert.equal(turnEndEvent({ id: "a2", status: "completed", assistant: { content: "内核拒绝了疗效主张（CLM005）[E1]。" }, tools: refused }).refusal_unreported, 0);
+  // how it ended: the agent's termination when it names one; cut off by the output limit, from the finish reason too
+  const ended = (a) => pick(turnEndEvent({ id: "a3", status: "completed", assistant: { content: "x", ...a }, tools: [] }), ["termination", "truncated", "synthesized_at_limit"]);
+  assert.deepEqual(ended({ finishReason: "length" }), { termination: undefined, truncated: true, synthesized_at_limit: false });
+  assert.deepEqual(ended({ finishReason: "max_tokens" }).truncated, true);
+  assert.deepEqual(ended({ termination: "truncated", finishReason: "length" }), { termination: "truncated", truncated: true, synthesized_at_limit: false });
+  assert.deepEqual(ended({ termination: "max_steps_synthesized" }), { termination: "max_steps_synthesized", truncated: false, synthesized_at_limit: true });
+  assert.deepEqual(ended({ termination: "answered" }).termination, "answered");
+  assert.deepEqual(ended({ termination: "error:model" }).termination, "error:model");
+  assert.equal(ended({ termination: "something new" }).termination, undefined, "a name the contract does not know is not sent");
+});
+
+test("contract: turn_end's new fields are whole numbers, two flags and one enum — no string field but the termination", () => {
+  const full = {
+    type: "turn_end", turn: "t1", provider: "tao", model: "Tao-S1", status: "completed", first: true, steps: 3, tool_rounds: 2, calls: 3, tools: 2,
+    tool_failures: 0, ms: 9000, first_ms: 800, tokens_in: 1200, tokens_out: 300, citations: 4, citations_verified: 3, citations_used: 2, claims: 1,
+    claims_refused: 1, limit_reached: false, recorded: false, excluded: "no_consent", error_kind: "model", error_type: "http_429",
+    citations_unresolved: 2, banned_terms: 3, refusal_unreported: 1, released_wording: 1, overclaim_inquiry: 1,
+    termination: "truncated", truncated: true, synthesized_at_limit: false,
+  };
+  const ev = normalizeEvent(full);
+  for (const k of CHECK_COUNTS) assert.ok(Number.isInteger(ev[k]) && ev[k] >= 0, k);
+  assert.deepEqual(pick(ev, [...CHECK_COUNTS, "termination", "truncated", "synthesized_at_limit"]),
+    { citations_unresolved: 2, banned_terms: 3, refusal_unreported: 1, released_wording: 1, overclaim_inquiry: 1, termination: "truncated", truncated: true, synthesized_at_limit: false });
+  // every string an event keeps is a name from a fixed list or an id; the only one this change adds is the termination
+  const strings = Object.entries(ev).filter(([, v]) => typeof v === "string").map(([k]) => k).sort();
+  assert.deepEqual(strings, ["error_kind", "error_type", "excluded", "model", "provider", "status", "termination", "turn", "type"]);
+  for (const t of TERMINATIONS) assert.equal(normalizeEvent({ ...full, termination: t }).termination, t);
+  assert.ok(TERMINATIONS.includes("error:network") && TERMINATIONS.includes("max_steps_synthesized"));
+  // text in any of the new fields is dropped, never kept
+  for (const k of [...CHECK_COUNTS, "termination", "truncated", "synthesized_at_limit"]) {
+    for (const bad of ["临床证明安全有效 [E7]", "error:quota", "1e999", "-3"]) {
+      const v = normalizeEvent({ ...full, [k]: bad })[k];
+      assert.ok(v === undefined || (typeof v === "number" && Number.isInteger(v) && v >= 0), `${k} ← ${bad}: ${v}`);
+    }
+  }
+  assert.equal(normalizeEvent({ ...full, banned_terms: 1e9 }).banned_terms, 100000, "cut to the bound");
 });
 
 // ------------------------------------------------------------------------------------------------- the client

@@ -9,7 +9,7 @@ export function sqlStore() {
   return {
     exec(query, ...params) {
       const stmt = db.prepare(query);
-      const rows = /^\s*select|returning/i.test(query) ? stmt.all(...params) : (stmt.run(...params), []);
+      const rows = /^\s*(?:select|pragma)|returning/i.test(query) ? stmt.all(...params) : (stmt.run(...params), []);
       return {
         toArray: () => rows,
         one: () => {

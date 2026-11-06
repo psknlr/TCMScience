@@ -8,7 +8,7 @@ import { CONSENT_VERSION, ownerOf } from "../../web/js/core/telemetry-contract.j
 import { shiftDay } from "../src/telemetry/config.js";
 import { ConversationCore } from "../src/telemetry/conversations.js";
 import { LOCK, SecurityCore, isHoneypot, netPrefix, uaClass } from "../src/telemetry/security.js";
-import { UsageCore, percentile, spread } from "../src/telemetry/usage.js";
+import { TURN_COLUMNS_ADDED, UsageCore, percentile, spread } from "../src/telemetry/usage.js";
 import { sqlStore } from "./helpers.js";
 
 const DAY = "2026-10-11";
@@ -158,6 +158,52 @@ test("usage: a summary's lists stay bounded whatever names the pages sent", asyn
   const s = u.stats({ from: DAY, to: DAY });
   assert.equal(s.workflows.length, 100);
   assert.equal(s.connectors.length, 200);
+});
+
+test("usage: a store made before the answer check gains its columns, additively; its turns are counted by model and day", async () => {
+  const sql = sqlStore();
+  // usage_turns as a store made before these columns has it, with a turn in it
+  sql.exec(`CREATE TABLE usage_turns (id TEXT PRIMARY KEY, day TEXT NOT NULL, ts INTEGER NOT NULL, provider TEXT NOT NULL,
+    model TEXT NOT NULL, status TEXT NOT NULL, first INTEGER NOT NULL, steps INTEGER, tool_rounds INTEGER, calls INTEGER, tools INTEGER,
+    tool_failures INTEGER, ms INTEGER, first_ms INTEGER, tokens_in INTEGER, tokens_out INTEGER, citations INTEGER, citations_verified INTEGER,
+    citations_used INTEGER, claims INTEGER, claims_refused INTEGER, recorded INTEGER, excluded TEXT, error_kind TEXT, error_type TEXT,
+    limit_reached INTEGER, country TEXT NOT NULL) WITHOUT ROWID`);
+  sql.exec("INSERT INTO usage_turns (id, day, ts, provider, model, status, first, citations, recorded, limit_reached, country) VALUES ('old', ?, ?, 'tao', 'Tao-S1', 'completed', 1, 3, 0, 0, 'CN')", DAY, NOW);
+  const columns = () => sql.exec("PRAGMA table_info(usage_turns)").toArray().map((r) => r.name);
+  const before = columns();
+  const u = new UsageCore(sql);
+  const after = columns();
+  assert.deepEqual(after.slice(0, before.length), before, "every column it had, in place");
+  assert.deepEqual(after.slice(before.length), TURN_COLUMNS_ADDED.map(([c]) => c));
+  const old = rows(u, "usage_turns")[0];
+  assert.deepEqual([old.id, old.citations, old.status], ["old", 3, "completed"], "its row is kept as it was");
+  assert.deepEqual(TURN_COLUMNS_ADDED.map(([c]) => old[c]), TURN_COLUMNS_ADDED.map(() => null), "and reads NULL (not checked) in the new ones");
+  assert.deepEqual(columns(), new UsageCore(sql) && columns(), "opening it again changes nothing");
+  // a store made now has the same columns from the start
+  const fresh = sqlStore();
+  new UsageCore(fresh);
+  assert.deepEqual(fresh.exec("PRAGMA table_info(usage_turns)").toArray().map((r) => r.name), after);
+
+  const end = (turn, provider, model, extra) => ({ type: "turn_end", turn, provider, model, status: "completed", citations_unresolved: 0, banned_terms: 0,
+    refusal_unreported: 0, released_wording: 0, overclaim_inquiry: 0, truncated: false, synthesized_at_limit: false, ...extra });
+  await u.ingest(batch([
+    end("t1", "tao", "Tao-S1", { citations_unresolved: 1, banned_terms: 2, termination: "answered" }),
+    end("t2", "tao", "Tao-S1", { termination: "answered" }),
+    end("t3", "deepseek", "deepseek-chat", { overclaim_inquiry: 1, truncated: true, termination: "truncated" }),
+  ]), { day: DAY, country: "CN", visitor: "v", now: NOW });
+  const t3 = rows(u, "usage_turns").find((r) => r.id === "t3");
+  assert.deepEqual([t3.overclaim_inquiry, t3.truncated, t3.synthesized_at_limit, t3.termination], [1, 1, 0, "truncated"]);
+  const s = u.stats({ from: DAY, to: DAY });
+  assert.deepEqual(s.answer_check.totals, { checked: 3, flagged: 2, unresolved: 1, banned: 1, refusal: 0, released: 0, overclaim: 1, truncated: 1, synthesized: 0 });
+  assert.deepEqual(s.answer_check.daily, { checked: [3], flagged: [2] });
+  assert.deepEqual(s.answer_check.models.map((m) => [m.provider, m.model, m.checked, m.flagged, m.banned, m.overclaim, m.daily.flagged]),
+    [["tao", "Tao-S1", 2, 1, 1, 0, [1]], ["deepseek", "deepseek-chat", 1, 1, 0, 1, [1]]]);
+  assert.equal(s.conversations.totals.completed, 4, "the old turn still counts as a turn, only not as a checked one");
+  // a filter narrows them like every turn count
+  assert.deepEqual(u.stats({ from: DAY, to: DAY, provider: "deepseek" }).answer_check.totals.checked, 1);
+  // the turns export carries them
+  const exported = u.exportRows("turns", DAY, DAY).rows.find((r) => r.id === "t1");
+  assert.deepEqual([exported.citations_unresolved, exported.banned_terms, exported.termination], [1, 2, "answered"]);
 });
 
 test("usage: limits per visitor, then exports and retention", async () => {

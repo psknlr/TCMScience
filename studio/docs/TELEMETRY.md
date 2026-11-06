@@ -99,12 +99,21 @@ Worker 另加 `seq`（递增编号）、`received`（收到时间）、`day`（�
 | `visit` | 路由名 | 一次访问开始：标签页的第一个页面，或闲置 30 分钟后的第一个页面 |
 | `pageview` | 路由名（home / project / conversation / settings / about / catalog / notfound / admin），设置页的分页 | 页面浏览（**只有名字**，从不含项目或对话的编号） |
 | `turn_start` | 服务、模型、是否对话的第一问 | 开始的轮次、新对话、当天提问的访客（去重） |
-| `turn_end` | 轮次编号、状态、步数、工具轮数、模型调用、工具数与失败数、耗时、首字耗时、token、引文与主张统计、是否记录（不记录的原因）、出错类别 | 每轮一行：成功率、耗时分位数、模型与 token |
+| `turn_end` | 轮次编号、状态、步数、工具轮数、模型调用、工具数与失败数、耗时、首字耗时、token、引文与主张统计、回答检查的计数（见下）、结束方式（`termination`）、是否被输出上限截断（`truncated`）、是否在步数上限后综合作答（`synthesized_at_limit`）、是否记录（不记录的原因）、出错类别 | 每轮一行：成功率、耗时分位数、模型与 token、回答检查 |
 | `tool_end` | 调用编号、工具名、类别、运行位置、结果、耗时、错误类型 | 每次工具执行一行：执行次数、失败率、耗时 |
 | `workflow` | 类别（skill / study / job / tcmdb）、名称、阶段（started / submitted / completed / failed / refused / cancelled） | 研究流程的开始、提交、完成、失败（同一流程同一阶段只计一次） |
 | `error` | 类别、错误名、发生在应用自己代码的哪一行 | 应用错误（**从不含错误信息**，信息里可能有访客写的字；每个页面最多 10 条） |
 | `availability` | 服务（relay / runner / browser_runtime / storage）、是否可用 | 服务可用性 |
 | `consent` | 同意 / 拒绝 / 撤回 / 删除，说明版本 | 同意情况 |
+
+**回答检查**（`web/js/core/answercheck.js`，网页在一轮结束时对回答做的检查，只作提示，从不改动或拦下回答）在 `turn_end` 里
+只留每类的处数，不留回答的任何文字：`citations_unresolved`（回答里的 `[E#]` 不是本对话中任何工具给出的编号）、`banned_terms`
+（治理规则不用的词，如「证明」「安全」，否定、提问、条件、引号与代码里的不算）、`refusal_unreported`（内核拒绝了本轮的主张，
+回答既没写拒绝代码也没说拒绝）、`released_wording`（本轮没有结果获准发布，回答却说 released / 已发布 / 已放行）、
+`overclaim_inquiry`（本轮的探究结论是暂定、未决或初步，回答却说已接受、已确立）。`termination` 只取固定的几种
+（`answered`、`max_steps_synthesized`、`truncated`、`stopped`、`refused_by_model`、`error:model|network|runtime`），由智能体
+写在回答上，没写时不发；`truncated` 由智能体的结束方式或模型服务的 `finish_reason`（`length` / `max_tokens`）判定。网页在消息
+旁显示同一份检查结果（「回答检查：N 处」，细节在检查器的「过程」中）；没有标出问题不表示回答正确。
 
 Worker 自己另计：Tao-S1 中继的每次请求及结果（`relay_call`）和 token（`relay_tokens`）；数据库网关按**数据库**（注册表里的名称，
 如 `chembl`、`europepmc`：同在 www.ebi.ac.uk 的 18 个数据库分开计）计请求数、结果类别（2xx/4xx/5xx、超时、无法连接、取消，
@@ -188,6 +197,10 @@ Object 的额度」。管理操作的审计记录不经过汇总，当场写入�
 每个 Durable Object 每天 03:17（UTC）由自己的定时器清理一次；仪表板的「立即清理过期数据」也可以手动执行。每日盐与「见过」集合
 每天删除，批次去重编号两天后删除。保留期改短后，下一次清理即生效。
 
+**表结构的变更只做加法**：每轮明细表 `usage_turns` 后来加的列（回答检查的五项计数、`termination`、`truncated`、
+`synthesized_at_limit`）在 `UsageLog` 启动时按 `PRAGMA table_info` 补上（`ALTER TABLE … ADD COLUMN`）；已有的行原样保留，
+这些列为空，仪表板把它们算作「没有检查」，不算作零。
+
 ### Durable Object 的额度
 
 统计、记录、安全日志与中继的限额（`LIMITER`）用的是同一个 Cloudflare 账号的 Durable Object 额度。Workers 免费版每天约
@@ -237,7 +250,8 @@ Service Worker 从不缓存 `/admin/`。仪表板的代码只发给已登录的�
 - 页面浏览、访问、访客·日（每日去重访客之和）；对话轮次与新对话；成功率；模型调用；token；响应耗时中位数及 p90、p95；工具执行与失败；应用错误；安全事件；
 - 访问量折线（页面浏览、访问、访客）、页面与浏览器分布；每日结束的轮次及其结束方式；记录与不记录的原因；失败原因；
 - 各模型的轮次、成功率、调用、token、平均耗时；耗时分位数（整轮与首个输出）；工具表（可筛选）及按运行位置；
-- 数据库网关按数据库的可用率；Tao-S1 中继的结果；研究流程；证据与引文；地理分布；页面报告的错误与服务可用性；
+- 数据库网关按数据库的可用率；Tao-S1 中继的结果；研究流程；证据与引文；回答检查（每个模型每天被标出的轮次占检查过的轮次的比例，
+  及每一类的比例、截断与步数上限后综合作答的轮数）；地理分布；页面报告的错误与服务可用性；
 - 同意情况与记录库的存取；安全事件、来源（月度哈希与网段）与管理操作记录；
 - 对话记录：**只在点「显示对话记录」后才读取**，每次读取写入审计；可按结束方式筛选、按记录编号查找、逐条或按访客删除。
 
@@ -344,11 +358,12 @@ node studio/edge/scripts/export-telemetry.mjs --out ~/tcmscience-exports --days 
 |---|---|
 | `web/test/publiclinks.test.mjs` | 网页不出现项目主页、Arena 与仓库链接（含运行时文本） |
 | `web/test/telemetry.test.mjs` | 同意的版本与撤回；敏感内容与隐去；契约的字段与长度；不记录的原因；记录与事件的构建；只在本站收统计时发送；DNT/GPC；失败重试与刷新后续发；中断的轮次 |
+| `web/test/answercheck.test.mjs` | 回答检查：在中英文回答语料（`fixtures/answercheck-corpus.json`）上每类的精确率与召回率、否定与引用的放行、只作提示（回答与工具结果不变）、消息旁的提示与检查器里的细节 |
 | `web/dev/test/telemetry-ui.test.mjs` | 真实应用里的询问对话框、同意 / 拒绝 / 撤回、上传文件与敏感问题不记录、隐私设置页、发送失败不影响对话 |
 | `web/test/admin.test.mjs` | 后台文字中英文对齐；图表刻度；仪表板对真实接口的显示；访客文字只作文本；按需读取与审计；删除；会话过期；公开代码不含管理接口与令牌 |
-| `edge/test/telemetry-store.test.js` | 三个存储：计数互不混淆、去重、每日盐、筛选与对比、保留期、删除与墓碑、安全事件的地址处理 |
+| `edge/test/telemetry-store.test.js` | 三个存储：计数互不混淆、去重、每日盐、筛选与对比、保留期、删除与墓碑、安全事件的地址处理；旧表补列只做加法、回答检查按模型与日的统计 |
 | `edge/test/telemetry.test.js` | 接口：来源检查、正文上限、限额、敏感内容在 Worker 端被拒、登录与锁定、会话、CSRF、导出权限、CSV 防公式、定时清理 |
 | `edge/test/export.test.js` | 导出脚本：只写到仓库之外、令牌只从环境读、权限、保留 |
 | `edge/test/check.test.js`、`e2e/pipeline.spec.mjs` | 部署后的检查（后台不对未登录者开放）；工作流只在令牌够长时写入机密且从不打印 |
-| `e2e/telemetry.spec.mjs` | 真实 Worker（`wrangler dev`）上的完整流程：中英文、桌面与手机、同意与拒绝、记录可在后台看到、删除、统计中断时对话照常、刷新中断、两位访客同时使用、管理员登录与导出、登录页与仪表板的 axe 无障碍检查（浅色与深色） |
+| `e2e/telemetry.spec.mjs` | 真实 Worker（`wrangler dev`）上的完整流程：中英文、桌面与手机、同意与拒绝、记录可在后台看到、删除、统计中断时对话照常、刷新中断、两位访客同时使用、回答检查（消息旁的提示与 `turn_end` 里的计数）、管理员登录与导出、登录页与仪表板的 axe 无障碍检查（浅色与深色） |
 | `e2e/a11y.spec.mjs` | 主界面的 axe 检查，含「设置 → 隐私」 |

@@ -1,7 +1,8 @@
 import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { INLINE_LIMIT, buildSystemPrompt, isIdentityQuestion } from "../js/core/prompt.js";
+import { BANNED_TERMS, INLINE_LIMIT, VOCABULARY, buildSystemPrompt, isIdentityQuestion } from "../js/core/prompt.js";
 import { activeProvider } from "../js/core/providers.js";
 
 const relay = activeProvider({ provider: "tao" });
@@ -46,6 +47,21 @@ test("the sections come in the contract's order and carry the governance rules",
   assert.match(en, /local runner connected at http:\/\/127\.0\.0\.1:8765 \(tcmstudio 0\.1\.0\)/);
   assert.match(en, /cuda:0 \(RTX 4090\)/);
   assert.match(en, /Web access for this project: off/);
+});
+
+test("the rendered prompt is byte-identical to 530031f's in zh and en (the vocabulary moved into data, not its words)", () => {
+  // sha256 of buildSystemPrompt's output before the governance vocabulary became VOCABULARY / BANNED_TERMS; a change of
+  // the prompt's words is a change of this digest, made on purpose
+  const env = { date: "2026-10-07", browser: { status: "ready" }, runner: { status: "offline" } };
+  const digest = (lang, provider) => createHash("sha256").update(buildSystemPrompt({ lang, provider, env })).digest("hex");
+  assert.equal(digest("zh", relay), "393beb1799268d3c9858715db0689d76df7aacff1a4701ed5b2fcd651ca0fb46");
+  assert.equal(digest("en", relay), "da82a0f440edeed79715867c70133a9a91d1d822bc260b078fe0491513e0ece7");
+  assert.equal(digest("zh", deepseek), "2248fca20ecf6e8bcd79730ace175081f782fa454942942568fb237b5df3c7d5");
+  assert.equal(digest("en", deepseek), "8c9f70b3af3efe1967a904b5d05eaeaf515417025d09a84b79b395aca3a68daf");
+  // what the answer check reads is what the rule says
+  assert.match(buildSystemPrompt({ lang: "zh", provider: relay }), new RegExp(`Do not use ${VOCABULARY.zh.never.join("、")} or superlatives\\.`));
+  assert.deepEqual(BANNED_TERMS.filter((b) => b.lang === "en").map((b) => b.term), ["proven", "discovered", "safe", "irrelevant", "confirmed side effect"]);
+  assert.deepEqual(BANNED_TERMS.filter((b) => b.lang === "zh").map((b) => b.term), ["证明", "证实", "发现", "揭示", "副作用确认", "确认有效", "发现了机制", "安全", "精准"]);
 });
 
 test("knowledge: listed with size and hash; texts under 8 kB are inlined, longer ones are not", () => {

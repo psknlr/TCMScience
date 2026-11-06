@@ -16,6 +16,8 @@
 //                        then "任务状态：<state>"
 //   慢速 / slow          a long answer, 400 pieces 30 ms apart (for the stop button)
 //   你是谁 / who are you an identity answer, no reasoning
+//   编造引用 / fabricated  the proof of concept's bad answer: a citation no tool returned and words the rule forbids (for
+//                        the answer check, web/js/core/answercheck.js)
 //   (a ping tool offered) the connection test of Settings → Models: one call of ping {echo:"ok"}
 //   anything else        a short answer with a little reasoning
 //
@@ -38,7 +40,11 @@ export const SCENARIOS = {
   literature: { match: (s) => /文献|literature/i.test(s) },
   slow: { match: (s) => /慢速|slow/i.test(s) },
   identity: { match: (s) => /你是谁|who are you/i.test(s) },
+  fabricated: { match: (s) => /编造引用|fabricated/i.test(s) },
 };
+
+/** What the fabricated scenario says (the proof of concept's bad answer, as an e2e test reads it back). */
+export const FABRICATED_ANSWER = "桂枝汤由桂枝、芍药、甘草、生姜、大枣组成，临床证明安全有效 [E7]。";
 
 export function scenarioOf(text) {
   for (const [name, sc] of Object.entries(SCENARIOS)) if (sc.match(text)) return name;
@@ -122,6 +128,9 @@ export function plan(body) {
     out.push({ finish: "stop" });
   } else if (scenario === "identity") {
     say("我是 TCMScience Studio 的研究助手（测试模型）。");
+    out.push({ finish: "stop" });
+  } else if (scenario === "fabricated") {
+    say(FABRICATED_ANSWER);
     out.push({ finish: "stop" });
   } else {
     reason("简单回答。");

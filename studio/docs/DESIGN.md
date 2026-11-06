@@ -475,6 +475,8 @@ the data. Say so in the share menu.
    governed), thinking (summary), tool calls, permission decisions, gate checks, and the release
    decision. Each row has a step number, name, kind, a "where ran" badge, duration, status and
    hashes. Same visual structure as Arena's `.trace` (`arena/web/assets/style.css` lines ≈542–559).
+   Under a finished turn's steps, the **answer check** (§6.7) lists what it marked, or says that it
+   marked nothing.
 2. **证据 Evidence.** Grouped by family (经典与经验 / 临床前 / 临床 / 计算预测). Each item shows:
    - design + tier
    - citation
@@ -873,6 +875,22 @@ CPU 内核快」: a CPU baseline the receipt carries is not a comparison (`ui/ru
 words are 「未测量（不声称加速）」 with the receipt's basis; a software adapter is
 「软件模拟 GPU」 and never acceleration; WebNN is 「检测到 WebNN；NPU 执行未经验证」 at most (「没有可用的已验证 NPU 后端」
 without it); a runner's GPU is reported or selected, never more; remote compute is 「未配置」.
+
+### 6.7 Answer check (report-only)
+
+`core/answercheck.js` reads a finished answer against its turn's envelopes and the governance rule's own vocabulary
+(`prompt.js` `BANNED_TERMS`): a `[E#]` no tool of the conversation returned, a word the rule does not use outside a
+negation, a question, a condition, quotes or code (无记录不等于安全, 不能证明 and "not proven" pass), a kernel refusal the
+answer leaves out, "released / 已发布 / 已放行" with nothing release-authorized, and 已接受 / established wording over a
+provisional or tentative inquiry. It is a note, never a verdict: the answer is shown exactly as the model wrote it.
+
+- On the message: an ochre pill beside the attribution, 「回答检查：3 处」 / "Answer check: 3 notes" (! icon + words), only
+  when something is marked; a clean answer carries none. It opens the inspector.
+- In the inspector's Run tab: 「回答检查」 under the turn's steps, each finding by kind with what it found and the words
+  around it, and the line that it checks wording and ids, not whether the content is right.
+- The same module counts the findings for the usage telemetry (numbers only, `docs/TELEMETRY.md`), and it is the one
+  the agent eval's evidence grader is to import (a test holds it to that once `studio/eval` exists), so the page, the
+  telemetry and the eval apply one rule.
 
 ---
 
