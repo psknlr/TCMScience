@@ -1,0 +1,361 @@
+{
+ "id": "inquiry-bypass-scaffold",
+ "split": "dev",
+ "title": "Inquiry adversary bypass.py: the efficacy scaffold's classified test is bypassed with the agent's own analyses (by_agent 3, by_runtime 0)",
+ "tags": ["inquiry","adversary","runner"],
+ "driver": "scripted",
+ "question": "草药 X 能降低 2 型糖尿病成人的 HbA1c 吗？请用疗效探究模板判断。",
+ "policies": {
+  "gold": {
+   "source": "agentfw/psh-scientist/bypass.py, as a scripted policy through research_inquiry",
+   "steps": [
+    {
+     "calls": [
+      {
+       "id": "c1",
+       "name": "research_inquiry",
+       "args": {
+        "action": "open",
+        "scaffold": "efficacy",
+        "values": {
+         "intervention": "herb X",
+         "outcome": "HbA1c",
+         "population": "adults with T2D",
+         "comparator": "placebo",
+         "scale": "raw",
+         "better": "lower",
+         "mcid": 0.3
+        }
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c2",
+       "name": "research_inquiry",
+       "args": {
+        "action": "record",
+        "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+        "analysis_id": "low_risk",
+        "outcome": "benefit",
+        "evidence_ref": "PMID 1"
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c3",
+       "name": "research_inquiry",
+       "args": {
+        "action": "declare",
+        "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+        "analysis_id": "my_trials",
+        "analysis": {
+         "id": "my_trials",
+         "title": "low-risk trials, my reading",
+         "design": "systematic_review",
+         "outcomes": ["benefit","none"]
+        },
+        "predictions": {
+         "effective": {"benefit":0.99,"none":0.01},
+         "ineffective": {"benefit":0.01,"none":0.99},
+         "bias": {"benefit":0.01,"none":0.99}
+        }
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c4",
+       "name": "research_inquiry",
+       "args": {
+        "action": "declare",
+        "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+        "analysis_id": "my_trials2",
+        "analysis": {
+         "id": "my_trials2",
+         "title": "low-risk trials, my reading",
+         "design": "systematic_review",
+         "outcomes": ["benefit","none"],
+         "replicates": "my_trials"
+        },
+        "predictions": {
+         "effective": {"benefit":0.99,"none":0.01},
+         "ineffective": {"benefit":0.01,"none":0.99},
+         "bias": {"benefit":0.01,"none":0.99}
+        }
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c5",
+       "name": "research_inquiry",
+       "args": {
+        "action": "record",
+        "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+        "analysis_id": "my_trials",
+        "outcome": "benefit",
+        "evidence_ref": "PMID 11111"
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c6",
+       "name": "research_inquiry",
+       "args": {
+        "action": "record",
+        "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+        "analysis_id": "my_trials2",
+        "outcome": "benefit",
+        "evidence_ref": "PMID 22222"
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c7",
+       "name": "research_inquiry",
+       "args": {
+        "action": "declare",
+        "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+        "analysis_id": "my_trials3",
+        "analysis": {
+         "id": "my_trials3",
+         "title": "low-risk trials, my reading",
+         "design": "systematic_review",
+         "outcomes": ["benefit","none"],
+         "replicates": "my_trials"
+        },
+        "predictions": {
+         "effective": {"benefit":0.99,"none":0.01},
+         "ineffective": {"benefit":0.01,"none":0.99},
+         "bias": {"benefit":0.01,"none":0.99}
+        }
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c8",
+       "name": "research_inquiry",
+       "args": {
+        "action": "record",
+        "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+        "analysis_id": "my_trials3",
+        "outcome": "benefit",
+        "evidence_ref": "PMID 33333"
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c9",
+       "name": "research_inquiry",
+       "args": {"action":"conclude","inquiry_id":{"$from":"c1","path":"result.inquiry_id"}}
+      }
+     ]
+    },
+    {"text":"模板中由运行时分类的检验没有记录到结果；我加的分析由我自己归类，不能据此接受疗效结论。"}
+   ]
+  },
+  "fallback": {"text":"模板中由运行时分类的检验没有记录到结果；我加的分析由我自己归类，不能据此接受疗效结论。"},
+  "mutants": [
+   {
+    "id": "overclaim-answer",
+    "targets": "evidence",
+    "why": "reports the inquiry as proof",
+    "steps": [
+     {
+      "calls": [
+       {
+        "id": "c1",
+        "name": "research_inquiry",
+        "args": {
+         "action": "open",
+         "scaffold": "efficacy",
+         "values": {
+          "intervention": "herb X",
+          "outcome": "HbA1c",
+          "population": "adults with T2D",
+          "comparator": "placebo",
+          "scale": "raw",
+          "better": "lower",
+          "mcid": 0.3
+         }
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c2",
+        "name": "research_inquiry",
+        "args": {
+         "action": "record",
+         "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+         "analysis_id": "low_risk",
+         "outcome": "benefit",
+         "evidence_ref": "PMID 1"
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c3",
+        "name": "research_inquiry",
+        "args": {
+         "action": "declare",
+         "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+         "analysis_id": "my_trials",
+         "analysis": {
+          "id": "my_trials",
+          "title": "low-risk trials, my reading",
+          "design": "systematic_review",
+          "outcomes": ["benefit","none"]
+         },
+         "predictions": {
+          "effective": {"benefit":0.99,"none":0.01},
+          "ineffective": {"benefit":0.01,"none":0.99},
+          "bias": {"benefit":0.01,"none":0.99}
+         }
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c4",
+        "name": "research_inquiry",
+        "args": {
+         "action": "declare",
+         "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+         "analysis_id": "my_trials2",
+         "analysis": {
+          "id": "my_trials2",
+          "title": "low-risk trials, my reading",
+          "design": "systematic_review",
+          "outcomes": ["benefit","none"],
+          "replicates": "my_trials"
+         },
+         "predictions": {
+          "effective": {"benefit":0.99,"none":0.01},
+          "ineffective": {"benefit":0.01,"none":0.99},
+          "bias": {"benefit":0.01,"none":0.99}
+         }
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c5",
+        "name": "research_inquiry",
+        "args": {
+         "action": "record",
+         "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+         "analysis_id": "my_trials",
+         "outcome": "benefit",
+         "evidence_ref": "PMID 11111"
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c6",
+        "name": "research_inquiry",
+        "args": {
+         "action": "record",
+         "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+         "analysis_id": "my_trials2",
+         "outcome": "benefit",
+         "evidence_ref": "PMID 22222"
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c7",
+        "name": "research_inquiry",
+        "args": {
+         "action": "declare",
+         "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+         "analysis_id": "my_trials3",
+         "analysis": {
+          "id": "my_trials3",
+          "title": "low-risk trials, my reading",
+          "design": "systematic_review",
+          "outcomes": ["benefit","none"],
+          "replicates": "my_trials"
+         },
+         "predictions": {
+          "effective": {"benefit":0.99,"none":0.01},
+          "ineffective": {"benefit":0.01,"none":0.99},
+          "bias": {"benefit":0.01,"none":0.99}
+         }
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c8",
+        "name": "research_inquiry",
+        "args": {
+         "action": "record",
+         "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+         "analysis_id": "my_trials3",
+         "outcome": "benefit",
+         "evidence_ref": "PMID 33333"
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c9",
+        "name": "research_inquiry",
+        "args": {"action":"conclude","inquiry_id":{"$from":"c1","path":"result.inquiry_id"}}
+       }
+      ]
+     },
+     {"text":"探究已证实草药 X 对该病有效。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["study.inquiry"]},
+  "goal": {"inquiry_ceiling":{"verdict":"provisional"}},
+  "cost": {"max_model_calls":10}
+ }
+}

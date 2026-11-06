@@ -139,6 +139,32 @@ jobs:
           cd studio
           npm ci || npm install
           npm test
+      - name: Agent eval (the real loop, router and runner; scripted, fault, relay-in-front and cassette drivers; no model)
+        # studio/eval: every dev case through core/agent.js runTurn, the ToolRouter and RunnerRuntime against a real
+        # `tcmstudio serve` (the Runner step installed it), the model a scripted policy, the fault server, the relay in
+        # front of a scripted upstream, or a recorded cassette; graded and held to studio/eval/baseline.json. A case that
+        # passed and fails, a known failure that fails a new check, a failing case the baseline does not know, a hand
+        # edit of the baseline or a mutant policy that passes the grader (or check) it targets fails the job; a known
+        # failure that passes is reported. No secret and no model: everything the runner sends off the machine goes to a
+        # proxy that refuses it, and the live driver (--live) never runs here
+        env:
+          PYTHON: python
+        run: |
+          if [ ! -f studio/eval/run.mjs ]; then
+            echo "::notice::studio/eval is not in this tree: no agent eval"
+            exit 0
+          fi
+          cd studio
+          npm run test:eval
+          npm run eval:agent -- --report "$RUNNER_TEMP/agent_eval_report.json"
+      - name: Keep the agent eval's report (every case's checks, trajectory, cost and the baseline comparison)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-eval-report
+          path: ${{ runner.temp }}/agent_eval_report.json
+          if-no-files-found: ignore
+          retention-days: 7
 
   vina-wasm:
     # AutoDock Vina 1.2.7 compiled to WebAssembly from its pinned inputs (Emscripten 4.0.23's release binaries, Vina's

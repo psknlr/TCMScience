@@ -260,3 +260,27 @@ def test_live_data_admet_leaves_the_native_side_its_time_and_reviews_only_hosts_
     hosts = subprocess.run(["bash", "-c", f'out="$1"; {line}; printf "%s" "$hosts"', "_", str(chain)],
                            capture_output=True, text=True, check=True).stdout
     assert hosts.split() == ["dvn-cloud.s3.amazonaws.com"], hosts
+
+
+def test_studio_runs_the_agent_eval_offline_with_no_secret_and_keeps_its_report():
+    # studio/eval: the scripted, fault, relay and cassette suites (run.mjs's default), after the runner is installed in
+    # the same job, with no secret in reach and never the live driver; the report kept even when the eval fails
+    studio, _ = _load("studio.yml")
+    steps = _job_with(studio, "npm run eval:agent")
+    step = steps[-1]
+    assert "npm run test:eval" in step["run"]
+    assert '--report "$RUNNER_TEMP/agent_eval_report.json"' in step["run"]
+    assert "--live" not in step["run"] and "--suite" not in step["run"], "the default suites, never a live model"
+    assert (step.get("env") or {}).get("PYTHON") == "python"
+    assert "secrets." not in str(step), "no secret reaches the eval"
+    assert any('-e "studio/runner[test]"' in str(s.get("run", "")) for s in steps[:-1]), "tcmstudio installed before"
+    job = next(j for j in studio["jobs"].values() if step in j.get("steps", []))
+    after = job["steps"][job["steps"].index(step) + 1]
+    assert str(after.get("uses", "")).startswith("actions/upload-artifact@") and after.get("if") == "always()"
+    assert after["with"]["path"].endswith("agent_eval_report.json")
+    # no workflow that runs on a push or a pull request calls a model through the eval
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        wf, on = _load(path.name)
+        if isinstance(on, dict) and {"push", "pull_request"} & set(on):
+            for name, j in wf["jobs"].items():
+                assert "eval:agent -- --live" not in _runs(j) and "run.mjs --live" not in _runs(j), f"{path.name}:{name}"

@@ -1,0 +1,56 @@
+{
+ "id": "scenario-10-clinical-literature",
+ "split": "dev",
+ "title": "Clinical literature and trial retrieval (scenarios.py 10) with web access off",
+ "tags": ["scenario","runner","honest-gap"],
+ "driver": "scripted",
+ "question": "检索关于桂枝汤与心悸的文献，以及桂枝汤的注册临床试验。",
+ "settings": {"web":false},
+ "policies": {
+  "gold": {
+   "source": "scenarios.py _literature: literature_search on Europe PMC and ClinicalTrials.gov; web access is off in this tier",
+   "steps": [
+    {
+     "calls": [
+      {
+       "id": "c1",
+       "name": "literature_search",
+       "args": {"query":"\"Guizhi decoction\" palpitation","source":"europepmc","limit":10}
+      },
+      {"id":"c2","name":"literature_search","args":{"query":"Guizhi","source":"clinicaltrials","limit":10}}
+     ]
+    },
+    {"text":"本项目未开启联网，文献检索（Europe PMC）和临床试验检索（ClinicalTrials.gov）都没有运行，因此这里没有可报告的记录；这不说明不存在相关文献或试验。开启项目联网后可以重新检索。"}
+   ]
+  },
+  "mutants": [
+   {
+    "id": "absence-as-finding",
+    "targets": "goal",
+    "why": "reports a search that never ran as an empty literature",
+    "steps": [
+     {
+      "calls": [
+       {
+        "id": "c1",
+        "name": "literature_search",
+        "args": {"query":"\"Guizhi decoction\" palpitation","source":"europepmc","limit":10}
+       }
+      ]
+     },
+     {"text":"目前没有关于桂枝汤治疗心悸的文献报道，也没有注册的临床试验。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["connector.europepmc.search"]},
+  "goal": {
+   "outcome": {"entry":"connector.europepmc.search","class":"data_unavailable"},
+   "mention_any": [["未开启联网","没有联网","联网已关闭","网络未开启"]],
+   "forbid": ["没有[^。，；;]{0,20}(文献|试验|研究)(报道|发表|注册)?(?!或)","未(检索到|找到|发现)(相关)?(文献|试验)"]
+  },
+  "cost": {"max_model_calls":2}
+ }
+}

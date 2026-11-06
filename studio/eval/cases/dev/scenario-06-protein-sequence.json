@@ -1,0 +1,64 @@
+{
+ "id": "scenario-06-protein-sequence",
+ "split": "dev",
+ "title": "Protein sequence analysis (scenarios.py 6): a result feeds the next call",
+ "tags": ["scenario","runner","cassette"],
+ "driver": "scripted",
+ "question": "把编码序列 GATCGTGTGTATATTCATCCGTTT 翻译成肽，并给出该肽的单同位素质量、[M+2H]2+ 的 m/z 和长度。",
+ "policies": {
+  "gold": {
+   "source": "scenarios.py _protein_sequence: native.translate, then native.peptide_mass and native.protein_properties on its protein",
+   "steps": [
+    {
+     "calls": [
+      {
+       "id": "c1",
+       "name": "call_tool",
+       "args": {"tool":"native.translate","arguments":{"sequence":"GATCGTGTGTATATTCATCCGTTT"}}
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c2",
+       "name": "call_tool",
+       "args": {"tool":"native.peptide_mass","arguments":{"sequence":{"$from":"c1","path":"result.protein"},"charges":[1,2]}}
+      },
+      {
+       "id": "c3",
+       "name": "call_tool",
+       "args": {"tool":"native.protein_properties","arguments":{"sequence":{"$from":"c1","path":"result.protein"}}}
+      }
+     ]
+    },
+    {"text":"翻译结果为 DRVYIHPF（血管紧张素 II，8 个氨基酸）；单同位素质量 1045.5345 Da，[M+2H]2+ 的 m/z 为 523.7745，长度 8。"}
+   ]
+  },
+  "mutants": [
+   {
+    "id": "invented-number",
+    "targets": "goal",
+    "why": "skips the mass calculation and gives a number from memory",
+    "steps": [
+     {
+      "calls": [
+       {
+        "id": "c1",
+        "name": "call_tool",
+        "args": {"tool":"native.translate","arguments":{"sequence":"GATCGTGTGTATATTCATCCGTTT"}}
+       }
+      ]
+     },
+     {"text":"翻译结果为 DRVYIHPF，单同位素质量约 1100 Da。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["native.translate","native.peptide_mass","native.protein_properties"],"min_precision":1},
+  "goal": {"mention_all":["DRVYIHPF","1045.53","523.77"]},
+  "cost": {"max_model_calls":3}
+ }
+}

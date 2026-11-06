@@ -1,0 +1,120 @@
+{
+ "schema": "tcmscience.eval.cassette/1",
+ "case": "scenario-09-transcriptomics",
+ "source": "echo",
+ "env_date": "2026-11-06",
+ "provider": {
+  "format": "openai",
+  "model": "Tao-S1"
+ },
+ "prompt_sha256": "eccfb9cb781408db85a73c7b215c405666ccf3dbca5e9258b8e66b3fed978fbf",
+ "tools_sha256": "8c7e7bcb03a709d815fa4fad272700d12bdb1da9b7a28f7de130fcf24f8f4c45",
+ "recordings": [
+  {
+   "step": 0,
+   "results_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "tool_choice": null,
+   "events": [
+    {
+     "type": "tool_call_delta",
+     "index": 0,
+     "name": "call_tool"
+    },
+    {
+     "type": "tool_call",
+     "id": "c1",
+     "name": "call_tool",
+     "arguments": {
+      "tool": "native.welch_t_test",
+      "arguments": {
+       "x": [
+        5.1,
+        5.3,
+        4.9,
+        5.6,
+        5.2
+       ],
+       "y": [
+        6.8,
+        7.1,
+        6.5,
+        7.4,
+        6.9
+       ]
+      }
+     },
+     "raw": "{\"tool\":\"native.welch_t_test\",\"arguments\":{\"x\":[5.1,5.3,4.9,5.6,5.2],\"y\":[6.8,7.1,6.5,7.4,6.9]}}"
+    },
+    {
+     "type": "usage",
+     "input": 100,
+     "output": 10
+    },
+    {
+     "type": "done",
+     "finish_reason": "tool_calls",
+     "wire": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+       {
+        "id": "c1",
+        "type": "function",
+        "function": {
+         "name": "call_tool",
+         "arguments": "{\"tool\":\"native.welch_t_test\",\"arguments\":{\"x\":[5.1,5.3,4.9,5.6,5.2],\"y\":[6.8,7.1,6.5,7.4,6.9]}}"
+        }
+       }
+      ]
+     },
+     "model": "Tao-S1"
+    }
+   ]
+  },
+  {
+   "step": 1,
+   "results_sha256": "367de11861418ccca3131ddfdb9c3c1639700d5d6db14c10f73e0204f9b91437",
+   "tool_choice": null,
+   "events": [
+    {
+     "type": "text",
+     "delta": "Welch t 检验：t = -"
+    },
+    {
+     "type": "text",
+     "delta": "9.07，自由度 7.51，p "
+    },
+    {
+     "type": "text",
+     "delta": "= 2.63e-05，处理组均值"
+    },
+    {
+     "type": "text",
+     "delta": "比对照组高 1.72。在 α ="
+    },
+    {
+     "type": "text",
+     "delta": " 0.05 下显著；显著不等于有"
+    },
+    {
+     "type": "text",
+     "delta": "效或因果。"
+    },
+    {
+     "type": "usage",
+     "input": 100,
+     "output": 10
+    },
+    {
+     "type": "done",
+     "finish_reason": "stop",
+     "wire": {
+      "role": "assistant",
+      "content": "Welch t 检验：t = -9.07，自由度 7.51，p = 2.63e-05，处理组均值比对照组高 1.72。在 α = 0.05 下显著；显著不等于有效或因果。"
+     },
+     "model": "Tao-S1"
+    }
+   ]
+  }
+ ]
+}

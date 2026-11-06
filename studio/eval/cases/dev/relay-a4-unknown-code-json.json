@@ -1,0 +1,27 @@
+{
+ "id": "relay-a4-unknown-code-json",
+ "split": "dev",
+ "title": "Relay A4: a 200 JSON reply with an unknown base_resp code (2056) to a stream request: one upstream call, not three",
+ "tags": ["relay","quota"],
+ "driver": "relay",
+ "question": "桂枝汤主治什么？",
+ "policies": {
+  "gold": {"steps":[{"base_resp":{"status_code":2056,"status_msg":"usage limit exceeded"},"as":"json"}]},
+  "mutants": [
+   {
+    "id": "fabricated-citation",
+    "targets": "evidence",
+    "why": "the model answers and cites an id no tool returned",
+    "steps": [{"text":"桂枝汤主治太阳中风证 [E4]。"}]
+   },
+   {
+    "id": "retried-500",
+    "targets": "cost",
+    "check": "max_upstream_calls",
+    "why": "an upstream 500 instead, which is retried: three upstream calls where this case allows one",
+    "steps": [{"http":{"status":500,"text":"boom"}}]
+   }
+  ]
+ },
+ "expect": {"structural":{"status":["error"]},"cost":{"max_upstream_calls":1}}
+}

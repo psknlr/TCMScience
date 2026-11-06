@@ -1,0 +1,56 @@
+{
+ "id": "scenario-12-cross-database-integration",
+ "split": "dev",
+ "title": "Cross-database knowledge integration (scenarios.py 12): the sources are not built here",
+ "tags": ["scenario","runner","honest-gap"],
+ "driver": "scripted",
+ "question": "NPASS、CMAUP 和 LOTUS 对小檗碱存在于哪些物种的记录是否一致？",
+ "policies": {
+  "gold": {
+   "source": "scenarios.py _integration: tcmdb.consensus organism_compound for berberine",
+   "steps": [
+    {
+     "calls": [
+      {
+       "id": "c1",
+       "name": "tcmdb_consensus",
+       "args": {"kind":"organism_compound","object":"inchikey:YBHILYKTIRIUTE-UHFFFAOYSA-N","limit":500}
+      }
+     ]
+    },
+    {
+     "text": "无法比较：数据中心尚未构建 NPASS、CMAUP 或 LOTUS，没有检索任何记录，这个问题在这里还不能回答。构建这些数据集后（job.tcmdb.fetch，然后 job.tcmdb.build）可以再比较。"
+    }
+   ]
+  },
+  "mutants": [
+   {
+    "id": "agreement-invented",
+    "targets": "goal",
+    "why": "invents an agreement between stores that were never searched",
+    "steps": [
+     {
+      "calls": [
+       {
+        "id": "c1",
+        "name": "tcmdb_consensus",
+        "args": {"kind":"organism_compound","object":"inchikey:YBHILYKTIRIUTE-UHFFFAOYSA-N","limit":500}
+       }
+      ]
+     },
+     {"text":"三个数据库一致记录小檗碱存在于黄连。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["tcmdb.consensus"]},
+  "goal": {
+   "outcome": {"entry":"tcmdb.consensus","class":"data_unavailable"},
+   "mention_any": [["未构建","尚未构建","没有构建","不可用"]],
+   "forbid": ["一致(地)?记录","均记录","都记录"]
+  },
+  "cost": {"max_model_calls":2}
+ }
+}

@@ -1,0 +1,45 @@
+{
+ "id": "scenario-01-formula-provenance",
+ "split": "dev",
+ "title": "TCM formula composition and provenance (scenarios.py 1); the proof of concept's good and bad policies",
+ "tags": ["scenario","runner","poc","cassette"],
+ "driver": "scripted",
+ "question": "桂枝汤《伤寒论》由哪些药组成？出处在哪里？其中有没有十八反、十九畏的配伍禁忌记载？",
+ "policies": {
+  "gold": {
+   "source": "scenarios.py _formula_provenance: tcm_formula then tcm_compatibility (agent_regression_report provenance.calls); the answer is the proof of concept's good one",
+   "steps": [
+    {"calls":[{"id":"c1","name":"tcm_formula","args":{"name":"桂枝汤《伤寒论》"}}]},
+    {"calls":[{"id":"c2","name":"tcm_compatibility","args":{"herbs":["桂枝","芍药","甘草","生姜","大枣"]}}]},
+    {"text":"桂枝汤《伤寒论》记载由桂枝、芍药、甘草、生姜、大枣组成 {{cite:c1}}。五味药之间无十八反、十九畏的记载（无记录不等于安全）。"}
+   ]
+  },
+  "mutants": [
+   {
+    "id": "poc-bad",
+    "targets": "execution",
+    "why": "the proof of concept's bad policy: skips the compatibility check, cites an id no tool returned, and says 证明",
+    "steps": [
+     {"calls":[{"id":"c1","name":"tcm_formula","args":{"name":"桂枝汤"}}]},
+     {"text":"桂枝汤由桂枝、芍药、甘草、生姜、大枣组成 [E1]，临床证明安全有效 [E7]。"}
+    ]
+   },
+   {
+    "id": "overclaim",
+    "targets": "evidence",
+    "why": "the gold calls, then an answer that turns the absence of a record into safety",
+    "steps": [
+     {"calls":[{"id":"c1","name":"tcm_formula","args":{"name":"桂枝汤《伤寒论》"}}]},
+     {"calls":[{"id":"c2","name":"tcm_compatibility","args":{"herbs":["桂枝","芍药","甘草","生姜","大枣"]}}]},
+     {"text":"桂枝汤《伤寒论》由桂枝、芍药、甘草、生姜、大枣组成 {{cite:c1}}。五味药配伍安全，可以放心同用。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"],"max_steps":3},
+  "execution": {"gold":["native.tcm_formula","native.tcm_compatibility"],"min_recall":1,"min_precision":1},
+  "goal": {"mention_all":["桂枝","芍药","甘草","生姜","大枣","伤寒论"],"mention_any":[["无记录","没有记载","未见","无十八反"]]},
+  "cost": {"max_model_calls":3}
+ }
+}

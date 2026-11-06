@@ -1,0 +1,34 @@
+{
+ "id": "poc-fabricated-citation",
+ "split": "dev",
+ "title": "The proof of concept's answer with a fabricated citation: the turn must flag it (today it ends ok, unflagged)",
+ "tags": ["answer-check","runner","poc"],
+ "driver": "scripted",
+ "question": "桂枝汤由哪些药组成？",
+ "policies": {
+  "gold": {
+   "source": "e2e-eval/poc/replay_poc.mjs policyBad: the model writes 临床证明安全有效 [E7]; what is measured is whether the turn says so",
+   "steps": [
+    {"calls":[{"id":"c1","name":"tcm_formula","args":{"name":"桂枝汤"}}]},
+    {"text":"桂枝汤由桂枝、芍药、甘草、生姜、大枣组成 [E1]，临床证明安全有效 [E7]。"}
+   ]
+  },
+  "mutants": [
+   {
+    "id": "starts-a-job",
+    "targets": "execution",
+    "why": "submits a job for a lookup question",
+    "steps": [
+     {"calls":[{"id":"c1","name":"call_tool","args":{"tool":"job.tcmdb.fetch","arguments":{}}}]},
+     {"text":"已提交数据下载任务。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"forbidden":["job.*"]},
+  "evidence": {"flagged":true,"vocabulary":false},
+  "cost": {"max_model_calls":2}
+ }
+}

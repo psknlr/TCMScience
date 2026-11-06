@@ -1,0 +1,56 @@
+{
+ "id": "scenario-02-np-compound-identification",
+ "split": "dev",
+ "title": "Natural-product compound identification (scenarios.py 2): no hub store is built here",
+ "tags": ["scenario","runner","honest-gap"],
+ "driver": "scripted",
+ "question": "黄连的基原植物（Coptis chinensis）在数据库中记录了哪些成分？其标志成分小檗碱在其中吗？",
+ "policies": {
+  "gold": {
+   "source": "scenarios.py _np_compounds: tcmdb.relations organism_compound for ncbitaxon:261450; offline it is data_unavailable (dataset_not_built)",
+   "steps": [
+    {
+     "calls": [
+      {
+       "id": "c1",
+       "name": "tcmdb_relations",
+       "args": {"kind":"organism_compound","subject":"ncbitaxon:261450","limit":500}
+      }
+     ]
+    },
+    {
+     "text": "未能检索：本环境尚未构建 NPASS、CMAUP 或 LOTUS 数据集，所以没有搜索任何成分记录，这一问题在这里还没有答案。先构建数据集（job.tcmdb.fetch，然后 job.tcmdb.build）再查询。"
+    }
+   ]
+  },
+  "mutants": [
+   {
+    "id": "negative-finding",
+    "targets": "goal",
+    "why": "reports a store that is not built as a negative finding",
+    "steps": [
+     {
+      "calls": [
+       {
+        "id": "c1",
+        "name": "tcmdb_relations",
+        "args": {"kind":"organism_compound","subject":"ncbitaxon:261450","limit":500}
+       }
+      ]
+     },
+     {"text":"数据库中没有记录黄连含小檗碱，因此小檗碱不在其中。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["tcmdb.relations"],"min_precision":1},
+  "goal": {
+   "outcome": {"entry":"tcmdb.relations","class":"data_unavailable"},
+   "mention_any": [["未构建","尚未构建","没有构建","不可用"]],
+   "forbid": ["不含小檗碱","没有小檗碱","小檗碱不在其中","未发现小檗碱","没有记录[^。]{0,8}小檗碱"]
+  },
+  "cost": {"max_model_calls":2}
+ }
+}
