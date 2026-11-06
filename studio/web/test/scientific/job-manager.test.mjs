@@ -238,7 +238,9 @@ test("submit → run → succeeded: the record kept in IndexedDB, the receipt wr
   await assert.rejects(svc.readFile(job.id, ["tcmstudio", "datasets", "x"]), { type: "bad_arguments" });
   await assert.rejects(svc.readFile(job.id, ["out", "nope"]), { type: "not_found" });
 
-  // another tab (a new service over the same database) reads the same record
+  // another tab (a new service over the same database) reads the same record, once its end is written (the run is
+  // dropped after that write, as its lock is released)
+  await until(() => svc.active === 0);
   const other = setup({ idb, registry: new Map(), client: "tab-2", store }).svc;
   const kept = await other.get(job.id);
   assert.equal(kept.state, "succeeded");
@@ -253,7 +255,8 @@ test("events: state (running), stages, progress, log, artefact … state (succee
   const events = [];
   const off = svc.events(job.id, (ev) => events.push(ev));
   await settle(svc, job.id);
-  await new Promise((r) => setTimeout(r, 5));
+  // the end's events come once it is written, which settle() (reading the live record) can see before
+  await until(() => events.at(-1)?.type === "done");
   off();
   const types = events.map((e) => e.type);
   assert.equal(types[0], "state");
@@ -285,7 +288,7 @@ test("a handler that throws: failed with its error type and message; the receipt
   assert.deepEqual(done.stages.map((s) => s.status), ["succeeded", "failed"]);
   assert.equal(done.stages[1].detail, "the exports did not recompute");
   assert.deepEqual(done.outcome.checks, [], "a failed job claims no checks");
-  await new Promise((r) => setTimeout(r, 5));
+  await until(() => events.at(-1) === "done");
   assert.deepEqual(events.slice(-3), ["state", "error", "done"]);
   const r = await svc.receipt(done.id);
   assert.equal(r.matches, true);
@@ -409,7 +412,8 @@ test("cancel a queued job: cancelled at once, never run; cancel a running one: i
   });
   const first = await svc.submit("test.compute", { wait: true });
   const second = await svc.submit("test.compute", {});
-  await new Promise((r) => setTimeout(r, 30));
+  await until(async () => (await svc.get(first.id)).state === "running");
+  await new Promise((r) => setTimeout(r, 30)); // room for a second job to start, which maxConcurrent 1 forbids
   assert.equal((await svc.get(first.id)).state, "running");
   assert.equal((await svc.get(second.id)).state, "queued", "maxConcurrent 1");
   assert.equal(svc.active, 2, "queued and running: what a reload of this tab would interrupt");
@@ -419,7 +423,7 @@ test("cancel a queued job: cancelled at once, never run; cancel a running one: i
   assert.equal(svc.active, 1);
   gate.resolve();
   assert.equal((await settle(svc, first.id)).state, "succeeded");
-  for (let i = 0; i < 100 && svc.active; i++) await new Promise((r) => setTimeout(r, 5));
+  await until(() => svc.active === 0); // the run is dropped as its lock is released, after its end is written
   assert.equal(svc.active, 0);
   assert.equal((await svc.get(second.id)).state, "cancelled", "it never ran");
   await assert.rejects(svc.cancel(first.id), { type: "conflict" }, "a finished job has nothing to cancel");
@@ -655,11 +659,14 @@ test("maxConcurrent: jobs beyond it wait in order; two may run at once when allo
   const one = setup({ handlers: [handler], maxConcurrent: 1 });
   const ids = [];
   for (let i = 0; i < 3; i++) ids.push((await one.svc.submit("test.wait", {})).id);
-  await new Promise((r) => setTimeout(r, 20));
+  await until(async () => (await one.svc.get(ids[0])).state === "running");
+  await new Promise((r) => setTimeout(r, 20)); // room for a second to start, which maxConcurrent 1 forbids
   assert.deepEqual(await Promise.all(ids.map(async (id) => (await one.svc.get(id)).state)), ["running", "queued", "queued"]);
   gates[0].resolve();
   await settle(one.svc, ids[0]);
-  await new Promise((r) => setTimeout(r, 20));
+  // the next job starts once the first's end is written and its lock released: after settle() saw it end
+  await until(async () => (await one.svc.get(ids[1])).state === "running");
+  await new Promise((r) => setTimeout(r, 20)); // room for the third to start too, which it must not
   assert.deepEqual(await Promise.all(ids.map(async (id) => (await one.svc.get(id)).state)), ["succeeded", "running", "queued"]);
   gates[1].resolve();
   gates[2].resolve();
@@ -694,6 +701,7 @@ test("logs keep the last 200 lines; remove() deletes the record and the files", 
   assert.equal(done.logs.length, LOG_KEEP);
   assert.equal(done.logs.at(-1).text, "succeeded");
   assert.equal(done.logs.at(-2).level, "info");
+  await until(() => svc.active === 0); // its end is written
   const kept = await setup({ idb, store }).svc.get(job.id);
   assert.equal(kept.logs.length, LOG_KEEP, "as stored");
   assert.ok(await store.exists([...jobDir(job.id), "out", "x.txt"]));
@@ -830,7 +838,7 @@ test("isolated: Python stops in place on a cancel, yet the cancelled job's worke
     });
     const { svc, Worker } = setup({ run, size: 1 });
     const job = await svc.submit("test.compute", { hang: true });
-    await until(() => Worker.instances[0]?.received.some((m) => m.op === "run")); // Python is running the job's code
+    assert.ok(await until(() => Worker.instances[0]?.received.some((m) => m.op === "run")), "Python is running the job's code");
     await svc.cancel(job.id);
     assert.equal((await settle(svc, job.id)).state, "cancelled");
     assert.equal(Worker.instances[0].terminated, true, "whatever the job left in the worker's memory goes with it");
