@@ -169,7 +169,10 @@ one test.
   message with this run added; `toolMessages` and `usage` are this run's. `canContinue(message, provider, toolRecords)` →
   `"continue"` | `"answer"` | null: only on the provider (and format) that wrote it. The page saves no draft while a
   Continue runs (the stored message stays continuable) and reports the run to the telemetry under an id of its own, with
-  this run's tokens, steps and tool rounds.
+  this run's tokens, steps and tool rounds. Before a Continue sends anything, the page runs the check a Retry runs for a
+  model outside the computer (`ui/phidialog.js` phiGate over the branch and the project's files as they are now): going
+  back sends nothing, and the choice is counted with the continued run (`turn_end.phi`); a local model chosen there is
+  another provider, so the answer is not continued.
 - `TurnResult.assistant` (§7 message) also has: `segments: [{type:"reasoning"|"text"|"tools", step, text|callIds}]`
   (render order), `wireFormat` ("openai"|"anthropic"), `steps`, `finishReason`, `termination`, `citeTop`, and when
   relevant `hideReasoning` (identity turn), `limitReached` + `notice` (max steps; `status` stays "ok"), `notice` (a
