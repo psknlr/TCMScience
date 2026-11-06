@@ -58,8 +58,8 @@ In the PSH evaluator's order (`psh/runtime/evaluator.py`); all run on every turn
 `cases/dev/*.json`, one turn each: the question, the driver, the settings, a gold policy and at least one mutant, and
 what each grader expects. The dev split has the twelve research scenarios of `tcmstudio/scenarios.py` (their gold calls
 are the scenarios' own), the Guizhi benchmark's stage-11 trap, an honest gap, the proof of concept's answer with a
-fabricated citation, an identifier in a connector's arguments, three research_inquiry adversaries, and the fault, growth
-and relay probes. A policy step is `{calls: [...]}`, `{text}`, `{repeat: {...}}` or one of the HTTP-level faults
+fabricated citation, an identifier in a connector's arguments, three research_inquiry adversaries and the remedy of one
+(role 'artefact' given), and the fault, growth and relay probes. A policy step is `{calls: [...]}`, `{text}`, `{repeat: {...}}` or one of the HTTP-level faults
 (`lib/policy.mjs` lists them); an argument may name an earlier call's result (`{"$from": "c1", "path": "result.x"}`) or be
 a text repeated (`{"$repeat": "黄芪", "times": 350000}`), and an answer may name an earlier call's citation
 (`{{cite:c1}}`). A reference that cannot be resolved ends the policy with its fallback: the gold policy's is the case's
@@ -88,6 +88,8 @@ The known failures recorded at 530031f are the harms the plan names: the step li
 answer with no notice, a request past the relay's 2,000,000 bytes by request 15, a plan-quota 429 that offers Retry, an
 unknown upstream code that costs three upstream calls, a fabricated citation that ends ok and unflagged, three
 research_inquiry verdicts certified by the agent ('accepted', 'strong'), and an identifier that reached the network.
+The three inquiry adversaries pass since plan item P1.6: outcomes the agent classified no longer decide acceptance, and
+an explanation with neither a claim kind nor a role is refused at open (INQ103).
 
 ## Cassettes
 

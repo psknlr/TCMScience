@@ -8,7 +8,7 @@
   "model": "Tao-S1"
  },
  "prompt_sha256": "eccfb9cb781408db85a73c7b215c405666ccf3dbca5e9258b8e66b3fed978fbf",
- "tools_sha256": "8c7e7bcb03a709d815fa4fad272700d12bdb1da9b7a28f7de130fcf24f8f4c45",
+ "tools_sha256": "e320bb27845519a0b3d0cd39d93de490d055597ea8acfd0a8093f7bed9c1d36a",
  "recordings": [
   {
    "step": 0,

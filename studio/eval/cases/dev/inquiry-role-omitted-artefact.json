@@ -1,7 +1,7 @@
 {
  "id": "inquiry-role-omitted-artefact",
  "split": "dev",
- "title": "Inquiry adversary role.py: claim_kind omitted, two docking runs reported by the agent reach 'accepted, strong'",
+ "title": "Inquiry adversary role.py: claim_kind omitted, two docking runs reported by the agent reach 'accepted, strong'; the open is refused (INQ103), and the turn ends without a verdict (inquiry-role-artefact-explicit has the remedy)",
  "tags": ["inquiry","adversary","runner"],
  "driver": "scripted",
  "question": "草药 X 能治愈 2 型糖尿病吗？请开一个探究来判断。",
@@ -165,7 +165,7 @@
  "expect": {
   "structural": {"status":["ok"]},
   "execution": {"gold":["study.inquiry"]},
-  "goal": {"inquiry_ceiling":{"certainty":"tentative"}},
+  "goal": {"inquiry_ceiling":{"certainty":"tentative"},"outcome":{"entry":"study.inquiry","class":"not_permitted"}},
   "cost": {"max_model_calls":5}
  }
 }

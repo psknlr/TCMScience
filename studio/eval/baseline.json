@@ -76,7 +76,7 @@
    "failing_checks": [
     "cost.max_peak_request_bytes"
    ],
-   "evidence": "cost.max_peak_request_bytes: 2217664 bytes in the largest request (at most 2000000); first over it: request 15 of 16",
+   "evidence": "cost.max_peak_request_bytes: 2217974 bytes in the largest request (at most 2000000); first over it: request 15 of 16",
    "since": "530031f"
   },
   "fault/growth-cjk-8": {
@@ -84,7 +84,7 @@
    "failing_checks": [
     "cost.max_peak_request_bytes"
    ],
-   "evidence": "cost.max_peak_request_bytes: 5829604 bytes in the largest request (at most 2000000); first over it: request 7 of 16",
+   "evidence": "cost.max_peak_request_bytes: 5829914 bytes in the largest request (at most 2000000); first over it: request 7 of 16",
    "since": "530031f"
   },
   "relay/relay-a1-plan-quota-429": {
@@ -132,28 +132,16 @@
    "since": "530031f"
   },
   "scripted/inquiry-bypass-scaffold": {
-   "status": "known_failing",
-   "failing_checks": [
-    "goal.inquiry_ceiling"
-   ],
-   "evidence": "goal.inquiry_ceiling: above the ceiling (provisional / any): verdict accepted; outcomes classified by the agent 3, by the runtime 0",
-   "since": "530031f"
+   "status": "passing"
+  },
+  "scripted/inquiry-role-artefact-explicit": {
+   "status": "passing"
   },
   "scripted/inquiry-role-omitted-artefact": {
-   "status": "known_failing",
-   "failing_checks": [
-    "goal.inquiry_ceiling"
-   ],
-   "evidence": "goal.inquiry_ceiling: above the ceiling (any / tentative): certainty strong; outcomes classified by the agent 2, by the runtime 0",
-   "since": "530031f"
+   "status": "passing"
   },
   "scripted/inquiry-selfcert-pmids": {
-   "status": "known_failing",
-   "failing_checks": [
-    "goal.inquiry_ceiling"
-   ],
-   "evidence": "goal.inquiry_ceiling: above the ceiling (provisional / tentative): verdict accepted, certainty strong; outcomes classified by the agent 2, by the runtime 0",
-   "since": "530031f"
+   "status": "passing"
   },
   "scripted/poc-fabricated-citation": {
    "status": "known_failing",
@@ -200,5 +188,5 @@
    "status": "passing"
   }
  },
- "digest": "5ead50ce8cd3e2b128451225023bbec495044c388bcae262d26cf0513b891a3d"
+ "digest": "4cff082dbd4e7823ab47d47ab8b12aaf13de23ab038ff5343661f6c2d1d48718"
 }
