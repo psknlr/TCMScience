@@ -7,7 +7,7 @@
   "format": "openai",
   "model": "Tao-S1"
  },
- "prompt_sha256": "eccfb9cb781408db85a73c7b215c405666ccf3dbca5e9258b8e66b3fed978fbf",
+ "prompt_sha256": "18e643f17e7be0d0d7cb9d89705839983f06509e388780412d1cfa09009c4e67",
  "tools_sha256": "e320bb27845519a0b3d0cd39d93de490d055597ea8acfd0a8093f7bed9c1d36a",
  "recordings": [
   {

@@ -27,40 +27,16 @@
    "status": "passing"
   },
   "fault/fault-insufficient-quota": {
-   "status": "known_failing",
-   "failing_checks": [
-    "structural.retry_offered",
-    "cost.max_model_calls",
-    "cost.max_retries"
-   ],
-   "evidence": "structural.retry_offered: error insufficient_quota: Retry offered; expected no Retry | cost.max_model_calls: 3 model calls (at most 1) | cost.max_retries: 2 retries (at most 0)",
-   "since": "530031f"
+   "status": "passing"
   },
   "fault/fault-length": {
-   "status": "known_failing",
-   "failing_checks": [
-    "structural.states_how_it_ended"
-   ],
-   "evidence": "structural.states_how_it_ended: the turn ended cut off (finish_reason length) and says nothing about it (notice null)",
-   "since": "530031f"
+   "status": "passing"
   },
   "fault/fault-maxsteps-ignores-tool-choice": {
-   "status": "known_failing",
-   "failing_checks": [
-    "structural.answer"
-   ],
-   "evidence": "structural.answer: the turn ended with no answer text",
-   "since": "530031f"
+   "status": "passing"
   },
   "fault/fault-stall": {
-   "status": "known_failing",
-   "failing_checks": [
-    "structural.ended_by_itself",
-    "structural.status",
-    "structural.error_kind"
-   ],
-   "evidence": "structural.ended_by_itself: the turn had not ended after 10000 ms and was stopped by the eval | structural.status: status stopped (expected error) | structural.error_kind: error kind none (expected network)",
-   "since": "530031f"
+   "status": "passing"
   },
   "fault/fault-stream-error-event": {
    "status": "passing"
@@ -72,47 +48,22 @@
    "status": "passing"
   },
   "fault/growth-cjk-3": {
-   "status": "known_failing",
-   "failing_checks": [
-    "cost.max_peak_request_bytes"
-   ],
-   "evidence": "cost.max_peak_request_bytes: 2217974 bytes in the largest request (at most 2000000); first over it: request 15 of 16",
-   "since": "530031f"
+   "status": "passing"
   },
   "fault/growth-cjk-8": {
-   "status": "known_failing",
-   "failing_checks": [
-    "cost.max_peak_request_bytes"
-   ],
-   "evidence": "cost.max_peak_request_bytes: 5829914 bytes in the largest request (at most 2000000); first over it: request 7 of 16",
-   "since": "530031f"
+   "status": "passing"
   },
   "relay/relay-a1-plan-quota-429": {
-   "status": "known_failing",
-   "failing_checks": [
-    "structural.retry_offered"
-   ],
-   "evidence": "structural.retry_offered: error upstream_rate: Retry offered; expected no Retry",
-   "since": "530031f"
+   "status": "passing"
   },
   "relay/relay-a2-429-retry-after": {
    "status": "passing"
   },
   "relay/relay-a3-unknown-code-sse": {
-   "status": "known_failing",
-   "failing_checks": [
-    "cost.max_upstream_calls"
-   ],
-   "evidence": "cost.max_upstream_calls: 3 upstream calls (at most 1)",
-   "since": "530031f"
+   "status": "passing"
   },
   "relay/relay-a4-unknown-code-json": {
-   "status": "known_failing",
-   "failing_checks": [
-    "cost.max_upstream_calls"
-   ],
-   "evidence": "cost.max_upstream_calls: 3 upstream calls (at most 1)",
-   "since": "530031f"
+   "status": "passing"
   },
   "relay/relay-a5-500": {
    "status": "passing"
@@ -124,12 +75,7 @@
    "status": "passing"
   },
   "scripted/identifier-in-connector-arguments": {
-   "status": "known_failing",
-   "failing_checks": [
-    "goal.no_egress"
-   ],
-   "evidence": "goal.no_egress: the runner tried to reach www.ebi.ac.uk:443 (1 attempt(s))",
-   "since": "530031f"
+   "status": "passing"
   },
   "scripted/inquiry-bypass-scaffold": {
    "status": "passing"
@@ -144,12 +90,7 @@
    "status": "passing"
   },
   "scripted/poc-fabricated-citation": {
-   "status": "known_failing",
-   "failing_checks": [
-    "evidence.flagged_on_turn"
-   ],
-   "evidence": "evidence.flagged_on_turn: the answer cites E7, which no tool returned, and the turn ended ok with nothing flagging it",
-   "since": "530031f"
+   "status": "passing"
   },
   "scripted/scenario-01-formula-provenance": {
    "status": "passing"
@@ -188,5 +129,5 @@
    "status": "passing"
   }
  },
- "digest": "4cff082dbd4e7823ab47d47ab8b12aaf13de23ab038ff5343661f6c2d1d48718"
+ "digest": "d886119632eb4f27792c5f7a2f1e337b969dd81e75d62d18f524dd1be7b1ed80"
 }

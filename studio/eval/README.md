@@ -92,7 +92,8 @@ answer with no notice, a request past the relay's 2,000,000 bytes by request 15,
 unknown upstream code that costs three upstream calls, a fabricated citation that ends ok and unflagged, three
 research_inquiry verdicts certified by the agent ('accepted', 'strong'), and an identifier that reached the network.
 The three inquiry adversaries pass since plan item P1.6: outcomes the agent classified no longer decide acceptance, and
-an explanation with neither a claim kind nor a role is refused at open (INQ103).
+an explanation with neither a claim kind nor a role is refused at open (INQ103). With phase 1 and 2 merged (P1.2–P1.7,
+P2.1–P2.4) every other known failure passes too, and the baseline holds none.
 
 ## Cassettes
 
