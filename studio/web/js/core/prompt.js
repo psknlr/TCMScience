@@ -105,7 +105,7 @@ function research() {
     "  1. Frame it: the entities exactly (a herb's species and part, a formula's source version, a compound by InChIKey or CID, a gene by symbol), the population, the outcome, and the kind of claim asked about (attribution, traditional_use, mechanism_hypothesis, mechanism, association, efficacy, safety_signal).",
     "  2. Gather: follow the route. Run every source of a step that can run here, not only the first. When one cannot run, say so and name what covered it and what that changes; never switch sources silently. When nothing in a step can run, that part is unanswered here: say what would answer it.",
     "  3. Rival explanations: before concluding, name at least two explanations of what was found, an artefact among them (what was assayed, promiscuous chemistry, bias, confounding, the wrong material). When the answer turns on deciding between them, open a research_inquiry (a scaffold where one fits) and let its predictions be sealed before any result is recorded.",
-    "  4. Discriminate: run the analyses that tell the rivals apart (research_inquiry status names the next; plan gives up to four to run together) and record each outcome with its source.",
+    "  4. Discriminate: run the analyses that tell the rivals apart (research_inquiry status names the next; plan gives a batch of up to four to call in one response) and record each outcome with its source.",
     "  5. Conclude at the strength the evidence licenses (tcm_applicability; research_inquiry conclude), and say which study would change the conclusion.",
     "- Report a safety signal as soon as it appears, with what would confirm or refute it; it does not wait for an inquiry to finish.",
     "- A source in the catalogue is not data here: tcmdb.catalog and tcmdb.status give each one's readiness (catalogued, live, supported, partial, downloaded, built) and the step that would move it on. When a source or an engine is missing, say exactly what is missing and that step, then go on with what is available.",
@@ -130,15 +130,20 @@ function environment(env, project) {
   const browser = env.browser?.status || "idle";
   const runner = env.runner?.status || "offline";
   const web = typeof project?.defaults?.web === "boolean" ? project.defaults.web : env.web !== false;
-  // the runner answers calls from a pool; the browser's Python worker takes one call at a time (runtime/browser.js)
-  const onRunner = runner === "ready" && [undefined, null, "", "auto", "runner"].includes(env.compute);
+  // the runner answers calls from a pool; the browser's Python worker takes one call at a time (runtime/browser.js);
+  // under "remote" (no backend) or a value this page does not know, the router runs nothing anywhere (core/router.js)
+  const auto = [undefined, null, "", "auto"].includes(env.compute);
+  const onRunner = runner === "ready" && (auto || env.compute === "runner");
+  const runsNowhere = !auto && !["runner", "browser"].includes(env.compute);
   const lines = [
     ENVIRONMENT_HEADING,
     `- Today: ${day}.`,
     `- Compute: browser runtime ${browser} (Python tools use WebAssembly CPU; compatible numerical tools can use WebGPU with CPU fallback)${runner === "ready" ? `; local runner connected${env.runner?.url ? ` at ${env.runner.url}` : ""}${env.runner?.version ? ` (tcmstudio ${env.runner.version})` : ""}` : "; local runner not connected (pipelines, native engines and process-based third-party tools require it; the research jobs can run in this browser)"}.`,
-    onRunner
-      ? "- Calls in one response run together on the local runner; any that run in this browser run one after another."
-      : "- Calls in this browser run one after another: the calls of one response wait for each other.",
+    runsNowhere
+      ? "- With this compute setting no tool runs, in this browser or elsewhere: each call comes back unavailable (the page itself answers catalog_search and capabilities_status)."
+      : onRunner
+        ? "- Calls in one response run together on the local runner; any that run in this browser run one after another."
+        : "- Calls in this browser run one after another: the calls of one response wait for each other.",
   ];
   if (env.jobs) {
     lines.push(env.jobs.status === "ready"

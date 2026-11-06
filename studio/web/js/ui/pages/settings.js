@@ -4,6 +4,7 @@
 // licences, downloads, verification and readiness. Compute's job list follows the runner's jobs live (ui/jobs.js).
 
 import { lang, setLang, t } from "../../core/i18n.js";
+import { idleMsOf, idleTimeout } from "../../core/llm/sse.js";
 import { activeProvider, localFix, newCustomProvider, PRESETS, testConnection } from "../../core/providers.js";
 import { clearKeys } from "../../core/settings.js";
 import { cssEscape, debounce, fill, formatDateTime, formatDuration, formatNumber, h } from "../dom.js";
@@ -191,6 +192,7 @@ function providerCard(app, p, { local = false, detected = null, rerender }) {
       h("label.field__label", { for: `${listId}-in` }, t("ui.models.model")),
       Object.assign(h("input.input.input--mono", { id: `${listId}-in`, list: listId, placeholder: p.default_model || t("ui.models.model_ph"), autocomplete: "off", spellcheck: "false", onInput: (e) => save({ models: { [p.id]: e.target.value.trim() } }) }), { value: s.models?.[p.id] || "" }),
       h("datalist", { id: listId }, models.map((m) => h("option", { value: m })))),
+    idleField({ id: p.id, ms: s.idleLimits?.[p.id], fallback: idleTimeout({ ...p, baseUrl: s.baseUrls?.[p.id] || p.base_url }), onInput: (ms) => save({ idleLimits: { [p.id]: ms } }) }),
     local ? h("p.provider-card__fix", icon("info", { size: 12 }), localFix(p)) : null,
     h("div.provider-card__actions",
       button({ label: t("ui.models.test"), size: "sm", icon: "zap", onClick: () => runTest(app, p.id, result) }),
@@ -205,6 +207,23 @@ function providerCard(app, p, { local = false, detected = null, rerender }) {
         isDefault ? chip({ label: t("ui.models.is_default"), tone: "navy" }) : null),
       content, className: "provider-card__disc",
     }));
+}
+
+/**
+ * How long a provider's model stream may send nothing before the call is cut and retried once, in seconds. Empty: the
+ * default for where it runs (the placeholder); 0: no limit. `onInput` gets ms, or null for the default.
+ */
+function idleField({ id, ms, fallback, onInput }) {
+  const own = idleMsOf(ms);
+  return textField({
+    label: t("ui.models.idle"), value: own === null ? "" : String(own / 1000), type: "number", inputmode: "decimal",
+    placeholder: String(Math.round(fallback / 1000)), help: t("ui.models.idle_help"), attrs: { "data-key": `field:${id}:idle`, min: "0" },
+    onInput: (v) => {
+      const n = Number(v);
+      if (!v.trim()) onInput(null);
+      else if (Number.isFinite(n) && n >= 0) onInput(Math.round(n * 1000));
+    },
+  });
 }
 
 function keyField(app, id) {
@@ -294,6 +313,7 @@ function customCard(app, c, i, rerender) {
         textField({ label: t("ui.models.model"), value: c.model || "", mono: true, onInput: (v) => update({ model: v.trim() }) }),
         keyField(app, c.id),
         selectField({ label: t("ui.models.max_tokens_param"), value: c.max_tokens_param || "max_tokens", options: [{ value: "max_tokens", label: "max_tokens" }, { value: "max_completion_tokens", label: "max_completion_tokens" }], onChange: (v) => update({ max_tokens_param: v }) }),
+        idleField({ id: c.id, ms: c.idleMs, fallback: idleTimeout({ baseUrl: c.base_url || "" }), onInput: (ms) => update({ idleMs: ms }) }),
         jsonField(t("ui.models.headers"), "headers"),
         jsonField(t("ui.models.extra_body"), "extra_body"),
         h("div.provider-card__actions",

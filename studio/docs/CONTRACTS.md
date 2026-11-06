@@ -730,7 +730,8 @@ Store.exportProject(projectId) → Blob (JSON);  Store.importProject(Blob) → p
 // core/providers.js
 export const PRESETS  // [{id, label, format:"openai"|"anthropic", base_url, models:[…], default_model, key_required,
                       //   local?:bool, relay?:bool, cors:"ok"|"blocked"|"needs-config", help?, max_tokens_param, reasoning}]
-export function activeProvider(settings, override?) → Provider   // {…preset, model, baseUrl, apiKey, route:"direct"|"runner"}
+export function activeProvider(settings, override?) → Provider   // {…preset, model, baseUrl, apiKey, route:"direct"|"runner",
+                                                                 //   idleMs?: settings.idleLimits[id] over the preset's}
 export async function relayHealth() → {ok, model, limits, max_output_tokens}
 export async function testConnection(provider) → {ok, latency_ms, tools:bool, error?}
 
@@ -742,12 +743,16 @@ export async function* streamChat({provider, system, messages, tools, signal, th
                                               // wire = assistant message to replay to this provider
   // throws ProviderError (core/llm/sse.js) {status, type, code, kind, retryable, permanent, compactable, maxRetries?}:
   //   permanent (no Retry): the relay's non-transient types; a user's own provider out of quota or credit
-  //     (insufficient_quota, billing and quota types, 402) or with an unknown key (invalid_api_key);
+  //     (insufficient_quota, billing and quota types, 402) or with an unknown key (invalid_api_key); for these the
+  //     page offers the model settings instead (isAccountError, which reads a turn record's error too);
   //   compactable, and permanent until the agent can shorten a conversation: context_length_exceeded, too_large,
   //     request_too_large, any 413, a 400 that says the prompt is too long;
   //   upstream_unknown: not retried by the agent, not permanent (the page keeps Retry); a 429 otherwise is retryable.
-  // A stream that sends nothing for idleTimeout(provider) — provider.idleMs, else 90 s (600 s for a model on the user's
-  // computer; 0: none) — is cancelled: ProviderError {kind:"network", type:"stream_stalled", retryable, maxRetries: 1}.
+  // A stream that sends nothing for idleTimeout(provider) — provider.idleMs (Settings → Models sets it for any provider;
+  // the OpenAI preset's is 300 s, as Chat Completions streams none of its models' reasoning; 0: none; at most 2^31 − 1
+  // ms), else 90 s, or 600 s for a server on the user's computer or on a private network address (10/8, 172.16/12,
+  // 192.168/16, 100.64/10, fc00::/7, a .local or dotless name) — is cancelled:
+  // ProviderError {kind:"network", type:"stream_stalled", retryable, maxRetries: 1}.
   // Any chunk resets the timer (reasoning, keep-alive comments); a stop still aborts during the silence.
   // anthropic.js puts cache_control breakpoints on the system prompt's stable prefix (splitSystemPrompt, §9) and on
   // the last tool, for Claude models only.
@@ -943,7 +948,10 @@ debounced during streaming.
   "lang": "zh", "theme": "system",                 // system | light | dark
   "provider": "tao",                               // preset id; "tao" = Tao-S1 relay
   "models": {}, "baseUrls": {}, "keys": {}, "rememberKeys": true,
-  "customProviders": [],                           // {id,label,format,base_url,model,headers,extra_body,max_tokens_param}
+  "idleLimits": {},                                // {providerId: ms}: how long a model stream may send nothing
+                                                   //   (0: no limit); absent: the default (§6 idleTimeout)
+  "customProviders": [],                           // {id,label,format,base_url,model,headers,extra_body,max_tokens_param,
+                                                   //   idleMs?}
   "route": "auto",                                 // auto | direct | runner (for model calls)
   "thinking": true, "temperature": null, "maxTokens": 8192, "maxSteps": 16,
   "compute": "auto",                               // auto | browser | runner | remote (no backend: every call
@@ -973,7 +981,8 @@ The language is also mirrored in `localStorage["tcmscience.lang"]`, matching the
 3. Tool guidance: prefer the core tools. Use `catalog_search` then `call_tool` for the rest. For a question that
    needs several sources, `research_routes` first; calls that do not depend on each other in one response (the
    environment says whether they run together). Long work → a job (`job_status`). Never fabricate tool output. If a
-   tool is unavailable, say what would be needed. What the browser's connectors can reach.
+   tool is unavailable, say what would be needed. Registered connectors run in the browser, and their online requests
+   use the site's bounded source gateway once the project's web access is on and the call is approved.
    Research questions: past the curated corpus, and a method: frame the question (exact entities, population,
    outcome, claim kind), gather every runnable source of each step of its route (a source that cannot run is
    covered and named, never switched silently), name rival explanations with an artefact among them, tell them
@@ -984,7 +993,8 @@ The language is also mirrored in `localStorage["tcmscience.lang"]`, matching the
 5. Project instructions, and the knowledge index (names, sizes, sha256; texts under 8 kB are inlined).
 6. Environment, last: the date, the compute available now (browser/runner, device, browser jobs), how calls run
    (together on a connected runner, unless compute is set to the browser; one after another in the browser, whose
-   Python worker takes one call at a time), and whether web access is on.
+   Python worker takes one call at a time; nowhere under `remote` or an unknown compute value), and whether web access
+   is on. Nothing before this part says how calls run.
 
 Parts 1–5 depend only on the language, the provider and the project, so they are byte-identical from call to call
 and from turn to turn: a stable prefix (about 94 % of the prompt) that providers can cache. `splitSystemPrompt`

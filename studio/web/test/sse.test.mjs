@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { streamChat as anthropicStream } from "../js/core/llm/anthropic.js";
 import { streamChat as openaiStream } from "../js/core/llm/openai.js";
-import { IDLE_MS, LOCAL_IDLE_MS, ProviderError, idleTimeout, readSSE, parseErrorBody, isRetryableStatus, retryAfterSeconds } from "../js/core/llm/sse.js";
+import { IDLE_MS, LOCAL_IDLE_MS, MAX_IDLE_MS, ProviderError, idleTimeout, isAccountError, readSSE, parseErrorBody, isRetryableStatus, retryAfterSeconds } from "../js/core/llm/sse.js";
 import { bytePieces, fakeFetch, streamResponse } from "./fixtures/fakes.mjs";
 
 async function collect(chunks) {
@@ -102,6 +102,24 @@ test("a user's own provider: quota, billing, key and 402 errors are permanent an
   }
   const billing = await errorOf(anthropicStream, claudeOwn(failWith(402, { type: "error", error: { type: "billing_error", message: "Your credit balance is too low" } })));
   assert.deepEqual([billing.permanent, billing.retryable], [true, false]);
+});
+
+test("an unknown key or an account out of credit points to the model settings, whatever the service calls it", async () => {
+  // Anthropic's 401 says "x-api-key", which no plain "API key" search finds; the turn record keeps status and type
+  const anthropic = await errorOf(anthropicStream, claudeOwn(failWith(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } })));
+  assert.equal(anthropic.permanent, true);
+  assert.equal(isAccountError(anthropic), true);
+  assert.equal(isAccountError({ message: anthropic.message, kind: "model", status: 401, type: anthropic.type, permanent: true }), true);
+  const quota = await errorOf(openaiStream, own(failWith(429, { error: { message: "You exceeded your current quota", type: "insufficient_quota", code: "insufficient_quota" } })));
+  assert.equal(isAccountError(quota), true);
+  const key = await errorOf(openaiStream, own(failWith(401, { error: { message: "Incorrect API key provided", type: "invalid_request_error", code: "invalid_api_key" } })));
+  assert.equal(isAccountError(key), true, "by its code");
+  assert.equal(isAccountError({ status: 402 }), true);
+  // not the user's account: a rate limit, the relay's own limits, a stall, a request too long
+  const rate = await errorOf(openaiStream, own(failWith(429, { error: { message: "Rate limit reached", type: "requests", code: "rate_limit_exceeded" } })));
+  for (const e of [rate, { status: 429, type: "daily_limit" }, { status: 502, type: "upstream_auth" }, { type: "stream_stalled" }, { status: 400, type: "context_length_exceeded" }, {}]) {
+    assert.equal(isAccountError(e), false, JSON.stringify({ status: e.status, type: e.type }));
+  }
 });
 
 test("a request too large for the service is compactable (and, until the agent can shorten it, permanent)", async () => {
@@ -233,4 +251,35 @@ test("idleTimeout: 90 s by default, the provider's own idleMs (0: none), longer 
   assert.equal(idleTimeout({ local: true, baseUrl: "http://127.0.0.1:11434/v1" }), LOCAL_IDLE_MS);
   assert.equal(idleTimeout({ baseUrl: "http://localhost:8080/v1" }), LOCAL_IDLE_MS);
   assert.equal(idleTimeout({ local: true, idleMs: 120_000 }), 120_000);
+});
+
+test("idleTimeout: a model server elsewhere on the user's network gets the local default too", () => {
+  for (const url of ["http://192.168.1.20:8080/v1", "http://10.0.0.5:11434/v1", "http://172.20.1.1:8000/v1", "http://100.101.2.3:8000/v1", "http://[fd12:3456::1]:8080/v1", "http://gpubox:8080/v1", "http://studio.local:1234/v1"]) {
+    assert.equal(idleTimeout({ baseUrl: url }), LOCAL_IDLE_MS, url);
+  }
+  for (const url of ["https://generativelanguage.googleapis.com/v1beta/openai", "http://172.32.0.1/v1", "http://8.8.8.8/v1", "http://[2001:db8::1]/v1"]) {
+    assert.equal(idleTimeout({ baseUrl: url }), IDLE_MS, url);
+  }
+});
+
+test("idleTimeout: what a user sets is read as ms, at most setTimeout's ceiling; anything else sets no limit", () => {
+  assert.equal(MAX_IDLE_MS, 2 ** 31 - 1);
+  assert.equal(idleTimeout({ idleMs: 3e9 }), MAX_IDLE_MS, "a longer delay would fire at once");
+  assert.equal(idleTimeout({ idleMs: "120000" }), 120_000);
+  assert.equal(idleTimeout({ idleMs: 1500.4 }), 1500);
+  for (const bad of [-1, "abc", " ", null, true, [], {}, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(idleTimeout({ baseUrl: "https://api.deepseek.com/v1", idleMs: bad }), IDLE_MS, String(bad));
+  }
+});
+
+test("idle timer: a limit past setTimeout's ceiling does not cut the stream at once (real clock)", async () => {
+  const ctl = new AbortController();
+  const { body } = stallingBody([{ text: "data: 1\n\n" }]);
+  let settled = null;
+  consume(body, { signal: ctl.signal, idleMs: 3e9 }, []).then((r) => { settled = r; });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(settled, null, String(settled?.type || settled));
+  ctl.abort();
+  await flush(4);
+  assert.equal(settled?.name, "AbortError");
 });

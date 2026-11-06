@@ -20,6 +20,7 @@ export const DEFAULTS = Object.freeze({
   models: {},
   baseUrls: {},
   keys: {},
+  idleLimits: {},
   rememberKeys: true,
   customProviders: [],
   route: "auto",
@@ -88,7 +89,7 @@ export function saveSettings(next) {
 export function updateSettings(patch) {
   const cur = loadSettings();
   const next = { ...cur, ...patch };
-  for (const k of ["models", "baseUrls", "keys", "runner"]) {
+  for (const k of ["models", "baseUrls", "keys", "idleLimits", "runner"]) {
     if (patch && patch[k] && typeof patch[k] === "object" && !Array.isArray(patch[k])) next[k] = { ...cur[k], ...patch[k] };
   }
   return saveSettings(next);
@@ -118,7 +119,9 @@ function normalize(raw) {
   const s = { ...clone(DEFAULTS), ...clone(src) };
   for (const [k, allowed] of Object.entries(ENUMS)) if (!allowed.includes(s[k])) s[k] = DEFAULTS[k];
   s.compute = computeOf(s.compute);
-  for (const k of ["models", "baseUrls", "keys"]) if (!s[k] || typeof s[k] !== "object" || Array.isArray(s[k])) s[k] = {};
+  for (const k of ["models", "baseUrls", "keys", "idleLimits"]) if (!s[k] || typeof s[k] !== "object" || Array.isArray(s[k])) s[k] = {};
+  // an idle limit is ms, 0 or more; a cleared one (null) or anything else sets none
+  s.idleLimits = Object.fromEntries(Object.entries(s.idleLimits).filter(([, v]) => typeof v === "number" && Number.isFinite(v) && v >= 0));
   if (!Array.isArray(s.customProviders)) s.customProviders = [];
   s.runner = { ...DEFAULTS.runner, ...(s.runner && typeof s.runner === "object" ? s.runner : {}) };
   s.runner.url = String(s.runner.url || DEFAULTS.runner.url);

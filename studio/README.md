@@ -134,6 +134,10 @@ tcmstudio serve
 在「设置 → 模型」中填写地址和模型名，按「测试连接」检查工具调用是否可用。浏览器直接调用本地服务需要它允许
 `https://science.impf.ai` 跨域；连接了本机 Runner 时，本地模型的调用自动经 Runner 转发，不需要跨域设置。
 
+模型连续一段时间没有发来任何内容（思考过程也算内容）时，这次调用会被断开并重试一次。这个时限默认 90 秒；本机或局域网地址上的
+模型服务（如 `192.168.x.x`、`10.x.x.x`、`.local`）默认 600 秒，因为 CPU 读长提示时可能几分钟没有输出；OpenAI 默认 300 秒，
+因为它的模型思考时不发送任何内容。每个服务和每个自定义接口都可以在「设置 → 模型」的「无输出时限（秒）」里改，0 表示不限。
+
 | 服务 | 地址 | 直接调用需要 | 工具调用 |
 |---|---|---|---|
 | Ollama | `http://127.0.0.1:11434/v1` | `OLLAMA_ORIGINS=https://science.impf.ai ollama serve`（macOS 应用：`launchctl setenv OLLAMA_ORIGINS https://science.impf.ai` 后重启） | 选支持工具的模型，如 qwen3 |

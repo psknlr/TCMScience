@@ -80,14 +80,23 @@ test("a stable prefix: prompts that differ only in the environment are identical
 test("parallel calls: said to run together only when a runner takes them; in the browser they run one after another", () => {
   const together = /Calls in one response run together on the local runner; any that run in this browser run one after another\./;
   const oneByOne = /Calls in this browser run one after another: the calls of one response wait for each other\./;
+  const nowhere = /With this compute setting no tool runs, in this browser or elsewhere: each call comes back unavailable/;
   const env = (runner, compute) => ({ date: "2026-11-06", runner: { status: runner }, ...(compute ? { compute } : {}) });
+  const cases = [
+    [env("ready"), together], [env("ready", "auto"), together], [env("ready", "runner"), together], [env("offline"), oneByOne],
+    [env("ready", "browser"), oneByOne], [env("connecting"), oneByOne],
+    // "remote" has no backend and a value this page does not know is not run as auto: the router runs nothing
+    [env("ready", "remote"), nowhere], [env("offline", "remote"), nowhere], [env("ready", "gpu-cluster"), nowhere],
+  ];
   for (const lang of ["zh", "en"]) {
-    for (const [e, expected] of [[env("ready"), together], [env("ready", "auto"), together], [env("ready", "runner"), together], [env("offline"), oneByOne], [env("ready", "browser"), oneByOne], [env("connecting"), oneByOne]]) {
+    for (const [e, expected] of cases) {
       const p = buildSystemPrompt({ lang, provider: relay, env: e });
       const [prefix, environment] = splitSystemPrompt(p);
       assert.match(environment, expected, `${lang} ${JSON.stringify(e)}`);
-      assert.doesNotMatch(environment, expected === together ? oneByOne : together);
-      assert.doesNotMatch(prefix, /: they run together|run together on|run one after another/, "the stable part makes no claim either way");
+      for (const other of [together, oneByOne, nowhere].filter((x) => x !== expected)) assert.doesNotMatch(environment, other, `${lang} ${JSON.stringify(e)}`);
+      // the stable part says only that independent calls share a response, and that the Environment section says
+      // whether they run together; never how they run
+      assert.doesNotMatch(prefix, /(?<!whether they )run together|run one after another|run in parallel|concurrently|at the same time|simultaneous/i, "the stable part makes no claim either way");
     }
   }
 });

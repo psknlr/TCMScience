@@ -220,7 +220,9 @@ test("prompt caching: breakpoints on the system prompt's stable prefix and on th
   assert.deepEqual(cachedSystem("SYS"), [{ type: "text", text: "SYS", cache_control: { type: "ephemeral" } }], "a prompt without the section is one cached block");
 });
 
-test("usage: the tokens read from and written to the prompt cache (a second call's recorded stream reads them)", async () => {
+// fixtures/anthropic_cache_second_call.sse is written by hand in the shape of Anthropic's streaming reference (no paid
+// call is made in tests): a second call whose system prefix is already cached, ending without a final blank line
+test("usage: the tokens read from and written to the prompt cache (a second call's stream reads them)", async () => {
   const second = readFileSync(new URL("./fixtures/anthropic_cache_second_call.sse", import.meta.url), "utf8");
   const f = fakeFetch(() => streamResponse(bytePieces(second, 97)));
   const out = [];

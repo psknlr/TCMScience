@@ -101,6 +101,27 @@ export function isLoopbackUrl(url) {
   try { return isLoopbackHost(new URL(url).hostname); } catch { return false; }
 }
 
+/**
+ * A host on a private network rather than the internet: a private, shared (100.64/10, as Tailscale uses) or link-local
+ * IPv4 address, a unique-local or link-local IPv6 one, a name under .local, .lan, .internal or .home.arpa, or a name
+ * without a dot. Where a self-hosted model server on another machine of the user's lives.
+ */
+export function isPrivateNetworkHost(host) {
+  const h = String(host || "").toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (!h) return false;
+  const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+  }
+  if (h.includes(":")) return /^f[cd][0-9a-f]{0,2}:/.test(h) || /^fe[89ab][0-9a-f]?:/.test(h);
+  return !h.includes(".") || /\.(?:local|lan|internal|home\.arpa)$/.test(h);
+}
+
+export function isPrivateNetworkUrl(url) {
+  try { return isPrivateNetworkHost(new URL(url).hostname); } catch { return false; }
+}
+
 export function trimSlash(url) {
   return String(url || "").trim().replace(/\/+$/, "");
 }

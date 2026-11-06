@@ -1,18 +1,34 @@
 // Server-sent events over a fetch body, and the error type both model clients throw.
 
 import { t } from "../i18n.js";
-import { abortError, isLoopbackUrl } from "../util.js";
+import { abortError, isLoopbackUrl, isPrivateNetworkUrl } from "../util.js";
 
 /** How long a model stream may send nothing at all before it counts as stalled. */
 export const IDLE_MS = 90_000;
-/** A model on the user's own computer can be silent for minutes while it reads a long prompt on a CPU. */
+/**
+ * A model server on the user's own computer, or on another machine of their network, can be silent for minutes while
+ * it reads a long prompt on a CPU.
+ */
 export const LOCAL_IDLE_MS = 600_000;
+/** The longest limit a timer keeps (2^31 − 1 ms, about 24.8 days): setTimeout fires a longer delay at once. */
+export const MAX_IDLE_MS = 2 ** 31 - 1;
 
-/** The idle limit for a provider's streams, in ms: its own `idleMs` (0: none), else the default for where it runs. */
+/**
+ * The idle limit for a provider's streams, in ms: its own `idleMs` (a preset's, a custom endpoint's or the one set in
+ * Settings; 0: none), else the default for where it runs.
+ */
 export function idleTimeout(provider = {}) {
-  const own = provider.idleMs;
-  if (own !== undefined && own !== null && own !== "" && Number.isFinite(Number(own)) && Number(own) >= 0) return Number(own);
-  return provider.local || isLoopbackUrl(provider.baseUrl || "") ? LOCAL_IDLE_MS : IDLE_MS;
+  const own = idleMsOf(provider.idleMs);
+  if (own !== null) return own;
+  const url = provider.baseUrl || "";
+  return provider.local || isLoopbackUrl(url) || isPrivateNetworkUrl(url) ? LOCAL_IDLE_MS : IDLE_MS;
+}
+
+/** An idle limit as given (a number or numeric text, in ms) → whole ms at most MAX_IDLE_MS, or null when it sets none. */
+export function idleMsOf(v) {
+  if (typeof v === "string" ? !v.trim() : typeof v !== "number") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.min(Math.round(n), MAX_IDLE_MS) : null;
 }
 
 /**
@@ -63,7 +79,7 @@ export async function* readSSE(body, { signal, idleMs = 0 } = {}) {
     let timer = null;
     const onAbort = () => { cleanup(); reject(abortError()); };
     const cleanup = () => { if (timer !== null) clearTimeout(timer); signal?.removeEventListener?.("abort", onAbort); };
-    if (idleMs > 0) timer = setTimeout(() => { cleanup(); reject(stalled(idleMs)); }, idleMs);
+    if (idleMs > 0) timer = setTimeout(() => { cleanup(); reject(stalled(idleMs)); }, Math.min(idleMs, MAX_IDLE_MS));
     signal?.addEventListener?.("abort", onAbort, { once: true });
     reader.read().then((r) => { cleanup(); resolve(r); }, (err) => { cleanup(); reject(err); });
   });
@@ -163,6 +179,14 @@ export function isPermanentType(type) {
 /** A retry cannot fix it: a permanent type or code, or 402 (payment required). */
 export function isPermanent(status, type = "", code = "") {
   return status === 402 || isPermanentType(type) || isPermanentType(code);
+}
+
+/**
+ * The user's own account cannot make the call: an unknown key, or no credit or quota left (a 402). A retry fails the
+ * same way; Settings → Models is where it is fixed. Takes a ProviderError or the error a turn record keeps.
+ */
+export function isAccountError({ status = 0, type = "", code = "" } = {}) {
+  return status === 402 || ACCOUNT_TYPES.has(String(type || "")) || ACCOUNT_TYPES.has(String(code || ""));
 }
 
 /** Would a shorter conversation get through? An oversize type or code, a 413, or a 400 that says so in its words. */
