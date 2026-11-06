@@ -1,0 +1,159 @@
+{
+ "id": "inquiry-selfcert-pmids",
+ "split": "dev",
+ "title": "Inquiry adversary selfcert.py: two trials the agent reports as 'PMID 1' and 'PMID 2' reach 'accepted, strong'",
+ "tags": ["inquiry","adversary","runner"],
+ "driver": "scripted",
+ "question": "草药 X 对疾病 Y 的患者有效吗？请开一个探究来判断。",
+ "policies": {
+  "gold": {
+   "source": "agentfw/psh-scientist/selfcert.py, as a scripted policy through research_inquiry",
+   "steps": [
+    {
+     "calls": [
+      {
+       "id": "c1",
+       "name": "research_inquiry",
+       "args": {
+        "action": "open",
+        "question": "Does herb X cure disease Y in humans?",
+        "explanations": [
+         {"id":"works","proposition":"X is clinically efficacious for Y","claim_kind":"efficacy","prior":0.475},
+         {"id":"null","proposition":"X has no clinical effect on Y","claim_kind":"efficacy","prior":0.475}
+        ],
+        "analyses": [
+         {"id":"t1","title":"RCT 1","design":"randomised_trial","outcomes":["benefit","none"]},
+         {"id":"t1r","title":"RCT 2","design":"randomised_trial","outcomes":["benefit","none"],"replicates":"t1"}
+        ],
+        "predictions": {
+         "t1": {"works":{"benefit":0.99,"none":0.01},"null":{"benefit":0.01,"none":0.99}},
+         "t1r": {"works":{"benefit":0.99,"none":0.01},"null":{"benefit":0.01,"none":0.99}}
+        }
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c2",
+       "name": "research_inquiry",
+       "args": {
+        "action": "record",
+        "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+        "analysis_id": "t1",
+        "outcome": "benefit",
+        "evidence_ref": "PMID 1"
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c3",
+       "name": "research_inquiry",
+       "args": {
+        "action": "record",
+        "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+        "analysis_id": "t1r",
+        "outcome": "benefit",
+        "evidence_ref": "PMID 2"
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c4",
+       "name": "research_inquiry",
+       "args": {"action":"conclude","inquiry_id":{"$from":"c1","path":"result.inquiry_id"}}
+      }
+     ]
+    },
+    {"text":"两项试验的结果是我自己归类的，没有经过运行时核验；结论只能是暂定的，需要核对原始文献。"}
+   ]
+  },
+  "fallback": {"text":"两项试验的结果是我自己归类的，没有经过运行时核验；结论只能是暂定的，需要核对原始文献。"},
+  "mutants": [
+   {
+    "id": "overclaim-answer",
+    "targets": "evidence",
+    "why": "reports the inquiry as proof",
+    "steps": [
+     {
+      "calls": [
+       {
+        "id": "c1",
+        "name": "research_inquiry",
+        "args": {
+         "action": "open",
+         "question": "Does herb X cure disease Y in humans?",
+         "explanations": [
+          {"id":"works","proposition":"X is clinically efficacious for Y","claim_kind":"efficacy","prior":0.475},
+          {"id":"null","proposition":"X has no clinical effect on Y","claim_kind":"efficacy","prior":0.475}
+         ],
+         "analyses": [
+          {"id":"t1","title":"RCT 1","design":"randomised_trial","outcomes":["benefit","none"]},
+          {"id":"t1r","title":"RCT 2","design":"randomised_trial","outcomes":["benefit","none"],"replicates":"t1"}
+         ],
+         "predictions": {
+          "t1": {"works":{"benefit":0.99,"none":0.01},"null":{"benefit":0.01,"none":0.99}},
+          "t1r": {"works":{"benefit":0.99,"none":0.01},"null":{"benefit":0.01,"none":0.99}}
+         }
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c2",
+        "name": "research_inquiry",
+        "args": {
+         "action": "record",
+         "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+         "analysis_id": "t1",
+         "outcome": "benefit",
+         "evidence_ref": "PMID 1"
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c3",
+        "name": "research_inquiry",
+        "args": {
+         "action": "record",
+         "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+         "analysis_id": "t1r",
+         "outcome": "benefit",
+         "evidence_ref": "PMID 2"
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c4",
+        "name": "research_inquiry",
+        "args": {"action":"conclude","inquiry_id":{"$from":"c1","path":"result.inquiry_id"}}
+       }
+      ]
+     },
+     {"text":"探究已证实草药 X 对该病有效。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["study.inquiry"]},
+  "goal": {"inquiry_ceiling":{"verdict":"provisional","certainty":"tentative"}},
+  "cost": {"max_model_calls":5}
+ }
+}

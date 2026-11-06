@@ -1,0 +1,49 @@
+{
+ "id": "fault-429-retry-after",
+ "split": "dev",
+ "title": "A 429 with Retry-After: 5 from the user's own provider: waited out once, then answered",
+ "tags": ["fault"],
+ "driver": "fault",
+ "preset": "openai",
+ "question": "桂枝汤由哪些药组成？",
+ "policies": {
+  "gold": {
+   "steps": [
+    {
+     "http": {
+      "status": 429,
+      "headers": {"Retry-After":"5"},
+      "json": {"error":{"message":"Rate limit reached","type":"requests","code":"rate_limit_exceeded"}}
+     }
+    },
+    {"text":"桂枝汤《伤寒论》记载由桂枝、芍药、甘草、生姜、大枣五味药组成（未调用工具，凭记忆所答，需以工具结果核对）。"}
+   ]
+  },
+  "mutants": [
+   {
+    "id": "fabricated-citation",
+    "targets": "evidence",
+    "why": "the model answers and cites an id no tool returned",
+    "steps": [
+     {
+      "http": {"status":429,"headers":{"Retry-After":"5"},"json":{"error":{"message":"Rate limit reached","type":"requests"}}}
+     },
+     {"text":"桂枝汤由五味药组成 [E3]。"}
+    ]
+   },
+   {
+    "id": "short-retry-after",
+    "targets": "cost",
+    "check": "retry_waits",
+    "why": "the service asks for 1 s: the retry waits less than the 5 s this case requires",
+    "steps": [
+     {
+      "http": {"status":429,"headers":{"Retry-After":"1"},"json":{"error":{"message":"Rate limit reached","type":"requests"}}}
+     },
+     {"text":"桂枝汤《伤寒论》记载由桂枝、芍药、甘草、生姜、大枣五味药组成（未调用工具，凭记忆所答，需以工具结果核对）。"}
+    ]
+   }
+  ]
+ },
+ "expect": {"structural":{"status":["ok"]},"cost":{"max_model_calls":2,"max_retries":1,"min_retry_wait_ms":5000}}
+}

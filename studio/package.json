@@ -11,7 +11,9 @@
   "scripts": {
     "test": "node --test web/test/*.test.mjs web/test/runtime/*.test.mjs web/test/scientific/*.test.mjs web/dev/test/*.test.mjs",
     "test:e2e": "playwright test -c e2e/playwright.config.mjs",
-    "test:runtime": "node web/test/runtime/run.mjs"
+    "test:runtime": "node web/test/runtime/run.mjs",
+    "test:eval": "node --test eval/test/*.test.mjs",
+    "eval:agent": "node eval/run.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

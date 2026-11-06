@@ -237,6 +237,7 @@ tcmstudio serve
 node --test studio/edge/test/*.test.js                       # Worker：中继、限额、静态文件头
 python3 -m pytest -q studio/runner/tests                     # tcmstudio：目录、分发、Runner HTTP API、任务、网页构建
 cd studio && npm install && npm test                         # 网页核心、界面、浏览器运行时（脚本化的 Worker）
+cd studio && npm run test:eval && npm run eval:agent         # 智能体评测：真实的智能体循环、路由与 Runner，脚本化模型，不调用付费模型（eval/README.md）
 
 # 构建网页（studio/_site，已被 git 忽略）
 python3 studio/scripts/build_web.py --out studio/_site
@@ -422,6 +423,9 @@ twenty envelopes from real Pyodide with native CPython; it is run by hand, not i
 refusals of an identifier) the same way, in CI (passed in `studio` #120, 2026-10-28, with the 1,167 calls before the
 egress gate); a difference
 passes only where it is declared by entry and field, with its reason ([docs/BROWSER_COMPUTE.md §10](docs/BROWSER_COMPUTE.md#10-validation)).
+The agent eval (`cd studio && npm run test:eval && npm run eval:agent`, in CI after `npm test`) runs every dev case through the
+real agent loop, router and runner with a scripted model, a fault server, the relay in front of a scripted upstream or a
+recorded cassette, never a paid model, and fails on a regression against its baseline ([eval/README.md](eval/README.md)).
 Deployment: [edge/SETUP.md](edge/SETUP.md).
 
 Browser database access: [docs/BROWSER_ACCESS.md](docs/BROWSER_ACCESS.md), and each connector operation by verification level:

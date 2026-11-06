@@ -64,12 +64,16 @@ outcome it gave probability zero is tested by that analysis, and the refutation 
 replicated like any other test, against the prediction the rival seals for the replicate
 (which is why a replicate needs one from every explanation that predicted its original). A
 test counts as replicated when more of its replicates favour the leader than do not, and
-every replication that did not is in the conclusion.
+every replication that did not is in the conclusion. Whoever classifies outcomes can be
+told apart: an inquiry given a ``decisive`` predicate counts only the observations it
+accepts as severe tests and upholding replications. The others move belief like any
+observation, and a leader resting on them concludes provisional.
 
 **5. The posterior is not a licence.** How strongly a conclusion may be stated is capped by
 the designs of the observations that bore on it (``MAX_CERTAINTY``) and by the claim kind
 those designs can reach (``LICENSING``). Ten in-silico analyses at a posterior of 0.99
-license a tentative mechanism hypothesis, which is what one of them licenses.
+license a tentative mechanism hypothesis, which is what one of them licenses. An artefact,
+a finding about the analysis rather than the world, is capped by the same designs.
 
 Two readings sit beside the rules. ``batch`` chooses analyses to run together, valued by
 the information they carry jointly (``joint_gain``), so that two analyses that would tell
@@ -564,7 +568,8 @@ class Conclusion:
     def describe(self) -> str:
         if not self.leader:
             return f"{self.verdict.value}: {self.reason}"
-        kind = self.claim_kind.value if self.claim_kind else "a finding about the analysis"
+        kind = (self.claim_kind.value if self.claim_kind
+                else "a finding about the analysis, not about the world")
         licence = f", licensed {self.licensing.value}" if self.licensing else ""
         return (f"{self.verdict.value}: {self.leader} ({self.proposition}) at "
                 f"p={self.leader_posterior:.3f}; {kind}{licence}; stated at most "
@@ -606,11 +611,17 @@ class _Standing:
 
 # ------------------------------------------------------------------- the engine
 class Inquiry:
-    """One question, its competing explanations, and the analyses that could decide it."""
+    """One question, its competing explanations, and the analyses that could decide it.
+
+    ``decisive`` says which observations may decide acceptance (``conclude``); by default
+    every one may. It is not part of the trail and only ``conclude`` asks it, so the
+    advice, the plans and the trail are the same whichever predicate an inquiry is given.
+    """
 
     def __init__(self, question: str, explanations: Sequence[Explanation],
                  analyses: Sequence[Analysis] = (), rule: StoppingRule | None = None, *,
-                 recorder: InquiryRecorder | None = None, inquiry_id: str = "") -> None:
+                 recorder: InquiryRecorder | None = None, inquiry_id: str = "",
+                 decisive: Callable[[Update], bool] | None = None) -> None:
         if not _text(question):
             raise InquiryRefused("INQ103", "the inquiry states no question")
         rule = rule or StoppingRule()
@@ -638,6 +649,7 @@ class Inquiry:
         self.inquiry_id = inquiry_id or new_id("inq")
         self.rule = rule
         self._recorder = recorder
+        self._decisive = decisive
         catch_all = Explanation(CATCH_ALL, "none of the named explanations",
                                 role=Role.CATCH_ALL)
         self._explanations: dict[str, Explanation] = {e.id: e for e in named}
@@ -1014,10 +1026,17 @@ class Inquiry:
         return (self._favours(leader, rival, analysis_id, outcome)
                 or (rival in rows and rows[rival][outcome] == 0.0))
 
-    def _standing(self) -> _Standing | None:
+    def _standing(self, decisive: Callable[[Update], bool] | None = None
+                  ) -> _Standing | None:
+        """The leader's tests and replications against each rival. ``decisive``, which only
+        ``conclude`` passes, limits the tests, and the replications that uphold one, to the
+        observations it counts; a replication that went the other way counts against its
+        test whoever classified it, so an outcome that cannot decide acceptance can still
+        withhold it."""
         leader = self.leader
         if not leader:
             return None
+        counts = decisive or (lambda update: True)
         # A refuted explanation stays a rival: the outcome that refuted it is a test the
         # acceptance rests on, and it is replicated like any other. Dropping it would let
         # one outcome a rival called impossible end the inquiry unreplicated.
@@ -1028,9 +1047,9 @@ class Inquiry:
                              rivals=tuple(rivals))
         for rival in rivals:
             passed = [a for a, update in self._observed.items()
-                      if rival in update.refuted or (
+                      if counts(update) and (rival in update.refuted or (
                           self.severe(leader, rival, a)
-                          and self._favours(leader, rival, a, update.outcome))]
+                          and self._favours(leader, rival, a, update.outcome)))]
             standing.tested[rival] = passed
             if not passed:
                 standing.untested.append(rival)
@@ -1039,6 +1058,7 @@ class Inquiry:
             held = [a for a in repeats if self._upholds(leader, rival, a)]
             standing.failed[rival] = [a for a in repeats if a not in held
                                       and self._pair(leader, rival, a) is not None]
+            held = [a for a in held if counts(self._observed[a])]
             # A test is replicated when more of its replicates uphold it than do not, so
             # running replicates until one agrees does not replicate it.
             margin = {t: 0 for t in passed}
@@ -1329,7 +1349,13 @@ class Inquiry:
 
     # -------------------------------------------------------------- conclusion
     def conclude(self) -> Conclusion:
-        """The verdict the stopping rule supports now, and what it licenses."""
+        """The verdict the stopping rule supports now, and what it licenses.
+
+        Only the observations the ``decisive`` predicate counts supply the severe tests and
+        the upholding replications acceptance rests on. The others moved belief like any
+        observation, and the limitations name them. The advice (``next_step``) counts every
+        observation, so a trail replays the advice it recorded whatever the predicate.
+        """
         rule = self.rule
         step = self.next_step()
         final = step.action != "run"
@@ -1342,12 +1368,19 @@ class Inquiry:
         if catch_all > 0.0:
             limitations.append(f"the catch-all keeps {catch_all:.3f}: an explanation "
                                "nobody named is not ruled out")
+        aside = [] if self._decisive is None else [
+            a for a, update in self._observed.items() if not self._decisive(update)]
+        if aside:
+            limitations.append("outcomes that cannot decide acceptance moved belief but "
+                               f"supply no severe test or replication: {', '.join(aside)}")
         needs: dict[str, tuple[str, ...]] = {}
         if standing is None:
             return self._conclusion(Verdict.NEEDS_HYPOTHESES, None, belief, (), {}, {},
                                     (), (), needs, final,
                                     "every named explanation has been refuted",
                                     limitations)
+        # The advice's standing counts every observation; the verdict's only the decisive.
+        decided = (self._standing(self._decisive) if aside else None) or standing
         leader = self._explanations[standing.leader]
         designs = self._bearing_designs(leader.id)
         licensing: Licensing | None = None
@@ -1356,38 +1389,49 @@ class Inquiry:
             licensing = (Licensing.UNLICENSED if not designs
                          else Licensing.EXTRAPOLATED if Licensing.EXTRAPOLATED in grades
                          else Licensing.DIRECT)
-        for rival in standing.untested:
+        for rival in decided.untested:
             explanation = self._explanations[rival]
             if explanation.role is Role.SUBSTANTIVE and not any(
                     self.bears_on(rival, a) for a in self._analyses):
                 needs[rival] = tuple(sorted(
                     d.value for d, g in LICENSING.get(explanation.claim_kind, {}).items()
                     if g is Licensing.DIRECT))
+        # The rule the advice holds met, with tests or replications the verdict cannot count.
+        held_back = (standing.posterior >= rule.accept_at and not standing.untested
+                     and not (rule.require_replication and standing.unreplicated)
+                     and (bool(decided.untested) or (rule.require_replication
+                                                      and bool(decided.unreplicated))))
         reasons: list[str] = []
         if catch_all >= rule.catch_all_alarm:
             verdict = Verdict.NEEDS_HYPOTHESES
             reasons.append(f"the catch-all holds {catch_all:.3f}, at or above the alarm "
                            f"{rule.catch_all_alarm}")
-        elif standing.posterior >= rule.accept_at:
-            if standing.untested:
+        elif decided.posterior >= rule.accept_at:
+            if decided.untested:
                 reasons.append("not severely tested against "
-                               + ", ".join(standing.untested))
-            if rule.require_replication and standing.unreplicated:
-                reasons.append("the tests against " + ", ".join(standing.unreplicated)
+                               + ", ".join(decided.untested))
+            if rule.require_replication and decided.unreplicated:
+                reasons.append("the tests against " + ", ".join(decided.unreplicated)
                                + " were not replicated")
-                failed = [a for r in standing.unreplicated for a in standing.failed[r]]
+                failed = [a for r in decided.unreplicated for a in decided.failed[r]]
                 if failed:
                     reasons.append("replications that did not favour it: "
                                    + ", ".join(dict.fromkeys(failed)))
+            uncounted = [a for a in aside if any(
+                a in standing.tested.get(r, ()) or a in standing.replicated.get(r, ())
+                for r in standing.rivals)]
+            if uncounted and (decided.untested or decided.unreplicated):
+                reasons.append(f"the tests by {', '.join(uncounted)} cannot decide "
+                               "acceptance")
             if licensing is Licensing.UNLICENSED:
                 reasons.append("no observation bore on it; its standing is its prior")
             verdict = Verdict.PROVISIONAL if reasons else Verdict.ACCEPTED
             if verdict is Verdict.ACCEPTED:
                 # What was checked: a refuted rival was ruled out by an outcome, not by a
                 # severe test it could still have passed.
-                refuted = [r for r in standing.rivals if belief[r] <= 0.0]
+                refuted = [r for r in decided.rivals if belief[r] <= 0.0]
                 checked = (["severely tested against every live rival"]
-                           if len(refuted) < len(standing.rivals) else [])
+                           if len(refuted) < len(decided.rivals) else [])
                 if refuted:
                     checked.append(", ".join(refuted) + " ruled out by "
                                    + ("an outcome it" if len(refuted) == 1
@@ -1399,13 +1443,16 @@ class Inquiry:
                     else checked[0]))
         else:
             verdict = Verdict.UNDETERMINED
-            reasons.append(f"the leader holds {standing.posterior:.3f}, below "
+            reasons.append(f"the leader holds {decided.posterior:.3f}, below "
                            f"{rule.accept_at}")
         if not final:
             reasons.append(f"stopped before the stopping rule was met; the engine's next "
                            f"step was to run {step.analysis_id}")
-        elif step.reason and verdict in (Verdict.PROVISIONAL, Verdict.UNDETERMINED):
+        elif (step.reason and verdict in (Verdict.PROVISIONAL, Verdict.UNDETERMINED)
+              and not held_back):
+            # (held back, the advice's reason would be that the stopping rule is met)
             reasons.append(step.reason)
+        # every replication that went the other way, whoever classified it
         for rival, failed in standing.failed.items():
             if failed:
                 limitations.append(f"replications that did not favour {leader.id} over "
@@ -1421,8 +1468,8 @@ class Inquiry:
         for analysis_id, why in self._withdrawn.items():
             limitations.append(f"{analysis_id} could not be run: {why}")
         return self._conclusion(
-            verdict, leader, belief, designs, standing.tested, standing.replicated,
-            tuple(standing.untested), tuple(standing.unreplicated), needs, final,
+            verdict, leader, belief, designs, decided.tested, decided.replicated,
+            tuple(decided.untested), tuple(decided.unreplicated), needs, final,
             "; ".join(reasons), limitations, licensing, standing.failed)
 
     def _bearing_designs(self, explanation_id: str) -> tuple[StudyDesign, ...]:
@@ -1449,7 +1496,9 @@ class Inquiry:
                     failed: Mapping[str, Sequence[str]] | None = None) -> Conclusion:
         p = belief[leader.id] if leader is not None else 0.0
         certainty = _from_posterior(p, self.rule.accept_at)
-        if leader is not None and leader.role is Role.SUBSTANTIVE:
+        # An artefact is capped as a claim is: a finding about an analysis is no surer than
+        # the designs of the analyses it rests on.
+        if leader is not None and leader.role in (Role.SUBSTANTIVE, Role.ARTEFACT):
             if not designs:
                 certainty = Certainty.UNCERTAIN
             else:
@@ -1483,11 +1532,13 @@ class Inquiry:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any], *,
-                  recorder: InquiryRecorder | None = None) -> "Inquiry":
+                  recorder: InquiryRecorder | None = None,
+                  decisive: Callable[[Update], bool] | None = None) -> "Inquiry":
         """Replay a trail, refusing it if any entry or the final belief does not recompute.
 
         A trail saved without ``engine`` was begun under version 1 of the rules; it keeps
         that version for good, so its advice is replayed as recorded (``ENGINE``).
+        ``decisive`` is the loaded inquiry's (``Inquiry``): the replay never asks it.
         """
         if not isinstance(data, Mapping) or not isinstance(data.get("trail"), (list, tuple)):
             raise InquiryRefused("INQ150", "not an inquiry trail")
@@ -1534,6 +1585,7 @@ class Inquiry:
         if data.get("head") not in (None, "", inquiry.head):
             raise InquiryRefused("INQ150", "the recorded head is not the trail's head")
         inquiry._recorder = recorder
+        inquiry._decisive = decisive
         return inquiry
 
     def _replay(self, event: Any, body: Any) -> None:

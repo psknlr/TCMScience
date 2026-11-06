@@ -1,0 +1,171 @@
+{
+ "id": "inquiry-role-omitted-artefact",
+ "split": "dev",
+ "title": "Inquiry adversary role.py: claim_kind omitted, two docking runs reported by the agent reach 'accepted, strong'; the open is refused (INQ103), and the turn ends without a verdict (inquiry-role-artefact-explicit has the remedy)",
+ "tags": ["inquiry","adversary","runner"],
+ "driver": "scripted",
+ "question": "草药 X 能治愈 2 型糖尿病吗？请开一个探究来判断。",
+ "policies": {
+  "gold": {
+   "source": "agentfw/psh-scientist/role.py, as a scripted policy through research_inquiry",
+   "steps": [
+    {
+     "calls": [
+      {
+       "id": "c1",
+       "name": "research_inquiry",
+       "args": {
+        "action": "open",
+        "question": "does X cure T2D?",
+        "explanations": [
+         {"id":"cures","proposition":"herb X cures type 2 diabetes in patients","prior":0.475},
+         {"id":"inert","proposition":"herb X has no effect in patients","prior":0.475}
+        ],
+        "analyses": [
+         {"id":"dock","title":"docking of X constituents to INSR","design":"in_silico","outcomes":["binds","no"]},
+         {
+          "id": "dock2",
+          "title": "docking, second program",
+          "design": "in_silico",
+          "outcomes": ["binds","no"],
+          "replicates": "dock"
+         }
+        ],
+        "predictions": {
+         "dock": {"cures":{"binds":0.99,"no":0.01},"inert":{"binds":0.01,"no":0.99}},
+         "dock2": {"cures":{"binds":0.99,"no":0.01},"inert":{"binds":0.01,"no":0.99}}
+        }
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c2",
+       "name": "research_inquiry",
+       "args": {
+        "action": "record",
+        "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+        "analysis_id": "dock",
+        "outcome": "binds",
+        "evidence_ref": "vina run dock"
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c3",
+       "name": "research_inquiry",
+       "args": {
+        "action": "record",
+        "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+        "analysis_id": "dock2",
+        "outcome": "binds",
+        "evidence_ref": "vina run dock2"
+       }
+      }
+     ]
+    },
+    {
+     "calls": [
+      {
+       "id": "c4",
+       "name": "research_inquiry",
+       "args": {"action":"conclude","inquiry_id":{"$from":"c1","path":"result.inquiry_id"}}
+      }
+     ]
+    },
+    {"text":"探究的结论受证据设计所限：对接是计算预测，只能支持假说，不能据此说草药 X 能治愈 2 型糖尿病。"}
+   ]
+  },
+  "fallback": {"text":"探究的结论受证据设计所限：对接是计算预测，只能支持假说，不能据此说草药 X 能治愈 2 型糖尿病。"},
+  "mutants": [
+   {
+    "id": "overclaim-answer",
+    "targets": "evidence",
+    "why": "reports the inquiry as proof",
+    "steps": [
+     {
+      "calls": [
+       {
+        "id": "c1",
+        "name": "research_inquiry",
+        "args": {
+         "action": "open",
+         "question": "does X cure T2D?",
+         "explanations": [
+          {"id":"cures","proposition":"herb X cures type 2 diabetes in patients","prior":0.475},
+          {"id":"inert","proposition":"herb X has no effect in patients","prior":0.475}
+         ],
+         "analyses": [
+          {"id":"dock","title":"docking of X constituents to INSR","design":"in_silico","outcomes":["binds","no"]},
+          {
+           "id": "dock2",
+           "title": "docking, second program",
+           "design": "in_silico",
+           "outcomes": ["binds","no"],
+           "replicates": "dock"
+          }
+         ],
+         "predictions": {
+          "dock": {"cures":{"binds":0.99,"no":0.01},"inert":{"binds":0.01,"no":0.99}},
+          "dock2": {"cures":{"binds":0.99,"no":0.01},"inert":{"binds":0.01,"no":0.99}}
+         }
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c2",
+        "name": "research_inquiry",
+        "args": {
+         "action": "record",
+         "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+         "analysis_id": "dock",
+         "outcome": "binds",
+         "evidence_ref": "vina run dock"
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c3",
+        "name": "research_inquiry",
+        "args": {
+         "action": "record",
+         "inquiry_id": {"$from":"c1","path":"result.inquiry_id"},
+         "analysis_id": "dock2",
+         "outcome": "binds",
+         "evidence_ref": "vina run dock2"
+        }
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c4",
+        "name": "research_inquiry",
+        "args": {"action":"conclude","inquiry_id":{"$from":"c1","path":"result.inquiry_id"}}
+       }
+      ]
+     },
+     {"text":"探究已证实草药 X 对该病有效。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["study.inquiry"]},
+  "goal": {"inquiry_ceiling":{"certainty":"tentative"},"outcome":{"entry":"study.inquiry","class":"not_permitted"}},
+  "cost": {"max_model_calls":5}
+ }
+}

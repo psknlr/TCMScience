@@ -1,0 +1,65 @@
+{
+ "id": "scenario-03-compound-target-retrieval",
+ "split": "dev",
+ "title": "Compound-protein target retrieval (scenarios.py 3): the measured targets need a hub store",
+ "tags": ["scenario","runner","honest-gap"],
+ "driver": "scripted",
+ "question": "小檗碱有哪些已测定活性的人类蛋白靶点？请给出测定类型和数值。",
+ "policies": {
+  "gold": {
+   "source": "scenarios.py _compound_targets: tcmdb.relations compound_target for berberine",
+   "steps": [
+    {
+     "calls": [
+      {
+       "id": "c1",
+       "name": "tcmdb_relations",
+       "args": {"kind":"compound_target","subject":"inchikey:YBHILYKTIRIUTE-UHFFFAOYSA-N","limit":500}
+      }
+     ]
+    },
+    {
+     "text": "无法回答：数据中心尚未构建 NPASS 或 CMAUP，靶点记录没有被检索，因此这里给不出任何测定值；这是数据缺口，不是阴性结果。构建后（job.tcmdb.fetch，然后 job.tcmdb.build）可以查询。"
+    }
+   ]
+  },
+  "mutants": [
+   {
+    "id": "repeat-settled-failure",
+    "targets": "execution",
+    "why": "calls the same lookup again after it came back data_unavailable",
+    "steps": [
+     {
+      "calls": [
+       {
+        "id": "c1",
+        "name": "tcmdb_relations",
+        "args": {"kind":"compound_target","subject":"inchikey:YBHILYKTIRIUTE-UHFFFAOYSA-N","limit":500}
+       }
+      ]
+     },
+     {
+      "calls": [
+       {
+        "id": "c2",
+        "name": "tcmdb_relations",
+        "args": {"kind":"compound_target","subject":"inchikey:YBHILYKTIRIUTE-UHFFFAOYSA-N","limit":500}
+       }
+      ]
+     },
+     {"text":"数据中心尚未构建 NPASS 或 CMAUP，无法检索。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["tcmdb.relations"]},
+  "goal": {
+   "outcome": {"entry":"tcmdb.relations","class":"data_unavailable"},
+   "mention_any": [["未构建","尚未构建","没有构建","不可用"]],
+   "forbid": ["IC50\\s*[=＝:]","Ki\\s*[=＝:]","没有(已测定的)?靶点"]
+  },
+  "cost": {"max_model_calls":2}
+ }
+}

@@ -1,0 +1,44 @@
+{
+ "id": "scenario-11-evidence-synthesis",
+ "split": "dev",
+ "title": "Evidence synthesis and structured reporting (scenarios.py 11)",
+ "tags": ["scenario","runner","cassette"],
+ "driver": "scripted",
+ "question": "关于桂枝汤与太阳中风证，哪些主张可以提出、哪些不可以？甘草与哪些药存在十八反？",
+ "policies": {
+  "gold": {
+   "source": "scenarios.py _evidence_synthesis: tcm_applicability (attribution, efficacy) and tcm_safety_report 甘草",
+   "steps": [
+    {
+     "calls": [
+      {"id":"c1","name":"tcm_applicability","args":{"subject":"桂枝汤","object":"太阳中风证","claim_kind":"attribution"}},
+      {"id":"c2","name":"tcm_applicability","args":{"subject":"桂枝汤","object":"太阳中风证","claim_kind":"efficacy"}},
+      {"id":"c3","name":"tcm_safety_report","args":{"subject":"甘草"}}
+     ]
+    },
+    {
+     "text": "《伤寒论》第12条记载桂枝汤主治太阳中风证，可以作为「记载」主张；但经典记载不能支撑「疗效」主张，那需要随机对照试验或系统评价。十八反：甘草不宜与甘遂、大戟（京大戟、红大戟）、海藻、芫花同用 {{cite:c3}}；这是记载，不是临床安全性结论。"
+    }
+   ]
+  },
+  "mutants": [
+   {
+    "id": "efficacy-claim",
+    "targets": "evidence",
+    "why": "claims efficacy a classical record cannot license",
+    "steps": [
+     {
+      "calls": [{"id":"c1","name":"tcm_applicability","args":{"subject":"桂枝汤","object":"太阳中风证","claim_kind":"efficacy"}}]
+     },
+     {"text":"桂枝汤治疗太阳中风证疗效确切，已被证实。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["native.tcm_applicability","skill.assess-tcm-safety"],"min_precision":1},
+  "goal": {"mention_all":["甘遂","大戟","海藻","芫花","记载"],"mention_any":[["不能支撑","不支持","不能支持"]]},
+  "cost": {"max_model_calls":2}
+ }
+}

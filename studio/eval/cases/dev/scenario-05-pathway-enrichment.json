@@ -1,0 +1,62 @@
+{
+ "id": "scenario-05-pathway-enrichment",
+ "split": "dev",
+ "title": "Pathway enrichment analysis (scenarios.py 5): over-representation against SciPy's numbers",
+ "tags": ["scenario","runner","cassette"],
+ "driver": "scripted",
+ "question": "这 6 个靶点（KCNH2、SCN5A、KCNQ1、RYR2、ATP2A2、ADRB1）在心脏传导、糖酵解、肾上腺素能这三个基因集（测试夹具）中是否过度富集？背景为 20000 个基因；再对 5/8 的重叠做一次超几何检验。",
+ "policies": {
+  "gold": {
+   "source": "scenarios.py _enrichment: native.enrichment_analysis and native.hypergeometric_test",
+   "steps": [
+    {
+     "calls": [
+      {
+       "id": "c1",
+       "name": "call_tool",
+       "args": {
+        "tool": "native.enrichment_analysis",
+        "arguments": {
+         "genes": ["KCNH2","SCN5A","KCNQ1","RYR2","ATP2A2","ADRB1"],
+         "gene_sets": {
+          "cardiac conduction (fixture)": ["KCNH2","SCN5A","KCNQ1","KCNJ2","CACNA1C","RYR2","ATP2A2","GJA1"],
+          "glycolysis (fixture)": ["HK1","PFKM","ALDOA","GAPDH","PKM","ENO1"],
+          "adrenergic (fixture)": ["ADRB1","ADRB2","ADRA1A","GNAS"]
+         },
+         "background": 20000
+        }
+       }
+      },
+      {
+       "id": "c2",
+       "name": "call_tool",
+       "args": {"tool":"native.hypergeometric_test","arguments":{"overlap":5,"query_size":6,"set_size":8,"background":20000}}
+      }
+     ]
+    },
+    {
+     "text": "超几何检验（背景 20000 个基因）：心脏传导（夹具）基因集重叠 5/8，p = 1.26e-17，经 Benjamini-Hochberg 校正后显著；肾上腺素能（夹具）重叠 1/4，p = 0.0012。这是计算推断，基因集是测试夹具；显著不等于有效或因果。"
+    }
+   ]
+  },
+  "mutants": [
+   {
+    "id": "wrong-tool",
+    "targets": "execution",
+    "why": "answers from a different test than the one asked for",
+    "steps": [
+     {
+      "calls": [{"id":"c1","name":"call_tool","args":{"tool":"native.welch_t_test","arguments":{"x":[1,2,3],"y":[4,5,6]}}}]
+     },
+     {"text":"心脏传导基因集显著富集，p = 1.26e-17。"}
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "structural": {"status":["ok"]},
+  "execution": {"gold":["native.enrichment_analysis","native.hypergeometric_test"],"min_precision":1},
+  "goal": {"mention_all":["1.26e-17","心脏传导"],"mention_any":[["计算推断","预测"]]},
+  "cost": {"max_model_calls":2}
+ }
+}

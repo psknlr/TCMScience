@@ -1,0 +1,147 @@
+{
+ "schema": "tcmscience.eval.cassette/1",
+ "case": "scenario-01-formula-provenance",
+ "source": "echo",
+ "env_date": "2026-11-06",
+ "provider": {
+  "format": "openai",
+  "model": "Tao-S1"
+ },
+ "prompt_sha256": "eccfb9cb781408db85a73c7b215c405666ccf3dbca5e9258b8e66b3fed978fbf",
+ "tools_sha256": "e320bb27845519a0b3d0cd39d93de490d055597ea8acfd0a8093f7bed9c1d36a",
+ "recordings": [
+  {
+   "step": 0,
+   "results_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "tool_choice": null,
+   "events": [
+    {
+     "type": "tool_call_delta",
+     "index": 0,
+     "name": "tcm_formula"
+    },
+    {
+     "type": "tool_call",
+     "id": "c1",
+     "name": "tcm_formula",
+     "arguments": {
+      "name": "桂枝汤《伤寒论》"
+     },
+     "raw": "{\"name\":\"桂枝汤《伤寒论》\"}"
+    },
+    {
+     "type": "usage",
+     "input": 100,
+     "output": 10
+    },
+    {
+     "type": "done",
+     "finish_reason": "tool_calls",
+     "wire": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+       {
+        "id": "c1",
+        "type": "function",
+        "function": {
+         "name": "tcm_formula",
+         "arguments": "{\"name\":\"桂枝汤《伤寒论》\"}"
+        }
+       }
+      ]
+     },
+     "model": "Tao-S1"
+    }
+   ]
+  },
+  {
+   "step": 1,
+   "results_sha256": "9058bb6206f9addf67bc04b9eeebac23a1cabf0aaea2ea3740231e3360ba4450",
+   "tool_choice": null,
+   "events": [
+    {
+     "type": "tool_call_delta",
+     "index": 0,
+     "name": "tcm_compatibility"
+    },
+    {
+     "type": "tool_call",
+     "id": "c2",
+     "name": "tcm_compatibility",
+     "arguments": {
+      "herbs": [
+       "桂枝",
+       "芍药",
+       "甘草",
+       "生姜",
+       "大枣"
+      ]
+     },
+     "raw": "{\"herbs\":[\"桂枝\",\"芍药\",\"甘草\",\"生姜\",\"大枣\"]}"
+    },
+    {
+     "type": "usage",
+     "input": 100,
+     "output": 10
+    },
+    {
+     "type": "done",
+     "finish_reason": "tool_calls",
+     "wire": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+       {
+        "id": "c2",
+        "type": "function",
+        "function": {
+         "name": "tcm_compatibility",
+         "arguments": "{\"herbs\":[\"桂枝\",\"芍药\",\"甘草\",\"生姜\",\"大枣\"]}"
+        }
+       }
+      ]
+     },
+     "model": "Tao-S1"
+    }
+   ]
+  },
+  {
+   "step": 2,
+   "results_sha256": "b2e3a823d3272a6979951980576f5d2a95b66356b3769eac74f0c624134f2126",
+   "tool_choice": null,
+   "events": [
+    {
+     "type": "text",
+     "delta": "桂枝汤《伤寒论》记载由桂枝、芍药"
+    },
+    {
+     "type": "text",
+     "delta": "、甘草、生姜、大枣组成 [E1]"
+    },
+    {
+     "type": "text",
+     "delta": "。五味药之间无十八反、十九畏的记"
+    },
+    {
+     "type": "text",
+     "delta": "载（无记录不等于安全）。"
+    },
+    {
+     "type": "usage",
+     "input": 100,
+     "output": 10
+    },
+    {
+     "type": "done",
+     "finish_reason": "stop",
+     "wire": {
+      "role": "assistant",
+      "content": "桂枝汤《伤寒论》记载由桂枝、芍药、甘草、生姜、大枣组成 [E1]。五味药之间无十八反、十九畏的记载（无记录不等于安全）。"
+     },
+     "model": "Tao-S1"
+    }
+   ]
+  }
+ ]
+}

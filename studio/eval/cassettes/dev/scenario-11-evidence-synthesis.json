@@ -1,0 +1,160 @@
+{
+ "schema": "tcmscience.eval.cassette/1",
+ "case": "scenario-11-evidence-synthesis",
+ "source": "echo",
+ "env_date": "2026-11-06",
+ "provider": {
+  "format": "openai",
+  "model": "Tao-S1"
+ },
+ "prompt_sha256": "eccfb9cb781408db85a73c7b215c405666ccf3dbca5e9258b8e66b3fed978fbf",
+ "tools_sha256": "e320bb27845519a0b3d0cd39d93de490d055597ea8acfd0a8093f7bed9c1d36a",
+ "recordings": [
+  {
+   "step": 0,
+   "results_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "tool_choice": null,
+   "events": [
+    {
+     "type": "tool_call_delta",
+     "index": 0,
+     "name": "tcm_applicability"
+    },
+    {
+     "type": "tool_call_delta",
+     "index": 1,
+     "name": "tcm_applicability"
+    },
+    {
+     "type": "tool_call_delta",
+     "index": 2,
+     "name": "tcm_safety_report"
+    },
+    {
+     "type": "tool_call",
+     "id": "c1",
+     "name": "tcm_applicability",
+     "arguments": {
+      "subject": "桂枝汤",
+      "object": "太阳中风证",
+      "claim_kind": "attribution"
+     },
+     "raw": "{\"subject\":\"桂枝汤\",\"object\":\"太阳中风证\",\"claim_kind\":\"attribution\"}"
+    },
+    {
+     "type": "tool_call",
+     "id": "c2",
+     "name": "tcm_applicability",
+     "arguments": {
+      "subject": "桂枝汤",
+      "object": "太阳中风证",
+      "claim_kind": "efficacy"
+     },
+     "raw": "{\"subject\":\"桂枝汤\",\"object\":\"太阳中风证\",\"claim_kind\":\"efficacy\"}"
+    },
+    {
+     "type": "tool_call",
+     "id": "c3",
+     "name": "tcm_safety_report",
+     "arguments": {
+      "subject": "甘草"
+     },
+     "raw": "{\"subject\":\"甘草\"}"
+    },
+    {
+     "type": "usage",
+     "input": 100,
+     "output": 10
+    },
+    {
+     "type": "done",
+     "finish_reason": "tool_calls",
+     "wire": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+       {
+        "id": "c1",
+        "type": "function",
+        "function": {
+         "name": "tcm_applicability",
+         "arguments": "{\"subject\":\"桂枝汤\",\"object\":\"太阳中风证\",\"claim_kind\":\"attribution\"}"
+        }
+       },
+       {
+        "id": "c2",
+        "type": "function",
+        "function": {
+         "name": "tcm_applicability",
+         "arguments": "{\"subject\":\"桂枝汤\",\"object\":\"太阳中风证\",\"claim_kind\":\"efficacy\"}"
+        }
+       },
+       {
+        "id": "c3",
+        "type": "function",
+        "function": {
+         "name": "tcm_safety_report",
+         "arguments": "{\"subject\":\"甘草\"}"
+        }
+       }
+      ]
+     },
+     "model": "Tao-S1"
+    }
+   ]
+  },
+  {
+   "step": 1,
+   "results_sha256": "2ad062731e65bf7860d9944e1da0a718bc943b7cb786977ad8d0c0015fa5c4e9",
+   "tool_choice": null,
+   "events": [
+    {
+     "type": "text",
+     "delta": "《伤寒论》第12条记载桂枝汤主治"
+    },
+    {
+     "type": "text",
+     "delta": "太阳中风证，可以作为「记载」主张"
+    },
+    {
+     "type": "text",
+     "delta": "；但经典记载不能支撑「疗效」主张"
+    },
+    {
+     "type": "text",
+     "delta": "，那需要随机对照试验或系统评价。"
+    },
+    {
+     "type": "text",
+     "delta": "十八反：甘草不宜与甘遂、大戟（京"
+    },
+    {
+     "type": "text",
+     "delta": "大戟、红大戟）、海藻、芫花同用 "
+    },
+    {
+     "type": "text",
+     "delta": "[E1]；这是记载，不是临床安全"
+    },
+    {
+     "type": "text",
+     "delta": "性结论。"
+    },
+    {
+     "type": "usage",
+     "input": 100,
+     "output": 10
+    },
+    {
+     "type": "done",
+     "finish_reason": "stop",
+     "wire": {
+      "role": "assistant",
+      "content": "《伤寒论》第12条记载桂枝汤主治太阳中风证，可以作为「记载」主张；但经典记载不能支撑「疗效」主张，那需要随机对照试验或系统评价。十八反：甘草不宜与甘遂、大戟（京大戟、红大戟）、海藻、芫花同用 [E1]；这是记载，不是临床安全性结论。"
+     },
+     "model": "Tao-S1"
+    }
+   ]
+  }
+ ]
+}

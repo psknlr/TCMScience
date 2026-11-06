@@ -1,0 +1,181 @@
+{
+ "schema": "tcmscience.eval.cassette/1",
+ "case": "scenario-05-pathway-enrichment",
+ "source": "echo",
+ "env_date": "2026-11-06",
+ "provider": {
+  "format": "openai",
+  "model": "Tao-S1"
+ },
+ "prompt_sha256": "eccfb9cb781408db85a73c7b215c405666ccf3dbca5e9258b8e66b3fed978fbf",
+ "tools_sha256": "e320bb27845519a0b3d0cd39d93de490d055597ea8acfd0a8093f7bed9c1d36a",
+ "recordings": [
+  {
+   "step": 0,
+   "results_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "tool_choice": null,
+   "events": [
+    {
+     "type": "tool_call_delta",
+     "index": 0,
+     "name": "call_tool"
+    },
+    {
+     "type": "tool_call_delta",
+     "index": 1,
+     "name": "call_tool"
+    },
+    {
+     "type": "tool_call",
+     "id": "c1",
+     "name": "call_tool",
+     "arguments": {
+      "tool": "native.enrichment_analysis",
+      "arguments": {
+       "genes": [
+        "KCNH2",
+        "SCN5A",
+        "KCNQ1",
+        "RYR2",
+        "ATP2A2",
+        "ADRB1"
+       ],
+       "gene_sets": {
+        "cardiac conduction (fixture)": [
+         "KCNH2",
+         "SCN5A",
+         "KCNQ1",
+         "KCNJ2",
+         "CACNA1C",
+         "RYR2",
+         "ATP2A2",
+         "GJA1"
+        ],
+        "glycolysis (fixture)": [
+         "HK1",
+         "PFKM",
+         "ALDOA",
+         "GAPDH",
+         "PKM",
+         "ENO1"
+        ],
+        "adrenergic (fixture)": [
+         "ADRB1",
+         "ADRB2",
+         "ADRA1A",
+         "GNAS"
+        ]
+       },
+       "background": 20000
+      }
+     },
+     "raw": "{\"tool\":\"native.enrichment_analysis\",\"arguments\":{\"genes\":[\"KCNH2\",\"SCN5A\",\"KCNQ1\",\"RYR2\",\"ATP2A2\",\"ADRB1\"],\"gene_sets\":{\"cardiac conduction (fixture)\":[\"KCNH2\",\"SCN5A\",\"KCNQ1\",\"KCNJ2\",\"CACNA1C\",\"RYR2\",\"ATP2A2\",\"GJA1\"],\"glycolysis (fixture)\":[\"HK1\",\"PFKM\",\"ALDOA\",\"GAPDH\",\"PKM\",\"ENO1\"],\"adrenergic (fixture)\":[\"ADRB1\",\"ADRB2\",\"ADRA1A\",\"GNAS\"]},\"background\":20000}}"
+    },
+    {
+     "type": "tool_call",
+     "id": "c2",
+     "name": "call_tool",
+     "arguments": {
+      "tool": "native.hypergeometric_test",
+      "arguments": {
+       "overlap": 5,
+       "query_size": 6,
+       "set_size": 8,
+       "background": 20000
+      }
+     },
+     "raw": "{\"tool\":\"native.hypergeometric_test\",\"arguments\":{\"overlap\":5,\"query_size\":6,\"set_size\":8,\"background\":20000}}"
+    },
+    {
+     "type": "usage",
+     "input": 100,
+     "output": 10
+    },
+    {
+     "type": "done",
+     "finish_reason": "tool_calls",
+     "wire": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+       {
+        "id": "c1",
+        "type": "function",
+        "function": {
+         "name": "call_tool",
+         "arguments": "{\"tool\":\"native.enrichment_analysis\",\"arguments\":{\"genes\":[\"KCNH2\",\"SCN5A\",\"KCNQ1\",\"RYR2\",\"ATP2A2\",\"ADRB1\"],\"gene_sets\":{\"cardiac conduction (fixture)\":[\"KCNH2\",\"SCN5A\",\"KCNQ1\",\"KCNJ2\",\"CACNA1C\",\"RYR2\",\"ATP2A2\",\"GJA1\"],\"glycolysis (fixture)\":[\"HK1\",\"PFKM\",\"ALDOA\",\"GAPDH\",\"PKM\",\"ENO1\"],\"adrenergic (fixture)\":[\"ADRB1\",\"ADRB2\",\"ADRA1A\",\"GNAS\"]},\"background\":20000}}"
+        }
+       },
+       {
+        "id": "c2",
+        "type": "function",
+        "function": {
+         "name": "call_tool",
+         "arguments": "{\"tool\":\"native.hypergeometric_test\",\"arguments\":{\"overlap\":5,\"query_size\":6,\"set_size\":8,\"background\":20000}}"
+        }
+       }
+      ]
+     },
+     "model": "Tao-S1"
+    }
+   ]
+  },
+  {
+   "step": 1,
+   "results_sha256": "d4e8778a770f23a364e821017271c9494b25973dcf5f8badfa98daf0dafebc92",
+   "tool_choice": null,
+   "events": [
+    {
+     "type": "text",
+     "delta": "超几何检验（背景 20000 个"
+    },
+    {
+     "type": "text",
+     "delta": "基因）：心脏传导（夹具）基因集重"
+    },
+    {
+     "type": "text",
+     "delta": "叠 5/8，p = 1.26e-"
+    },
+    {
+     "type": "text",
+     "delta": "17，经 Benjamini-H"
+    },
+    {
+     "type": "text",
+     "delta": "ochberg 校正后显著；肾上"
+    },
+    {
+     "type": "text",
+     "delta": "腺素能（夹具）重叠 1/4，p "
+    },
+    {
+     "type": "text",
+     "delta": "= 0.0012。这是计算推断，"
+    },
+    {
+     "type": "text",
+     "delta": "基因集是测试夹具；显著不等于有效"
+    },
+    {
+     "type": "text",
+     "delta": "或因果。"
+    },
+    {
+     "type": "usage",
+     "input": 100,
+     "output": 10
+    },
+    {
+     "type": "done",
+     "finish_reason": "stop",
+     "wire": {
+      "role": "assistant",
+      "content": "超几何检验（背景 20000 个基因）：心脏传导（夹具）基因集重叠 5/8，p = 1.26e-17，经 Benjamini-Hochberg 校正后显著；肾上腺素能（夹具）重叠 1/4，p = 0.0012。这是计算推断，基因集是测试夹具；显著不等于有效或因果。"
+     },
+     "model": "Tao-S1"
+    }
+   ]
+  }
+ ]
+}

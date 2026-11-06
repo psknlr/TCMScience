@@ -62,7 +62,9 @@ const GLYPH_ICON = { "✓": "check", "◐": "circleHalf", "!": "alert", "✕": "
 /** A pill with an icon and words (colour never alone). badge = verdictBadge(...) → {tone, icon, label}. */
 export function verdictPill(badge, { size = "md", title } = {}) {
   const b = badge || { tone: "neutral", icon: "○", label: "" };
-  return h("span", { class: ["verdict", `verdict--${b.tone}`, `verdict--${size}`], "data-tip": title || null },
+  // a pill with a tip is reached by keyboard and read with its tip, as a code chip is
+  return h("span", { class: ["verdict", `verdict--${b.tone}`, `verdict--${size}`], "data-tip": title || null,
+    tabindex: title ? "0" : null, role: title ? "note" : null, "aria-label": title ? `${b.label}: ${title}` : null },
     icon(GLYPH_ICON[b.icon] || "circle", { size: size === "sm" ? 12 : 14, className: b.icon === "…" ? "spin" : "" }),
     h("span.verdict__label", b.label));
 }

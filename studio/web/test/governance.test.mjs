@@ -2,8 +2,8 @@ import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  citationsOf, claimsOf, compositeVersionOf, evidenceOf, familyOfTier, identifierUrl, isPredicted, licensingLadder, refusalsOf,
-  releaseOf, resultKindOf, resultOf, shortHash, stateOfUnverified, verdictBadge,
+  citationsOf, claimsOf, compositeVersionOf, evidenceOf, familyOfTier, identifierUrl, inquiryOf, isPredicted, licensingLadder,
+  refusalsOf, releaseOf, resultKindOf, resultOf, shortHash, stateOfUnverified, verdictBadge,
 } from "../js/core/governance.js";
 import { glossary as glossaryOf } from "../js/core/i18n.js";
 import { loadFixture } from "./fixtures/fakes.mjs";
@@ -176,6 +176,33 @@ test("badges for every vocabulary carry an icon and words", () => {
   for (const b of [verdictBadge("verified", "goal"), verdictBadge(unreleased), verdictBadge({ allowed: null, codes: [] })]) {
     assert.ok(b.icon && b.label);
   }
+});
+
+test("an inquiry's badge says in its tip who classified the outcomes it rests on", () => {
+  // research_inquiry conclude, as bioagent.research.inquiries.conclude returns it
+  const concluded = (conclusion, by) => ({ status: "succeeded", receipt: {}, governance: { kind: "study" }, result: { conclusion, ...by } });
+  const selfcert = concluded({ verdict: "provisional", leader: "works" }, { by_runtime: 0, by_agent: 2 });
+  const inq = inquiryOf(selfcert, "en");
+  assert.deepEqual(inq.badge, { tone: "navy", icon: "◐", label: "Provisional" });
+  assert.equal(inq.by_runtime, 0);
+  assert.equal(inq.by_agent, 2);
+  assert.equal(inq.tip, "Inquiry conclusion: 0 outcomes classified by the runtime, 2 reported by the agent; only the runtime's can decide acceptance");
+  assert.equal(inquiryOf(selfcert, "zh").tip, "探究结论：运行时判定的结果 0 项，智能体报告的结果 2 项；只有运行时判定的结果能决定是否接受");
+  const accepted = inquiryOf(concluded({ verdict: "accepted" }, { by_runtime: 2, by_agent: 0 }), "zh");
+  assert.deepEqual(accepted.badge, verdictBadge("accepted", "inquiry", "zh"));
+  assert.match(accepted.tip, /运行时判定的结果 2 项，智能体报告的结果 0 项/);
+  // one outcome is one, in English
+  const one = inquiryOf(concluded({ verdict: "provisional" }, { by_runtime: 1, by_agent: 1 }), "en");
+  assert.ok(one.tip.startsWith("Inquiry conclusion: 1 outcome classified by the runtime, 1 reported by the agent;"), one.tip);
+  // a saved inquiry the acceptance rule re-evaluated says so in the tip as well
+  const note = { rule: "2026-11", earlier_verdict: "accepted", en: "re-evaluated under the 2026-11 acceptance rule: …", zh: "已按 2026-11 接受规则重新评估：…" };
+  const saved = concluded({ verdict: "provisional", re_evaluated: note }, { by_runtime: 0, by_agent: 2 });
+  assert.ok(inquiryOf(saved, "en").tip.endsWith("; re-evaluated under the 2026-11 acceptance rule: …"));
+  assert.ok(inquiryOf(saved, "zh").tip.endsWith("；已按 2026-11 接受规则重新评估：…"));
+  // any other result has none; malformed counts read as none
+  assert.equal(inquiryOf(released), null);
+  assert.equal(inquiryOf(concluded({ verdict: "no_such" }, {})), null);
+  assert.equal(inquiryOf(concluded({ verdict: "accepted" }, { by_runtime: "3", by_agent: -1 }), "en").by_runtime, 0);
 });
 
 test("hashes are shown as sha256:first8…last4", () => {

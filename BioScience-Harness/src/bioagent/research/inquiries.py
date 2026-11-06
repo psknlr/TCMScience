@@ -15,7 +15,7 @@ inquiry, changes it through the engine, saves it under the store's lock, and ret
 for the model: the belief, the engine's next step with the tools that would carry it out,
 and, at the end, the conclusion with the studies that would still decide it.
 
-Two rules are this module's own:
+Four rules are this module's own:
 
 * **The bar cannot be lowered.** A stopping rule may be stricter than the engine's
   defaults, never laxer: acceptance at 0.95 or above, severity 0.8 or above, replication
@@ -27,6 +27,15 @@ Two rules are this module's own:
   adds to one. Data already recorded (the same numbers, however labelled or written) are
   refused, as is a replicate citing its original's source: a PMID or DOI however it is
   written (a label or none, a URL, full-width characters, a note after it).
+* **Only outcomes the runtime classified decide acceptance** (the ``2026-11`` acceptance
+  rule, :data:`ACCEPTANCE_RULE`). The store loads every inquiry with the engine's
+  ``decisive`` predicate set to it: an outcome the agent reports moves belief, and can
+  never be the severe test or the replication an acceptance rests on, whatever it cites.
+  An inquiry saved before the rule is concluded under it, and says so when that changed
+  its verdict.
+* **An explanation says what it is.** Each gives a claim kind, or the role ``artefact``
+  when the method or the data make the signal; one with neither is refused at open, never
+  read as an artefact (which no licensing reaches).
 
 An agent that can call several tools at once asks for a plan: the engine's batch of up to
 four analyses, valued by the information they carry together and sealed into the trail
@@ -37,6 +46,7 @@ which outcome each explanation favoured from one carried by how confident they w
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import math
@@ -49,21 +59,35 @@ from typing import Any, Mapping, Sequence
 
 from . import rivals
 
-__all__ = ["SCHEMA", "TEMPERS", "InquiryStore", "admit", "conclude", "declare", "digest",
-           "listing", "open_inquiry", "plain", "plan", "record_classified", "record_reported",
-           "status", "view", "withdraw"]
+__all__ = ["ACCEPTANCE_RULE", "DESIGN_ALIASES", "SCHEMA", "TEMPERS", "InquiryStore",
+           "admit", "conclude", "declare", "digest", "listing", "open_inquiry", "plain",
+           "plan", "record_classified", "record_reported", "status", "view", "withdraw"]
 
 SCHEMA = "bioagent.inquiry/1"
 _ID = re.compile(r"^inq_[0-9a-f]{16}$")
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
 
+#: The acceptance rule an inquiry is opened under, kept in its record: only outcomes the
+#: runtime classified decide acceptance. A record without it was saved before the rule.
+ACCEPTANCE_RULE = "2026-11"
 #: Stopping-rule fields and the direction in which a value is stricter.
 _STRICTER = {"accept_at": "higher", "min_severity": "higher", "catch_all_floor": "higher",
              "catch_all_alarm": "lower", "max_steps": "lower"}
 #: How much less sure a conclusion's sensitivity makes the sealed predictions: each is
 #: mixed with the uniform distribution over its outcomes by these weights in turn.
 TEMPERS = (0.1, 0.2, 0.3)
+#: Spellings of a study design read as the engine's (psh.sir.values.StudyDesign).
+DESIGN_ALIASES = {"randomized_trial": "randomised_trial",
+                  "non_randomized_trial": "non_randomised_trial"}
+#: How far from 1 a prediction may sum and be sealed divided by its sum; the engine's own
+#: tolerance (1e-6) is unchanged, and a row it already accepts is sealed as it was given.
+_SUM_SLACK = 0.01
+#: The repair for an explanation that gives neither a claim kind nor a role (INQ103), in
+#: place of the engine's remedy for any malformed explanation.
+_ROLE_REMEDY = 'give claim_kind, or role "artefact" if the method or the data make the signal'
+_VERDICT_ZH = {"accepted": "接受", "provisional": "暂定", "undetermined": "未定",
+               "needs_hypotheses": "需要新的解释"}
 
 
 def _canonical(value: Any) -> str:
@@ -119,7 +143,8 @@ class InquiryStore:
 
     def load(self, inquiry_id: str) -> tuple[Any, dict[str, Any]]:
         """The inquiry, replayed and verified, and its record. ``LookupError`` when there
-        is none; ``InquiryRefused`` (INQ150) when the file does not verify."""
+        is none; ``InquiryRefused`` (INQ150) when the file does not verify. It concludes
+        under the acceptance rule (:func:`_decisive`), whenever it was saved."""
         from psh.scientist import Inquiry, InquiryRefused
         path = self.path(inquiry_id)
         if not path.is_file():
@@ -130,7 +155,7 @@ class InquiryStore:
             raise InquiryRefused("INQ150", f"{inquiry_id}: unreadable ({exc})") from exc
         if not isinstance(doc, Mapping) or doc.get("schema") != SCHEMA:
             raise InquiryRefused("INQ150", f"{inquiry_id}: not a {SCHEMA} document")
-        inquiry = Inquiry.from_dict(doc.get("inquiry") or {})
+        inquiry = Inquiry.from_dict(doc.get("inquiry") or {}, decisive=_decisive)
         if inquiry.inquiry_id != inquiry_id:
             raise InquiryRefused("INQ150", f"the file {inquiry_id} holds inquiry "
                                  f"{inquiry.inquiry_id}")
@@ -183,6 +208,21 @@ def _rule(base: Mapping[str, Any], overrides: Mapping[str, Any] | None) -> Any:
     return StoppingRule(**fields)
 
 
+def _decisive(update: Any) -> bool:
+    """The acceptance rule: an outcome decides acceptance only if the runtime classified it.
+    The evidence reference says who did (``runtime:`` or ``agent:``, written below)."""
+    return str(update.evidence_ref or "").startswith("runtime:")
+
+
+def _refused(code: str, detail: str, remedy: str) -> Exception:
+    """The engine's refusal ``code``, repaired by ``remedy`` rather than the code's own."""
+    from psh.scientist import INQUIRY_CODES, InquiryRefused
+    refused = InquiryRefused(code, detail)
+    refused.remedy = remedy
+    refused.args = (f"{code} {INQUIRY_CODES[code][0]}: {detail}. Remedy: {remedy}",)
+    return refused
+
+
 def _explanation(data: Mapping[str, Any]) -> Any:
     from psh.scientist import Explanation, Role
     from psh.sir.values import ClaimKind
@@ -190,7 +230,12 @@ def _explanation(data: Mapping[str, Any]) -> Any:
         raise ValueError("each explanation is an object {id, proposition, claim_kind or "
                          "role 'artefact', prior}")
     kind = data.get("claim_kind") or None
-    role = data.get("role") or ("substantive" if kind else "artefact")
+    if not kind and not data.get("role"):
+        # never read as an artefact: no licensing reaches one, so a docking run could
+        # carry it to a claim about patients
+        raise _refused("INQ103", f"{data.get('id')} gives neither claim_kind nor role",
+                       _ROLE_REMEDY)
+    role = data.get("role") or "substantive"
     if role not in ("substantive", "artefact"):
         raise ValueError(f"{data.get('id')}: role is substantive (with a claim kind) or "
                          "artefact")
@@ -213,8 +258,9 @@ def _analysis(data: Mapping[str, Any]) -> Any:
         raise ValueError("each analysis is an object {id, title, design, outcomes, cost, "
                          "replicates}")
     try:
-        design = StudyDesign(data.get("design") or "")
-    except ValueError:
+        design = data.get("design") or ""
+        design = StudyDesign(DESIGN_ALIASES.get(design, design))
+    except (ValueError, TypeError):
         raise ValueError(f"{data.get('id')}: design {data.get('design')!r} is not one of "
                          f"{[d.value for d in StudyDesign]}") from None
     cost = data.get("cost", 1.0)
@@ -223,6 +269,24 @@ def _analysis(data: Mapping[str, Any]) -> Any:
                     cost=float(cost) if isinstance(cost, (int, float))
                     and not isinstance(cost, bool) else -1.0,
                     replicates=str(data.get("replicates") or ""))
+
+
+def _sealed(rows: Any) -> Any:
+    """Predictions as they are sealed: a row of probabilities that sums to within 0.01 of 1
+    (0.33 three times) is divided by its sum, so the sealed row is the one the engine
+    applies. Anything else is passed on as given, for the engine to accept or refuse."""
+    if not isinstance(rows, Mapping):
+        return rows
+    out = {}
+    for h, row in rows.items():
+        if isinstance(row, Mapping) and row and all(
+                isinstance(p, (int, float)) and not isinstance(p, bool) and math.isfinite(p)
+                and p >= 0.0 for p in row.values()):
+            total = math.fsum(row.values())
+            if 1e-6 < abs(total - 1.0) <= _SUM_SLACK + 1e-12:     # 0.33 * 3 is 0.99 in float
+                row = {o: p / total for o, p in row.items()}
+        out[h] = row
+    return out
 
 
 def _how(data: Mapping[str, Any]) -> dict[str, str]:
@@ -251,7 +315,7 @@ def open_inquiry(store: InquiryStore, *, scaffold: str = "",
                                        inquiry_id=inquiry_id)
         record = {"scaffold": scaffold, "values": checked,
                   "tests": rivals.rendered(scaffold, checked), "notes": list(s.notes),
-                  "read": {}}
+                  "read": {}, "acceptance_rule": ACCEPTANCE_RULE}
     else:
         if not str(question or "").strip():
             raise ValueError("a question is needed (or a scaffold)")
@@ -260,11 +324,11 @@ def open_inquiry(store: InquiryStore, *, scaffold: str = "",
                           [_analysis(a) for a in analyses], _rule({}, rule),
                           inquiry_id=inquiry_id)
         for analysis_id, rows in dict(predictions or {}).items():
-            inquiry.declare(analysis_id, rows)
+            inquiry.declare(analysis_id, _sealed(rows))
         record = {"scaffold": "", "values": {},
                   "tests": {str(a.get("id")): _how(a) for a in analyses
                             if isinstance(a, Mapping)},
-                  "notes": [], "read": {}}
+                  "notes": [], "read": {}, "acceptance_rule": ACCEPTANCE_RULE}
     with store.lock:
         store.save(inquiry, record)
     out = view(inquiry, record)
@@ -317,7 +381,7 @@ def declare(store: InquiryStore, inquiry_id: str, analysis_id: str,
                 record["tests"][added.id] = {
                     **original, "test": original.get("test") or added.replicates}
         if predictions:
-            inquiry.declare(analysis_id, predictions)
+            inquiry.declare(analysis_id, _sealed(predictions))
         elif analysis is None:
             raise ValueError("give predictions for the analysis, or an analysis to add")
         store.save(inquiry, record)
@@ -528,18 +592,38 @@ def view(inquiry: Any, record: Mapping[str, Any], *, update: Any = None) -> dict
 
 
 def conclude(store: InquiryStore, inquiry_id: str) -> dict[str, Any]:
-    """The verdict the stopping rule supports now, what it licenses, and what is left."""
+    """The verdict the stopping rule supports now, what it licenses, and what is left.
+
+    Concluded under the acceptance rule (:func:`_decisive`). When outcomes the agent
+    classified leave a leader provisional, the reason names the tests the runtime classifies
+    that would decide it, or says there are none. An inquiry saved before the rule whose
+    verdict it changed carries a note saying so (``re_evaluated``), in English and Chinese.
+    """
+    from psh.scientist import Inquiry, Verdict
     inquiry, record = store.load(inquiry_id)
     c = inquiry.conclude()
-    body = c.as_dict()
     by = [_by(u) for u in inquiry.updates]
+    agent = by.count("agent")
+    if agent and c.verdict is Verdict.PROVISIONAL:
+        tests = [a.id for a in inquiry.analyses if _classifier(record, a.id)]
+        left = [a for a in tests if not inquiry.observed(a) and a not in inquiry.withdrawn]
+        if not tests:
+            c = dataclasses.replace(c, reason=(
+                f"{c.reason}; no test of this inquiry is classified by the runtime, so "
+                "outcomes the agent reports leave it provisional at most"))
+        elif left:
+            c = dataclasses.replace(c, reason=(
+                f"{c.reason}; only outcomes the runtime classified can decide acceptance "
+                f"here: record {', '.join(left)} with data"))
+    body = c.as_dict()
     # The scaffold's own warnings first (a safety verdict that is not reassurance), then
     # who classified the outcomes, then the engine's.
     limitations = [n for n in record.get("notes") or () if n != rivals.GAP_NOTE]
-    agent = by.count("agent")
     if agent:
+        ids = ", ".join(u.analysis_id for u in inquiry.updates if _by(u) == "agent")
         limitations.append(f"{agent} of the {len(by)} outcomes were classified by the agent "
-                           "from the sources it cites; check them against those sources")
+                           f"({ids}) from the sources it cites: they move belief but cannot "
+                           "decide acceptance; check them against those sources")
     sensitivity, holds_to, statement = _sensitivity(inquiry, c.leader)
     if statement and holds_to < TEMPERS[-1]:
         limitations.append(statement)         # an answer carried by how sure they were
@@ -547,6 +631,10 @@ def conclude(store: InquiryStore, inquiry_id: str) -> dict[str, Any]:
     if statement and holds_to >= TEMPERS[-1]:
         limitations.append(statement)
     rivals_open = set(c.untested) | set(c.unreplicated)
+    # the conclusion's tests are the decisive ones; a replicate of an outcome that refuted
+    # the rival still repeats a test an acceptance would rest on, whoever classified it
+    refuting = {r: {u.analysis_id for u in inquiry.updates if r in u.refuted}
+                for r in rivals_open}
     to_decide = []
     for a in inquiry.analyses:
         if inquiry.observed(a.id):
@@ -555,7 +643,8 @@ def conclude(store: InquiryStore, inquiry_id: str) -> dict[str, Any]:
         # outcome that refuted the rival)
         against = sorted(r for r in rivals_open if c.leader and (
             inquiry.severe(c.leader, r, a.id) or (a.replicates and (inquiry.severe(
-                c.leader, r, a.replicates) or a.replicates in c.severe_tests.get(r, ())))))
+                c.leader, r, a.replicates) or a.replicates in c.severe_tests.get(r, ())
+                or a.replicates in refuting[r]))))
         entry = {"analysis_id": a.id, "title": a.title, "design": a.design.value,
                  **_how_to(record, a.id)}
         if a.id in inquiry.withdrawn:
@@ -564,12 +653,28 @@ def conclude(store: InquiryStore, inquiry_id: str) -> dict[str, Any]:
             entry["would_test_against"] = against
         if against or a.id in inquiry.withdrawn:
             to_decide.append(entry)
+    if record.get("acceptance_rule") != ACCEPTANCE_RULE:
+        # saved before the rule: what the engine gave then, with every outcome decisive
+        earlier = Inquiry.from_dict(inquiry.as_dict()).conclude().verdict.value
+        if earlier != c.verdict.value:
+            body["re_evaluated"] = _re_evaluated(earlier)
+            limitations.insert(0, body["re_evaluated"]["en"])
     body["limitations"] = limitations
     return {"inquiry_id": inquiry.inquiry_id, "conclusion": body,
             "statement": c.describe(), "by_runtime": by.count("runtime"),
             "by_agent": agent, "to_decide": to_decide,
             "sensitivity": {"tempers": sensitivity, "leader_holds_to": holds_to},
             "scaffold": record.get("scaffold") or None}
+
+
+def _re_evaluated(earlier: str) -> dict[str, str]:
+    """The one-line note on a saved inquiry whose verdict the acceptance rule changed."""
+    return {"rule": ACCEPTANCE_RULE, "earlier_verdict": earlier,
+            "en": f"re-evaluated under the {ACCEPTANCE_RULE} acceptance rule: an earlier "
+                  f"engine gave {earlier}; outcomes the agent classified no longer decide "
+                  "acceptance",
+            "zh": f"已按 {ACCEPTANCE_RULE} 接受规则重新评估：早先的引擎判为"
+                  f"{_VERDICT_ZH.get(earlier, earlier)}；智能体判定的结果不再决定是否接受"}
 
 
 def _sensitivity(inquiry: Any, leader: str) -> tuple[list[dict[str, Any]], float, str]:
