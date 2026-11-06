@@ -49,6 +49,14 @@ export class Limiter extends DurableObject {
   sourceSlot(host, rps, prefixes) {
     return this.core.sourceSlot(host, rps, Date.now(), prefixes);
   }
+
+  breaker(probe, settings) {
+    return this.core.breaker(probe, settings, Date.now());
+  }
+
+  breakerReport(outcome, settings, reset) {
+    return this.core.breakerReport(outcome, settings, reset, Date.now());
+  }
 }
 
 /** When the next daily retention pass runs: 03:17 UTC (quiet in Beijing and in Europe). */
@@ -282,15 +290,34 @@ function burstOf(env) {
 
 const deferOf = (ctx) => (promise) => ctx.waitUntil(Promise.resolve(promise).catch((err) => console.error("deferred", err?.name || "Error")));
 
+// The breaker as /v1/health last read it in this isolate, by Limiter binding: health answers anyone, and must not cost
+// a Durable Object call each time (the Free plan's daily requests are the limits' too). A model call always reads the
+// object itself, and what it and its outcome read is kept here as well.
+const HEALTH_BREAKER_MS = 10000;
+const breakerSeen = new WeakMap(); // env.LIMITER → {at, state}
+
 /** The relay's dependencies, bound to this Worker's bindings. */
 export function relayDeps(env, ctx) {
   const limiter = () => env.LIMITER.get(env.LIMITER.idFromName("limits")); // one object: exact counts for everyone
   const defer = deferOf(ctx);
   const cfg = telemetryConfig(env);
+  const keyed = env.LIMITER && typeof env.LIMITER === "object";
+  // a probe's grant is not what health reads (the breaker is open to every other call): not kept
+  const seen = (state) => {
+    if (keyed && state && typeof state === "object" && !state.probe) breakerSeen.set(env.LIMITER, { at: Date.now(), state });
+    return state;
+  };
   return {
     // throws when the object cannot be reached: the relay then refuses the call (fail closed)
     gate: ({ who, kind, limits, reserve }) => limiter().hit(who, kind, limits, reserve),
     spend: (who, kind, tokens) => limiter().spend(who, kind, tokens),
+    breaker: async ({ probe, settings }) => {
+      const held = keyed ? breakerSeen.get(env.LIMITER) : null;
+      const now = Date.now();
+      if (!probe && held && now - held.at < HEALTH_BREAKER_MS && !(held.state.open && now >= held.state.until)) return held.state;
+      return seen(await limiter().breaker(Boolean(probe), settings));
+    },
+    breakerReport: async ({ outcome, settings, reset }) => seen(await limiter().breakerReport(outcome, settings, reset)),
     pace: (host, rps, prefixes) => limiter().sourceSlot(host, rps, prefixes),
     burst: burstOf(env),
     defer,

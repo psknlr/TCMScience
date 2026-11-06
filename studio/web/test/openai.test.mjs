@@ -342,7 +342,7 @@ test("relay errors are told in the page's language, by type; the Chinese page ke
     const e4 = await errOf({ ...relay, fetch: fakeFetch(() => streamResponse([sse([{ error: { message: "Tao-S1 出错了", type: "upstream_error" } }])])) });
     assert.match(e4.message, /^Tao-S1's model service reported a problem/);
     assert.equal(e4.retryable, true);
-    for (const type of ["https_required", "forbidden_origin", "not_configured", "bad_request", "too_large", "model_not_allowed", "total_limit", "unavailable", "upstream_unreachable", "upstream_auth", "upstream_rate", "upstream_quota", "upstream_rejected", "relay_error", "not_relay", "not_found", "method_not_allowed"]) {
+    for (const type of ["https_required", "forbidden_origin", "not_configured", "bad_request", "too_large", "model_not_allowed", "total_limit", "unavailable", "upstream_unreachable", "upstream_auth", "upstream_rate", "upstream_quota", "upstream_rejected", "upstream_unknown", "relay_error", "not_relay", "not_found", "method_not_allowed"]) {
       const shown = relayError(type, "中文", {}, "en");
       assert.doesNotMatch(shown.text, /[\u3400-\u9fff]|core\.relay/, type);
       assert.doesNotMatch(shown.text, /minimax|abab|hailuo/i, type);

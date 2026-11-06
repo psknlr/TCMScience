@@ -74,6 +74,83 @@ test("public source slots pace every visitor by host, survive eviction and cap t
   assert.deepEqual(again.sourceSlot("api.example.org", 2, T + 11000), { ok: true, delay: 0 });
 });
 
+test("the upstream's breaker: open on a spent quota (until the upstream's reset), one probe per window, closed by a success; logged", () => {
+  const logs = [];
+  const saved = console.error;
+  console.error = (...a) => logs.push(a.join(" "));
+  try {
+    const sql = sqlStore();
+    const l = new LimiterCore(sql);
+    const settings = { open: 600, errors: 3, window: 60 };
+    assert.deepEqual(l.breaker(true, settings, T), { open: false });
+    assert.deepEqual(l.breakerReport("ok", settings, null, T), { open: false }); // closed: nothing to record
+    assert.deepEqual(l.breakerReport("released", settings, null, T), { open: false });
+    assert.deepEqual(logs, []);
+    // a spent quota with the upstream's reset time
+    assert.deepEqual(l.breakerReport("upstream_quota", settings, 1800, T), { open: true, reason: "upstream_quota", until: T + 1800000, retry: 1800 });
+    assert.deepEqual(logs, [`upstream breaker open upstream_quota ${new Date(T + 1800000).toISOString()}`]);
+    // the answers of calls sent before it opened change nothing (and are not logged again)
+    l.breakerReport("upstream_quota", settings, 60, T + 1000);
+    l.breakerReport("upstream_error", settings, null, T + 1000);
+    assert.equal(l.breaker(false, settings, T + 1000).until, T + 1800000);
+    assert.equal(logs.length, 1);
+    // an evicted object reads it back
+    const again = new LimiterCore(sql);
+    assert.deepEqual(again.breaker(true, settings, T + 60000), { open: true, reason: "upstream_quota", until: T + 1800000, retry: 1740 });
+    // past the reset: health sees it closed and takes no probe; the first model call is the probe, and the rest wait
+    const after = T + 1800000;
+    assert.deepEqual(again.breaker(false, settings, after), { open: false });
+    assert.deepEqual(again.breaker(true, settings, after), { open: false, probe: true });
+    assert.deepEqual(again.breaker(true, settings, after + 1000), { open: true, reason: "upstream_quota", until: after + 600000, retry: 599 });
+    // the probe answered: closed
+    assert.deepEqual(again.breakerReport("ok", settings, null, after + 2000), { open: false });
+    assert.equal(logs.at(-1), "upstream breaker closed");
+    assert.deepEqual(again.breaker(true, settings, after + 3000), { open: false });
+    assert.deepEqual(new LimiterCore(sql).breaker(true, settings, after + 3000), { open: false });
+    // without the upstream's reset time: BREAKER_OPEN_SECONDS; a probe that fails opens it again, one that learned
+    // nothing lets the next call try
+    again.breakerReport("upstream_quota", settings, null, after + 4000);
+    const w = after + 4000 + 600000;
+    assert.equal(again.breaker(false, settings, w - 1).until, w);
+    assert.deepEqual(again.breaker(true, settings, w), { open: false, probe: true });
+    again.breakerReport("released", settings, null, w + 10);
+    assert.deepEqual(again.breaker(true, settings, w + 20), { open: false, probe: true });
+    again.breakerReport("upstream_error", settings, null, w + 30);
+    assert.deepEqual(again.breaker(true, settings, w + 40), { open: true, reason: "upstream_error", until: w + 30 + 600000, retry: 600 });
+    assert.equal(logs.filter((x) => x.startsWith("upstream breaker open")).length, 3);
+    assert.equal(logs.filter((x) => x === "upstream breaker closed").length, 1);
+  } finally {
+    console.error = saved;
+  }
+});
+
+test("the breaker opens on `errors` upstream errors within `window` seconds, not on errors further apart", () => {
+  const l = new LimiterCore(sqlStore());
+  const settings = { open: 300, errors: 3, window: 60 };
+  const quietly = (fn) => {
+    const saved = console.error;
+    console.error = () => {};
+    try { return fn(); } finally { console.error = saved; }
+  };
+  quietly(() => {
+    assert.deepEqual(l.breakerReport("upstream_error", settings, null, T), { open: false });
+    assert.deepEqual(l.breakerReport("upstream_unknown", settings, null, T + 30000), { open: false });
+    assert.deepEqual(l.breakerReport("upstream_error", settings, null, T + 61000), { open: false }); // the first is past
+    assert.deepEqual(l.breakerReport("upstream_unknown", settings, null, T + 62000), { open: true, reason: "upstream_error", until: T + 362000, retry: 300 });
+    // what does not count, and settings that are not numbers
+    const other = new LimiterCore(sqlStore());
+    for (let i = 0; i < 5; i++) other.breakerReport("upstream_rate", settings, null, T + i);
+    assert.deepEqual(other.breaker(true, settings, T + 10), { open: false });
+    for (let i = 0; i < 3; i++) other.breakerReport("upstream_error", { open: "x", errors: null }, null, T + i);
+    assert.equal(other.breaker(false, {}, T + 10).until, T + 2 + 600000);
+  });
+  // a row that cannot be read is a closed breaker
+  const sql = sqlStore();
+  sql.exec("CREATE TABLE IF NOT EXISTS breaker (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
+  sql.exec("INSERT INTO breaker (k, v) VALUES ('upstream', 'not json')");
+  assert.deepEqual(new LimiterCore(sql).breaker(true, settings, T), { open: false });
+});
+
 test("path-specific source rates do not slow unrelated APIs on the same host", () => {
   const l = new LimiterCore(sqlStore());
   assert.deepEqual(l.sourceSlot("www.ebi.ac.uk", 10, T, { "/metagenomics/": 0.1 }), { ok: true, delay: 0 });

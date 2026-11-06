@@ -131,6 +131,43 @@ test("fail closed: the Durable Object out of reach refuses the call; the ratelim
   }
 }));
 
+test("the upstream's breaker lives in the Limiter object; health reads it at most once in ten seconds per isolate, a model call always", () => quiet(async () => {
+  const w = setup();
+  const reads = [];
+  const read = w.limiter.breaker.bind(w.limiter);
+  w.limiter.breaker = (probe, settings) => {
+    reads.push(probe);
+    return read(probe, settings);
+  };
+  const sent = [];
+  try {
+    assert.equal((await (await w.call("/v1/health")).json()).ok, true);
+    assert.equal((await (await w.call("/v1/health")).json()).ok, true);
+    assert.deepEqual(reads, [false]); // the second from this isolate's copy: health costs no object call each time
+    globalThis.fetch = async (url) => {
+      sent.push(String(url));
+      return new Response(JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。 (2056)" } }),
+        { status: 429, headers: { "Content-Type": "application/json" } });
+    };
+    const res = await w.call("/v1/chat/completions", chat());
+    assert.deepEqual([res.status, (await res.json()).error.type], [503, "upstream_quota"]);
+    assert.deepEqual(reads, [false, true]);
+    // the outcome's state is what health tells now, without another read
+    const h = await (await w.call("/v1/health")).json();
+    assert.deepEqual([h.ok, h.reason, Date.parse(h.until) > Date.now() + 590000], [false, "upstream_quota", true]);
+    assert.deepEqual(reads, [false, true]);
+    // in the object's storage, one key; the next model call is answered there, unsent and uncounted
+    const [row] = w.limiter.core.sql.exec("SELECT k, v FROM breaker").toArray();
+    assert.deepEqual([row.k, JSON.parse(row.v).reason], ["upstream", "upstream_quota"]);
+    const again = await w.call("/v1/chat/completions", chat());
+    assert.deepEqual([again.status, (await again.json()).error.type], [503, "upstream_quota"]);
+    assert.equal(sent.length, 1);
+    assert.equal(w.limiter.core.sql.exec("SELECT n FROM hits WHERE k LIKE 'd:chat:%'").toArray()[0].n, 1);
+  } finally {
+    await w.done();
+  }
+}));
+
 test("a path that matches no file: a navigation gets the app (with the page headers), anything else a true 404", async () => {
   const w = setup();
   try {

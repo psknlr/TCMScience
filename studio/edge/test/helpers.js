@@ -46,8 +46,9 @@ export function jsonReply(o, status = 200) {
 }
 
 /**
- * The relay as the Worker binds it, with fakes: `gate` is the Durable Object's hit() on node:sqlite, `fetch` records
- * every upstream call, `defer` collects what the Worker would finish after answering (ctx.waitUntil).
+ * The relay as the Worker binds it, with fakes: `gate` is the Durable Object's hit() on node:sqlite, the breaker its
+ * breaker() and breakerReport() (`reports` lists the outcomes told), `fetch` records every upstream call, `defer`
+ * collects what the Worker would finish after answering (ctx.waitUntil).
  */
 export function relay({ env = {}, upstream, now = () => NOON, burst, gateFails = false, gateAnswer } = {}) {
   const limiter = new LimiterCore(sqlStore());
@@ -56,7 +57,13 @@ export function relay({ env = {}, upstream, now = () => NOON, burst, gateFails =
   const bursts = [];
   const gates = [];
   const spends = [];
+  const reports = [];
   const deps = {
+    breaker: async ({ probe, settings }) => limiter.breaker(probe, settings, now()),
+    breakerReport: async ({ outcome, settings, reset }) => {
+      reports.push(outcome);
+      return limiter.breakerReport(outcome, settings, reset, now());
+    },
     gate: async (args) => {
       gates.push(args);
       if (gateFails) throw new Error("Durable Object unreachable");
@@ -85,7 +92,7 @@ export function relay({ env = {}, upstream, now = () => NOON, burst, gateFails =
     const row = limiter.sql.exec("SELECT n FROM hits WHERE k LIKE 'k:chat:%'").toArray()[0];
     return row ? Number(row.n) : 0;
   };
-  return { call, calls, limiter, settle, bursts, gates, spends, tokens, deps, env: fullEnv };
+  return { call, calls, limiter, settle, bursts, gates, spends, reports, tokens, deps, env: fullEnv };
 }
 
 export const post = (body, headers = {}) => ({

@@ -26,7 +26,7 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
-| GET | `/v1/health` | `{ok, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, limits:{per_minute, per_day, tokens_per_day}}`。没有密钥或 `RELAY = "off"` 时 `ok:false`，网页据此改用访客自己的模型 |
+| GET | `/v1/health` | `{ok, reason?, until?, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, limits:{per_minute, per_day, tokens_per_day}}`。没有密钥或 `RELAY = "off"` 时 `ok:false`，网页据此改用访客自己的模型；上游断路器打开时也是 `ok:false`，并带 `reason`（`upstream_quota` 或 `upstream_error`）与 `until`（ISO 时间，在此之前不转发调用） |
 | GET | `/v1/models` | `{object:"list", data:[{id:"Tao-S1", object:"model", owned_by:"impf"}]}` |
 | POST | `/v1/chat/completions` | OpenAI 格式（流式或非流式）。`model` 只能是 `Tao-S1` 或不写；网页把 `model` 写成 JSON 的**第一个键**，中继就只改这一段文本、不重新序列化整段对话 |
 | GET | `/api/sources/health` | 网关状态、已注册数据库及操作数量、数据大小与调用频率上限；不要求模型密钥 |
@@ -40,8 +40,9 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
 
 错误一律是 `{"error":{"message","type"}}`，`message` 是告诉访客怎么办的中文，`type` 是：
 `forbidden_origin`、`not_configured`、`bad_request`、`too_large`、`model_not_allowed`、`rate_limited`、`daily_limit`、
-`total_limit`、`unavailable`、`upstream_auth`、`upstream_rate`、`upstream_quota`、`upstream_error`、`upstream_rejected`、
-`upstream_unreachable`、`relay_error`，以及 `https_required`、`not_found`、`method_not_allowed`。每个 429 都带 `Retry-After`。
+`total_limit`、`unavailable`、`upstream_auth`、`upstream_rate`、`upstream_quota`、`upstream_error`、`upstream_unknown`、
+`upstream_rejected`、`upstream_unreachable`、`relay_error`，以及 `https_required`、`not_found`、`method_not_allowed`。每个 429 都带
+`Retry-After`；断路器打开时的 503 也带（到它再放行一次调用的秒数）。
 统计与后台另有 `too_large`、`consent_outdated`、`analytics_off`、`records_off`、`bad_key`、`admin_off`、`unauthorized`、`forbidden`、
 `admin_locked`、`bad_token`、`cross_site`、`bad_dataset`。
 
@@ -72,8 +73,21 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
 - **访客不留地址**：计数用 `sha256(VISITOR_SALT | IP（IPv6 取 /64）| UTC 日期)` 的前 24 位，IP 本身不存；Worker 的调用日志
   （invocation logs）关闭，只保留它自己的一行错误（状态码或错误名）。同一出口 IP 后的访客（例如一个实验室）共用限额。
   使用统计的每日访客数另用每天更换、次日删除的随机盐，安全日志只存月度哈希与网段（TELEMETRY.md「IP 地址」）。
+- **上游额度与断路器**：上游的报错按它自己的话分类，访客只看到中继的一句话。429 或 200 回复里的 `base_resp`，只要含有
+  `QUOTA_MARKERS` 中的一项（代码或类型完全相同，或含空格、汉字的一句话出现在上游消息里），就是 503 `upstream_quota`（额度用完，
+  网页不重试、不显示「重试」）；402 与代码 1008（余额为零）一直如此。默认标记来自上游自己的回答：2026-11-04 Token Plan
+  用完时它回的是 HTTP 429 `rate_limit_error`「已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。 (2056)」。
+  不含标记的 429 仍是每分钟的限流 `upstream_rate`（带上游的 `Retry-After`，网页稍后重试）。`base_resp` 里中继既没有对照、
+  也不在 `TRANSIENT_CODES` 里的代码是 502 `upstream_unknown`，代码记进 Worker 日志，供所有者补进配置。
+  断路器是 `LIMITER` 里的一个键（全站一个）：额度用完时立即打开，`BREAKER_ERROR_SECONDS` 秒内 `BREAKER_ERRORS` 次
+  `upstream_error` / `upstream_unknown` 时也打开；打开期间每个模型调用当场答 503（额度用完时 `upstream_quota`，否则
+  `upstream_error`），不发往上游，也不计入访客的限额。它开到上游给出的重置时间（429 的 `Retry-After`，最多一天），没有就开
+  `BREAKER_OPEN_SECONDS` 秒；之后放行一次调用去试，成功就关上，又遇到额度用完或报错就再开一轮，没得到上游答复（被限额拒绝、
+  连不上）就让下一次调用再试。每次打开、关上都记一行 Worker 日志。打开期间 `/v1/health` 是 `ok:false` 并带 `reason`、
+  `until`；网页据此在输入框上方说明「Tao-S1 在 HH:MM 前不可用」，访客配置了别的模型时提供一键把本对话改用它（不会自动切换）。
+  health 对任何人开放，所以同一个 Worker 实例 10 秒内只读一次断路器（模型调用每次都读）。
 - **失败时关闭**：Durable Object 不可达时拒绝调用（503 `unavailable`），绝不放出不计数的调用；`BURST` 绑定本身出错时放行到
-  Durable Object（它仍然计数）。
+  Durable Object（它仍然计数）。读不到断路器时不拦调用，交给限额去判断。
 - **取消**：访客停止回答或关掉页面时，上游调用随之中止（`enable_request_signal`），不再继续计费。
 - **只走 https**：http 请求 403（本机 `localhost` / `127.0.0.1` 除外）；生产环境里 impf.ai 区域的 Always Use HTTPS 会先把 http 301 到 https。
 
@@ -128,6 +142,9 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 | `PER_MINUTE` / `PER_DAY` / `TOTAL_PER_DAY` | `40` / `1200` / `20000` | 模型调用次数：每人每分钟、每人每天、全体每天（`0` 不限） |
 | `TOKENS_PER_DAY` / `TOTAL_TOKENS_PER_DAY` | `10000000` / `200000000` | token：每人每天、全体每天（`0` 不限） |
 | `ALLOWED_ORIGINS` | `https://science.impf.ai,http://127.0.0.1:8765,http://localhost:8765` | 可以调用中继的网页来源（完全匹配） |
+| `QUOTA_MARKERS` | `2056,Token Plan 用量上限` | 上游报错里表示「套餐额度用完」而不是每分钟限流的标记（逗号分隔）：代码、类型，或上游消息里的一句话。只从上游自己的回答里取，不要猜 |
+| `TRANSIENT_CODES` | `1000,1001,1013` | 上游 `base_resp` 里属于它自身临时故障的代码（未知错误、超时、内部错误）：`upstream_error`，网页会重试；其余没有对照的代码是 `upstream_unknown` |
+| `BREAKER_OPEN_SECONDS` / `BREAKER_ERRORS` / `BREAKER_ERROR_SECONDS` | `600` / `3` / `60` | 断路器：上游没给重置时间时打开多少秒（60–86400）；多少秒内多少次上游错误就打开 |
 | `HSTS_MAX_AGE` | `15552000` | Worker 自己回答的 HSTS（区域的 HSTS 设置会覆盖它） |
 | `SOURCES` | `on` | `off`：暂停数据库网关，不影响网页和模型中继 |
 | `SOURCE_MAX_BODY_BYTES` / `SOURCE_MAX_RESPONSE_BYTES` | `393216` / `8388608` | 数据库请求包及响应的字节上限；响应最大可配置为 16 MiB |

@@ -5,8 +5,8 @@ import { lang, t } from "../core/i18n.js";
 import { fill, formatBytes, h, shortcutLabel, uid } from "./dom.js";
 import { icon } from "./icons.js";
 import { openDialog, toast } from "./overlay.js";
-import { computeChipLabel, computePanel, modelChipLabel, modelPanel, openComputePopover, openModelPopover, runnerTone } from "./panels.js";
-import { iconButton, progressBar, statusDot, switchControl } from "./primitives.js";
+import { availableProviders, computeChipLabel, computePanel, modelChipLabel, modelPanel, openComputePopover, openModelPopover, runnerTone } from "./panels.js";
+import { button, iconButton, notice, progressBar, statusDot, switchControl } from "./primitives.js";
 import { inlinedInPrompt } from "./files.js";
 
 const BROWSER_SIZE_GUARD = 200 * 1024 * 1024;
@@ -37,7 +37,9 @@ export function mountComposer(app, { variant = "dock", autofocus = false, keepFo
         chips),
       sendBtn),
     drop);
-  const el = h("div", { class: ["composer", `composer--${variant}`] }, box, fileInput,
+  // Tao-S1 paused by its relay (the upstream's quota spent, or failing): said above the box, before anything is sent
+  const banner = h("div.composer__banner", { hidden: true });
+  const el = h("div", { class: ["composer", `composer--${variant}`] }, banner, box, fileInput,
     h("p.composer__foot", t("ui.composer.foot")));
 
   // ------------------------------------------------------------------------------------------------ text
@@ -188,6 +190,12 @@ export function mountComposer(app, { variant = "dock", autofocus = false, keepFo
     chipEls.webLabel.textContent = on ? t("ui.web.on") : t("ui.web.off");
   }
 
+  function renderBanner() {
+    const shown = relayBanner(app);
+    banner.hidden = !shown;
+    fill(banner, shown);
+  }
+
   // ------------------------------------------------------------------------------------------------ attachments
 
   fileInput.addEventListener("change", () => {
@@ -268,10 +276,13 @@ export function mountComposer(app, { variant = "dock", autofocus = false, keepFo
     app.on("route", renderSend),
     app.on("model", renderChips), app.on("runtime", renderChips), app.on("settings", renderChips), app.on("web", renderChips),
     app.on("project", renderChips), app.on("layout", renderChips), app.on("conversation", renderChips),
+    app.on("relay", renderBanner), app.on("model", renderBanner), app.on("settings", renderBanner), app.on("conversation", renderBanner),
+    app.on("project", renderBanner),
     app.on("attach", () => fileInput.click()),
   ];
   renderChips();
   renderSend();
+  renderBanner();
   requestAnimationFrame(grow);
   if (autofocus && (keepFocus || app.state.layout !== "mobile")) requestAnimationFrame(() => ta.focus({ preventScroll: true }));
 
@@ -294,6 +305,38 @@ export function mountComposer(app, { variant = "dock", autofocus = false, keepFo
       window.removeEventListener("drop", onDrop);
     },
   };
+}
+
+/**
+ * The banner over the composer while the Tao-S1 relay says its upstream is paused (its health's reason and until), for
+ * a conversation that would ask Tao-S1: "Tao-S1 is unavailable until HH:MM", why, and, when the user has another model
+ * set up (an API with its key, a custom endpoint, a local server), one click that sets this conversation's model to it
+ * for its next turn. Nothing switches by itself, and no turn is carried on with another model. → an element, or null.
+ */
+export function relayBanner(app, now = Date.now()) {
+  const relay = app.state.relay;
+  if (!relay || relay.ok || !relay.reason || !relay.until) return null;
+  const until = Date.parse(relay.until);
+  if (!Number.isFinite(until) || until <= now || !app.provider().relay) return null;
+  const other = availableProviders(app).find((p) => !p.relay);
+  const model = other ? app.state.settings.models?.[other.id] || other.default_model || "" : "";
+  const body = [t(relay.reason === "upstream_quota" ? "ui.relay.paused_quota" : "ui.relay.paused_error"), other ? "" : t("ui.relay.paused_own")]
+    .filter(Boolean).join(lang() === "zh" ? "" : " ");
+  return notice({
+    tone: "warn", role: "status", className: "composer__notice", title: t("ui.relay.paused", { time: clockTime(until, now) }), body,
+    actions: other ? [button({
+      label: t("ui.relay.switch", { name: model || other.label }), size: "sm", icon: "sparkles", attrs: { "data-key": "relay-switch" },
+      onClick: () => app.chooseModel({ provider: other.id, model }),
+    })] : [],
+  });
+}
+
+/** A time as the user's clock shows it, HH:MM, with the date (MM-DD) when it is not today. */
+export function clockTime(at, now = Date.now()) {
+  const d = new Date(at);
+  const pad = (n) => String(n).padStart(2, "0");
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return d.toDateString() === new Date(now).toDateString() ? time : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`;
 }
 
 /** On phones the mode/model/compute chips collapse into one sheet (DESIGN §8.3). */

@@ -56,6 +56,20 @@ TOKENS_PER_DAY = "10000000"
 TOTAL_TOKENS_PER_DAY = "200000000"
 # exact origins of the pages that may call the relay: the site, and the app as the local runner serves it
 ALLOWED_ORIGINS = "https://science.impf.ai,http://127.0.0.1:8765,http://localhost:8765"
+# what in an upstream failure means its plan's quota is spent, not a per-minute limit (comma-separated): a code or type,
+# or words of its message. Taken from the upstream's own answers, never guessed: on 2026-11-04 it answered HTTP 429
+# rate_limit_error "已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。 (2056)". A 402 and code 1008 (no
+# balance) always count. A spent quota is told to visitors as such, is not retried, and opens the breaker.
+QUOTA_MARKERS = "2056,Token Plan 用量上限"
+# base_resp codes the upstream reports for a passing fault of its own (unknown error, timeout, internal error): told as
+# upstream_error, which the page retries. Any other code the relay has no entry for is upstream_unknown, logged with it.
+TRANSIENT_CODES = "1000,1001,1013"
+# the upstream's circuit breaker (one key in the LIMITER object): it opens on a spent quota, or on BREAKER_ERRORS
+# upstream errors within BREAKER_ERROR_SECONDS; open, every call is answered at once, unsent and uncounted, until the
+# upstream's reset time when it gave one, else for BREAKER_OPEN_SECONDS; then one call tries the upstream again
+BREAKER_OPEN_SECONDS = "600"
+BREAKER_ERRORS = "3"
+BREAKER_ERROR_SECONDS = "60"
 HSTS_MAX_AGE = "15552000"
 # Registry-only read access for all built-in data connectors (runtime/source-gateway.json).
 # Same origin bypasses public APIs' browser CORS restrictions. No arbitrary URL proxy.

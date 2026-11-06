@@ -243,7 +243,7 @@ cd studio && npm install && npm run test:e2e
 | `browser.spec.mjs` | 无 Runner：Pyodide 从 jsDelivr 启动，同一问题在浏览器中运行，Skill 内容哈希与输出文件哈希与本机 Python 相同（CDN 不可达时：在本地跳过并说明原因；在 CI 中失败） |
 | `browser-access.spec.mjs` | 浏览器中的 Python 读取完整方剂表；联网关闭时数据库调用被拒绝且不发出请求，开启后经同源网关（真实的网关代码，上游为模拟）调用 `connector.mygene.gene`；距离矩阵在 `auto` 加速（WebGPU 或 WebAssembly SIMD，由运行时选择；CI 的无头 Chromium 至多有软件适配器，运行时会拒绝它，因此在 CPU 上算）、CPU 内核与参考 Python 三者结果一致（CDN 不可达时同上） |
 | `approvals.spec.mjs` | `run_pipeline` 的批准卡片：拒绝 → 模型读到 refused；「本项目允许」写入项目并在刷新后仍然有效；后台任务的卡片跟随 Runner 事件直到收集完成，任务文件从 Runner 取来预览，模型用 `job_status` 跟进；联网：项目未开启时不调用也不询问，开启后批准卡片列出主机，再由 Runner 自己的联网开关决定 |
-| `relay.spec.mjs` | `wrangler dev` 运行 `studio/edge`，上游指向模拟服务：默认模型 Tao-S1 流式回答，思考格式往返改名，身份问题关闭思考，页面、存储和中继回复都不出现上游名称；Tao-S1 调用工具并在浏览器中运行（CDN 不可达时：在本地跳过这一部分并说明原因；在 CI 中失败）。Worker 启动失败就是失败；只有在 CI 之外、npm 源不可达（取不到 wrangler）时才跳过 |
+| `relay.spec.mjs` | `wrangler dev` 运行 `studio/edge`，上游指向模拟服务：默认模型 Tao-S1 流式回答，思考格式往返改名，身份问题关闭思考，页面、存储和中继回复都不出现上游名称；Tao-S1 调用工具并在浏览器中运行（CDN 不可达时：在本地跳过这一部分并说明原因；在 CI 中失败）；上游套餐额度用完时，页面如实说明（不显示「重试」，上游只被调用一次），输入框上方说明 Tao-S1 何时可再用，并一键把本对话改用访客自己的模型。Worker 启动失败就是失败；只有在 CI 之外、npm 源不可达（取不到 wrangler）时才跳过 |
 | `mobile.spec.mjs` | 手机（390×844、触控、CPU 降速 4 倍）、无 Runner：受治理 Skill 在手机浏览器的 Pyodide 中运行，内容哈希与本机 Python 相同，页面无横向滚动（CDN 不可达时同上） |
 | `pages.spec.mjs` | 首次引导、设置（经表单添加并测试自定义模型）、工具目录、关于；手机视口 390×844；深色主题；无障碍基本检查（可访问名称、地标、焦点、未翻译的键） |
 | `a11y.spec.mjs` | 键盘与读屏：跳转链接按下后焦点到目标、路由不变；输入法组字时的 Enter 不发送、Esc 不停止回答；首次发送、停止、批准之后以及菜单、抽屉按 Esc 之后焦点的去向；实时区域的播报；axe-core 检查主要页面（浅色/深色、桌面/手机、中文/英文）、没有结果的命令面板与受治理的回答（中文/英文），严重（serious/critical）问题即失败 |

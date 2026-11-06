@@ -61,7 +61,7 @@ const SITE = "https://science.impf.ai";
 // whole numbers, with their least value (config() reads a smaller or mistyped one as its default, silently)
 const NUMBERS = {
   MAX_OUTPUT_TOKENS: 1, MAX_BODY_BYTES: 1, PER_MINUTE: 0, PER_DAY: 0, TOTAL_PER_DAY: 0, TOKENS_PER_DAY: 0,
-  TOTAL_TOKENS_PER_DAY: 0, HSTS_MAX_AGE: 0,
+  TOTAL_TOKENS_PER_DAY: 0, HSTS_MAX_AGE: 0, BREAKER_OPEN_SECONDS: 1, BREAKER_ERRORS: 1, BREAKER_ERROR_SECONDS: 1,
   SOURCE_MAX_BODY_BYTES: 1024, SOURCE_MAX_RESPONSE_BYTES: 1024, SOURCE_TIMEOUT_MS: 1000,
   SOURCE_PER_MINUTE: 1, SOURCE_PER_DAY: 1, SOURCE_TOTAL_PER_DAY: 1,
 };
@@ -106,6 +106,15 @@ function problems(vars) {
     }
   }
   if (has("MODELS") && !text.MODELS.split(",").some((m) => m.trim())) say("MODELS", "names no model");
+  // what says the upstream's quota is spent: codes, types or words of its messages, from its own answers
+  if (has("QUOTA_MARKERS") && !text.QUOTA_MARKERS.split(",").some((m) => m.trim())) say("QUOTA_MARKERS", "names no marker");
+  if (has("TRANSIENT_CODES") && !text.TRANSIENT_CODES.split(",").every((c) => /^\d{1,9}$/.test(c.trim()))) {
+    say("TRANSIENT_CODES", "must be the upstream's base_resp codes (numbers), comma-separated");
+  }
+  // a breaker open for less than a minute only lets the spent quota answer again; longer than a day hides a reset
+  if (has("BREAKER_OPEN_SECONDS") && (Number(text.BREAKER_OPEN_SECONDS) < 60 || Number(text.BREAKER_OPEN_SECONDS) > 86400)) {
+    say("BREAKER_OPEN_SECONDS", "must be from 60 to 86400 seconds");
+  }
   if (has("PUBLIC_MODEL") && text.PUBLIC_MODEL !== "Tao-S1") say("PUBLIC_MODEL", "must be Tao-S1, the only model name a visitor sees");
   if (has("UPSTREAM_FIELDS")) {
     let f = null;
@@ -146,9 +155,11 @@ test("wrangler.toml's [vars] are the variables the relay reads, each well formed
   assert.deepEqual(c.upstreamFields, JSON.parse(toml.vars.UPSTREAM_FIELDS));
   assert.ok(c.origins.includes(SITE));
   for (const [k, read] of [["PER_MINUTE", c.chat.perMinute], ["PER_DAY", c.chat.perDay], ["TOTAL_PER_DAY", c.chat.total],
-    ["TOKENS_PER_DAY", c.chat.tokensPerDay], ["TOTAL_TOKENS_PER_DAY", c.chat.totalTokens], ["MAX_OUTPUT_TOKENS", c.maxTokens]]) {
+    ["TOKENS_PER_DAY", c.chat.tokensPerDay], ["TOTAL_TOKENS_PER_DAY", c.chat.totalTokens], ["MAX_OUTPUT_TOKENS", c.maxTokens],
+    ["BREAKER_OPEN_SECONDS", c.breaker.open], ["BREAKER_ERRORS", c.breaker.errors], ["BREAKER_ERROR_SECONDS", c.breaker.window]]) {
     assert.equal(read, Number(toml.vars[k]), k);
   }
+  assert.deepEqual(c.quotaMarkers, toml.vars.QUOTA_MARKERS.split(",").map((m) => m.trim()).filter(Boolean));
 });
 
 test("every [vars] change the docs tell the owner to make passes, and takes effect", () => {
@@ -169,6 +180,12 @@ test("every [vars] change the docs tell the owner to make passes, and takes effe
     ["TOTAL_TOKENS_PER_DAY", '"50000000"', (c) => assert.equal(c.chat.totalTokens, 50000000)],
     ["TOKENS_PER_DAY", '"2e6"', (c) => assert.equal(c.chat.tokensPerDay, 2000000)],
     ["MAX_OUTPUT_TOKENS", '"4096"', (c) => assert.equal(c.maxTokens, 4096)],
+    // the upstream's quota markers and passing faults, from its own answers (README 上游额度与断路器), and the breaker
+    ["QUOTA_MARKERS", '"2056,Token Plan 用量上限,insufficient_quota"', (c) => assert.deepEqual(c.quotaMarkers, ["2056", "Token Plan 用量上限", "insufficient_quota"])],
+    ["TRANSIENT_CODES", '"1000,1001,1013,1033"', (c) => assert.deepEqual([...c.transient], ["1000", "1001", "1013", "1033"])],
+    ["BREAKER_OPEN_SECONDS", '"300"', (c) => assert.equal(c.breaker.open, 300)],
+    ["BREAKER_ERRORS", '"5"', (c) => assert.equal(c.breaker.errors, 5)],
+    ["BREAKER_ERROR_SECONDS", '"120"', (c) => assert.equal(c.breaker.window, 120)],
     // the model, and the pages that may call the relay
     ["MODELS", '"MiniMax-M3-pro,MiniMax-M3"', (c) => assert.equal(c.model, "MiniMax-M3-pro")],
     ["ALLOWED_ORIGINS", `"${SITE},http://127.0.0.1:9000"`, (c) => assert.deepEqual(c.origins, [SITE, "http://127.0.0.1:9000"])],
@@ -214,6 +231,8 @@ test("a mistake in [vars] is named, with the variable", () => {
     ["PER_MINUTE", '"10"'], ["PER_DAY", '"8"'], ["TOTAL_PER_DAY", '"15"'], ["MAX_OUTPUT_TOKENS", '"0"'], ["HSTS_MAX_AGE", '"half a year"'],
     ["ALLOWED_ORIGINS", '"http://127.0.0.1:8765"'], ["ALLOWED_ORIGINS", `"${SITE}/,http://localhost:8765"`],
     ["ALLOWED_ORIGINS", `"${SITE},localhost:8765"`],
+    ["QUOTA_MARKERS", '" , "'], ["TRANSIENT_CODES", '"1013,timeout"'], ["BREAKER_OPEN_SECONDS", '"10"'], ["BREAKER_OPEN_SECONDS", '"a week"'],
+    ["BREAKER_ERRORS", '"0"'], ["BREAKER_ERROR_SECONDS", '"-60"'],
     ["TELEMETRY", '"maybe"'], ["TELEMETRY_GEO", '"city"'], ["TELEMETRY_GEO", '"region"'], ["SECURITY_RAW_IP", '"always"'], ["RETENTION_CONVERSATIONS_DAYS", '"0"'],
     ["RETENTION_SECURITY_DAYS", '"forever"'], ["TELEMETRY_UTC_OFFSET", '"24"'], ["ADMIN_SESSION_SECONDS", '"60"'], ["TELEMETRY_MAX_BODY_BYTES", '"100"'],
   ];

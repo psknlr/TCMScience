@@ -237,7 +237,8 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 | 检查步骤报 `503 upstream_quota`，直接调用的结果是 `HTTP 402, error insufficient_balance_error "insufficient balance (1008)"` | 这把密钥所属的 MiniMax 账户余额为零（按量付费的密钥从账户余额扣费） | 在 MiniMax 控制台给该账户充值（国内站：账户管理 → 充值），几分钟后重跑 studio；不用改任何配置 |
 | 检查步骤刚部署完就报 `Tao-S1 is off`，但 `/v1/health` 随后显示 `"ok":true` | 刚写入的机密要几秒到一两分钟才到达各地的边缘节点 | 检查步骤现在最多等 2 分钟（`--settle`）。仍报这个错时，确认仓库 Secret `MINIMAX_API_KEY` 已设，重跑 studio |
 | 检查步骤报 `the model service refused the key` | 国际站密钥配了国内地址（或反之），或者密钥已删除、填错 | 按第 6 步改 `UPSTREAM_BASE`；或更新 `MINIMAX_API_KEY` 后重跑 |
-| 检查步骤或网页提示“额度暂时用完了”“暂时繁忙” | MiniMax 余额不足，或 Token Plan 当前窗口的额度用完、调用过于频繁 | 充值，或等下一个窗口。公开网站建议用按量付费的密钥 |
+| 检查步骤或网页提示“额度暂时用完了”“暂时繁忙” | “额度用完”：MiniMax 余额不足，或 Token Plan 当前窗口的额度用完；“暂时繁忙”：每分钟调用过于频繁 | 充值，或等下一个窗口。公开网站建议用按量付费的密钥 |
+| 检查步骤报 `Tao-S1 is paused by the relay's upstream breaker until … (upstream_quota)`，网页输入框上方显示「Tao-S1 在 HH:MM 前不可用」 | 上游的额度用完（余额为零，或 Token Plan 额度用完），中继的断路器打开：到 `until` 之前每个调用当场答复，不发往上游、不计入访客限额（README「上游额度与断路器」） | 充值或等套餐重置，不用改配置：到时断路器放行一次调用去试，成功就关上。`(upstream_error)`：上游接连出错，到时同样自动再试。上游换了表示额度用完的说法（检查步骤后半句是直接调用上游得到的原话）时，把它的代码或那句话加进 `wrangler.toml` 的 `QUOTA_MARKERS` |
 | 网页提示“Tao-S1 只供 TCMScience Studio 网页使用” | 网页的地址不在 `ALLOWED_ORIGINS` 里，或浏览器扩展去掉了 `Origin` | 换了网址时，把新地址加进 `ALLOWED_ORIGINS` 并重新部署 |
 | 访客看到“请求太频繁”或“今天的 Tao-S1 免费额度已用完” | 触发了中继的限额（同一出口 IP 的访客共用） | 这是正常的保护，北京时间 8:00 重置。需要时调高 `PER_MINUTE`、`PER_DAY`、`TOTAL_PER_DAY`；“（按用量计）”的是 token 额度 `TOKENS_PER_DAY`、`TOTAL_TOKENS_PER_DAY` |
 | 访客看到“Tao-S1 暂时不可用” | 限额计数（Durable Object）暂时连不上，中继宁可拒绝也不放出不计数的调用 | 通常几秒内恢复；持续出现时看 Worker 的 **Logs** |
