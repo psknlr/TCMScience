@@ -537,7 +537,7 @@ function checkDetail(f) {
     case "banned_term": return f.use
       ? t("ui.check.detail.banned_term_use", { term: f.form || f.term, use: zh ? f.use.replace(/ or /g, "或") : f.use })
       : t("ui.check.detail.banned_term", { term: f.form || f.term });
-    case "released_wording": return t("ui.check.detail.released_wording", { term: f.term });
+    case "released_wording": return t("ui.check.detail.released_wording", { term: f.form || f.term });
     case "refusal_unreported": return t("ui.check.detail.refusal_unreported", { codes: (f.codes || []).join(zh ? "、" : ", ") || "—" });
     case "uncited_with_evidence": return t("ui.check.detail.uncited_with_evidence", { n: f.citations });
     case "overclaim_inquiry": {

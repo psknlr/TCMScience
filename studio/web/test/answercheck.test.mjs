@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 import { KINDS, RULES, checkAnswer, checkTurn, citedIds, excerpt, inquiryConclusionsOf, mentionsCode, refusedClaimCodes } from "../js/core/answercheck.js";
-import { BANNED_TERMS, VOCABULARY, buildSystemPrompt } from "../js/core/prompt.js";
+import { BANNED_TERMS, SUPERLATIVES, VOCABULARY, buildSystemPrompt } from "../js/core/prompt.js";
 import { plan } from "../../e2e/mock-llm.mjs";
 
 const FIX = (name) => JSON.parse(fs.readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
@@ -173,6 +173,25 @@ test("the banned words are the prompt's: each is in the rendered rule of its lan
     for (const term of w.not) assert.equal(BANNED_TERMS.some((b) => b.term === term), false, term);
   }
   assert.throws(() => { BANNED_TERMS[0].term = "x"; }, TypeError, "the list is frozen");
+  // superlatives: the rule forbids them as a class ("or superlatives", "No superlatives"); the check reads the list of
+  // those said of efficacy or safety, each as a banned term with no word given instead
+  assert.match(buildSystemPrompt({ lang: "zh", provider: { relay: true }, env: { date: "2026-11-06" } }), /or superlatives\./);
+  assert.match(buildSystemPrompt({ lang: "en", provider: { relay: true }, env: { date: "2026-11-06" } }), /No superlatives\./);
+  for (const term of SUPERLATIVES.zh) assert.deepEqual(checkAnswer(`这首方剂${term}。`).findings.map((f) => [f.kind, f.term, f.use]), [["banned_term", term, null]], term);
+  for (const term of SUPERLATIVES.en) assert.deepEqual(checkAnswer(`This is the ${term}.`).findings.map((f) => [f.kind, f.term, f.use]), [["banned_term", term, null]], term);
+  assert.throws(() => { SUPERLATIVES.zh[0] = "x"; }, TypeError, "the list is frozen");
+});
+
+test("release wording: the runner's own words for a release (已准予发布, release authorized) and not its words for none", () => {
+  const marked = (s) => checkAnswer(s).findings.filter((f) => f.kind === "released_wording").map((f) => [f.term, f.form]);
+  assert.deepEqual(marked("分析结果已准予发布。"), [["已准予发布", "已准予发布"]]);
+  assert.deepEqual(marked("该结果已获准发布。"), [["已获准发布", "已获准发布"]]);
+  assert.deepEqual(marked("The result's release is authorized."), [["release authorized", "release is authorized"]]);
+  assert.deepEqual(marked("Release authorised for this analysis."), [["release authorized", "Release authorised"]]);
+  // what the runner says of a result it did not release (dispatch.py _release_tail), as an answer may quote it
+  for (const s of ["分析 · 未准予发布（3/6）", "结果尚未准予发布。", "是否准予发布由内核判定。", "结果未获准发布。", "Analysis · not released (3/6)", "Release not authorised (3/6).", "The result is not authorized for release."]) assert.deepEqual(marked(s), [], s);
+  // a release a tool authorized may be stated
+  assert.equal(checkAnswer("该结果已准予发布。", { turnEnvelopes: [FIX("envelope_safety_released.json")] }).counts.released_wording, 0);
 });
 
 test("report-only: the answer and the envelopes are unchanged, and the same input gives the same findings", () => {

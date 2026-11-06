@@ -108,9 +108,11 @@ Worker 另加 `seq`（递增编号）、`received`（收到时间）、`day`（�
 
 **回答检查**（`web/js/core/answercheck.js`，网页在一轮结束时对回答做的检查，只作提示，从不改动或拦下回答）在 `turn_end` 里
 只留每类的处数，不留回答的任何文字：`citations_unresolved`（回答里的 `[E#]` 不是本轮所在分支上任何工具给出的编号，与网页
-的判定相同）、`banned_terms`（治理规则不用的词，如「证明」「安全」；否定、提问、条件或尚需、目的、引号与代码里的不算，如
-「未证实」「其机制需进一步研究证实」「要证明疗效，……」）、`refusal_unreported`（内核拒绝了本轮的主张，回答既没写拒绝代码也
-没说拒绝）、`released_wording`（本轮没有结果获准发布，回答却说 released / 已发布 / 已放行）、`overclaim_inquiry`（本轮的
+的判定相同）、`banned_terms`（治理规则不用的词，如「证明」「安全」，以及规则不许用的最高级里说疗效或安全的，如「最有效」
+「最安全」「most effective」；否定、提问、条件或尚需、目的、引号与代码里的不算，如「未证实」「其机制需进一步研究证实」
+「要证明疗效，……」）、`refusal_unreported`（内核拒绝了本轮的主张，回答既没写拒绝代码也
+没说拒绝）、`released_wording`（本轮没有结果获准发布，回答却说 released / 已发布 / 已放行，或 Runner 自己的发布用语
+已准予发布 / 获准发布 / release authorized；未准予发布、release not authorised 不算）、`overclaim_inquiry`（本轮的
 探究结论是暂定、未决或初步，回答却说已接受、已确立；已算作 `banned_terms` 的词不再算一次）。消息旁的处数还含「工具给出了
 引文，回答一处都没引」（`uncited_with_evidence`），它不单独计数：同一轮的 `citations` 与 `citations_used` 已能看出。一轮没有
 回答（出错或在任何文字之前就停止），或检查读不了这一轮时，这五项都不发，这一轮不算作检查过的轮次。`termination` 只取固定的几种

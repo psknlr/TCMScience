@@ -61,6 +61,17 @@ export const BANNED_TERMS = deepFreeze(Object.entries(VOCABULARY).flatMap(([lang
   return [...out.values()];
 }));
 
+/**
+ * The superlatives the rule forbids as a class ("Do not use … or superlatives", "No superlatives"), as the answer check
+ * reads them: those said of efficacy or safety, the claims the kernel licenses (最有效, the safest herb). A rank of a
+ * measure, a time or a dose (最大剂量, 最早记载, the strongest binding score) is not one, nor an inquiry's best
+ * explanation. Not rendered: the rule names the class, so the prompt's text stays as it was.
+ */
+export const SUPERLATIVES = deepFreeze({
+  zh: ["最有效", "最安全", "疗效最好", "疗效最佳", "疗效最强", "效果最好", "效果最佳", "效果最强", "最佳疗效", "最佳效果", "最好的疗效", "最好的效果", "最佳治疗", "最佳方剂"],
+  en: ["most effective", "most efficacious", "safest", "best treatment", "best therapy", "best remedy", "best formula"],
+});
+
 function deepFreeze(o) {
   if (o && typeof o === "object") for (const v of Object.values(o)) deepFreeze(v);
   return Object.freeze(o);

@@ -879,11 +879,13 @@ without it); a runner's GPU is reported or selected, never more; remote compute 
 ### 6.7 Answer check (report-only)
 
 `core/answercheck.js` reads a finished answer against its turn's envelopes and the governance rule's own vocabulary
-(`prompt.js` `BANNED_TERMS`): a `[E#]` no tool of the conversation's branch returned, an answer that cites none of the
+(`prompt.js` `BANNED_TERMS`, and `SUPERLATIVES`: those of efficacy or safety, 最有效 / 最安全 / most effective / safest, of
+the class the rule forbids): a `[E#]` no tool of the conversation's branch returned, an answer that cites none of the
 citations its turn's tools returned, a word the rule does not use outside a negation, a question, a condition or need, a
 purpose, quotes or code (无记录不等于安全, 不能证明, 未证实, 其机制需进一步研究证实, 要证明疗效，…, "not proven", "No study
 has shown it to be safe", "To prove efficacy, …" pass; 发现 / 揭示 / discovered only beside a computation, as the rule
-replaces them for a prediction), a kernel refusal the answer leaves out, "released / 已发布 / 已放行" with nothing
+replaces them for a prediction), a kernel refusal the answer leaves out, "released / 已发布 / 已放行" or the runner's own
+release words (已准予发布 / 获准发布 / release authorized; not 未准予发布 / release not authorised) with nothing
 release-authorized, and 已接受 / established wording over a provisional or tentative inquiry (a word already marked as
 banned is not marked twice). It is a note, never a verdict: the answer is shown exactly as the model wrote it. The word
 rules are measured on a corpus of answers and on hedged sentences held out from their tuning

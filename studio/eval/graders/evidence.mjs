@@ -1,9 +1,10 @@
 // Evidence grader (layer 3): does the answer stay inside what the tool results license, by the binding rules the system
 // prompt states (prompt.js governance())? It reads the answer with the answer check the page and the usage event use
 // (web/js/core/answercheck.js, plan item P1.2), never a vocabulary of its own: every [E#] it cites was returned by a
-// tool; it uses none of the words the rule forbids (prompt.js BANNED_TERMS) outside the forms that negate, hedge or only
-// mention them; it names the code of every claim the kernel refused; it calls a result released only when a tool says
-// release is authorized.
+// tool; it uses none of the words the rule forbids (prompt.js BANNED_TERMS, and the superlatives of efficacy or safety,
+// SUPERLATIVES) outside the forms that negate, hedge or only mention them; it names the code of every claim the kernel
+// refused; it calls a result released (or says the runner's own words for it) only when a tool says release is
+// authorized.
 // With `flagged`, the turn itself must also flag an answer that cites an id no tool returned: the turn's usage event
 // (turnrecord.js turnEndEvent: the answer check's counts, which the page shows as the message's badge) counts it.
 

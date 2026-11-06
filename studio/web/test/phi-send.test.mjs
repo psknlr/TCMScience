@@ -331,6 +331,44 @@ test("Continue is checked as Retry is: a project file with an ID number added si
   assert.deepEqual(turnEnds(app).map((e) => e.phi), [undefined, "as_written"]);
 });
 
+test("Continue offers no local model (only the model that wrote the answer goes on with it): it names it for a Retry", async () => {
+  const { app, project } = await makeApp({ models: { ollama: "qwen3:8b" } });
+  cutOff = true;
+  try {
+    assert.deepEqual(await ask(app, "桂枝汤的组成"), { sent: true });
+    await settle(app);
+  } finally {
+    cutOff = false;
+  }
+  const a = app.state.messages.find((m) => m.role === "assistant");
+  assert.equal(a.termination, "truncated");
+  await app.store.files.add(project.id, new window.Blob(["门诊记录：身份证号 110101199003071234"], { type: "text/plain" }), { name: "intake.txt", source: "upload" });
+  const sent0 = requests.length;
+  let r = await race(() => app.continueTurn(a.id));
+  assert.ok(r.dialog);
+  assert.deepEqual(choices(r.dialog), ["edit", "as_written"], "no choice the Continue cannot carry out");
+  assert.equal(section(r.dialog, "local"), null);
+  assert.match(section(r.dialog, "as_written").textContent, /继续这条回答时，发送的是本对话已有的内容和这条回答已写出的部分/);
+  assert.match(section(r.dialog, "edit").textContent, /本机模型 Ollama · qwen3:8b 不能。要改用它：取消，切换到它，再点「重试」/);
+  assert.equal(await choose(r, "edit"), false);
+  assert.equal(requests.length, sent0);
+  assert.equal(app.provider().id, "tao", "the model is not switched");
+  assert.notEqual(app.state.conversation.provider, "ollama");
+  // a Retry of the same answer still offers the local model (it answers afresh there)
+  r = await retry(app, a.id);
+  assert.deepEqual(choices(r.dialog), ["edit", "local", "as_written"]);
+  assert.equal(await choose(r, "edit"), undefined);
+  assert.equal(requests.length, sent0);
+  // as written: the answer goes on, on the model that wrote it
+  r = await race(() => app.continueTurn(a.id));
+  assert.equal(await choose(r, "as_written"), true);
+  await settle(app);
+  assert.equal(requests.length, sent0 + 1);
+  assert.doesNotMatch(requests.at(-1).url, /127\.0\.0\.1/);
+  assert.equal(app.state.messages.filter((m) => m.role === "assistant").length, 1, "in the same message");
+  assert.deepEqual(turnEnds(app).map((e) => [e.provider, e.phi]), [["tao", undefined], ["tao", "as_written"]]);
+});
+
 test("an edited question held by the check: going back keeps the edit box and the text as edited, through a full redraw", async () => {
   const { app } = await makeApp();
   assert.deepEqual(await ask(app, "黄芪的靶点"), { sent: true });

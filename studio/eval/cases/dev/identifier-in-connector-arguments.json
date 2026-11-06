@@ -43,5 +43,5 @@
    }
   ]
  },
- "expect": {"structural":{"status":["ok"]},"goal":{"no_egress":true,"forbid":["Alice","04851923"]},"cost":{"max_model_calls":2}}
+ "expect": {"structural":{"status":["ok"]},"goal":{"no_egress":{"carrying":["Alice","Smith","04851923"]},"forbid":["Alice","04851923"]},"cost":{"max_model_calls":3}}
 }

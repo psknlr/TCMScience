@@ -970,14 +970,15 @@ export class App {
    * The check before a question (or, with `content` null, a regenerated answer) goes to the model in use
    * (ui/phidialog.js phiGate), over the project's files with the attachments about to join them, and over the branch
    * the turn sends. → {content, phi?, remember?}, or null when nothing is to be sent. A local model chosen there is
-   * this conversation's model from now on.
+   * this conversation's model from now on. `continued`: before a Continue, which offers no local model (the answer goes
+   * on only on the model that wrote it).
    */
-  async #phiGate(content, { files = [], editOf = null, path = null } = {}) {
+  async #phiGate(content, { files = [], editOf = null, path = null, continued = false } = {}) {
     if (isLocalModel(this.provider())) return { content };
     const knowledge = [...(this.state.project ? await this.#knowledge(this.state.project.id) : []), ...(await pendingKnowledge(files))];
     const conv = this.state.conversation;
     const branch = path || (editOf ? (editOf.parentId ? threadPath(this.state.messages, editOf.parentId) : []) : conv ? threadPath(this.state.messages, conv.leafId) : []);
-    const gate = await phiGate(this, { text: content, knowledge, path: branch });
+    const gate = await phiGate(this, { text: content, knowledge, path: branch, continued });
     if (gate?.local) await this.chooseModel(gate.local);
     return gate;
   }
@@ -1016,11 +1017,12 @@ export class App {
     let user = a && this.state.messages.find((m) => m.id === a.parentId);
     if (!user || !canContinue(a, this.provider(), this.toolMessagesOf(a.id))) return false;
     // what goes on is sent again, with the project's files as they are now: the same check as a regenerated answer
-    // (ui/phidialog.js), and the choice it makes is counted with this run
+    // (ui/phidialog.js), and the choice it makes is counted with this run. It offers no local model, since the answer
+    // goes on only on the model that wrote it; the dialog says a Retry asks the local model afresh
     this.#sending = true;
     let gate = null;
     try {
-      gate = await this.#phiGate(null, { path: threadPath(this.state.messages, user.id) });
+      gate = await this.#phiGate(null, { path: threadPath(this.state.messages, user.id), continued: true });
       if (!gate) return false;
       const conv = this.state.conversation;
       if (gate.remember) this.state.conversation = (await this.store.conversations.note(conv.id, rememberAsWritten(conv, gate.remember))) || conv;
@@ -1028,8 +1030,7 @@ export class App {
     } finally {
       this.#sending = false;
     }
-    // a local model chosen in the check is another provider: this answer cannot go on there, and nothing is sent to
-    // the one that made it (Retry asks the local model afresh)
+    // the check never switches the model for a Continue; this only guards a model switched while the dialog was open
     if (!canContinue(a, this.provider(), this.toolMessagesOf(a.id))) return false;
     this.#runAssistant(this.state.conversation, user, { resume: a, phi: gate.phi?.choice });
     return true;

@@ -2,7 +2,8 @@
 // ToolRouter and RunnerRuntime against a real `tcmstudio serve` (started by e2e/lib/servers.mjs in a temporary home),
 // and an observation of everything the graders read: the turn's result, its tool calls and envelopes, each model
 // request's size, the retries and the waits they asked for, the relay's upstream calls and gate hits, and any attempt
-// the runner made to send something off this machine.
+// the runner made to send something off this machine, with the calls it may have been made for (lib/egress.mjs
+// attributeEgress).
 //
 // Approvals are answered the way scenarios.py's validator answers them: a lookup, a first runner call or web access
 // (in a case that turns it on) is approved for once; a job, an act that needs confirming or an upload of the user's
@@ -21,7 +22,7 @@ import { cassetteDriver, recordingLib } from "../models/cassette.mjs";
 import { faultDriver, startFaultServer } from "../models/fault.mjs";
 import { liveDriver } from "../models/live.mjs";
 import { scriptedDriver } from "../models/scripted.mjs";
-import { proxyEnv, startEgressRecorder } from "./egress.mjs";
+import { attributeEgress, proxyEnv, startEgressRecorder } from "./egress.mjs";
 import { Policy } from "./policy.mjs";
 import { stubRouter } from "./stubrouter.mjs";
 import { PINNED_DATE } from "./util.mjs";
@@ -146,6 +147,12 @@ export async function runCase({ caseDoc, catalog, runtimes, egress, fault, polic
   const events = [];
   const sleeps = [];
   const approvals = [];
+  // when each call was under way, to tell which calls an attempt to leave the machine may have been made for
+  const windows = new Map();
+  const timeCall = (ev) => {
+    if (ev.type === "tool.start" && !windows.has(ev.callId)) windows.set(ev.callId, { callId: ev.callId, start: Date.now(), end: null, job: false });
+    if (ev.type === "tool.end" && windows.has(ev.callId)) Object.assign(windows.get(ev.callId), { end: Date.now(), job: ev.envelope?.status === "job_submitted" });
+  };
   const ctrl = new AbortController();
   const deadline = Number(caseDoc.deadline_ms) || DEFAULT_DEADLINE_MS;
   let timedOut = false;
@@ -159,7 +166,7 @@ export async function runCase({ caseDoc, catalog, runtimes, egress, fault, polic
       provider: driver.provider, system, history, router, catalog, settings: { ...(caseDoc.settings || {}) },
       llm: driver.llm, signal: ctrl.signal, projectId: `p-eval-${serial}-${caseDoc.id}`, conversationId,
       onApproval: approver(caseDoc, approvals),
-      onEvent: (ev) => { policy.observe(ev); events.push(slim(ev)); },
+      onEvent: (ev) => { timeCall(ev); policy.observe(ev); events.push(slim(ev)); },
       // the waits a retry asks for are recorded, not slept: a Retry-After of 5 s costs the eval nothing
       sleep: async (ms, signal) => { sleeps.push(ms); if (signal?.aborted) throw new DOMException("aborted", "AbortError"); },
     });
@@ -186,7 +193,7 @@ export async function runCase({ caseDoc, catalog, runtimes, egress, fault, polic
     model_calls: meter.requests.length,
     upstream_calls: meter.upstreamCalls,
     gate_hits: meter.gateHits,
-    egress: egress ? egress.since(egressAt).map((a) => ({ method: a.method, host: a.host })) : [],
+    egress: egress ? attributeEgress(egress.since(egressAt), [...windows.values()]) : [],
     usage: res?.usage || null,
     event_types: [...new Set(events.map((e) => e.type))],
   };

@@ -10,7 +10,9 @@
 //               tripped the check and redactText finds something in it. Names in running text stay, and an 11-digit
 //               number such as a PubChem CID may be taken for a mobile number: the preview says both.
 //   as_written  the text as typed; not asked again in this conversation for this model service
-//   local       the text as typed, to a local model the person has set up (the conversation switches to it)
+//   local       the text as typed, to a local model the person has set up (the conversation switches to it). Not
+//               offered for a Continue: an answer goes on only on the model that wrote it (core/agent.js canContinue),
+//               so the dialog says a Retry asks the local model afresh instead
 //   edit        nothing is sent; the text stays in the box
 //
 // The choice, never the text, is kept on the question (message.phi) and counted in turn_end (core/turnrecord.js). A
@@ -121,9 +123,11 @@ export function rememberAsWritten(conv, providerId) {
  * The check before a question (or a regenerated answer: `text` null) goes to the model in use. → {content, phi?,
  * remember?, local?} to go on with — `content` the text to send, `phi` {reason, choice[, remembered]} for the
  * question, `remember` the service "as written" now holds for in this conversation, `local` {provider, model} to
- * switch the conversation to — or null when the person goes back to edit.
+ * switch the conversation to — or null when the person goes back to edit. `continued`: the check before a Continue,
+ * which goes on only on the model that wrote the answer: no local model is offered (the dialog names the one set up,
+ * for a Retry), and `local` is never returned.
  */
-export async function phiGate(app, { text = null, knowledge = [], path = [] } = {}) {
+export async function phiGate(app, { text = null, knowledge = [], path = [], continued = false } = {}) {
   const provider = app.provider();
   if (isLocalModel(provider)) return { content: text };
   const check = phiCheck({ text: text || "", knowledge, history: unseenBy(app.state.messages || [], path, provider.id) });
@@ -131,8 +135,9 @@ export async function phiGate(app, { text = null, knowledge = [], path = [] } = 
   if ((app.state.conversation?.phiAsWritten || []).includes(provider.id)) {
     return { content: text, phi: { reason: check.reason, choice: "as_written", remembered: true } };
   }
-  const local = localModel(app);
-  const choice = await askPhi({ check, text, provider, local });
+  const set = localModel(app);
+  const local = continued ? null : set;
+  const choice = await askPhi({ check, text, provider, local, continued, retryLocal: continued ? set : null });
   const phi = { reason: check.reason, choice };
   if (choice === "redacted" && check.redacted !== null) return { content: check.redacted, phi };
   if (choice === "as_written") return { content: text, phi, remember: provider.id };
@@ -145,13 +150,16 @@ const list = (names) => names.join(lang() === "zh" ? "、" : ", ");
 
 /**
  * The dialog: why, where it was found, and each choice with the exact text it sends. Resolves "redacted" |
- * "as_written" | "local" | "edit" (closing it, or Esc, is "edit": nothing is sent).
+ * "as_written" | "local" | "edit" (closing it, or Esc, is "edit": nothing is sent). `continued`: before a Continue
+ * (what is sent again is the branch with the part of the answer already written); `retryLocal`: the local model set
+ * up, which a Continue cannot go on with and a Retry can ask.
  */
-export function askPhi({ check, text = null, provider, local = null }) {
+export function askPhi({ check, text = null, provider, local = null, continued = false, retryLocal = null }) {
   return new Promise((resolve) => {
     let choice = "edit";
     const name = modelName(provider);
     const localName = local ? `${local.label} · ${local.model}` : "";
+    const retryName = retryLocal ? `${retryLocal.label} · ${retryLocal.model}` : "";
     const pick = (c) => () => { choice = c; d.close(c); };
     // the choice that sends nothing has the focus; one that removes or keeps the text here is the primary
     const primary = check.redacted !== null ? "redacted" : local ? "local" : null;
@@ -165,13 +173,13 @@ export function askPhi({ check, text = null, provider, local = null }) {
       check.redacted !== null ? btn("redacted", t("ui.phi.redacted")) : null,
     ].filter(Boolean);
     const d = openDialog({
-      title: t("ui.phi.title"), size: "lg", className: "dialog--phi", body: phiBody({ check, text, name, localName, relay: Boolean(provider.relay) }), actions,
+      title: t("ui.phi.title"), size: "lg", className: "dialog--phi", body: phiBody({ check, text, name, localName, retryName, continued, relay: Boolean(provider.relay) }), actions,
       initialFocus: edit, onClose: () => resolve(choice),
     });
   });
 }
 
-function phiBody({ check, text, name, localName, relay }) {
+function phiBody({ check, text, name, localName, retryName = "", continued = false, relay }) {
   const where = [
     check.message ? t("ui.phi.in_message") : null,
     check.files.length ? t("ui.phi.in_files", { files: list(check.files) }) : null,
@@ -194,7 +202,9 @@ function phiBody({ check, text, name, localName, relay }) {
     check.redacted !== null ? choice("redacted", t("ui.phi.redacted"),
       preview(check.redacted), note(t("ui.phi.redacted_names")), note(t("ui.phi.redacted_digits"))) : null,
     choice("as_written", t("ui.phi.as_written"),
-      text ? preview(text) : note(t("ui.phi.no_message")), ...along, note(t("ui.phi.as_written_note", { name }))),
+      text ? preview(text) : note(t(continued ? "ui.phi.no_message_continue" : "ui.phi.no_message")), ...along, note(t("ui.phi.as_written_note", { name }))),
     localName ? choice("local", t("ui.phi.local", { name: localName }), note(t("ui.phi.local_note", { name: localName }))) : null,
-    text === null ? choice("edit", t("ui.action.cancel"), note(t("ui.phi.cancel_note"))) : choice("edit", t("ui.phi.edit"), note(t("ui.phi.edit_note"))));
+    text === null
+      ? choice("edit", t("ui.action.cancel"), note(t("ui.phi.cancel_note")), retryName ? note(t("ui.phi.continue_local", { name: retryName })) : null)
+      : choice("edit", t("ui.phi.edit"), note(t("ui.phi.edit_note"))));
 }

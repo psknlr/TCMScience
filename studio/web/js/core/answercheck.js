@@ -8,11 +8,13 @@
 // Findings, each {kind, …}:
 //   unresolved_citation    an [E#] that no tool returned on the conversation's branch (the page resolves an earlier
 //                          turn's ids too: ui/conversation.js messageContext), {id}
-//   banned_term            a word the rule forbids whatever the evidence (prompt.js BANNED_TERMS), outside the forms
-//                          that negate, hedge or only mention it (无记录不等于安全, 未证实, 不能证明, not proven, 「证明」),
-//                          {term, use, at}
-//   released_wording       released, 已发布 or 已放行 said of a result while no envelope of the turn is release-authorized,
-//                          {term, at}
+//   banned_term            a word the rule forbids whatever the evidence (prompt.js BANNED_TERMS), or a superlative of
+//                          efficacy or safety (prompt.js SUPERLATIVES: the rule forbids superlatives as a class), outside
+//                          the forms that negate, hedge or only mention it (无记录不等于安全, 未证实, 不能证明, not
+//                          proven, 「证明」), {term, use, at}
+//   released_wording       released, 已发布, 已放行, 准予发布 / 获准发布 (the runner's own words for a release) or
+//                          release authorized said of a result while no envelope of the turn is release-authorized,
+//                          {term, form, at}
 //   refusal_unreported     the turn's kernel refused claims, and the answer gives neither their code nor any word of
 //                          refusal, {codes}
 //   uncited_with_evidence  the turn's tools returned citations and the answer cites none, {citations}
@@ -28,7 +30,7 @@
 // precision and recall each rule must keep on the corpus, and the false-alarm rate and recall on the held-out set).
 
 import { citationsOf, claimsOf, refusalsOf, releaseOf } from "./governance.js";
-import { BANNED_TERMS } from "./prompt.js";
+import { BANNED_TERMS, SUPERLATIVES } from "./prompt.js";
 
 export const KINDS = Object.freeze(["unresolved_citation", "banned_term", "released_wording", "refusal_unreported", "uncited_with_evidence", "overclaim_inquiry"]);
 /** The rules on by default; overclaim_inquiry, the least certain, can be left out (`rules`) if its precision drops. */
@@ -131,8 +133,11 @@ function letThrough(text, at, end) {
   return NEGATION_EN.test(words) || HEDGE_EN.test(words) || NEGATION_ZH.test(near);
 }
 
-// the forms of an English term that say the same (proves, proved; safely)
-const FORMS = { proven: ["proven", "prove", "proves", "proved", "proving"], discovered: ["discovered", "discover", "discovers", "discovering"], safe: ["safe", "safely"] };
+// the forms of an English term that say the same (proves, proved; safely; the release the runner states)
+const FORMS = {
+  proven: ["proven", "prove", "proves", "proved", "proving"], discovered: ["discovered", "discover", "discovers", "discovering"], safe: ["safe", "safely"],
+  "release authorized": ["release authori[sz]ed", "release (?:is|was|has been|had been) authori[sz]ed", "(?:authori[sz]ed|approved|cleared) for release"],
+};
 
 /** Every occurrence of a term: Chinese by its characters, English as a whole word in any of its forms, any case. →
  * [{at, end}] in text order. */
@@ -142,7 +147,8 @@ function occurrences(text, term) {
     for (let i = text.indexOf(term); i >= 0; i = text.indexOf(term, i + term.length)) out.push({ at: i, end: i + term.length });
     return out;
   }
-  const words = (FORMS[term] || [term]).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+  // a form is a pattern (its own spelling choices: authori[sz]ed); a term without forms is plain text
+  const words = FORMS[term] ? FORMS[term].map((w) => w.replace(/ /g, "\\s+")) : [term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+")];
   const re = new RegExp(`(?<![\\w-])(?:${words.join("|")})(?![\\w-])`, "gi");
   for (const m of text.matchAll(re)) out.push({ at: m.index, end: m.index + m[0].length });
   return out;
@@ -168,8 +174,10 @@ const COMPOUND = {
   safe: { after: /^[\s-]+(?:harbou?r|mode|search|word|use|handling|practice|storage)\b/i },
 };
 
-// the longer terms first, so a term inside a longer one (发现 in 发现了机制) is reported once, by the longer
-const BY_LENGTH = [...BANNED_TERMS].sort((a, b) => b.term.length - a.term.length);
+// the superlatives the rule forbids as a class, each a banned term with no word the rule gives instead
+const SUPERLATIVE_TERMS = Object.entries(SUPERLATIVES).flatMap(([lang, terms]) => terms.map((term) => ({ lang, term, use: null, never: false, superlative: true })));
+// the longer terms first, so a term inside a longer one (发现 in 发现了机制, 安全 in 最安全) is reported once, by the longer
+const BY_LENGTH = [...BANNED_TERMS, ...SUPERLATIVE_TERMS].sort((a, b) => b.term.length - a.term.length);
 
 function bannedTerms(text) {
   const out = [];
@@ -190,7 +198,9 @@ function bannedTerms(text) {
 
 // ------------------------------------------------------------------------------------------------- released wording
 
-const RELEASED = ["released", "已发布", "已放行"];
+// the longer first, so 准予发布 inside 已准予发布 is one finding; the runner says 已准予发布 / release authorized of a
+// result it released, and 未准予发布 / release not authorised of one it did not (dispatch.py _release_tail)
+const RELEASED = ["release authorized", "已准予发布", "已获准发布", "准予发布", "获准发布", "released", "已发布", "已放行"];
 // a release in the kernel's sense is said of a result (the result is released), not of a cytokine or a dataset
 const RESULT_EN = /\b(?:result|results|artifact|artefact|artifacts|artefacts|analysis|analyses|output|outputs|finding|findings|conclusion|answer|claim|claims|report|verdict|this)\b/i;
 const NOT_RESULT_EN = /^\s+(?:in|on|by|from|into|at|during|under|to)\b/i;
@@ -201,15 +211,16 @@ function releasedWording(text) {
   const out = [];
   for (const term of RELEASED) {
     for (const { at, end } of occurrences(text, term)) {
+      if (out.some((f) => at < f.end && end > f.at)) continue;
       const before = clauseBefore(text, at);
       const after = clauseAfter(text, end);
       if (term === "released" && (!RESULT_EN.test(before) || NOT_RESULT_EN.test(text.slice(end)))) continue;
       if (term === "已发布" && (PUBLISHED_ZH.test(before + after) || /^(?:于|在)/.test(after))) continue;
       if (letThrough(text, at, end)) continue;
-      out.push({ kind: "released_wording", term, at, end });
+      out.push({ kind: "released_wording", term, form: text.slice(at, end), at, end });
     }
   }
-  return out;
+  return out.sort((a, b) => a.at - b.at);
 }
 
 // ------------------------------------------------------------------------------------------------- refusals

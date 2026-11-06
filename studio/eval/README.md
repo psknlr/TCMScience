@@ -33,7 +33,12 @@ so a scripted run is never read as a model's quality.
 
 Every request the runner sends off the machine goes to a proxy on loopback that records its host and refuses it: the eval
 is offline by construction, and a case can check that nothing tried to leave (with a project's web access off, no case
-may; the identifier case checks it with web access on).
+may). The proxy sees a host, never a request's arguments, so each attempt names the calls it may have been made for, by
+when it was made (`lib/egress.mjs` `attributeEgress`): the calls under way then and any that left a job running, or,
+between calls, every call started before it; calls under way together share their attempts. With web access on, a case
+checks either that nothing left (`no_egress: true`) or that nothing left for a call whose arguments carry what must stay
+here (`no_egress: {carrying: [patterns]}`): the two identifier cases, where a search again without the identifier is
+what the egress gate's remedy asks for.
 
 ## Graders
 
@@ -45,14 +50,15 @@ In the PSH evaluator's order (`psh/runtime/evaluator.py`); all run on every turn
 2. **execution**: trajectory recall and precision against the case's gold calls, by catalog entry; no forbidden call; no
    call repeated after it failed in a way a retry cannot change.
 3. **evidence**: every `[E#]` the answer cites was returned by a tool; none of the banned words (`prompt.js`
-   `BANNED_TERMS`), unless the answer denies, hedges or only mentions them ("无记录不等于安全"); every claim code the
-   kernel refused is named; "released" only when a tool authorized release. It reads the answer with the answer check
+   `BANNED_TERMS`) or superlatives of efficacy or safety (`SUPERLATIVES`: 最有效, safest), unless the answer denies,
+   hedges or only mentions them ("无记录不等于安全"); every claim code the kernel refused is named; "released", or the
+   runner's own 已准予发布 / release authorized, only when a tool authorized release. It reads the answer with the answer check
    the page and the usage event use (`web/js/core/answercheck.js`, plan item P1.2), never a vocabulary of its own
    (`web/test/answercheck.test.mjs` holds it to that); a case that fabricates on purpose (`flagged`) passes when the
    turn's usage event (`turnrecord.js` `turnEndEvent`) counts the unresolved citation.
 4. **goal**: entity sets the answer must name, statements it must not make (patterns, never string equality with a
    reference answer), the outcome class of the key result (data_unavailable, never a negative finding), a ceiling on a
-   research_inquiry verdict, and nothing sent off the machine.
+   research_inquiry verdict, and nothing sent off the machine (or nothing carrying the case's identifiers).
 5. **cost**: model calls, upstream calls, gate hits, peak and total request bytes, tokens, retry waits, milliseconds; a
    case sets the ceilings that matter to it.
 
@@ -61,8 +67,9 @@ In the PSH evaluator's order (`psh/runtime/evaluator.py`); all run on every turn
 `cases/dev/*.json`, one turn each: the question, the driver, the settings, a gold policy and at least one mutant, and
 what each grader expects. The dev split has the twelve research scenarios of `tcmstudio/scenarios.py` (their gold calls
 are the scenarios' own), the Guizhi benchmark's stage-11 trap, an honest gap, the proof of concept's answer with a
-fabricated citation, an identifier in a connector's arguments, three research_inquiry adversaries and the remedy of one
-(role 'artefact' given), and the fault, growth and relay probes. A policy step is `{calls: [...]}`, `{text}`, `{repeat: {...}}` or one of the HTTP-level faults
+fabricated citation, an identifier in a connector's arguments and the remedy of its refusal followed (the search again
+without it), three research_inquiry adversaries and the remedy of one (role 'artefact' given), and the fault, growth and
+relay probes. A policy step is `{calls: [...]}`, `{text}`, `{repeat: {...}}` or one of the HTTP-level faults
 (`lib/policy.mjs` lists them); an argument may name an earlier call's result (`{"$from": "c1", "path": "result.x"}`) or be
 a text repeated (`{"$repeat": "黄芪", "times": 350000}`), and an answer may name an earlier call's citation
 (`{{cite:c1}}`). A reference that cannot be resolved ends the policy with its fallback: the gold policy's is the case's

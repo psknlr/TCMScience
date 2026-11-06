@@ -985,6 +985,7 @@ export const ZH = {
   "ui.phi.as_written": "按原文发送",
   "ui.phi.as_written_note": "本对话之后发给 {name} 的消息不再询问。",
   "ui.phi.no_message": "没有新消息：重新生成回答时，发送的是本对话已有的内容。",
+  "ui.phi.no_message_continue": "没有新消息：继续这条回答时，发送的是本对话已有的内容和这条回答已写出的部分。",
   "ui.phi.with_files": "项目文件 {files} 也原样发送。",
   "ui.phi.with_history": "较早的消息（{n} 条）也原样发送",
   "ui.phi.local": "改用本机模型 {name}",
@@ -992,6 +993,7 @@ export const ZH = {
   "ui.phi.edit": "返回修改",
   "ui.phi.edit_note": "什么都不发送，文字留在输入框里。",
   "ui.phi.cancel_note": "什么都不发送。",
+  "ui.phi.continue_local": "「继续」只能由写这条回答的模型接着写，本机模型 {name} 不能。要改用它：取消，切换到它，再点「重试」，由它重新回答。",
   // review fixes (web-ui)
   "ui.runner.paired": "已连接本机 Runner（{host}）",
   "ui.composer.store_failed": "附件没有存下，消息未发送：{message}",
@@ -2536,6 +2538,7 @@ export const EN = {
   "ui.phi.as_written": "Send as written",
   "ui.phi.as_written_note": "Not asked again in this conversation for {name}.",
   "ui.phi.no_message": "No new message: a regenerated answer sends what this conversation already holds.",
+  "ui.phi.no_message_continue": "No new message: a continued answer sends what this conversation already holds, with the part of this answer already written.",
   "ui.phi.with_files": "The project files {files} go as written too.",
   "ui.phi.with_history": plural("The earlier message ({n}) goes as written too", "The earlier messages ({n}) go as written too"),
   "ui.phi.local": "Use the local model {name}",
@@ -2543,6 +2546,7 @@ export const EN = {
   "ui.phi.edit": "Back to edit",
   "ui.phi.edit_note": "Nothing is sent; the text stays in the box.",
   "ui.phi.cancel_note": "Nothing is sent.",
+  "ui.phi.continue_local": "Only the model that wrote this answer can continue it, not the local model {name}. To use that one: cancel, switch to it and Retry; it answers afresh.",
   // review fixes (web-ui)
   "ui.runner.paired": "Connected to the local runner ({host})",
   "ui.composer.store_failed": "The attachments could not be stored, so nothing was sent: {message}",

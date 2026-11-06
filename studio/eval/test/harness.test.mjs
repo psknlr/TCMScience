@@ -1,11 +1,11 @@
 // The harness's parts: policies (references to earlier results, citations as the loop numbered them, the fallback when a
 // reference cannot be resolved), the fault server's faults as the real client receives them, the relay's deployed
-// settings, the egress recorder, and the live driver's guard.
+// settings, the egress recorder and the calls it names for each attempt, and the live driver's guard.
 import "../../web/test/fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as openaiLib from "../../web/js/core/llm/openai.js";
-import { startEgressRecorder } from "../lib/egress.mjs";
+import { attributeEgress, startEgressRecorder } from "../lib/egress.mjs";
 import { policyOf } from "../lib/harness.mjs";
 import { Policy } from "../lib/policy.mjs";
 import { faultDriver, startFaultServer } from "../models/fault.mjs";
@@ -131,6 +131,22 @@ test("the egress recorder refuses what the runner sends off the machine and keep
   } finally {
     await egress.stop();
   }
+});
+
+test("an attempt to leave is the calls under way when it was made, jobs left running, or every call started before it", () => {
+  const w = (callId, start, end, job = false) => ({ callId, start, end, job });
+  const at = (t) => ({ at: t, method: "CONNECT", host: "www.ebi.ac.uk:443" });
+  // one call after another: each attempt is its own call's, the bounds included (recorded before the refusal it waits for)
+  assert.deepEqual(attributeEgress([at(10), at(20), at(25)], [w("c1", 10, 15), w("c2", 20, 25)]).map((a) => a.calls), [["c1"], ["c2"], ["c2"]]);
+  // calls under way together share it
+  assert.deepEqual(attributeEgress([at(12)], [w("c1", 10, 15), w("c2", 11, 14)])[0].calls, ["c1", "c2"]);
+  // a job left running by an earlier call is among the calls of a later attempt
+  assert.deepEqual(attributeEgress([at(32)], [w("c1", 10, 15, true), w("c2", 20, 25), w("c3", 30, 35)])[0].calls, ["c3", "c1"]);
+  // while no call is under way: every call started before it; before any: none
+  assert.deepEqual(attributeEgress([at(18), at(5)], [w("c1", 10, 15), w("c2", 20, 25)]).map((a) => a.calls), [["c1"], []]);
+  // a call that has not ended yet (the turn was stopped) is under way
+  assert.deepEqual(attributeEgress([at(40)], [w("c1", 10, 15), w("c2", 30, null)])[0].calls, ["c2"]);
+  assert.deepEqual(Object.keys(attributeEgress([at(1)], [])[0]), ["method", "host", "calls"], "the host only, never a time or a path");
 });
 
 test("the live driver runs only when asked for, with a base URL, and in CI only from workflow_dispatch", () => {

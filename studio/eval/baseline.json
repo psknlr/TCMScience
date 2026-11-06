@@ -77,6 +77,9 @@
   "scripted/identifier-in-connector-arguments": {
    "status": "passing"
   },
+  "scripted/identifier-remedy-followed": {
+   "status": "passing"
+  },
   "scripted/inquiry-bypass-scaffold": {
    "status": "passing"
   },
@@ -129,5 +132,5 @@
    "status": "passing"
   }
  },
- "digest": "d886119632eb4f27792c5f7a2f1e337b969dd81e75d62d18f524dd1be7b1ed80"
+ "digest": "30dd2bb2ae38ce9ca09f8791d066d6004162e07c9c33293a8e458d3e66d38e36"
 }
