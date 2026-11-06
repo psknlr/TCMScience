@@ -1,9 +1,10 @@
 // Before a question leaves this computer for a model service (Tao-S1 through its relay, or a cloud API), what that
 // service would receive and has not received yet is read with the rules that keep a conversation out of the records
-// (core/sensitive.js sensitiveReason): the message, the project files the system prompt inlines (core/prompt.js), and
-// the earlier messages of the branch it was never sent (the model was switched). When one of them identifies a person
-// or reads as a patient's case, nothing is sent until the person chooses, with the exact text of each choice in front
-// of them:
+// (core/sensitive.js phiReason: sensitiveReason, with age bands and record sections asked about as a topic set aside):
+// the message, the project files the system prompt inlines (core/prompt.js), and the earlier messages of the branch it
+// was never sent (the model was switched; one this check held counts whatever it was sent as). When one of them
+// identifies a person or reads as a patient's case, nothing is sent until the person chooses, with the exact text of
+// each choice in front of them:
 //
 //   redacted    the message with its identifiers replaced ([redacted:id_number] …): offered only when the message alone
 //               tripped the check and redactText finds something in it. Names in running text stay, and an 11-digit
@@ -13,11 +14,12 @@
 //   edit        nothing is sent; the text stays in the box
 //
 // The choice, never the text, is kept on the question (message.phi) and counted in turn_end (core/turnrecord.js). A
-// local model (a preset marked local, or a loopback address) is never asked about: nothing leaves the computer.
+// local model (at a loopback address, whatever its preset) is never asked about: nothing leaves the computer.
 
 import { lang, t } from "../core/i18n.js";
 import { INLINE_LIMIT, INLINE_TOTAL } from "../core/prompt.js";
-import { redactText, sensitiveReason } from "../core/sensitive.js";
+import { activeProvider } from "../core/providers.js";
+import { phiReason, redactText } from "../core/sensitive.js";
 import { isLoopbackUrl, utf8Bytes } from "../core/util.js";
 import { h } from "./dom.js";
 import { inlinedInPrompt } from "./files.js";
@@ -25,10 +27,14 @@ import { openDialog } from "./overlay.js";
 import { availableProviders } from "./panels.js";
 import { disclosure } from "./primitives.js";
 
-/** Does the model run on this computer? Tao-S1 never does, wherever its relay is served from. */
+/**
+ * Does the model run on this computer? Only at a loopback address: Tao-S1 never does, wherever its relay is served
+ * from, and a preset marked local (Ollama, vLLM …) whose address was changed to another host (a GPU server on the LAN)
+ * is a model outside this computer like any other.
+ */
 export function isLocalModel(provider) {
   if (!provider || provider.relay) return false;
-  return Boolean(provider.local || isLoopbackUrl(provider.baseUrl || provider.base_url || ""));
+  return isLoopbackUrl(provider.baseUrl || provider.base_url || "");
 }
 
 /** The knowledge files whose text the system prompt inlines, as core/prompt.js chooses them (size, then budget). */
@@ -80,20 +86,25 @@ export function unseenBy(messages = [], path = [], providerId = "") {
  * replaced; otherwise null (redacting the message would not keep the rest from being sent).
  */
 export function phiCheck({ text = "", knowledge = [], history = [] } = {}) {
-  const message = sensitiveReason(text || "");
-  const files = inlinedKnowledge(knowledge).map((f) => [f.name, sensitiveReason(f.text)]).filter(([, why]) => why);
-  const earlier = (history || []).map((m) => [m.content, sensitiveReason(m.content)]).filter(([, why]) => why);
+  const message = phiReason(text || "");
+  const files = inlinedKnowledge(knowledge).map((f) => [f.name, phiReason(f.text)]).filter(([, why]) => why);
+  // an earlier question held by this check identified a person as it was typed, whatever it was sent as (redacted, a
+  // name in running text may still be there)
+  const earlier = (history || []).map((m) => [m.content, m.phi?.reason || phiReason(m.content)]).filter(([, why]) => why);
   const reason = message || files[0]?.[1] || earlier[0]?.[1] || null;
   if (!reason) return null;
   const r = message && !files.length && !earlier.length ? redactText(text) : null;
   return { reason, message: Boolean(message), files: files.map(([name]) => name), history: earlier.map(([s]) => s), redacted: r?.hits ? r.text : null };
 }
 
-/** The first local model the person has set up (as the model picker lists them) → {provider, model, label}, or null. */
+/**
+ * The first local model the person has set up (as the model picker lists them) → {provider, model, label}, or null:
+ * at the address the settings give it (isLocalModel), so that "only to this computer" is true of it.
+ */
 export function localModel(app) {
   const s = app.state.settings || {};
   for (const p of availableProviders(app)) {
-    if (!(p.local || (p.custom && isLoopbackUrl(p.base_url)))) continue;
+    if (!(p.local || p.custom) || !isLocalModel(activeProvider(s, { provider: p.id }))) continue;
     const detected = (app.state.localDetected || []).find((x) => x.id === p.id && x.ok)?.models?.[0];
     const model = s.models?.[p.id] || detected || p.default_model || "";
     if (model) return { provider: p.id, model, label: p.label };

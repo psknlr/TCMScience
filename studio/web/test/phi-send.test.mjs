@@ -1,10 +1,12 @@
 // The check before a question goes to a model outside this computer (ui/phidialog.js), in the real app under linkedom
 // with a real store (fake IndexedDB) and the real OpenAI-format client, whose fetch is a spy on the request bodies: on
-// the relay preset an ID number opens the dialog and the redacted send carries no 18-digit run; a local or loopback
-// model is never asked about; a patient's case with nothing to redact has no redacted choice; inlined project files
-// and attachments count; "as written" holds for the conversation and that model service only; a model switch (a new
-// question or Retry) is checked again over what the new service has not seen; no research question of the corpus opens
-// the dialog; the choice, never the text, is on the question and in turn_end.
+// the relay preset an ID number opens the dialog and the redacted send carries no 18-digit run; a model at a loopback
+// address is never asked about, and a local preset pointed at another host is asked about like any other; a patient's
+// case with nothing to redact has no redacted choice; inlined project files and attachments count; "as written" holds
+// for the conversation and that model service only; a model switch (a new question or Retry) is checked again over what
+// the new service has not seen, a question sent redacted included; going back from an edited question keeps its edit
+// box; no research question of the corpus opens the dialog (patients by age band, how records are written), and every
+// case of the case list does; the choice, never the text, is on the question, and in turn_end of its own turn only.
 import "./fixtures/setup.mjs";
 import { window } from "../dev/test/setup.mjs";
 import assert from "node:assert/strict";
@@ -18,13 +20,18 @@ import { ToolRouter } from "../js/core/router.js";
 import { openStore } from "../js/core/store.js";
 import { PHI_CHOICES, normalizeEvent } from "../js/core/telemetry-contract.js";
 import { App } from "../js/ui/app.js";
-import { inlinedKnowledge, isLocalModel, phiCheck, unseenBy } from "../js/ui/phidialog.js";
+import { mountConversation } from "../js/ui/conversation.js";
+import { sensitiveReason } from "../js/core/sensitive.js";
+import { inlinedKnowledge, isLocalModel, localModel, phiCheck, unseenBy } from "../js/ui/phidialog.js";
 import { EN, registerUiStrings, ZH } from "../js/ui/strings.js";
 
 registerUiStrings();
 const proto = window.HTMLElement.prototype;
 if (!proto.showModal) proto.showModal = function showModal() { this.setAttribute("open", ""); };
 if (!proto.close) proto.close = function close() { this.removeAttribute("open"); };
+// the conversation page (its thread keeps to its end; an edit box puts the caret after the text)
+if (!proto.scrollTo) proto.scrollTo = function scrollTo() {};
+if (!proto.setSelectionRange) proto.setSelectionRange = function setSelectionRange() {};
 globalThis.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} }); // reduced motion: dialogs close at once
 
 const ID_CASE = "患者，女，32岁，身份证号110101199003071234";
@@ -147,6 +154,28 @@ test("a loopback model is never asked about: Ollama, a custom server on localhos
   assert.equal(await choose(r, "edit"), false);
 });
 
+test("a local preset at another host is a model outside this computer: asked about, and never offered as the local model", async () => {
+  const far = { ollama: "http://192.168.1.20:11434/v1", vllm: "https://gpu.example.org:8000/v1" };
+  const { app } = await makeApp({ provider: "ollama", models: { ollama: "qwen3:8b", vllm: "m" }, baseUrls: far });
+  assert.equal(localModel(app), null, "neither runs on this computer");
+  const r = await ask(app, ID_CASE);
+  assert.ok(r.dialog, "Ollama on the LAN is asked about");
+  assert.deepEqual(choices(r.dialog), ["edit", "as_written", "redacted"]);
+  assert.match(r.dialog.textContent, /Ollama · qwen3:8b 不在你的电脑上运行/);
+  assert.doesNotMatch(r.dialog.textContent, /这台电脑上的/);
+  assert.equal(await choose(r, "redacted"), true);
+  await settle(app);
+  assert.match(requests.at(-1).url, /^http:\/\/192\.168\.1\.20:11434\/v1\/chat\/completions$/);
+  assert.doesNotMatch(lastBody(), /\d{18}/);
+  // LM Studio set up on this computer as well: that one is offered, and the remote vLLM still is not
+  const other = await makeApp({ provider: "vllm", models: { vllm: "m", lmstudio: "qwen2.5-7b" }, baseUrls: far });
+  assert.deepEqual(localModel(other.app), { provider: "lmstudio", model: "qwen2.5-7b", label: "LM Studio" });
+  const r2 = await ask(other.app, CASE);
+  assert.deepEqual(choices(r2.dialog), ["edit", "local", "as_written"]);
+  assert.match(section(r2.dialog, "local").textContent, /只发给这台电脑上的 LM Studio · qwen2\.5-7b/);
+  assert.equal(await choose(r2, "edit"), false);
+});
+
 test("a patient's case with nothing to redact: the dialog without a redacted choice; going back sends and stores nothing", async () => {
   const { app } = await makeApp();
   const sent0 = requests.length;
@@ -224,6 +253,27 @@ test("as written holds for the conversation and that service: a switch to anothe
   await settle(app);
 });
 
+test("a question sent redacted counts for a service that never saw it: the name in running text is still there", async () => {
+  const { app } = await makeApp({ keys: { deepseek: "sk-test-0000000000000000" } });
+  let r = await ask(app, "Patient Alice Smith MRN 04851923 hepatotoxicity");
+  assert.equal(await choose(r, "redacted"), true);
+  await settle(app);
+  assert.equal(questions(app)[0].content, "Patient Alice Smith MRN [redacted:record_number] hepatotoxicity");
+  assert.equal(phiCheck({ text: questions(app)[0].content }), null, "nothing in the stored text trips the check by itself");
+  // Tao-S1 has it: the next question there is sent at once
+  assert.deepEqual(await ask(app, "黄芪的靶点"), { sent: true });
+  await settle(app);
+  // DeepSeek has not
+  await app.chooseModel({ provider: "deepseek", model: "deepseek-chat" });
+  const sent0 = requests.length;
+  r = await ask(app, "黄芩苷的靶点");
+  assert.ok(r.dialog, "the question held before is held again for a new service");
+  assert.match(r.dialog.querySelector(".phi__lede").textContent, /能识别个人的信息/);
+  assert.match(r.dialog.querySelector(".phi__where").textContent, /本对话中较早的 1 条消息（DeepSeek · deepseek-chat 还没有收到过）/);
+  assert.equal(await choose(r, "edit"), false);
+  assert.equal(requests.length, sent0);
+});
+
 test("Retry where the same service answered the question asks nothing, even of a question that still reads as a case", async () => {
   const { app } = await makeApp();
   const r = await ask(app, ID_CASE);
@@ -234,6 +284,51 @@ test("Retry where the same service answered the question asks nothing, even of a
   await settle(app);
   assert.equal(requests.length, sent0 + 1);
   assert.doesNotMatch(lastBody(), /\d{18}/);
+  // the choice is counted with the turn it was made for, not again with the Retry
+  assert.deepEqual(turnEnds(app).map((e) => e.phi), ["redacted", undefined]);
+});
+
+test("the choice is counted only with its turn: a Retry on a local model after it reports none for the local service", async () => {
+  const { app } = await makeApp({ models: { ollama: "qwen3:8b" } });
+  const r = await ask(app, ID_CASE);
+  assert.equal(await choose(r, "as_written"), true);
+  await settle(app);
+  await app.chooseModel({ provider: "ollama" });
+  assert.deepEqual(await retry(app, app.state.messages.find((m) => m.role === "assistant").id), { sent: undefined });
+  await settle(app);
+  assert.match(requests.at(-1).url, /^http:\/\/127\.0\.0\.1:11434\//);
+  assert.deepEqual(turnEnds(app).map((e) => [e.provider, e.phi]), [["tao", "as_written"], ["ollama", undefined]]);
+  assert.deepEqual(questions(app)[0].phi, { reason: "identifier", choice: "as_written" }, "the question keeps it (it keeps the conversation out of the records)");
+});
+
+test("an edited question held by the check: going back keeps the edit box and the text as edited, through a full redraw", async () => {
+  const { app } = await makeApp();
+  assert.deepEqual(await ask(app, "黄芪的靶点"), { sent: true });
+  await settle(app);
+  const main = document.createElement("main");
+  document.body.append(main);
+  mountConversation(app, main);
+  const [q] = questions(app);
+  click(main.querySelector(`[data-msg="${q.id}"] .msg__actions--user button`)); // edit
+  const box = () => main.querySelector(`[data-msg="${q.id}"] .msg__edit-input`);
+  assert.ok(box(), "the edit box is open");
+  const typed = box();
+  typed.value = ID_CASE;
+  const sent0 = requests.length;
+  click(main.querySelector(`[data-msg="${q.id}"] .msg__edit-actions .btn--primary`)); // send the edit
+  for (let i = 0; i < 1000 && !openDialog(); i++) await delay(2);
+  const dialog = openDialog();
+  assert.ok(dialog, "the edit goes through the same check");
+  click(dialog.querySelector('[data-phi="edit"]'));
+  // the box the edit was typed in stays on screen only until the thread is drawn again: the one drawn after going back
+  for (let i = 0; i < 500 && box() === typed; i++) await delay(2);
+  assert.notEqual(box(), typed, "the thread was drawn again after going back");
+  assert.equal(box()?.value, ID_CASE, "the box is back, with the text as edited");
+  app.emit("layout", app.state.layout); // a full redraw (a layout change, the catalog arriving)
+  assert.equal(box()?.value, ID_CASE, "and stays through a redraw");
+  assert.equal(requests.length, sent0, "nothing was sent");
+  assert.equal(questions(app).length, 1, "nor stored");
+  main.remove();
 });
 
 test("project files the prompt inlines count, and so do attachments about to join them; going back stores no attachment", async () => {
@@ -283,13 +378,34 @@ const CORPUS = [
   "半夏泻心汤寒热错杂的现代研究", "PMID 31415926 berberine", "DOI 10.1016/j.jep.2020.112345 的结论", "NCT04280705 的入组标准",
   "小柴胡汤在少阳病中的应用", "附子的毒性与炮制", "乌头碱 LD50", "CAS 2086-83-1 是什么化合物", "GSE123456 数据集的差异表达",
   "王清任 血府逐瘀汤", "李时珍 本草纲目 黄连", "10 岁以下儿童能否使用麻黄？", "孕妇禁用的中药有哪些", "65 岁以上人群黄芪注射液的不良反应",
+  // patients as a population (an age band or range, a trial's inclusion criteria), and how a record's sections are written
+  "65岁以上患者使用黄芪注射液的不良反应", "18岁以下患者能否使用附子？", "老年患者（65岁以上）服用甘草的风险", "纳入患者年龄18-75岁，男女不限",
+  "儿童患者3岁以下能用麻黄吗", "65 岁及以上患者服用华法林与丹参的相互作用", "≥65岁患者的剂量调整", "未满18岁患者禁用的中药",
+  "纳入标准：年龄18～75岁的患者，男女不限", "患者年龄在18岁至65岁之间", "Can a patient over 65 years old take ephedra?",
+  "请总结主诉和现病史的写法", "What is the chief complaint and HPI format in TCM records?", "主诉与现病史有什么区别", "如何书写主诉和现病史",
+  "什么是主诉、现病史和既往史", "既往史、个人史、家族史的书写要求", "difference between chief complaint and history of present illness",
+  "How to write the chief complaint and HPI in a TCM record?",
   "脉弦细，舌淡苔白，属于什么证型？", "口苦咽干目眩，是少阳病吗？", "糖尿病患者能吃黄芪吗？", "高血压患者服用天麻钩藤饮的证据",
   "Compare berberine and metformin in type 2 diabetes trials", "What are the targets of baicalin?", "network pharmacology of Gegen Qinlian decoction",
+];
+
+// what must still open it: a patient described as a person (an age band beside the case does not make it a population),
+// a record written out with its sections, an identifier whatever else the text says
+const CASES = [
+  [ID_CASE, "identifier"], [CASE, "clinical_case"], ["患者，男，60岁，咳嗽三天", "clinical_case"], ["患者65岁以上，女，咳嗽两周", "clinical_case"],
+  ["65岁男性患者，咳嗽三天", "clinical_case"], ["患者3岁，发热两天", "clinical_case"], ["患者75岁，男，18-75岁组", "clinical_case"],
+  ["Patient is a 45-year-old male with cough", "clinical_case"], ["主诉：胃痛3天。现病史：3天前进食生冷后胃脘疼痛。", "clinical_record"],
+  ["主诉 胃痛三天 现病史 三天前受凉", "clinical_record"], ["主诉和现病史：胃痛3天，3天前进食生冷后", "clinical_record"],
+  ["Chief complaint: chest pain. HPI: started 2 days ago", "clinical_record"], ["65岁以上患者，身份证号110101199003071234", "identifier"],
+  ["主诉的写法，病历号 A12345", "identifier"],
 ];
 
 test(`no dialog on ${CORPUS.length} research questions: the E1 scenarios, the e2e questions and TCM research questions`, async () => {
   assert.ok(CORPUS.length >= 30 + 12);
   for (const q of CORPUS) assert.equal(phiCheck({ text: q }), null, q);
+  // the records' reading for everything else: a case is still a case, and a population question is still not recorded
+  for (const [q, reason] of CASES) assert.equal(phiCheck({ text: q })?.reason, reason, q);
+  for (const q of ["65岁以上患者使用黄芪注射液的不良反应", "请总结主诉和现病史的写法"]) assert.ok(sensitiveReason(q), q);
   // and through the app on the relay preset: each is sent at once (one conversation each)
   const { app } = await makeApp();
   for (const q of CORPUS) {
@@ -305,13 +421,18 @@ test(`no dialog on ${CORPUS.length} research questions: the E1 scenarios, the e2
 
 // ------------------------------------------------------------------------------------------------- the parts
 
-test("local means this computer: Tao-S1 never is (even served from localhost); a local preset or a loopback address is", () => {
+test("local means this computer: Tao-S1 never is (even served from localhost); a loopback address is, whatever the preset", () => {
   const tao = activeProvider({ provider: "tao", baseUrls: { tao: "http://127.0.0.1:8787/v1" } });
   assert.equal(isLocalModel(tao), false);
   assert.equal(isLocalModel(activeProvider({ provider: "tao" })), false);
   assert.equal(isLocalModel(activeProvider({ provider: "openai", keys: { openai: "k" } })), false);
   assert.equal(isLocalModel(activeProvider({ provider: "ollama" })), true);
   assert.equal(isLocalModel(activeProvider({ provider: "lmstudio" })), true);
+  assert.equal(isLocalModel(activeProvider({ provider: "ollama", baseUrls: { ollama: "http://localhost:11434/v1" } })), true);
+  // a preset marked local pointed at another host (its address in Settings): a GPU server on the LAN or the internet
+  assert.equal(isLocalModel(activeProvider({ provider: "vllm", baseUrls: { vllm: "https://gpu.example.org:8000/v1" } })), false);
+  assert.equal(isLocalModel(activeProvider({ provider: "ollama", baseUrls: { ollama: "http://192.168.1.20:11434/v1" } })), false);
+  assert.equal(isLocalModel(activeProvider({ provider: "llamacpp", baseUrls: { llamacpp: "http://10.0.0.5:8080/v1" } })), false);
   assert.equal(isLocalModel(activeProvider({ provider: "c", customProviders: [{ id: "c", base_url: "http://[::1]:9000/v1", model: "m" }] })), true);
   assert.equal(isLocalModel(activeProvider({ provider: "c", customProviders: [{ id: "c", base_url: "https://api.example.org/v1", model: "m" }] })), false);
 });

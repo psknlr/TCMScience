@@ -186,12 +186,13 @@ tcmstudio serve
 - **使用 Tao-S1 时**：发给模型的内容（你的消息、系统提示、模型读到的工具结果文本）经中继转发给上游模型服务。中继不保存这些
   内容，Worker 的调用日志关闭；限额按访客 IP 的加盐哈希计数，IP 本身不存。
 - **使用你自己的 API 时**：模型调用直接从浏览器（或经本机 Runner）发往该服务，受该服务的条款约束。
-- **使用本地模型时**：模型调用不离开你的电脑。
-- **发给不在你电脑上的模型之前**（Tao-S1 或你自己的 API）：消息、随消息发送的项目文件、或换了模型后新模型还没收到过的较早消息
-  读起来含可识别个人的信息（证件号、病历号、姓名或出生日期字段，或像具体病例、病历）时，Studio 先停下，列出每种做法实际发送的
-  文字，请你选择：隐去后发送（隐去证件号等编号、电话、邮箱、密钥和带标签的姓名、出生日期字段；正文里的人名不会被隐去）、按原文发送（本对话
-  之后对同一模型不再询问）、改用已设置的本地模型，或返回修改。使用本地模型时不询问。所选做法（不含文字）记在这条消息上，并计入
-  匿名使用统计。
+- **使用本地模型时**：模型地址在本机（localhost、127.0.0.1）时，模型调用不离开你的电脑；把 Ollama、vLLM 等的地址改到局域网或
+  其他主机时，内容发往那台主机。
+- **发给不在你电脑上的模型之前**（Tao-S1、你自己的 API，或地址不在本机的 Ollama、vLLM 等）：消息、随消息发送的项目文件、或换了模型
+  后新模型还没收到过的较早消息读起来含可识别个人的信息（证件号、病历号、姓名或出生日期字段，或像具体病例、病历；问年龄段或病历
+  写法的研究问题不算）时，Studio 先停下，列出每种做法实际发送的文字，请你选择：隐去后发送（隐去证件号等编号、电话、邮箱、密钥和
+  带标签的姓名、出生日期字段；正文里的人名不会被隐去）、按原文发送（本对话之后对同一模型不再询问）、改用已设置的本机模型，或返回
+  修改。地址在本机的模型不询问。所选做法（不含文字）记在这条消息上，并计入匿名使用统计；这段对话也不再记录，隐去后发送的也一样。
 - 联网数据源只在你为项目打开「联网」并批准后才访问，访问的主机会在批准卡片上列出。
 - 浏览器数据库查询的 URL、查询正文和必要的数据库请求头会经 science.impf.ai 网关转发到对应数据源，返回数据也经过网关。
   网关不保存查询或响应，不接收环境 Cookie，不将数据库请求转发给模型；模型读取的工具结果仍按所选模型路径发送。
@@ -255,7 +256,7 @@ cd studio && npm install && npm run test:e2e
 | `pipeline.spec.mjs` | 不开浏览器，检查 `.github/workflows/studio.yml`：网页打包的 Harness 源码改动也会触发；`RELAY = "off"`（持久暂停）时部署后的检查不要求 Tao-S1 回答；CI 中 Worker 启动失败、Pyodide 的 CDN 不可达都不会被当作跳过 |
 | `science.spec.mjs` | 浏览器研究任务：在按 Cloudflare 方式提供的已构建网页上，任务工作线程（Pyodide 与其 pyarrow）研究已知答案的模拟世界（快照存储、同一进程内的受治理分析、带种子的置换零分布、反驳与九个导出），五张表须与原生 CPython 提交的字节一致；任务服务本身（任务、检查点、回执）由 `web/test/runtime/science.mjs` 检查（CDN 不可达时同上） |
 | `telemetry.spec.mjs` | 真实 Worker（`wrangler dev`）的遥测：征询同意的流程、无论如何都不记录的内容、遥测故障不影响对话、管理员仪表板（登录、双语、手机、删除、导出、退出） |
-| `privacy-send.spec.mjs` | 发给不在本机的模型之前的个人信息确认：Tao-S1（同源中继，由模拟模型回答）收到含身份证号的问题前先弹出确认，每种做法显示实际发送的文字；「隐去后发送」时模型收到的请求含 `[redacted:id_number]`、没有 18 位数字；无可隐去的具体病例没有该选项；「返回修改」不发送、文字留在输入框；「按原文发送」后本对话不再询问；研究问题直接发送；英文界面；127.0.0.1 上的模型不询问；对话框的 axe 检查 |
+| `privacy-send.spec.mjs` | 发给不在本机的模型之前的个人信息确认：Tao-S1（同源中继，由模拟模型回答）收到含身份证号的问题前先弹出确认，每种做法显示实际发送的文字；「隐去后发送」时模型收到的请求含 `[redacted:id_number]`、没有 18 位数字；无可隐去的具体病例没有该选项；「返回修改」不发送、文字留在输入框；「按原文发送」后本对话不再询问；研究问题（包括问 65 岁以上患者的）直接发送；英文界面；127.0.0.1 上的模型不询问；对话框的 axe 检查 |
 
 Chromium 依次取 `$CHROMIUM_PATH`、`$PLAYWRIGHT_BROWSERS_PATH`（或 `/opt/pw-browsers`）中的 `chromium-1194`、Playwright 自带的
 （`npx playwright install chromium`）。`$STUDIO_SITE` 指向已构建的网页时直接使用，否则先构建一次。截图保存在
@@ -376,13 +377,16 @@ clinical tool or identifying details), and counts anonymous usage you can switch
 Privacy: project state and files remain local. Approved browser database queries, request bodies, supported database
 headers and responses pass through science.impf.ai to the registered source; the gateway does not retain these payloads.
 With Tao-S1, what the model reads is relayed to the upstream model service and not stored by the relay; with your own API it
-goes to that provider; with a local model it stays on your computer. Before a message goes to a model outside your computer
-(Tao-S1 or your own API), Studio reads it, the project files sent with it and any earlier messages that model has not
-received for details that identify a person (an ID or record number, a name or birth-date field, a patient's case or
-record); when it finds one, it shows the exact text each choice sends and waits: send redacted (ID and record numbers, contact details,
+goes to that provider; with a local model at a loopback address (localhost, 127.0.0.1) it stays on your computer, and an
+Ollama or vLLM preset pointed at another host sends it there. Before a message goes to a model outside your computer
+(Tao-S1, your own API, or a local preset at another host), Studio reads it, the project files sent with it and any earlier
+messages that model has not received for details that identify a person (an ID or record number, a name or birth-date field,
+a patient's case or record; a research question about an age band or how records are written is not one); when it finds one,
+it shows the exact text each choice sends and waits: send redacted (ID and record numbers, contact details,
 keys and labelled name or birth-date fields; a name in running text stays), send as written (not asked again for that model in
-the conversation), switch to a local model you have set up, or edit. A local model is never asked about; the choice, never
-the text, is kept on the message and counted in the anonymous usage statistics. Conversation records are opt-in (off until you agree,
+the conversation), switch to a local model you have set up, or edit. A model at a loopback address is never asked about; the
+choice, never the text, is kept on the message and counted in the anonymous usage statistics, and the conversation is no
+longer recorded, sent redacted or not. Conversation records are opt-in (off until you agree,
 withdrawable with deletion under Settings → Privacy, kept 90 days, readable only by the site's administrators); anonymous
 usage statistics hold no conversation content and cannot follow a visitor from one day to the next. Studio gives no clinical advice: clinic outputs are drafts for a licensed practitioner, no record
 is not evidence of safety, and predicted is not measured.

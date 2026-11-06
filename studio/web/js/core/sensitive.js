@@ -8,6 +8,13 @@
 //                            patient with age or sex, the sections of a medical record), or it pairs clinical detail
 //                            with contact details. A conversation that once said such a thing is not recorded again.
 //
+// and, for the check before a question goes to a model outside the visitor's computer (ui/phidialog.js):
+//
+//   phiReason(text)        → sensitiveReason, except that an age band or range ("65岁以上患者", "18-75岁", "over 65
+//                            years old") and a record's sections named as a topic ("主诉和现病史的写法", "chief complaint
+//                            and HPI format") are not read as a patient's case or record: a research question about a
+//                            population, or about how records are written, is sent unasked (and still not recorded).
+//
 // These are heuristics and err toward leaving a turn out: a scientific question that only names a disease, a herb or a
 // pulse and tongue picture ("舌红苔黄，脉数是什么证？") is recordable; "患者，女，32岁，…" is not. The record's other
 // guards (uploaded files, project files, clinical tools; web/js/core/turnrecord.js) do not depend on these.
@@ -111,6 +118,42 @@ export function sensitiveReason(text) {
   if (CASE_ZH.some((re) => re.test(s)) || CASE_EN.some((re) => re.test(s))) return "clinical_case";
   if (sections >= 1 && found(s, CONTACT).size) return "contact_with_clinical";
   return null;
+}
+
+// an age band or range describes a population, not a person: set aside before phiReason reads a case
+const AGE_UNIT = "(?:周岁|岁|个月|月龄)";
+const POPULATION = [
+  new RegExp(`\\d{1,3}\\s*${AGE_UNIT}?\\s*[-–—~至到]\\s*\\d{1,3}\\s*${AGE_UNIT}`, "g"), // 18-75岁, 18岁至75岁, 3~6个月
+  new RegExp(`\\d{1,3}\\s*${AGE_UNIT}\\s*[及或]?\\s*(?:以上|以下|以内|之间)`, "g"), // 65岁以上, 18 岁及以下
+  new RegExp(`(?:[≥≤><]=?|大于|小于|超过|高于|低于|不足|不满|未满|年满)\\s*\\d{1,3}\\s*${AGE_UNIT}`, "g"), // ≥65岁, 未满18岁
+  /\b(?:over|under|above|below|older than|younger than|at least)\s+\d{1,3}\s*(?:years?|yrs?)(?:[- ]?old)?/gi,
+  /\b\d{1,3}\s*(?:-|–|—|to)\s*\d{1,3}[- ]?(?:years?|yrs?)(?:[- ]?old)?/gi,
+  /\b\d{1,3}[- ]?(?:years?|yrs?)(?:[- ]?old)?\s+(?:and|or)\s+(?:older|over|above|younger|under|below)\b/gi,
+];
+// a record's sections named as a topic (listed, then what is asked of them), never a section followed by its content:
+// set aside before phiReason counts sections
+const SECTION = `(?:${SECTIONS.map((re) => re.source).join("|")})`;
+const SECTION_LIST = `${SECTION}(?:\\s*(?:和|与|及|以及|、|,|，|/|或|and|or|&)\\s*${SECTION})*`;
+const TOPICS = [
+  new RegExp(`${SECTION_LIST}\\s*(?:的|之|应该?|该|要|需要|有什么|有何|是|分别|各|都)?\\s*(?:写法|书写|格式|模板|规范|要求|区别|不同|差别|异同|含义|定义|要点|怎么写|如何写|怎样写|如何书写|是什么|写什么|包括哪些|包括什么|指什么|有哪些)`, "gi"),
+  new RegExp(`(?:如何|怎样|怎么|怎么样)\\s*(?:书写|写|记录|采集|询问)\\s*${SECTION_LIST}`, "gi"),
+  new RegExp(`什么是\\s*${SECTION_LIST}`, "gi"),
+  new RegExp(`${SECTION_LIST}\\s+(?:sections?|formats?|templates?|structure|definitions?|layout)\\b`, "gi"),
+  new RegExp(`\\b(?:difference|differences|distinction) between\\s+${SECTION_LIST}`, "gi"),
+  new RegExp(`\\bhow (?:do (?:I|you|we)|should (?:I|you|we)|to) (?:write|document|record|take)\\s+(?:(?:a|an|the)\\s+)?${SECTION_LIST}`, "gi"),
+];
+
+/**
+ * Why `text` should not go to a model outside this computer unasked (ui/phidialog.js): sensitiveReason's reason, but
+ * a case or a record is read again once its age bands and ranges, and the record sections it names as a topic, are
+ * set aside. An identifier is one whatever else the text says.
+ */
+export function phiReason(text) {
+  const why = sensitiveReason(text);
+  if (why !== "clinical_case" && why !== "clinical_record" && why !== "contact_with_clinical") return why;
+  let s = text.normalize("NFKC");
+  for (const re of [...POPULATION, ...TOPICS]) s = s.replace(re, "");
+  return sensitiveReason(s);
 }
 
 /** The first reason any of `texts` gives, or null. */

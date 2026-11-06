@@ -226,6 +226,25 @@ test("agreed, but never recorded: an uploaded file, a patient's case — and the
   assert.equal(events(second.requests, "turn_end")[0].excluded, "sensitive_text");
 });
 
+test("agreed, but a question sent redacted is never recorded: the name in running text is still there, and the conversation stays out", async () => {
+  resetChoices();
+  setContentConsent(true);
+  for (const q of ["Patient Alice Smith MRN 04851923 hepatotoxicity", "患者张三，身份证号110101199003071234，胃痛"]) {
+    const { app, requests } = await makeApp();
+    const sending = app.send(q);
+    for (let i = 0; i < 500 && !document.querySelector("dialog.dialog--phi[open]"); i++) await delay(2);
+    document.querySelector('dialog.dialog--phi[open] [data-phi="redacted"]').dispatchEvent(new window.Event("click"));
+    assert.equal(await sending, true, q);
+    await finished(app);
+    assert.match(app.state.messages.find((m) => m.role === "user").content, /\[redacted:(record|id)_number\]/, q);
+    await app.send("桂枝汤主治什么？"); // the same conversation: still out
+    await finished(app);
+    assert.deepEqual(records(requests), [], q);
+    assert.deepEqual(events(requests, "turn_end").map((e) => [e.recorded, e.excluded, e.phi]), [[false, "sensitive_text", "redacted"], [false, "sensitive_text", undefined]], q);
+    assert.equal((await app.store.conversations.get(app.state.conversation.id)).recordExcluded, "sensitive_text", q);
+  }
+});
+
 test("a project file the model was given keeps the conversation out, even once the file is removed", async () => {
   resetChoices();
   setContentConsent(true);

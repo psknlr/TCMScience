@@ -3,8 +3,9 @@
 // e2e/mock-llm.mjs) is a model outside the computer, so an ID number opens the dialog before anything is sent; each
 // choice shows the exact text it sends, and what the model then receives is read from the mock's request bodies. A
 // patient's case with nothing to redact has no redacted choice; going back leaves the text in the box; "as written" is
-// not asked again in that conversation; research questions are sent at once; a model on this computer (a custom
-// endpoint on 127.0.0.1) is never asked about. The dialog passes axe-core (WCAG A/AA, nothing serious or critical).
+// not asked again in that conversation; research questions (one about patients over 65 among them) are sent at once; a
+// model on this computer (a custom endpoint on 127.0.0.1) is never asked about. The dialog passes axe-core (WCAG A/AA,
+// nothing serious or critical).
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -105,7 +106,7 @@ test("Tao-S1: an ID number is held for the person's choice; redacted, the model 
 
   // research questions go at once, in a new conversation too
   await page.evaluate(() => globalThis.__studio.createProject({ name: "E2E 研究" }));
-  for (const [i, q] of ["舌红苔黄，脉数是什么证？", "黄芪的靶点", "PubChem CID 13912345678 berberine"].entries()) {
+  for (const [i, q] of ["舌红苔黄，脉数是什么证？", "黄芪的靶点", "PubChem CID 13912345678 berberine", "65岁以上患者使用黄芪注射液的不良反应"].entries()) {
     await send(page, q);
     await waitForAnswers(page, i + 1);
     await expect(dialog(page)).toHaveCount(0);

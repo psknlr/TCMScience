@@ -956,7 +956,7 @@ export class App {
       if (typing) this.state.focusComposerOnMount = true;
       this.navigate({ name: "conversation", projectId: project.id, convId: conv.id }, { replace: route.name === "project" || route.name === "home" });
     }
-    this.#runAssistant(conv, user);
+    this.#runAssistant(conv, user, { phi: gate.phi?.choice });
     return true;
   }
 
@@ -994,14 +994,14 @@ export class App {
     } finally {
       this.#sending = false;
     }
-    this.#runAssistant(this.state.conversation, user);
+    this.#runAssistant(this.state.conversation, user, { phi: gate.phi?.choice });
   }
 
   /** Editing a user message adds a sibling with the same parent (a branch) and answers it. */
   async editMessage(messageId, text) {
     const m = this.state.messages.find((x) => x.id === messageId);
-    if (!m || this.state.turn) return;
-    await this.send(text, { editOf: m });
+    if (!m || this.state.turn) return false;
+    return this.send(text, { editOf: m });
   }
 
   async switchBranch(messageId, dir) {
@@ -1060,14 +1060,15 @@ export class App {
     };
   }
 
-  async #runAssistant(conv, user) {
+  /** `phi`: the choice the check before sending made for this turn (ui/phidialog.js), counted with this turn only. */
+  async #runAssistant(conv, user, { phi } = {}) {
     const provider = this.provider();
     const project = this.state.project;
     const draftId = uuid();
     const live = newLive(draftId, user.id, provider);
     const abort = new AbortController();
     let saving = Promise.resolve();
-    const turn = { conversationId: conv.id, projectId: conv.projectId || project?.id, userId: user.id, live, abort, discarded: false, saving: () => saving };
+    const turn = { conversationId: conv.id, projectId: conv.projectId || project?.id, userId: user.id, live, abort, discarded: false, saving: () => saving, phi };
     this.state.turn = turn;
     // a question, and the first of its conversation or not; the turn beats while it runs, so that the next page load
     // can tell one that was cut off (core/telemetry.js staleTurns)
@@ -1080,7 +1081,7 @@ export class App {
     // answer streams, or after a reload cut one off, does not reach back to it)
     turn.consent = this.telemetry.contentOn;
     this.telemetry.track("turn_start", { provider: provider.id, model: provider.model, first: turn.first });
-    this.telemetry.turnBegan({ id: draftId, conversationId: conv.id, projectId: turn.projectId, provider: provider.id, model: provider.model, first: turn.first, consent: turn.consent, startedAt: live.startedAt });
+    this.telemetry.turnBegan({ id: draftId, conversationId: conv.id, projectId: turn.projectId, provider: provider.id, model: provider.model, first: turn.first, consent: turn.consent, phi, startedAt: live.startedAt });
     turn.beat = setInterval(() => this.telemetry.turnBeat(draftId), 5000);
     this.state.inspector = { ...this.state.inspector, messageId: draftId, selection: null };
     this.emit("turn", { type: "start", live });
@@ -1258,7 +1259,7 @@ export class App {
           recorded = true;
         }
       }
-      tel.track("turn_end", turnEndEvent({ ...base, excluded: excluded || undefined, recorded, phi: user.phi?.choice }));
+      tel.track("turn_end", turnEndEvent({ ...base, excluded: excluded || undefined, recorded, phi: turn?.phi }));
     } catch { /* never the conversation's concern */ } finally {
       tel.turnEnded(live?.id || assistant?.id);
     }
@@ -1382,10 +1383,10 @@ export class App {
         if (!conv || !user) {
           // the conversation deleted since, or cut off before anything of the turn was saved
           this.telemetry.track("turn_end", turnEndEvent({ id: m.id, provider: m.provider, model: m.model, status: "interrupted", first: m.first,
-            startedAt: m.startedAt, endedAt: m.beat, assistant, tools: [], excluded: conv ? "unavailable" : "discarded" }));
+            startedAt: m.startedAt, endedAt: m.beat, assistant, tools: [], excluded: conv ? "unavailable" : "discarded", phi: m.phi }));
           continue;
         }
-        await this.#reportTurn({ conv, user, assistant, toolMessages: tools, live, turn: { first: m.first, consent: m.consent === true }, interrupted: true, endedAt: m.beat });
+        await this.#reportTurn({ conv, user, assistant, toolMessages: tools, live, turn: { first: m.first, consent: m.consent === true, phi: m.phi }, interrupted: true, endedAt: m.beat });
       } catch { /* the next page load tries no more: it was taken off the list */ }
     }
   }

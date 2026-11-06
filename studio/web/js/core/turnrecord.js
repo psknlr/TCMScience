@@ -147,7 +147,10 @@ export function exclusionOf({ path = [], tools = [], projectFiles = 0, discarded
       return "user_data_tool";
     }
   }
-  if (sensitiveAny(path.filter((m) => m?.role === "user").map((m) => m.content))) return "sensitive_text";
+  // a question the check before sending held (ui/phidialog.js: message.phi) identified a person as it was typed, whatever
+  // was sent and stored: redacted, its name in running text may still be there
+  const asked = path.filter((m) => m?.role === "user");
+  if (asked.some((m) => m.phi) || sensitiveAny(asked.map((m) => m.content))) return "sensitive_text";
   return null;
 }
 
