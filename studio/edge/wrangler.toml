@@ -65,8 +65,9 @@ QUOTA_MARKERS = "2056,Token Plan 用量上限"
 # upstream_error, which the page retries. Any other code the relay has no entry for is upstream_unknown, logged with it.
 TRANSIENT_CODES = "1000,1001,1013"
 # the upstream's circuit breaker (one key in the LIMITER object): it opens on a spent quota, or on BREAKER_ERRORS
-# upstream errors within BREAKER_ERROR_SECONDS; open, every call is answered at once, unsent and uncounted, until the
-# upstream's reset time when it gave one, else for BREAKER_OPEN_SECONDS; then one call tries the upstream again
+# upstream errors within BREAKER_ERROR_SECONDS not all met by one visitor; open, every call is answered at once, unsent
+# and uncounted, until the upstream's reset time when it gave one, else for BREAKER_OPEN_SECONDS; then one call tries
+# the upstream again
 BREAKER_OPEN_SECONDS = "600"
 BREAKER_ERRORS = "3"
 BREAKER_ERROR_SECONDS = "60"

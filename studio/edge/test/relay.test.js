@@ -412,9 +412,11 @@ test("a plan-quota 429 is upstream_quota, not 'busy': permanent for the page, an
   answer = () => new Promise((resolve) => { release = () => resolve(sse(OK_EVENTS)); });
   const probe = r.call("/v1/chat/completions", post(tidy));
   for (let i = 0; i < 20 && !release; i++) await new Promise((x) => setTimeout(x, 1));
+  // while it is out, the others (and health) are told to ask again in a few seconds, not at the end of its window
   const waiting = await r.call("/v1/chat/completions", post(tidy));
-  assert.deepEqual([waiting.status, (await waiting.json()).error.type], [503, "upstream_quota"]);
-  assert.equal((await (await r.call("/v1/health")).json()).ok, false);
+  assert.deepEqual([waiting.status, (await waiting.json()).error.type, waiting.headers.get("Retry-After")], [503, "upstream_quota", "15"]);
+  const probing = await (await r.call("/v1/health")).json();
+  assert.deepEqual([probing.ok, probing.reason, probing.until], [false, "upstream_quota", new Date(t + 15000).toISOString()]);
   assert.equal(r.calls.length - fetches, 1);
   release();
   const answered = await probe;
@@ -460,6 +462,58 @@ test("the upstream's reset time keeps the breaker open until then; a probe that 
   await next.text();
   await refused.settle();
   assert.deepEqual([refused.calls.length, refused.reports], [1, ["released", "ok"]]);
+  // a reset sooner than a minute is a minute: a breaker open for less would only let the spent quota answer again
+  const soon = relay({ upstream: async () => new Response(JSON.stringify(PLAN_SPENT), { status: 429, headers: { "Content-Type": "application/json", "Retry-After": "1" } }) });
+  const brief = await soon.call("/v1/chat/completions", post(tidy));
+  assert.deepEqual([brief.status, (await brief.json()).error.type, brief.headers.get("Retry-After")], [503, "upstream_quota", "60"]);
+  assert.equal((await (await soon.call("/v1/health")).json()).until, new Date(NOON + 60000).toISOString());
+}));
+
+test("a probe whose stream brings no event is released, however it ends (empty, stopped by the visitor, broken): the next call probes", () => quiet(async () => {
+  const stream = (start) => new Response(new ReadableStream({ start }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  const cases = [
+    // the upstream's 200 stream closes with no event (also through the reasoning filter, for a request without reasoning)
+    ["empty", tidy, () => sse([]), async (res) => assert.equal(await res.text(), "")],
+    ["empty, no reasoning", { ...tidy, thinking: { type: "disabled" } }, () => sse([]), async (res) => assert.equal(await res.text(), "")],
+    // the visitor stops it after the headers, before the first token
+    ["stopped", tidy, () => stream(() => {}), (res) => res.body.cancel()],
+    // it breaks before its first event (a keep-alive comment is no event)
+    ["broken", tidy, () => stream((c) => {
+      c.enqueue(new TextEncoder().encode(": keep-alive\n\n"));
+      c.error(new TypeError("terminated"));
+    }), (res) => assert.rejects(res.text())],
+  ];
+  for (const [name, body, first, finish] of cases) {
+    let t = NOON + 1000;
+    let answer = first;
+    const r = relay({ now: () => t, upstream: () => answer() });
+    r.limiter.saveBreaker({ until: NOON, reason: "upstream_quota", probe: false, failures: [] });
+    const probe = await r.call("/v1/chat/completions", post(body));
+    assert.equal(probe.status, 200, name);
+    await finish(probe);
+    await r.settle();
+    assert.deepEqual(r.reports, ["released"], name);
+    // not another window: health says Tao-S1 is usable, and the next call is the probe
+    t += 5000;
+    assert.equal((await (await r.call("/v1/health")).json()).ok, true, name);
+    answer = async () => sse(OK_EVENTS);
+    const next = await r.call("/v1/chat/completions", post(tidy));
+    assert.equal(next.status, 200, name);
+    assert.match(await next.text(), /好/, name);
+    await r.settle();
+    assert.deepEqual([r.calls.length, r.reports], [2, ["released", "ok"]], name);
+  }
+  // a call that is no probe tells nothing of its stream's end
+  const plain = relay({ upstream: async () => sse([]) });
+  assert.equal(await (await plain.call("/v1/chat/completions", post(tidy))).text(), "");
+  await plain.settle();
+  assert.deepEqual(plain.reports, []);
+  // a probe whose reply (not streamed) breaks off is released too, and the visitor told the service could not be reached
+  const cut = relay({ now: () => NOON + 1000, upstream: async () => new Response(new ReadableStream({ start: (c) => c.error(new TypeError("terminated")) }), { status: 200, headers: { "Content-Type": "application/json" } }) });
+  cut.limiter.saveBreaker({ until: NOON, reason: "upstream_quota", probe: false, failures: [] });
+  const res = await cut.call("/v1/chat/completions", post({ ...tidy, stream: false }));
+  assert.deepEqual([res.status, (await res.json()).error.type], [502, "upstream_unreachable"]);
+  assert.deepEqual(cut.reports, ["released"]);
 }));
 
 test("a 429 without a marker is still a minute's limit: upstream_rate with Retry-After, and the breaker stays closed", () => quiet(async () => {
@@ -534,17 +588,17 @@ test("the breaker opens on BREAKER_ERRORS upstream errors or unknown codes withi
   let t = NOON;
   let answer = async () => new Response("boom", { status: 500 });
   const r = relay({ now: () => t, upstream: () => answer() });
-  const status = async () => (await r.call("/v1/chat/completions", post(tidy))).status;
-  assert.equal(await status(), 502);
+  const status = async (ip) => (await r.call("/v1/chat/completions", post(tidy, { "CF-Connecting-IP": ip }))).status;
+  assert.equal(await status("203.0.113.1"), 502);
   t += 61000;
-  assert.equal(await status(), 502); // the first is past the minute
+  assert.equal(await status("203.0.113.2"), 502); // the first is past the minute
   t += 1000;
   answer = async () => jsonReply({ base_resp: { status_code: 4321 } });
-  assert.equal(await status(), 502);
+  assert.equal(await status("203.0.113.3"), 502);
   assert.equal(r.calls.length, 3);
   assert.equal((await (await r.call("/v1/health")).json()).ok, true); // two within the minute: still closed
   t += 1000;
-  assert.equal(await status(), 502); // the third: open
+  assert.equal(await status("203.0.113.2"), 502); // the third (two of one visitor's among them): open
   const h = await (await r.call("/v1/health")).json();
   assert.deepEqual([h.ok, h.reason, h.until], [false, "upstream_error", new Date(t + 600000).toISOString()]);
   const paused = await r.call("/v1/chat/completions", post(tidy));
@@ -564,6 +618,33 @@ test("the breaker opens on BREAKER_ERRORS upstream errors or unknown codes withi
     for (let i = 0; i < 4; i++) await other.call("/v1/chat/completions", post(tidy));
     assert.deepEqual([other.calls.length, other.reports], [4, []]);
   }
+}));
+
+test("one visitor's failures alone never open the breaker for everyone; with another visitor's among them, they do", () => quiet(async () => {
+  let t = NOON;
+  // a code tied to what the request says: the upstream fails one visitor's request, not the service
+  const r = relay({ now: () => t, upstream: async (url, init) => (/poison/.test(init.body) ? jsonReply({ base_resp: { status_code: 1042, status_msg: "illegal characters" } }) : sse(OK_EVENTS)) });
+  const bad = { ...tidy, messages: [{ role: "user", content: "poison" }] };
+  const from = (ip, body = tidy) => r.call("/v1/chat/completions", post(body, { "CF-Connecting-IP": ip }));
+  for (let i = 0; i < 6; i++) { // a turn's three attempts, twice, within the minute
+    const res = await from("198.51.100.9", bad);
+    assert.deepEqual([res.status, (await res.json()).error.type], [502, "upstream_unknown"]);
+    t += 1500;
+  }
+  const other = await from("203.0.113.50");
+  assert.equal(other.status, 200);
+  assert.match(await other.text(), /好/);
+  assert.equal(r.calls.length, 7);
+  assert.equal((await (await r.call("/v1/health")).json()).ok, true);
+  // the breaker's row keeps no more of one visitor's failures than it needs
+  assert.equal(r.limiter.breakerState().failures.length, 3);
+  // a second visitor's failure within the minute: the upstream fails more than one visitor, and the breaker opens
+  t += 1000;
+  assert.equal((await from("203.0.113.50", bad)).status, 502);
+  const h = await (await r.call("/v1/health")).json();
+  assert.deepEqual([h.ok, h.reason], [false, "upstream_error"]);
+  assert.equal((await from("203.0.113.77")).status, 503);
+  assert.equal(r.calls.length, 8);
 }));
 
 test("a breaker that cannot be read lets the call on (the counters still decide); health then says what it knows", () => quiet(async () => {

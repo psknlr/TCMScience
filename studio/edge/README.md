@@ -80,12 +80,16 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
   不含标记的 429 仍是每分钟的限流 `upstream_rate`（带上游的 `Retry-After`，网页稍后重试）。`base_resp` 里中继既没有对照、
   也不在 `TRANSIENT_CODES` 里的代码是 502 `upstream_unknown`，代码记进 Worker 日志，供所有者补进配置。
   断路器是 `LIMITER` 里的一个键（全站一个）：额度用完时立即打开，`BREAKER_ERROR_SECONDS` 秒内 `BREAKER_ERRORS` 次
-  `upstream_error` / `upstream_unknown` 时也打开；打开期间每个模型调用当场答 503（额度用完时 `upstream_quota`，否则
-  `upstream_error`），不发往上游，也不计入访客的限额。它开到上游给出的重置时间（429 的 `Retry-After`，最多一天），没有就开
-  `BREAKER_OPEN_SECONDS` 秒；之后放行一次调用去试，成功就关上，又遇到额度用完或报错就再开一轮，没得到上游答复（被限额拒绝、
-  连不上）就让下一次调用再试。每次打开、关上都记一行 Worker 日志。打开期间 `/v1/health` 是 `ok:false` 并带 `reason`、
-  `until`；网页据此在输入框上方说明「Tao-S1 在 HH:MM 前不可用」，访客配置了别的模型时提供一键把本对话改用它（不会自动切换）。
-  health 对任何人开放，所以同一个 Worker 实例 10 秒内只读一次断路器（模型调用每次都读）。
+  `upstream_error` / `upstream_unknown`、且不全是同一位访客遇到的时也打开（断路器管所有访客，而一位访客的请求本身就可能是
+  上游出错的原因；`BREAKER_ERRORS = "1"` 时任何一次都算）；打开期间每个模型调用当场答 503（额度用完时 `upstream_quota`，否则
+  `upstream_error`），不发往上游，也不计入访客的限额。它开到上游给出的重置时间（429 的 `Retry-After`，至少一分钟，最多一天），
+  没有就开 `BREAKER_OPEN_SECONDS` 秒；之后放行一次调用去试，成功就关上，又遇到额度用完或报错就再开一轮，没得到上游答复（被限额
+  拒绝、连不上、回答在第一个事件之前就结束、被访客停止或中断）就让下一次调用再试。试的这次调用还没有结果时，其余调用和 health
+  都说 15 秒后再问（而不是这一轮的末尾），最多等它一分钟：它的结果一直没来时，下一次调用再去试。每次打开、关上都记一行
+  Worker 日志。打开期间 `/v1/health` 是 `ok:false` 并带 `reason`、`until`；网页据此在输入框上方说明「Tao-S1 在 HH:MM 前
+  不可用」，访客配置了别的模型时提供一键把本对话改用它（不会自动切换）。health 对任何人开放，Durable Object 的请求数又与限额
+  共用每天的额度，所以同一个 Worker 实例 10 秒内只读一次断路器，health 与模型调用都一样：别处刚打开的断路器，这个实例最多晚
+  10 秒知道（在此之前它发出的调用遇到上游的答复就会知道）；一轮结束后，模型调用总是去问 Durable Object，由它放行唯一的一次试探。
 - **失败时关闭**：Durable Object 不可达时拒绝调用（503 `unavailable`），绝不放出不计数的调用；`BURST` 绑定本身出错时放行到
   Durable Object（它仍然计数）。读不到断路器时不拦调用，交给限额去判断。
 - **取消**：访客停止回答或关掉页面时，上游调用随之中止（`enable_request_signal`），不再继续计费。
@@ -144,7 +148,7 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 | `ALLOWED_ORIGINS` | `https://science.impf.ai,http://127.0.0.1:8765,http://localhost:8765` | 可以调用中继的网页来源（完全匹配） |
 | `QUOTA_MARKERS` | `2056,Token Plan 用量上限` | 上游报错里表示「套餐额度用完」而不是每分钟限流的标记（逗号分隔）：代码、类型，或上游消息里的一句话。只从上游自己的回答里取，不要猜 |
 | `TRANSIENT_CODES` | `1000,1001,1013` | 上游 `base_resp` 里属于它自身临时故障的代码（未知错误、超时、内部错误）：`upstream_error`，网页会重试；其余没有对照的代码是 `upstream_unknown` |
-| `BREAKER_OPEN_SECONDS` / `BREAKER_ERRORS` / `BREAKER_ERROR_SECONDS` | `600` / `3` / `60` | 断路器：上游没给重置时间时打开多少秒（60–86400）；多少秒内多少次上游错误就打开 |
+| `BREAKER_OPEN_SECONDS` / `BREAKER_ERRORS` / `BREAKER_ERROR_SECONDS` | `600` / `3` / `60` | 断路器：上游没给重置时间时打开多少秒（60–86400）；多少秒内多少次上游错误（不全是同一位访客的）就打开 |
 | `HSTS_MAX_AGE` | `15552000` | Worker 自己回答的 HSTS（区域的 HSTS 设置会覆盖它） |
 | `SOURCES` | `on` | `off`：暂停数据库网关，不影响网页和模型中继 |
 | `SOURCE_MAX_BODY_BYTES` / `SOURCE_MAX_RESPONSE_BYTES` | `393216` / `8388608` | 数据库请求包及响应的字节上限；响应最大可配置为 16 MiB |

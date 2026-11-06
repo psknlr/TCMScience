@@ -17,11 +17,15 @@ Append-only notes where a part assumes something CONTRACTS.md does not say. One 
   when its Token Plan was spent on 2026-11-04: HTTP 429 `rate_limit_error` "已达到 Token Plan 用量上限：… (2056)". A
   `base_resp` code with no entry of its own and not in `TRANSIENT_CODES` → 502 `upstream_unknown`, logged with its code.
 - The upstream breaker (`LimiterCore.breaker` / `breakerReport`, one row `upstream` in the `Limiter` object): opened by a
-  spent quota (until the upstream's `Retry-After`, at most a day, else `BREAKER_OPEN_SECONDS`) or by `BREAKER_ERRORS`
-  `upstream_error` / `upstream_unknown` within `BREAKER_ERROR_SECONDS`. Open: chat → 503 at once, no upstream fetch, no
-  gate hit; `/v1/health` → `ok:false, reason, until`. After `until` the next chat call is the one probe of a new window:
-  its 200 closes the breaker, a spent quota or an error reopens it, a probe that never reached the upstream lets the next
-  call try. Each trip and each close is one Worker log line. Health reads the breaker at most once per 10 s per isolate.
+  spent quota (until the upstream's `Retry-After`, at least a minute and at most a day, else `BREAKER_OPEN_SECONDS`) or by
+  `BREAKER_ERRORS` `upstream_error` / `upstream_unknown` within `BREAKER_ERROR_SECONDS`, not all met by one caller (the
+  counters' visitor key; any one failure when `BREAKER_ERRORS` is 1). Open: chat → 503 at once, no upstream fetch, no gate
+  hit; `/v1/health` → `ok:false, reason, until`. After `until` the next chat call is the one probe of a new window: its
+  200 closes the breaker, a spent quota or an error reopens it, a probe that never reached the upstream, or whose answer
+  ended, was stopped or broke before its first event, lets the next call try; while it is out, the other calls get
+  `Retry-After: 15` and health an `until` 15 s ahead, for a minute at most (then the next call probes). Each trip and each close is one Worker log line. Health and chat
+  read the breaker at most once per 10 s per isolate (`src/index.js`); once a window has passed, chat always asks the
+  object, which grants the one probe.
 - An error the upstream reports *inside* a stream arrives as one SSE event `data: {"error":{"message","type"}}` (then
   usually `data: [DONE]`). web-core's `llm/openai.js` should surface it as a model error, not as text.
 - A page on another allowed origin (the runner's `http://127.0.0.1:8765`) can read `Retry-After`

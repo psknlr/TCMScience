@@ -98,7 +98,8 @@ export class LimiterCore {
     this.bump(`kt:${kind}:${today}`, today, n);
   }
 
-  /** The breaker's state {until (ms; 0: closed), reason, probe (a call is trying the upstream), failures (ms)}. */
+  /** The breaker's state {until (ms; 0: closed), reason, probe (a call is trying the upstream), failures [{at (ms), who
+   * (the caller's key)}]}. */
   breakerState() {
     if (!this.upstream) {
       let s = null;
@@ -108,7 +109,8 @@ export class LimiterCore {
       } catch { /* a row that cannot be read is a closed breaker */ }
       this.upstream = {
         until: Number(s?.until) || 0, reason: typeof s?.reason === "string" ? s.reason : "", probe: s?.probe === true,
-        failures: Array.isArray(s?.failures) ? s.failures.map(Number).filter(Number.isFinite) : [],
+        failures: (Array.isArray(s?.failures) ? s.failures : []).filter((f) => f && Number.isFinite(Number(f.at)))
+          .map((f) => ({ at: Number(f.at), who: String(f.who ?? "") })),
       };
     }
     return this.upstream;
@@ -123,15 +125,21 @@ export class LimiterCore {
    * May a model call go to the upstream? settings: {open, errors, window} (seconds, count, seconds; relay.js config).
    * → {open:true, reason, until, retry} while the breaker is open: every call is answered at once. Once `until` has
    * passed, the next call that asks with `probe` (a model call; health never does) is let through as the one probe of a
-   * new window, → {open:false, probe:true}; the calls after it wait for its outcome (breakerReport), a window at most.
-   * Closed → {open:false}.
+   * new window, → {open:false, probe:true}; the calls after it wait for its outcome (breakerReport), PROBE_LEASE seconds
+   * at most (a probe whose answer never comes, or never reaches the breaker, does not keep the upstream shut for a whole
+   * window: the next call then probes), and are told to ask again in PROBING seconds, as the probe's answer is a matter
+   * of seconds. A window that has passed, asked without `probe` → {open:false, due:true}: health tells Tao-S1 usable,
+   * and a model call must still ask (src/index.js keeps what it read). Closed → {open:false}.
    */
   breaker(probe, settings, now = Date.now()) {
     const s = this.breakerState();
     if (!s.until) return { open: false };
-    if (now < s.until) return { open: true, reason: s.reason, until: s.until, retry: Math.ceil((s.until - now) / 1000) };
-    if (!probe) return { open: false };
-    this.saveBreaker({ ...s, until: now + positive(settings?.open, 600) * 1000, probe: true });
+    if (now < s.until) {
+      const until = s.probe ? Math.min(s.until, now + PROBING * 1000) : s.until;
+      return { open: true, reason: s.reason, until, retry: Math.ceil((until - now) / 1000) };
+    }
+    if (!probe) return { open: false, due: true };
+    this.saveBreaker({ ...s, until: now + Math.min(positive(settings?.open, 600), PROBE_LEASE) * 1000, probe: true });
     return { open: false, probe: true };
   }
 
@@ -139,13 +147,15 @@ export class LimiterCore {
    * What a model call brought, as far as the breaker is concerned:
    *   "upstream_quota"   the upstream's quota is spent: open now, until its reset (`reset` seconds) when it said, else
    *                      for settings.open seconds;
-   *   "upstream_error", "upstream_unknown"   settings.errors of them within settings.window seconds open it for
-   *                      settings.open seconds; the probe's one failure reopens it;
+   *   "upstream_error", "upstream_unknown"   settings.errors of them within settings.window seconds, not all met by one
+   *                      caller (`who`, the counters' key), open it for settings.open seconds: the breaker is every
+   *                      visitor's, and one visitor's request can be what the upstream fails on (with settings.errors 1,
+   *                      any one failure); the probe's one failure reopens it;
    *   "ok"               the probe was answered: closed;
-   *   "released"         the probe learned nothing (refused here, unreachable): the next call may try.
+   *   "released"         the probe learned nothing (refused here, unreachable, no event): the next call may try.
    * Each trip and each close is logged. → the state as breaker() tells it to health.
    */
-  breakerReport(outcome, settings, reset = null, now = Date.now()) {
+  breakerReport(outcome, settings, reset = null, now = Date.now(), who = "") {
     const s = this.breakerState();
     const open = (reason, secs) => {
       const until = now + secs * 1000;
@@ -165,9 +175,15 @@ export class LimiterCore {
     } else if (outcome === "upstream_error" || outcome === "upstream_unknown") {
       if (s.probe) open("upstream_error", positive(settings?.open, 600));
       else if (!isOpen) {
+        const errors = positive(settings?.errors, 3);
         const since = now - positive(settings?.window, 60) * 1000;
-        const failures = [...s.failures.filter((t) => t > since), now].slice(-positive(settings?.errors, 3));
-        if (failures.length >= positive(settings?.errors, 3)) open("upstream_error", positive(settings?.open, 600));
+        const caller = String(who ?? "");
+        let failures = [...s.failures.filter((f) => f.at > since), { at: now, who: caller }];
+        // more than `errors` of one caller change nothing (it is still one caller): its oldest goes, so the row stays small
+        const mine = failures.filter((f) => f.who === caller);
+        if (mine.length > errors) failures = failures.filter((f) => f !== mine[0]);
+        const callers = new Set(failures.map((f) => f.who)).size;
+        if (failures.length >= errors && callers >= Math.min(2, errors)) open("upstream_error", positive(settings?.open, 600));
         else this.saveBreaker({ ...s, failures });
       }
     }
@@ -177,3 +193,7 @@ export class LimiterCore {
 
 /** A positive whole number of the breaker's settings, else its default. */
 const positive = (v, fallback) => (Number.isFinite(Number(v)) && Number(v) >= 1 ? Math.floor(Number(v)) : fallback);
+/** Seconds: while a probe is out, how soon the other calls (and health) are told to ask again, and how long they wait
+ * for its outcome at most. */
+const PROBING = 15;
+const PROBE_LEASE = 60;

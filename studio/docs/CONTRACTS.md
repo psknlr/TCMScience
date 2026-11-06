@@ -26,10 +26,11 @@ Errors are always `{error:{message, type}}`, with a Chinese `message` that tells
 carries `Retry-After` (exposed to other allowed origins). `upstream_quota` is the upstream's quota spent (402, code 1008,
 or a `QUOTA_MARKERS` entry in a 429 or a `base_resp`), not a per-minute limit (`upstream_rate`); `upstream_unknown` (502)
 is a `base_resp` code the relay has no entry for and `TRANSIENT_CODES` does not list. The upstream breaker (one key in the
-`Limiter` object) opens on a spent quota, or on `BREAKER_ERRORS` upstream errors within `BREAKER_ERROR_SECONDS`; while it
-is open every chat call is answered `503` at once (`upstream_quota`, else `upstream_error`, with `Retry-After`), never
-sent upstream and never counted, until the upstream's reset time or for `BREAKER_OPEN_SECONDS`; then one call probes the
-upstream, and a success closes it. An error the upstream reports inside a stream arrives as one
+`Limiter` object) opens on a spent quota, or on `BREAKER_ERRORS` upstream errors within `BREAKER_ERROR_SECONDS` not all
+met by one visitor; while it is open every chat call is answered `503` at once (`upstream_quota`, else `upstream_error`,
+with `Retry-After`), never sent upstream and never counted, until the upstream's reset time (a minute at least) or for
+`BREAKER_OPEN_SECONDS`; then one call probes the upstream, and a success closes it (while the probe is out, the other
+calls and health say to ask again in 15 s; they wait for it a minute at most). An error the upstream reports inside a stream arrives as one
 event `data: {"error":{message, type}}`; the client treats it as a model error. The upstream's own model names are
 refused like any other (`model_not_allowed`). `RELAY = "off"` (a var) stops Tao-S1: `health.ok:false`, chat `503
 not_configured`. `/v1/health` answers `200` in every state, with `ok` saying whether Tao-S1 can be used.

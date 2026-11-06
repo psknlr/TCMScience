@@ -134,6 +134,9 @@ const BASE_RESP = {
 const TRIPS = new Set(["upstream_quota", "upstream_error", "upstream_unknown"]);
 const CODE = /^[\w.-]{1,40}$/;
 const MAX_RESET = 86400; // seconds: a quota reset further off than a day is asked again, by a probe, after a day
+// seconds: a reset sooner than a minute is a minute (as BREAKER_OPEN_SECONDS is): a breaker open for less only lets the
+// spent quota answer again, and the page's banner come and go
+const MIN_RESET = 60;
 
 /** The failure codes and messages in an upstream's error reply: base_resp, an OpenAI-style error (its code and type),
  * and the code MiniMax writes at the end of a message ("… (2056)"). */
@@ -200,7 +203,7 @@ const ROUTES = { "/v1/health": "GET", "/v1/models": "GET", "/v1/chat/completions
 /**
  * deps: {gate({who, kind, limits, reserve}) → {ok, reason?, retry?, remaining?, reserved?}, spend(who, kind, tokens),
  * burst(key) → boolean, defer(promise), fetch(url, init), now() → ms, and optionally the upstream's breaker:
- * breaker({probe, settings}) → {open, reason?, until?, retry?, probe?} and breakerReport({outcome, settings, reset}) (src/limiter.js),
+ * breaker({probe, settings}) → {open, reason?, until?, retry?, probe?} and breakerReport({outcome, settings, reset, who}) (src/limiter.js),
  * metric(list, request) and securityEvent(kind, request, facts) for the telemetry}. The Worker (index.js) binds them to
  * the Durable Objects, the ratelimit binding and ctx.waitUntil; the tests bind them to fakes.
  */
@@ -354,10 +357,12 @@ function failed(kind, cors, retryAfter) {
 }
 
 /** A call while the breaker is open, answered here at once in its own words: a spent quota, or a service that keeps
- * failing; Retry-After is when the breaker lets a call try the upstream again. */
-function paused(state, cors) {
+ * failing; Retry-After is when the breaker lets a call try the upstream again (from its `until`: the state may be what
+ * this isolate read a few seconds ago). */
+function paused(state, cors, now) {
   const [, type, message] = FAILURE[state.reason === "upstream_quota" ? "upstream_quota" : "upstream_error"];
-  const retry = Math.max(1, Math.ceil(Number(state.retry) || 60));
+  const left = Number(state.until) > 0 ? (Number(state.until) - now) / 1000 : Number(state.retry);
+  const retry = Math.max(1, Math.ceil(Number.isFinite(left) ? left : 60));
   return error(503, message, type, { ...cors, "Retry-After": String(retry) });
 }
 
@@ -428,20 +433,8 @@ async function chat(request, env, cfg, cors, allowed, deps) {
       console.error("breaker", err?.name || "Error");
     }
   }
-  if (state?.open) return paused(state, cors);
+  if (state?.open) return paused(state, cors, deps.now());
   let probe = state?.probe === true;
-  // the breaker hears every failure it counts, and the probe's outcome once: "ok", or "released" when the probe did not
-  // learn whether the upstream answers (refused here, unreachable, or answered with an error the breaker does not count)
-  const tell = async (kind, reset = null) => {
-    const trips = TRIPS.has(kind);
-    if (!deps.breakerReport || (!trips && !probe)) return;
-    probe = false;
-    try {
-      await deps.breakerReport({ outcome: trips ? kind : kind === "ok" ? "ok" : "released", settings: cfg.breaker, reset });
-    } catch (err) {
-      console.error("breaker", err?.name || "Error");
-    }
-  };
   const fields = Object.fromEntries(Object.entries(cfg.upstreamFields).filter(([k]) => !(k in body)));
   let rewrite = false;
   let capped = false;
@@ -481,6 +474,19 @@ async function chat(request, env, cfg, cors, allowed, deps) {
   const noReasoning = body.thinking?.type === "disabled";
 
   const who = await caller(request, env, deps.now());
+  // the breaker hears every failure it counts, with whose call met it, and the probe's outcome once: "ok", or "released"
+  // when the probe did not learn whether the upstream answers (refused here, unreachable, answered with an error the
+  // breaker does not count, or a stream that ended, was stopped or broke before its first event)
+  const tell = async (kind, reset = null) => {
+    const trips = TRIPS.has(kind);
+    if (!deps.breakerReport || (!trips && !probe)) return;
+    probe = false;
+    try {
+      await deps.breakerReport({ outcome: trips ? kind : kind === "ok" ? "ok" : "released", settings: cfg.breaker, reset, who });
+    } catch (err) {
+      console.error("breaker", err?.name || "Error");
+    }
+  };
   const reserve = Math.ceil(read.bytes / 3); // about a token per three bytes of request, charged now, settled by the answer
   let gate;
   try {
@@ -564,7 +570,12 @@ async function chat(request, env, cfg, cors, allowed, deps) {
   const headers = { ...cors, "Content-Type": type, "Cache-Control": "no-store" };
   if (type.includes("event-stream") && upstream.body) {
     const source = noReasoning ? upstream.body.pipeThrough(reasoningFilter()) : upstream.body;
-    return new Response(source.pipeThrough(publicFilter(cfg, spend, (kind) => deps.defer(tell(kind)))), { status: upstream.status, headers });
+    const filter = publicFilter(cfg, spend, (kind) => deps.defer(tell(kind)));
+    // the stream's end, however it comes (the last event, the visitor stopping it, the upstream breaking it): a probe
+    // that saw no event by then learned nothing and is released, so that the next call tries; told before the Worker goes
+    const ended = source.pipeTo(filter.writable).catch(() => {}).then(() => tell("ended"));
+    if (probe) deps.defer(ended);
+    return new Response(filter.readable, { status: upstream.status, headers });
   }
   if (!type.includes("json")) {
     await cancel(upstream);
@@ -573,7 +584,16 @@ async function chat(request, env, cfg, cors, allowed, deps) {
     await tell("upstream_error");
     return failed("upstream_error", cors);
   }
-  const text = await upstream.text();
+  let text;
+  try {
+    text = await upstream.text();
+  } catch (err) {
+    // the visitor stopped it, or the upstream broke off its reply: nothing to pass on, and a probe learned nothing
+    if (!request.signal?.aborted) console.error("upstream reply", err?.name || "Error");
+    refund();
+    await tell("upstream_unreachable");
+    return failed("upstream_unreachable", cors);
+  }
   let j = null;
   try {
     j = JSON.parse(text);
@@ -608,10 +628,11 @@ function retryAfterOf(response) {
   return v && /^\d{1,4}$/.test(v.trim()) ? v.trim() : null;
 }
 
-/** When a spent quota resets, in seconds from now, as the upstream's Retry-After says (a day at most); else null. */
+/** When a spent quota resets, in seconds from now, as the upstream's Retry-After says (a minute at least, a day at most);
+ * else null. */
 function resetOf(response) {
   const v = String(response.headers.get("Retry-After") || "").trim();
-  return /^\d{1,9}$/.test(v) && Number(v) > 0 ? Math.min(Number(v), MAX_RESET) : null;
+  return /^\d{1,9}$/.test(v) && Number(v) > 0 ? Math.min(Math.max(Number(v), MIN_RESET), MAX_RESET) : null;
 }
 
 // ------------------------------------------------------------------ what a visitor sees of the upstream: nothing

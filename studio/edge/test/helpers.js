@@ -60,9 +60,9 @@ export function relay({ env = {}, upstream, now = () => NOON, burst, gateFails =
   const reports = [];
   const deps = {
     breaker: async ({ probe, settings }) => limiter.breaker(probe, settings, now()),
-    breakerReport: async ({ outcome, settings, reset }) => {
+    breakerReport: async ({ outcome, settings, reset, who }) => {
       reports.push(outcome);
-      return limiter.breakerReport(outcome, settings, reset, now());
+      return limiter.breakerReport(outcome, settings, reset, now(), who);
     },
     gate: async (args) => {
       gates.push(args);
