@@ -8,6 +8,7 @@ from __future__ import annotations
 import http.server
 import socket
 import threading
+import time
 import urllib.error
 
 import pytest
@@ -15,6 +16,7 @@ import pytest
 from bioagent.validation import (BLOCKED, FAIL, NOT_APPLICABLE, PASS, SKIPPED, UNVERIFIED,
                                  Check, Record, aggregate, load_report, report, write_report)
 from bioagent.validation.environment import fingerprint
+from bioagent.validation import network
 from bioagent.validation.network import classify, probe
 
 
@@ -88,7 +90,19 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"x")
         elif self.path == "/down":
+            self.server.asked["/down"] = self.server.asked.get("/down", 0) + 1
             self.send_response(503)
+            self.end_headers()
+        elif self.path in ("/flaky", "/slow"):
+            n = self.server.asked[self.path] = self.server.asked.get(self.path, 0) + 1
+            if n == 1 and self.path == "/flaky":
+                self.send_response(503)
+                self.end_headers()
+                return
+            if n == 1:                                          # slower than the probe waits
+                time.sleep(1.5)
+            self.send_response(200)
+            self.send_header("Content-Length", "10")
             self.end_headers()
         elif self.path == "/moved":
             self.send_response(302)
@@ -108,13 +122,22 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 @pytest.fixture
 def server():
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    srv.asked = {}
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
     yield f"http://127.0.0.1:{srv.server_address[1]}"
     srv.shutdown()
 
 
-def test_a_probe_reports_what_the_server_actually_said(server):
+@pytest.fixture
+def waits(monkeypatch):
+    """The waits a probe made between its attempts, recorded instead of slept."""
+    seen: list[float] = []
+    monkeypatch.setattr(network, "_pause", seen.append)
+    return seen
+
+
+def test_a_probe_reports_what_the_server_actually_said(server, waits):
     ok = probe(f"{server}/file.txt")
     assert ok.status == PASS and ok.http_status == 200 and ok.size == 10 and ok.ranges is True
     nohead = probe(f"{server}/nohead.txt")
@@ -122,19 +145,30 @@ def test_a_probe_reports_what_the_server_actually_said(server):
     assert nohead.size == 42 and nohead.ranges is True
     gone = probe(f"{server}/missing.txt")
     assert gone.status == FAIL and "out of date" in gone.reason
-    down = probe(f"{server}/down")
-    assert down.status == BLOCKED and "HTTP 503" in down.reason
     moved = probe(f"{server}/moved")
     assert moved.status == FAIL and "another host" in moved.reason
+    assert waits == [], "an answer, a 404 and a refused redirect are verdicts, never asked again"
+    down = probe(f"{server}/down")
+    assert down.status == BLOCKED and "HTTP 503" in down.reason
+    assert "asked 3 times" in down.reason and waits == list(network.RETRY_WAITS_S)
 
 
-def test_a_closed_port_is_blocked_not_failed():
+def test_a_brief_outage_is_asked_again_before_it_is_called_blocked(server, waits):
+    flaky = probe(f"{server}/flaky")
+    assert flaky.status == PASS and "asked 2 times" in flaky.reason and waits == [5.0]
+    waits.clear()
+    slow = probe(f"{server}/slow", timeout_s=0.5)
+    assert slow.status == PASS and "asked 2 times" in slow.reason and waits == [5.0]
+
+
+def test_a_closed_port_is_blocked_not_failed(waits):
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
     sock.close()
     p = probe(f"http://127.0.0.1:{port}/x", timeout_s=5)
     assert p.status == BLOCKED and "refused" in p.reason
+    assert waits == [], "a refused connection is a verdict, not an outage to wait out"
 
 
 def test_classify_names_policy_dns_tls_and_rate_limits():

@@ -33,6 +33,12 @@ __all__ = ["Probe", "probe", "classify"]
 _KEEP_HEADERS = ("content-length", "content-range", "accept-ranges", "content-type",
                  "last-modified", "etag", "content-encoding")
 _POLICY_WORDS = ("sandbox", "proxy", "policy", "egress", "not allowed", "blocked")
+#: A probe that times out, is cut off or meets a server error (5xx, 429) is asked again after
+#: each of these waits before it is called BLOCKED: one slow answer from a busy host is not a
+#: verdict on it (live-data #32, #37 and #42 each lost a whole tier to a single slow UniProt
+#: answer that the same job fetched minutes later).
+RETRY_WAITS_S = (5.0, 15.0)
+_pause = time.sleep
 
 
 @dataclass
@@ -129,6 +135,19 @@ def classify(exc: BaseException, host: str = "", *, timeout_s: float | None = No
     return FAIL, f"{type(exc).__name__}: {text}"
 
 
+def _transient(exc: BaseException) -> bool:
+    """Whether a request's failure may pass when asked again shortly (an outage, not a refusal)."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code == 429 or exc.code >= 500
+    reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+    text = str(reason).lower()
+    if "tunnel connection failed" in text:                      # the policy, not the host
+        return False
+    return (isinstance(reason, (TimeoutError, socket.timeout, ConnectionResetError,
+                                http.client.RemoteDisconnected, ConnectionAbortedError))
+            or "timed out" in text)
+
+
 def _send(url: str, method: str, headers: dict[str, str], timeout_s: float):
     from ..backends.http import user_agent
 
@@ -137,15 +156,37 @@ def _send(url: str, method: str, headers: dict[str, str], timeout_s: float):
     return urllib.request.urlopen(req, timeout=timeout_s)  # noqa: S310 - https URLs only
 
 
-def probe(url: str, *, timeout_s: float = 20.0) -> Probe:
-    """Send a ``HEAD`` (or a one-byte ranged ``GET``) to ``url`` and say what happened."""
-    from ..acquisition.downloader import PACER
+def probe(url: str, *, timeout_s: float = 20.0,
+          waits: tuple[float, ...] = RETRY_WAITS_S) -> Probe:
+    """Send a ``HEAD`` (or a one-byte ranged ``GET``) to ``url`` and say what happened.
 
+    A timeout, a dropped connection or a server error is asked again after each of ``waits``;
+    any other answer (a pass, a 404, a refusal by the policy) is the verdict at once. The
+    reason names how many times the host was asked when it was more than once.
+    """
     parts = urllib.parse.urlsplit(url)
     host = (parts.hostname or "").lower()
     if parts.scheme not in ("https", "http"):
         return Probe(url, host, FAIL, f"not an http(s) URL: {parts.scheme or '(none)'}")
     t0 = time.perf_counter()
+    result, transient = _probe_once(url, parts, host, timeout_s, t0)
+    asked = 1
+    for wait in waits:
+        if not transient:
+            break
+        _pause(wait)
+        result, transient = _probe_once(url, parts, host, timeout_s, t0)
+        asked += 1
+    if asked > 1:
+        result.reason += f" (asked {asked} times over {result.elapsed_ms / 1000:.0f} s)"
+    return result
+
+
+def _probe_once(url: str, parts: urllib.parse.SplitResult, host: str, timeout_s: float,
+                t0: float) -> tuple[Probe, bool]:
+    """One probe: ``(the probe, whether its failure may pass when asked again)``."""
+    from ..acquisition.downloader import PACER
+
     last: Probe | None = None
     for method, headers in (("HEAD", {}), ("GET", {"Range": "bytes=0-0"})):
         PACER.wait(host)
@@ -165,11 +206,11 @@ def probe(url: str, *, timeout_s: float = 20.0) -> Probe:
             # before concluding anything from a HEAD refusal.
             if method == "HEAD" and exc.code in (403, 405, 501):
                 continue
-            return last
+            return last, _transient(exc)
         except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
             status, reason = classify(exc, host, timeout_s=timeout_s)
             return Probe(url, host, status, reason, method,
-                         elapsed_ms=int((time.perf_counter() - t0) * 1000))
+                         elapsed_ms=int((time.perf_counter() - t0) * 1000)), _transient(exc)
         finally:
             PACER.done(host)
         elapsed = int((time.perf_counter() - t0) * 1000)
@@ -178,10 +219,10 @@ def probe(url: str, *, timeout_s: float = 20.0) -> Probe:
             return Probe(url, host, FAIL,
                          f"redirected to {moved.hostname!r}, another host, which the "
                          "downloader refuses: the reviewed URL needs review",
-                         method, status_code, final, kept, elapsed)
+                         method, status_code, final, kept, elapsed), False
         if parts.scheme == "https" and moved.scheme != "https":
             return Probe(url, host, FAIL, "redirected from https down to http", method,
-                         status_code, final, kept, elapsed)
+                         status_code, final, kept, elapsed), False
         return Probe(url, host, PASS, f"HTTP {status_code} from {host}", method, status_code,
-                     final, kept, elapsed)
-    return last if last is not None else Probe(url, host, FAIL, "no answer")
+                     final, kept, elapsed), False
+    return (last if last is not None else Probe(url, host, FAIL, "no answer")), False
