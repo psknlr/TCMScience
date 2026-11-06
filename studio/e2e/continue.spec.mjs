@@ -111,7 +111,11 @@ test("a cut-off answer says so, and 继续回答 goes on in the same message", a
   db = await readDb(page);
   const m = db.messages.filter((x) => x.role === "assistant");
   expect(m.length).toBe(1);
-  expect(m[0].content).toBe(`${TRUNCATED[0]}\n\n${TRUNCATED[1]}`);
+  // one text, as it was meant: the continuation goes on in the text it was cut off in, shown as one block
+  expect(m[0].content).toBe(`${TRUNCATED[0]}${TRUNCATED[1]}`);
   expect(m[0].termination).toBe("answered");
+  const prose = page.locator(".msg--assistant:not(.is-live) .prose");
+  await expect(prose).toHaveCount(1);
+  await expect(prose).toHaveText(`${TRUNCATED[0]}${TRUNCATED[1]}`);
   watch.expectClean();
 });

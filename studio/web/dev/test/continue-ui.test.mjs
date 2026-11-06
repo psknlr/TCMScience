@@ -13,8 +13,9 @@ import { ProviderError } from "../../js/core/llm/sse.js";
 import { activeProvider } from "../../js/core/providers.js";
 import { ToolRouter } from "../../js/core/router.js";
 import { openStore } from "../../js/core/store.js";
-import { Telemetry } from "../../js/core/telemetry.js";
-import { App, applyEvent, resumeLive } from "../../js/ui/app.js";
+import { Telemetry, TURNS_KEY } from "../../js/core/telemetry.js";
+import { canContinue } from "../../js/core/agent.js";
+import { App, applyEvent, continuedRun, resumeLive } from "../../js/ui/app.js";
 import { mountConversation } from "../../js/ui/conversation.js";
 import { registerUiStrings } from "../../js/ui/strings.js";
 import { envelopeFor, fakeRuntime, memoryApprovals, openaiStep, scriptedLLM, testCatalogDoc } from "../../test/fixtures/fakes.mjs";
@@ -146,9 +147,65 @@ test("a cut-off answer shows its notice with 继续回答, which goes on in the 
   t.view.destroy();
   const after = app.state.messages.filter((m) => m.role === "assistant");
   assert.equal(after.length, 1);
-  assert.equal(after[0].content, "桂枝汤由桂枝、芍药、\n\n生姜、大枣、甘草组成。");
+  // one text: the continuation goes on in the text it was cut off in, read and shown as one (no break mid-sentence)
+  assert.equal(after[0].content, "桂枝汤由桂枝、芍药、生姜、大枣、甘草组成。");
   assert.equal(app.state.messages.filter((m) => m.role === "user").length, 1, "no new question");
   assert.equal(after[0].notice, undefined);
+  const shown = thread(app);
+  const prose = [...shown.main.querySelectorAll(".msg--assistant .prose")];
+  assert.equal(prose.length, 1);
+  assert.equal(prose[0].textContent.trim(), "桂枝汤由桂枝、芍药、生姜、大枣、甘草组成。");
+  shown.view.destroy();
+});
+
+test("while a Continue runs, the stored message stays whole and continuable (no draft in its place); its run is reported under an id of its own", async () => {
+  let open;
+  const gate = new Promise((r) => { open = r; });
+  const app = await makeApp([
+    openaiStep({ text: "先查葛根。", calls: [{ id: "a", name: "tcm_herb", args: { name: "葛根" } }], usage: { input: 300, output: 30 } }),
+    new ProviderError("模型服务暂时繁忙", { status: 503, type: "overloaded", retryable: false }),
+    [{ type: "text", delta: "葛根：" }, { wait: () => gate }, ...openaiStep({ text: "解肌退热 [E1]。", usage: { input: 120, output: 12 } })],
+  ]);
+  const tracked = [];
+  const track = app.telemetry.track.bind(app.telemetry);
+  app.telemetry.track = (type, fields) => { tracked.push([type, fields]); return track(type, fields); };
+  await app.send("葛根有什么记载？");
+  await finished(app);
+  const failed = assistantOf(app);
+  assert.equal(await app.continueTurn(failed.id), true);
+  let kept;
+  try {
+    for (let i = 0; i < 200 && !app.state.turn?.live?.segments.some((s) => s.type === "text" && /葛根：/.test(s.text) && s.step === 3); i++) await delay(5);
+    // the page is hidden or closed while the continuation runs: what is stored is still the message as it was
+    window.dispatchEvent(new window.Event("pagehide"));
+    await delay(30);
+    await app.state.turn.saving();
+    kept = await app.store.messages.get(failed.id);
+    // the run's marker (a reload now reports it as cut off: app.js #recoverStale) names its own id and the message
+    const markers = Object.values(JSON.parse(globalThis.localStorage.getItem(TURNS_KEY) || "{}"));
+    assert.deepEqual(markers.map((m) => [m.id === failed.id, m.messageId, m.continues]), [[false, failed.id, true]]);
+  } finally {
+    open();
+    await finished(app);
+  }
+  assert.equal(kept.draft, undefined);
+  assert.deepEqual(kept.wire, failed.wire);
+  assert.equal(kept.status, "error");
+  assert.equal(kept.termination, "error:model");
+  assert.equal(kept.citeTop, failed.citeTop);
+  assert.equal(canContinue(kept, app.provider(), app.toolMessagesOf(failed.id)), "continue", "a reload now could continue it again");
+  const done = assistantOf(app);
+  assert.equal(done.id, failed.id);
+  assert.equal(done.termination, "answered");
+  // the telemetry: two runs, two ids; the Continue's own tokens and model calls
+  const ends = tracked.filter(([type]) => type === "turn_end").map(([, e]) => e);
+  assert.equal(tracked.filter(([type]) => type === "turn_start").length, 2);
+  assert.equal(ends.length, 2);
+  assert.equal(ends[0].turn, failed.id);
+  assert.notEqual(ends[1].turn, failed.id);
+  assert.deepEqual([ends[0].status, ends[1].status], ["failed", "completed"]);
+  assert.deepEqual([ends[1].tokens_in, ends[1].tokens_out, ends[1].calls, ends[1].steps, ends[1].tool_rounds], [120, 12, 1, 1, 0]);
+  assert.deepEqual([ends[0].tokens_in, ends[0].tokens_out], [300, 30]);
 });
 
 test("on another provider, 继续回答 asks for the rest in a new question", async () => {
@@ -182,6 +239,32 @@ test("the live view of a continued answer starts from what it shows; a call run 
   applyEvent(live, { type: "context", step: 3, compacted: 4 });
   assert.equal(live.compacted, 4);
   assert.notEqual(m.segments[1].callIds, live.segments[1].callIds, "the stored message is not changed");
+});
+
+test("the live view of a continued answer goes on in the text it was cut off in; a retry takes back only what it added", () => {
+  const live = { segments: [{ type: "reasoning", step: 1, text: "列出" }, { type: "text", step: 1, text: "桂枝汤由" }], tools: new Map(), pending: new Map(), thinkingStart: {}, thinkingMs: {} };
+  applyEvent(live, { type: "reasoning", delta: "接着写", step: 2 });
+  applyEvent(live, { type: "text", delta: "桂枝、", step: 2, joins: true });
+  applyEvent(live, { type: "text", delta: "芍药", step: 2, joins: true });
+  assert.deepEqual(live.segments.map((s) => [s.type, s.step, s.text]), [["reasoning", 1, "列出"], ["reasoning", 2, "接着写"], ["text", 1, "桂枝汤由桂枝、芍药"]]);
+  applyEvent(live, { type: "model.retry", step: 2, attempt: 1, delay_ms: 0, message: "x" });
+  assert.deepEqual(live.segments.map((s) => [s.type, s.step, s.text]), [["reasoning", 1, "列出"], ["text", 1, "桂枝汤由"]]);
+  applyEvent(live, { type: "text", delta: "桂枝、芍药、生姜。", step: 2, joins: true });
+  assert.equal(live.segments.at(-1).text, "桂枝汤由桂枝、芍药、生姜。");
+  // without `joins` (an ordinary step) a new text begins
+  applyEvent(live, { type: "text", delta: "另起。", step: 3 });
+  assert.deepEqual(live.segments.at(-1), { type: "text", step: 3, text: "另起。" });
+});
+
+test("a continued run is reported as its own: this run's tokens, steps and tool rounds", () => {
+  const assistant = {
+    id: "m", steps: 5, usage: { input: 900, output: 90 },
+    segments: [{ type: "tools", step: 1, callIds: ["a"] }, { type: "tools", step: 2, callIds: ["b"] }, { type: "tools", step: 4, callIds: ["c"] }, { type: "text", step: 5, text: "答" }],
+  };
+  const run = continuedRun(assistant, { steps: 3 }, { input: 200, output: 20 });
+  assert.deepEqual([run.steps, run.usage, run.segments.filter((s) => s.type === "tools").map((s) => s.step)], [2, { input: 200, output: 20 }, [4]]);
+  assert.equal(run.id, "m");
+  assert.deepEqual(continuedRun(assistant, { steps: 5 }, undefined).usage, { input: 0, output: 0 }, "a run that could not start used nothing");
 });
 
 test("results shortened to fit the context are said once, quietly", async () => {

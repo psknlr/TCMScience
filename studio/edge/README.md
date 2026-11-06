@@ -68,7 +68,8 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
   `TOTAL_PER_DAY` 次；每位访客每天 `TOKENS_PER_DAY`、全体每天 `TOTAL_TOKENS_PER_DAY` 个 token（输入 + 输出）。调用发出时先按请求
   大小预扣（约 3 字节一个 token），回复末尾报告用量后补差；没得到回答的调用（上游报错、连不上）退回预扣，但仍算一次调用。
   「每天」按 UTC 计，北京时间 8:00 重置。另有 `BURST`（Cloudflare 速率限制绑定）：每位访客 10 秒 40 次，在读请求体之前就检查。
-  智能体每轮工具调用都要调用一次模型（一个问题最多 16 次），所以这些数比聊天页面需要的高。
+  智能体每轮工具调用都要调用一次模型（一个问题最多 18 次：可运行工具的 16 次，到上限后据已有结果作答的 1 次，请求超出
+  模型上下文时缩短重试的 1 次），所以这些数比聊天页面需要的高。
 - **访客不留地址**：计数用 `sha256(VISITOR_SALT | IP（IPv6 取 /64）| UTC 日期)` 的前 24 位，IP 本身不存；Worker 的调用日志
   （invocation logs）关闭，只保留它自己的一行错误（状态码或错误名）。同一出口 IP 后的访客（例如一个实验室）共用限额。
   使用统计的每日访客数另用每天更换、次日删除的随机盐，安全日志只存月度哈希与网段（TELEMETRY.md「IP 地址」）。
@@ -141,8 +142,8 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 
 改 `[vars]` 只需改这个文件：`src/relay.js` 的 `DEFAULTS` 是变量缺失或写错时的后备，不必跟着改。`test/config.test.js`
 检查每个变量都在、写法正确（`RELAY` 是 `on`/`off`，`UPSTREAM_BASE` 是 https 地址，数字是整数，`ALLOWED_ORIGINS`
-含 `https://science.impf.ai` 且每项都是完整的来源），并且调用次数限额要么是 `0`（不限）、要么至少 16（一个问题最多调用模型
-16 次）；只固定 `PUBLIC_MODEL = "Tao-S1"` 和 `UPSTREAM_FIELDS` 里的 `"reasoning_split":true`。写错时 test 作业失败，日志列出
+含 `https://science.impf.ai` 且每项都是完整的来源），并且调用次数限额要么是 `0`（不限）、要么至少 18（一个问题最多调用模型
+18 次）；只固定 `PUBLIC_MODEL = "Tao-S1"` 和 `UPSTREAM_FIELDS` 里的 `"reasoning_split":true`。写错时 test 作业失败，日志列出
 是哪个变量、错在哪里。
 
 「访客看不到上游」指网页与中继的回答：模型名、思考格式和错误都换成本服务自己的说法。这个仓库是公开的，它本身写明了上游服务：

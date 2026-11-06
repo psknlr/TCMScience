@@ -65,8 +65,10 @@ const NUMBERS = {
   SOURCE_MAX_BODY_BYTES: 1024, SOURCE_MAX_RESPONSE_BYTES: 1024, SOURCE_TIMEOUT_MS: 1000,
   SOURCE_PER_MINUTE: 1, SOURCE_PER_DAY: 1, SOURCE_TOTAL_PER_DAY: 1,
 };
-// a question takes up to 16 model calls (CONTRACTS.md §6 maxSteps): a call limit below that stops the agent halfway
-const AGENT_CALLS = 16;
+// a question takes up to 18 model calls: 16 that may run tools (CONTRACTS.md §6 maxSteps), one for the answer after
+// the step limit, and one shorter retry of a request too long for the model (CONTRACT_NOTES.md); a call limit below
+// that stops the agent halfway
+const AGENT_CALLS = 18;
 
 /** What is wrong with a [vars] table, one line per variable; [] when the Worker can be deployed with it. */
 function problems(vars) {

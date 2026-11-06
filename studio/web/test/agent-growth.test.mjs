@@ -139,7 +139,8 @@ test("a request the model finds too long: exactly one compacted retry, and the t
     const llm = scriptedLLM([step(1), step(2), err(), openaiStep({ text: "据已有结果作答 [E1]。" })]);
     const events = [];
     const sleeps = [];
-    const res = await runTurn({ provider: relay, system, history: [{ id: "u", role: "user", content: "q" }], router: router("x"), catalog, settings: {}, llm: { openai: llm }, onEvent: (e) => events.push(e), sleep: async (ms) => sleeps.push(ms) });
+    // CJK results: the earlier one compacted brings the request under OVERFLOW_SHRINK of the one refused
+    const res = await runTurn({ provider: relay, system, history: [{ id: "u", role: "user", content: "q" }], router: router("中"), catalog, settings: {}, llm: { openai: llm }, onEvent: (e) => events.push(e), sleep: async (ms) => sleeps.push(ms) });
     assert.equal(llm.calls.length, 4, "the refused request, then one retry");
     const [refused, retry] = [llm.calls[2], llm.calls[3]];
     assert.ok(JSON.stringify(retry.messages).length < JSON.stringify(refused.messages).length * 0.75, "the retry is shorter");
@@ -152,6 +153,35 @@ test("a request the model finds too long: exactly one compacted retry, and the t
     assert.equal(res.assistant.termination, "answered");
     assert.equal(res.assistant.compacted, 1);
   }
+});
+
+test("the one retry is never a request barely shorter than the one refused: when compacting earlier results is not enough, it asks for the answer", async () => {
+  // a provider configured as 128k (the DeepSeek preset) whose model takes about half: it refuses anything over 64 000
+  // estimated tokens. The newest step's four CJK results are most of the request; the one earlier result is small
+  const deepseek = activeProvider({ provider: "deepseek", keys: { deepseek: "sk" } });
+  let n = 0;
+  const r = {
+    resolve: router("x").resolve,
+    call: async (name, args) => ({ ...(await synthEnvelope({ tool: name, args, status: "succeeded" })), ok: true, status: "succeeded", text: `${name}: succeeded\nResult: ${++n > 1 ? "中".repeat(RESULT) : "x".repeat(6000)}` }),
+  };
+  const model = () => (p) => (tokensOf(measure(JSON.stringify({ messages: p.messages, tools: p.tools })).units) > 64000 ? overflow() : openaiStep({ text: "据已有结果作答。" }));
+  const llm = scriptedLLM([
+    step(1),
+    openaiStep({ calls: [0, 1, 2, 3].map((j) => ({ id: `c2_${j}`, name: "literature_search", args: { query: `2-${j}` } })) }),
+    model(), model(), model(),
+  ]);
+  const events = [];
+  const res = await runTurn({ provider: deepseek, system, history: [{ id: "u", role: "user", content: "q" }], router: r, catalog, settings: {}, llm: { openai: llm }, onEvent: (e) => events.push(e) });
+  const ctx = events.filter((e) => e.type === "context" && e.step === 3);
+  assert.equal(ctx.length, 2, "the refused request and its one retry");
+  assert.ok(ctx[1].tokens <= Math.floor(ctx[0].tokens * 0.7), `retry ${ctx[1].tokens} of ${ctx[0].tokens} tokens`);
+  assert.equal(ctx[1].answering, "context");
+  assert.equal(llm.calls.length, 4);
+  assert.deepEqual(llm.calls[3].tools, [], "the retry offers no tools: it asks for the answer");
+  assert.equal(res.status, "ok");
+  assert.equal(res.assistant.termination, "context_synthesized");
+  assert.equal(res.assistant.content, "据已有结果作答。");
+  assert.equal(res.assistant.error, undefined);
 });
 
 test("too long again after the one retry: the error is final (no Retry), and nothing more is sent", async () => {

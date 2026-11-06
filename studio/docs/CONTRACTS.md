@@ -795,7 +795,8 @@ export async function runTurn({provider, system, history, router, catalog, setti
   // Also (CONTRACT_NOTES "web-core"): onApproval(request) → decision; events "tool.pending" {index, name, step},
   // "model.retry" {step, …} (drop that step's partial text), "tool.update" {callId, envelope} (citations renumbered);
   // the last allowed model call is made with toolChoice "none", then one more without tools asks for the answer;
-  // every request is fitted to the context budget (core/budget.js); `resume` continues a stored turn (Continue).
+  // every request is fitted to the context budget (core/budget.js); `resume` continues a stored turn (Continue), a
+  // cut-off text going on in that text ("text" {delta, step, joins:true}).
 
 // core/prompt.js
 export function buildSystemPrompt({lang, provider, project, knowledge, env}) → string   // §9

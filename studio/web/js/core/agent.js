@@ -9,7 +9,11 @@
 // Anthropic thinking blocks are replayed only inside the turn that produced them: their signatures bind the exact
 // system prompt and earlier messages, which change between turns here (the environment in the system prompt, earlier
 // results cut short), and a replayed block after such an edit is a 400 on the current models. Dropping every earlier
-// turn's blocks removes a leading run, which the API allows; within a turn, system, tools and history are fixed.
+// turn's blocks removes a leading run, which the API allows. Within a turn, system, tools and history are fixed until
+// the context budget compacts this turn's older results (below): a later block of the turn then no longer matches what
+// precedes it. A first-party model that binds blocks drops such a block (anthropic.js, prefix_mismatch_behavior
+// drop_block); another Anthropic-format endpoint may refuse the request (error:model), and Continue goes on without
+// thinking (resumeOf).
 // Two user messages never follow each other (a turn that failed before it said anything leaves nothing to replay):
 // they are joined, since several local chat templates reject a conversation whose roles do not alternate.
 //
@@ -24,7 +28,7 @@
 import * as anthropicLib from "./llm/anthropic.js";
 import * as openaiLib from "./llm/openai.js";
 import { stripThink } from "./llm/openai.js";
-import { budgetOf, fitRequest, isCompactable, measure } from "./budget.js";
+import { DEFAULT_CONTEXT_TOKENS, budgetOf, fitRequest, isCompactable, measure } from "./budget.js";
 import { toProviderTools } from "./catalog.js";
 import { t } from "./i18n.js";
 import { isIdentityQuestion } from "./prompt.js";
@@ -202,14 +206,16 @@ const libFor = (format, llm) => (llm?.[format]) || (format === "anthropic" ? ant
 
 /**
  * Run one turn. `history` is the branch so far as stored messages (CONTRACTS §7), ending with the new user message.
- * onEvent receives: model.start {step} · context {step, bytes, tokens, budget, compacted} · text {delta, step} ·
- * reasoning {delta, step} · tool.pending {index, name, step} · tool.start {callId, name, args, where, step} ·
- * tool.approval {callId, request} (request.respond(decision) when no onApproval is given) · tool.end {callId, envelope,
- * step} · usage {input, output, step, round} · model.retry {step, attempt, delay_ms, message} (drop that step's
- * partial text) · model.end {step, finish_reason} · error {message, kind} · done {status, termination}.
+ * onEvent receives: model.start {step} · context {step, bytes, tokens, budget, compacted} · text {delta, step, joins
+ * (it goes on in the text a continued answer was cut off in)} · reasoning {delta, step} · tool.pending {index, name,
+ * step} · tool.start {callId, name, args, where, step} · tool.approval {callId, request} (request.respond(decision)
+ * when no onApproval is given) · tool.end {callId, envelope, step} · usage {input, output, step, round} · model.retry
+ * {step, attempt, delay_ms, message} (drop that step's partial text) · model.end {step, finish_reason} · error
+ * {message, kind} · done {status, termination}.
  * `resume` continues a stored turn that ended with an error or a stop, or whose answer was cut off (resumeOf): its
  * messages are sent again as they were, its settled results are not run again, the steps it used count against the
- * limit, and what this run adds goes on in the same message (`history` then ends with that turn's question).
+ * limit (at the limit, only the call for the answer is left), and what this run adds goes on in the same message, a
+ * cut-off text in that text (`history` then ends with that turn's question).
  * Returns {assistant, toolMessages (this run's), usage (this run's), status, steps}.
  */
 export async function runTurn({
@@ -267,13 +273,25 @@ export async function runTurn({
   let ended = false; // the turn ended on a model call that asked for no tools
   let answered = false; // … and wrote an answer
   const prior = { input: 0, output: 0 }; // what a continued turn's earlier run used
+  // a continued answer cut off in the middle of its text: the text segment its first call goes on in (one text, not
+  // two: a cut inside a sentence, a list or a code fence reads as it was meant), and the message that asked it to
+  let joinTo = null;
+  let goOn = null;
 
   const recordText = (s, text, reasoning) => {
+    const cut = text ? joinTo : null;
+    joinTo = null;
     if (reasoning && !identity) {
       reasonings.push(reasoning);
-      assistant.segments.push({ type: "reasoning", step: s, text: reasoning });
+      // the reasoning of the text it goes on with comes before that text
+      const seg = { type: "reasoning", step: s, text: reasoning };
+      if (cut) assistant.segments.splice(assistant.segments.indexOf(cut), 0, seg);
+      else assistant.segments.push(seg);
     }
-    if (text) {
+    if (cut) {
+      cut.text += text;
+      texts[texts.length - 1] += text;
+    } else if (text) {
       texts.push(text);
       assistant.segments.push({ type: "text", step: s, text });
     }
@@ -289,7 +307,8 @@ export async function runTurn({
     // ignore); Anthropic keeps the tools, which its history of tool_use needs, with tool_choice none, which it enforces
     const offered = mode && format === "openai" ? [] : providerTools;
     const toolChoice = offered.length && (mode || (finalCall && step > 1)) ? "none" : undefined;
-    const ask = mode ? ANSWER_TEXT[mode] : null;
+    // an answer asked to go on where it was cut off is not asked for the answer again
+    const ask = mode && (!goOn || turnWire[turnWire.length - 1] !== goOn) ? ANSWER_TEXT[mode] : null;
     const fixed = fixedCost({ provider, system, tools: offered, thinking, toolChoice, format, ask });
     const b = ceiling ? { tokens: Math.min(budget.tokens, ceiling.tokens), bytes: Math.min(budget.bytes, ceiling.bytes) } : budget;
     const fit = fitRequest({ base, turn: turnWire, fixed, budget: b, lastResort: Boolean(mode) });
@@ -351,9 +370,20 @@ export async function runTurn({
         }
         replaceResults(turnWire, format, lib.toolResultMessages(outcomes.map(resultOf)));
       }
-      // an answer cut off (or stopped) in the middle of its text: the model is asked to go on from there
+      // an answer cut off (or stopped) in the middle of its text: the model is asked to go on from there, and what it
+      // writes goes on in that text
       const last = turnWire[turnWire.length - 1];
-      if (last?.role === "assistant" && !callsIn(last)) turnWire.push(format === "anthropic" ? { role: "user", content: [{ type: "text", text: CONTINUE_TEXT }] } : { role: "user", content: CONTINUE_TEXT });
+      if (last?.role === "assistant" && !callsIn(last)) {
+        goOn = format === "anthropic" ? { role: "user", content: [{ type: "text", text: CONTINUE_TEXT }] } : { role: "user", content: CONTINUE_TEXT };
+        turnWire.push(goOn);
+        const tail = assistant.segments[assistant.segments.length - 1];
+        if (tail?.type === "text" && tail.text) joinTo = tail;
+      }
+      // the steps it used reached the limit: what is left is the call for the answer, with no tools to run
+      if (step >= maxSteps) {
+        status = "max_steps";
+        answering = "max_steps";
+      }
     }
 
     for (;;) {
@@ -370,8 +400,10 @@ export async function runTurn({
       try {
         await callModel(req, finalCall);
       } catch (err) {
-        // the call for the answer after the step limit failed: the turn ends as it did without it, with its notice
+        // the call for the answer after the step limit failed: the turn ends as it did without it, with its notice;
+        // what that call had begun to say is no answer, and is not kept as one
         if (answering !== "max_steps" || isAbort(err) || signal?.aborted) throw err;
+        stepText = ""; stepReasoning = ""; stepRecorded = true;
         break;
       }
 
@@ -407,8 +439,12 @@ export async function runTurn({
         const why = answering === "context" ? CONTEXT_TEXT : LIMIT_TEXT;
         const summary = answering === "context" ? t("core.agent.context_full") : t("core.agent.max_steps", { n: maxSteps });
         for (const c of calls) {
-          // never handed to the router: not executed (a stop of a call that had started would be "cancelled")
-          const envelope = await synthEnvelope({ tool: c.name, args: c.arguments, status: "cancelled", summary, text: why, outcome: "not_executed" });
+          // never handed to the router: not executed (a stop of a call that had started would be "cancelled"); `limit`
+          // names the limit that left it unrun, so a continued turn never reads it as under way and runs it after all
+          const envelope = {
+            ...(await synthEnvelope({ tool: c.name, args: c.arguments, status: "cancelled", summary, text: why, outcome: "not_executed" })),
+            limit: answering === "context" ? "context" : "max_steps",
+          };
           emit({ type: "tool.start", callId: c.id, name: c.name, args: c.arguments, where: null, step });
           emit({ type: "tool.end", callId: c.id, envelope, step });
           toolMessages.push(toolMessage(c, envelope, assistant, step));
@@ -473,7 +509,11 @@ export async function runTurn({
     assistant.limitReached = true;
     notices.push(t("core.agent.max_steps", { n: maxSteps }));
   }
-  if (answering === "context") notices.push(t(answered ? "core.agent.context_full" : "core.agent.context_failed"));
+  if (answering === "context") {
+    notices.push(t(answered ? "core.agent.context_full" : "core.agent.context_failed"));
+    // a local server or a custom endpoint: its window is what Settings say (32 000 until set), maybe less than it takes
+    if (provider.local || provider.custom) notices.push(t("core.agent.context_window", { n: Math.floor(Number(provider.contextTokens)) || DEFAULT_CONTEXT_TOKENS }));
+  }
   if (assistant.termination === "truncated") notices.push(t("core.agent.truncated"));
   if (notices.length) assistant.notice = notices.join(" ");
   if (compacted.size) assistant.compacted = compacted.size;
@@ -490,7 +530,7 @@ export async function runTurn({
       try {
         const stream = lib.streamChat({ provider, system, messages: req.messages, tools: req.tools, signal, thinking, toolChoice: req.toolChoice });
         for await (const ev of stream) {
-          if (ev.type === "text") { stepText += ev.delta; emit({ type: "text", delta: ev.delta, step }); }
+          if (ev.type === "text") { stepText += ev.delta; emit({ type: "text", delta: ev.delta, step, ...(joinTo ? { joins: true } : {}) }); }
           else if (ev.type === "reasoning") { if (!identity) { stepReasoning += ev.delta; emit({ type: "reasoning", delta: ev.delta, step }); } }
           else if (ev.type === "tool_call_delta") emit({ type: "tool.pending", index: ev.index, name: ev.name, step });
           else if (ev.type === "tool_call") calls.push(ev);
@@ -526,13 +566,14 @@ export async function runTurn({
 
   /**
    * The request again, shorter than the one refused: the rest of the turn keeps under a ceiling below it. Compacting
-   * earlier results comes first, with the tools still offered; when nothing can be compacted, the request asks for the
-   * answer instead (the tools go, the newest results may be shortened). null when it cannot be made shorter.
+   * earlier results comes first, with the tools still offered, when that brings it under the ceiling; when it does not,
+   * the request asks for the answer instead (the tools go, the newest results may be shortened): the one retry is never
+   * spent on a request barely shorter than the one refused. null when it cannot be made shorter.
    */
   function shorter(req, finalCall) {
     ceiling = { tokens: Math.floor(req.fit.tokens * OVERFLOW_SHRINK), bytes: Math.floor(req.fit.bytes * OVERFLOW_SHRINK) };
     const kept = request(finalCall, answering);
-    if (kept.fit.bytes < req.fit.bytes) return kept;
+    if (kept.fit.fits && kept.fit.bytes < req.fit.bytes) return kept;
     const next = fitted(finalCall);
     return next.fit.bytes < req.fit.bytes ? next : null;
   }
@@ -740,7 +781,12 @@ function withAsk(messages, text, format) {
   return [...messages, format === "anthropic" ? { role: "user", content: [{ type: "text", text }] } : { role: "user", content: text }];
 }
 
-const underWay = (env) => !env || env.status === "cancelled" || env.status === "needs_approval";
+// under way when the turn stopped: no result, or a stop's (or a pending approval's). Never a call a limit left unrun
+// (`limit`): it was never handed to the router, and a continued turn does not run it after all. The router's own
+// not_executed stop (stopped before the runtime had it) is under way: running it again is what the call was for
+const underWay = (env) => !env || (!env.limit && (env.status === "cancelled" || env.status === "needs_approval"));
+/** A result a continued turn keeps: settled, not a placeholder for a call a limit left unrun. */
+const keptResult = (env) => !underWay(env) && !env.limit;
 
 /**
  * A stored turn as runTurn continues it (`resume` = the stored assistant message's wire, wireFormat, status,
@@ -807,7 +853,7 @@ export function canContinue(message, provider, tools = []) {
   if (message.status === "ok" && message.termination === "truncated") return "answer";
   if (message.status !== "error" && message.status !== "stopped") return null;
   const byCall = new Map(tools.map((m) => [m.toolCallId, m.envelope]));
-  return (message.toolCalls || []).some((c) => !underWay(byCall.get(c.id))) ? "continue" : null;
+  return (message.toolCalls || []).some((c) => keptResult(byCall.get(c.id))) ? "continue" : null;
 }
 
 function toolMessage(c, envelope, assistant, step) {

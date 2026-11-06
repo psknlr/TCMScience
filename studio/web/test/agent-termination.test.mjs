@@ -116,6 +116,24 @@ test("the call for the answer failing ends the turn as before: at the step limit
   assert.equal(res.assistant.error, undefined);
   assert.equal(res.assistant.termination, "max_steps");
   assert.match(res.assistant.notice, /已达到每轮最多 2 次模型调用的上限/);
+
+  // broken off mid-stream: what it had begun to say is no answer, and is not kept as one (nor sent again later)
+  k = 0;
+  const cut = scriptedLLM([
+    () => openaiStep({ calls: [{ id: `t${++k}`, name: "tcm_herb", args: { name: `h${k}` } }] }),
+    () => openaiStep({ calls: [{ id: `t${++k}`, name: "tcm_herb", args: { name: `h${k}` } }] }),
+    [{ type: "reasoning", delta: "先看结果" }, { type: "text", delta: "据已有结果，葛根的主要" }, new ProviderError("stream broke", { status: 400, type: "bad_request" })],
+  ]);
+  const broken = await runTurn({ provider: deepseek, system: "", history: [user("q")], router: router(), catalog, settings: { maxSteps: 2 }, llm: { openai: cut }, onEvent: () => {}, retryDelays: [] });
+  assert.equal(cut.calls.length, 3);
+  assert.equal(broken.assistant.status, "ok");
+  assert.equal(broken.assistant.termination, "max_steps");
+  assert.equal(broken.assistant.content, "");
+  assert.equal(broken.assistant.reasoning, "");
+  assert.deepEqual(broken.assistant.segments.map((s) => s.type), ["tools", "tools"]);
+  assert.equal(broken.assistant.wire.at(-1).role, "tool", "the turn's messages end with the results, not a half-sentence");
+  assert.equal(broken.assistant.error, undefined);
+  assert.match(broken.assistant.notice, /已达到每轮最多 2 次模型调用的上限/);
 });
 
 test("every way a turn ends is named (termination), and the status values are the ones they were", async () => {
@@ -139,6 +157,12 @@ test("every way a turn ends is named (termination), and the status values are th
   assert.deepEqual(ctxLlm.calls[1].tools, [], "no tools offered once nothing more fits");
   assert.match(ctxLlm.calls[1].messages.at(-1).content, /fill the model's context/);
   assert.match(ctx.assistant.notice, /已占满模型的上下文/);
+  assert.doesNotMatch(ctx.assistant.notice, /上下文窗口/, "a preset states its window: nothing to set");
+  // a local server or a custom endpoint: its window is what Settings say, and the notice says where
+  const mine = { ...activeProvider({ provider: "c1", customProviders: [{ id: "c1", base_url: "http://127.0.0.1:9/v1", model: "m" }] }), contextTokens: 3000, maxTokens: 100, fetch: undefined };
+  const own = await runTurn({ provider: mine, system: "", history: [user("q")], router: bulky("x".repeat(20000)), catalog, settings: {}, onEvent: () => {}, llm: { openai: scriptedLLM([step(1), openaiStep({ text: "据已有结果作答" })]) } });
+  assert.equal(own.assistant.termination, "context_synthesized");
+  assert.match(own.assistant.notice, /这个模型在设置中的上下文窗口是 3000 个 token；如果它能读入更多，请在设置的「模型」中调高「上下文窗口」。/);
   await run("context full, no answer", { provider: small, router: bulky("x".repeat(20000)), llm: { openai: scriptedLLM([step(1), step(2)]) } });
   await run("cut off", { llm: { openai: scriptedLLM([openaiStep({ text: "半句", finish: "length" })]) } });
   const ctl = new AbortController();

@@ -13,9 +13,9 @@
 // `context_tokens` is the context window the agent budgets a request against (core/budget.js): at or below the
 // smallest window of the preset's listed models, `model_context` naming a listed model with a smaller one. Tao-S1's
 // comes from its health check (context_tokens, with max_body_bytes, the relay's body cap) when it answers; local
-// servers and custom endpoints take the window from Settings (32 000 until it is set).
+// servers and custom endpoints take the window from Settings (32 000 until it is set; a number under 2 048 is none).
 
-import { DEFAULT_CONTEXT_TOKENS } from "./budget.js";
+import { DEFAULT_CONTEXT_TOKENS, MIN_CONTEXT_TOKENS } from "./budget.js";
 import { lang, t } from "./i18n.js";
 import { relayError } from "./llm/openai.js";
 import { fetchWithTimeout, isLoopbackUrl, trimSlash } from "./util.js";
@@ -148,11 +148,13 @@ export function customPreset(c) {
     max_tokens_param: c.max_tokens_param || (format === "anthropic" ? "max_tokens" : "max_tokens"),
     reasoning: c.reasoning ?? (format === "anthropic" ? "thinking_blocks" : null),
     stream_usage: Boolean(c.stream_usage), tools: c.tools !== false, headers: c.headers || {}, extra_body: c.extra_body || {},
-    full_url: Boolean(c.full_url), context_tokens: positive(c.context_tokens) || DEFAULT_CONTEXT_TOKENS,
+    full_url: Boolean(c.full_url), context_tokens: windowOf(c.context_tokens) || DEFAULT_CONTEXT_TOKENS,
   };
 }
 
 const positive = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : 0);
+/** A context window as Settings give it: at least MIN_CONTEXT_TOKENS, else none (the default stands). */
+const windowOf = (v) => (positive(v) >= MIN_CONTEXT_TOKENS ? positive(v) : 0);
 
 /**
  * The context window the agent budgets for (core/budget.js), in tokens: the relay's health (`relay`), else what
@@ -161,7 +163,7 @@ const positive = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floo
  */
 export function contextWindow(preset, model, settings = {}, relay = 0) {
   if (preset?.relay && positive(relay)) return positive(relay);
-  return positive((settings.contextTokens || {})[preset?.id]) || positive(preset?.model_context?.[model]) || positive(preset?.context_tokens) || DEFAULT_CONTEXT_TOKENS;
+  return windowOf((settings.contextTokens || {})[preset?.id]) || positive(preset?.model_context?.[model]) || positive(preset?.context_tokens) || DEFAULT_CONTEXT_TOKENS;
 }
 
 export function newCustomProvider(format = "openai", n = 1) {

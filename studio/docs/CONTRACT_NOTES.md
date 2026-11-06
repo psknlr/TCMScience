@@ -120,7 +120,9 @@ one test.
   `not_executed`), and one more call asks for the answer from the results gathered: on the OpenAI-compatible path with
   no `tools` and no `tool_choice` (a "none" some services ignore), on Anthropic with the tools and
   `tool_choice: {type:"none"}`, which it enforces. The turn ends with `status: "max_steps"`. If that call fails, the turn
-  ends as it did without it (no error, the step-limit notice).
+  ends as it did without it (no error, the step-limit notice, and none of what that call had begun to write). With the
+  one shorter retry of a request too long for the model (below), a question makes at most `maxSteps` + 2 model calls
+  (18), transient retries aside.
 - Termination: `assistant.termination` names every way a turn ends: `answered`, `max_steps_synthesized` (the step
   limit, then the answer), `max_steps` (no answer after it), `context_synthesized` / `context_full` (the context budget,
   then the answer, or none), `truncated` (the answer stopped at the output limit, `finish_reason` length or max_tokens:
@@ -140,10 +142,15 @@ one test.
   off), its `toolCalls` each with the `envelope` of its tool record; `history` ends with its question. Its wire is sent
   again as it was (on Anthropic without its thinking blocks, and without thinking), its settled results are not run
   again, a call under way when it stopped runs again if it is pure and is reported as unknown (outcome `state_unknown`)
-  if it may have changed something, the steps it used count against the limit, citation numbers go on from its
-  `citeTop`, and an answer that stopped in its text is asked to go on (`CONTINUE_TEXT`). The result is the same message
-  with this run added; `toolMessages` and `usage` are this run's. `canContinue(message, provider, toolRecords)` →
-  `"continue"` | `"answer"` | null: only on the provider (and format) that wrote it.
+  if it may have changed something, the steps it used count against the limit (at the limit already, the one call left
+  asks for the answer, with no tools), citation numbers go on from its `citeTop`, and an answer that stopped in its text
+  is asked to go on (`CONTINUE_TEXT`) and goes on in that text (one text segment, no separator; its `text` events carry
+  `joins: true`). A call the step limit or a full context left unrun (envelope `limit: "max_steps"|"context"`) was never
+  handed to the router: it is not under way, is not run on Continue, and is not a settled result. The result is the same
+  message with this run added; `toolMessages` and `usage` are this run's. `canContinue(message, provider, toolRecords)` →
+  `"continue"` | `"answer"` | null: only on the provider (and format) that wrote it. The page saves no draft while a
+  Continue runs (the stored message stays continuable) and reports the run to the telemetry under an id of its own, with
+  this run's tokens, steps and tool rounds.
 - `TurnResult.assistant` (§7 message) also has: `segments: [{type:"reasoning"|"text"|"tools", step, text|callIds}]`
   (render order), `wireFormat` ("openai"|"anthropic"), `steps`, `finishReason`, `termination`, `citeTop`, and when
   relevant `hideReasoning` (identity turn), `limitReached` + `notice` (max steps; `status` stays "ok"), `notice` (a

@@ -1049,7 +1049,10 @@ export class App {
     if (resume) resumeLive(live, resume, resumedTools);
     const abort = new AbortController();
     let saving = Promise.resolve();
-    const turn = { conversationId: conv.id, projectId: conv.projectId || project?.id, userId: user.id, live, abort, discarded: false, saving: () => saving, resume };
+    // what the telemetry calls this run: the message's id, or for a continued answer an id of its own (the earlier run
+    // was reported under the message's id; the Worker keeps the first report of an id and drops a second)
+    const reportId = resume ? uuid() : draftId;
+    const turn = { conversationId: conv.id, projectId: conv.projectId || project?.id, userId: user.id, live, abort, discarded: false, saving: () => saving, resume, reportId };
     this.state.turn = turn;
     // a question, and the first of its conversation or not; the turn beats while it runs, so that the next page load
     // can tell one that was cut off (core/telemetry.js staleTurns)
@@ -1062,8 +1065,11 @@ export class App {
     // answer streams, or after a reload cut one off, does not reach back to it)
     turn.consent = this.telemetry.contentOn;
     this.telemetry.track("turn_start", { provider: provider.id, model: provider.model, first: turn.first });
-    this.telemetry.turnBegan({ id: draftId, conversationId: conv.id, projectId: turn.projectId, provider: provider.id, model: provider.model, first: turn.first, consent: turn.consent, startedAt: live.startedAt });
-    turn.beat = setInterval(() => this.telemetry.turnBeat(draftId), 5000);
+    this.telemetry.turnBegan({
+      id: reportId, messageId: draftId, ...(resume ? { continues: true } : {}), conversationId: conv.id, projectId: turn.projectId, provider: provider.id,
+      model: provider.model, first: turn.first, consent: turn.consent, startedAt: live.startedAt,
+    });
+    turn.beat = setInterval(() => this.telemetry.turnBeat(reportId), 5000);
     this.state.inspector = { ...this.state.inspector, messageId: draftId, selection: null };
     this.emit("turn", { type: "start", live });
 
@@ -1076,15 +1082,15 @@ export class App {
     // The draft: the answer so far and every tool result with its envelope, saved at least every DRAFT_SAVE_MS while
     // the turn runs (a throttle, not a debounce: a stream never pauses long enough for a debounce to fire), and once
     // more when the page is hidden or closed. Tool records get ids from the call (${draftId}:${callId}), so the final
-    // save replaces them instead of adding a second copy.
+    // save replaces them instead of adding a second copy. A continued answer saves no draft: its message is stored
+    // whole and can be continued, and a draft would put in its place one that cannot (no wire, no error, no citeTop);
+    // a reload while it runs leaves the message as it was before Continue, to be continued again from there.
     let finalized = false;
     let leafSaved = false;
     const savedTools = new Map(); // callId → the envelope object last written
-    // a continued answer's tool records are stored already: only what this run changes is written
-    for (const [callId, tool] of live.tools) if (tool.envelope) savedTools.set(callId, tool.envelope);
     turn.draftToolIds = new Set();
     const saveDraft = throttle(() => {
-      if (finalized || turn.discarded) return;
+      if (finalized || turn.discarded || resume) return;
       saving = saving.then(async () => {
         if (finalized || turn.discarded) return;
         // the conversation was deleted (here or in another tab): write nothing back
@@ -1168,9 +1174,8 @@ export class App {
       toolMessages = result.toolMessages.map((m) => ({ ...m, id: toolMessageId(live.id, m.toolCallId), parentId: live.id, conversationId: conv.id }));
       if (result.status === "stopped") assistant.status = "stopped";
     } else if (turn?.resume) {
-      // a continued answer that could not run: it stays as it was, with what went wrong
+      // a continued answer that could not run: it stays as it was, with what went wrong (its tool records too)
       assistant = { ...turn.resume, status: "error", error: live.error || { message: t("ui.turn.failed_announce"), kind: "runtime" } };
-      toolMessages = liveToolMessages(live, conv.id).map(({ draft, ...m }) => m);
     } else {
       assistant = liveToRecord(live, conv.id, {});
       assistant.status = live.status === "error" ? "error" : "stopped";
@@ -1197,9 +1202,9 @@ export class App {
       }
     }
     this.state.turn = null;
-    // counted, and recorded when it may be: after the answer is stored and shown, never in its way (a continued answer:
-    // this run's tokens, the earlier run's were counted with it)
-    this.#reportTurn({ conv, user, assistant: turn?.resume && result ? { ...assistant, usage: result.usage } : assistant, toolMessages, live, discarded, turn });
+    // counted, and recorded when it may be: after the answer is stored and shown, never in its way (a continued answer
+    // as a run of its own: continuedRun)
+    this.#reportTurn({ conv, user, assistant: turn?.resume ? continuedRun(assistant, turn.resume, result?.usage) : assistant, toolMessages, live, discarded, turn });
     if (this.state.conversation?.id === conv.id) await this.loadMessages();
     await this.refreshConversations();
     this.emit("turn", { type: "end", live });
@@ -1230,7 +1235,7 @@ export class App {
       if (reason && reason !== before && STICKY_EXCLUSIONS.includes(reason)) await this.#keepOut(conv.id, reason);
       const tools = toolMessages.map((m) => this.#namedTool(m));
       const base = {
-        id: assistant.id, provider: assistant.provider, model: assistant.model, status: turnStatus(assistant, { interrupted }),
+        id: turn?.reportId || assistant.id, provider: assistant.provider, model: assistant.model, status: turnStatus(assistant, { interrupted }),
         first: turn?.first ?? path.filter((m) => m.role === "user").length <= 1, startedAt: live?.startedAt,
         endedAt: endedAt ?? assistant.ui?.endedAt ?? Date.now(), firstAt: live?.firstAt, calls: live?.calls, assistant, tools,
         known: known.map((m) => this.#namedTool(m)),
@@ -1251,7 +1256,7 @@ export class App {
       }
       tel.track("turn_end", turnEndEvent({ ...base, excluded: excluded || undefined, recorded }));
     } catch { /* never the conversation's concern */ } finally {
-      tel.turnEnded(live?.id || assistant?.id);
+      tel.turnEnded(turn?.reportId || live?.id || assistant?.id);
     }
   }
 
@@ -1359,16 +1364,19 @@ export class App {
 
   async #recoverStale() {
     for (const m of await this.telemetry.staleTurns()) {
-      if (this.state.turn?.live?.id === m.id) continue;
+      if (this.state.turn && (this.state.turn.reportId || this.state.turn.live?.id) === m.id) continue;
       this.telemetry.turnEnded(m.id);
       try {
-        const draft = await this.store.messages.get(m.id).catch(() => null);
+        // the message the turn wrote in (a continued answer's report has an id of its own: messageId)
+        const messageId = m.messageId || m.id;
+        const draft = await this.store.messages.get(messageId).catch(() => null);
         const conv = await this.store.conversations.get(m.conversationId || draft?.conversationId).catch(() => null);
         const all = conv ? await this.store.messages.list(conv.id).catch(() => []) : [];
         const user = draft ? all.find((x) => x.id === draft.parentId) : null;
-        const tools = all.filter((x) => x.role === "tool" && x.parentId === m.id);
-        const steps = Math.max(0, ...(draft?.segments || []).map((sg) => Number(sg.step) || 0));
-        const assistant = { id: m.id, provider: m.provider, model: m.model, content: draft?.content || "", segments: draft?.segments || [], steps, status: "stopped" };
+        // a continued answer saves no draft: none of its run's tool records were kept, and its message is as it was
+        const tools = m.continues ? [] : all.filter((x) => x.role === "tool" && x.parentId === messageId);
+        const steps = m.continues ? 0 : Math.max(0, ...(draft?.segments || []).map((sg) => Number(sg.step) || 0));
+        const assistant = { id: messageId, provider: m.provider, model: m.model, content: draft?.content || "", segments: m.continues ? [] : draft?.segments || [], steps, status: "stopped" };
         const live = { id: m.id, startedAt: m.startedAt };
         if (!conv || !user) {
           // the conversation deleted since, or cut off before anything of the turn was saved
@@ -1376,7 +1384,7 @@ export class App {
             startedAt: m.startedAt, endedAt: m.beat, assistant, tools: [], excluded: conv ? "unavailable" : "discarded" }));
           continue;
         }
-        await this.#reportTurn({ conv, user, assistant, toolMessages: tools, live, turn: { first: m.first, consent: m.consent === true }, interrupted: true, endedAt: m.beat });
+        await this.#reportTurn({ conv, user, assistant, toolMessages: tools, live, turn: { first: m.first, consent: m.consent === true, reportId: m.id }, interrupted: true, endedAt: m.beat });
       } catch { /* the next page load tries no more: it was taken off the list */ }
     }
   }
@@ -1519,6 +1527,18 @@ export function resumeLive(live, m, toolRecords = []) {
   return live;
 }
 
+/**
+ * A continued answer as the telemetry reports it, a run of its own (under its own id, app.js reportId): this run's
+ * tokens, steps and tool rounds (the earlier run's were reported with that run), and the message's whole answer.
+ */
+export function continuedRun(assistant, resume, usage) {
+  const before = Number(resume?.steps) || 0;
+  return {
+    ...assistant, usage: usage || { input: 0, output: 0 }, steps: Math.max(0, (Number(assistant.steps) || 0) - before),
+    segments: (assistant.segments || []).filter((s) => s.type !== "tools" || s.step > before),
+  };
+}
+
 /** How a research workflow's tool run ended, as a phase (telemetry-contract.js WORKFLOW_PHASES). */
 const WORKFLOW_PHASE = { succeeded: "completed", job_submitted: "submitted", failed: "failed", refused: "refused", cancelled: "cancelled" };
 
@@ -1571,8 +1591,19 @@ export function applyEvent(live, ev) {
       live.firstAt ||= Date.now();
       endThinking(ev.step);
       const seg = lastSeg();
-      if (seg && seg.type === "text" && seg.step === ev.step) seg.text += ev.delta;
-      else live.segments.push({ type: "text", step: ev.step, text: ev.delta });
+      if (seg && seg.type === "text" && (seg.step === ev.step || seg.joined?.step === ev.step)) seg.text += ev.delta;
+      else if (ev.joins) {
+        // a continued answer goes on in the text it was cut off in, the reasoning of this step before it (as
+        // core/agent.js records it); `joined` marks where, so that a retry of this step takes back only what it added
+        let i = live.segments.length - 1;
+        while (i >= 0 && live.segments[i].type === "reasoning" && live.segments[i].step === ev.step) i--;
+        const cut = live.segments[i];
+        if (cut?.type === "text") {
+          live.segments.splice(i, 0, ...live.segments.splice(i + 1));
+          cut.joined ||= { step: ev.step, at: cut.text.length };
+          cut.text += ev.delta;
+        } else live.segments.push({ type: "text", step: ev.step, text: ev.delta });
+      } else live.segments.push({ type: "text", step: ev.step, text: ev.delta });
       break;
     }
     case "tool.pending":
@@ -1615,6 +1646,11 @@ export function applyEvent(live, ev) {
     case "model.retry":
       live.calls = (live.calls || 0) + 1;
       live.segments = live.segments.filter((s) => !(s.step === ev.step && (s.type === "text" || s.type === "reasoning")));
+      for (const s of live.segments) {
+        if (s.joined?.step !== ev.step) continue;
+        s.text = s.text.slice(0, s.joined.at);
+        delete s.joined;
+      }
       live.retry = ev.notice || ev.message;
       break;
     case "model.end":
@@ -1637,7 +1673,7 @@ function liveToRecord(live, conversationId, { draft = false } = {}) {
   const reasoning = live.segments.filter((s) => s.type === "reasoning").map((s) => s.text).join("\n\n");
   return {
     id: live.id, conversationId, parentId: live.userId, role: "assistant", createdAt: live.createdAt ?? live.startedAt, content, reasoning,
-    segments: live.segments.map((s) => ({ ...s, callIds: s.callIds ? [...s.callIds] : undefined })),
+    segments: live.segments.map(({ joined, ...s }) => ({ ...s, callIds: s.callIds ? [...s.callIds] : undefined })),
     toolCalls: [...live.tools.values()].map((x) => ({ id: x.call.id, name: x.call.name, args: x.call.args })),
     provider: live.provider, model: live.model, status: "stopped", ...(draft ? { draft: true } : {}),
   };

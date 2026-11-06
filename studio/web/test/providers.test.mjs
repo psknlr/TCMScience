@@ -193,6 +193,11 @@ test("the context window a request is budgeted against: the relay's health, Sett
   assert.equal(activeProvider({ ...custom, provider: "c1" }).contextTokens, 32000);
   assert.equal(activeProvider({ customProviders: [{ ...custom.customProviders[0], context_tokens: 65536 }], provider: "c1" }).contextTokens, 65536);
   assert.equal(customPreset({ id: "c2", context_tokens: "lots" }).context_tokens, 32000, "a mistyped window is the default");
+  // "32" meant as 32k: no model has so small a window; read as none, never as a budget of a few tokens
+  assert.equal(customPreset({ id: "c2", context_tokens: 32 }).context_tokens, 32000);
+  assert.equal(activeProvider({ provider: "ollama", contextTokens: { ollama: 32 } }).contextTokens, 32000);
+  assert.equal(activeProvider({ provider: "ollama", contextTokens: { ollama: 2047 } }).contextTokens, 32000);
+  assert.equal(activeProvider({ provider: "ollama", contextTokens: { ollama: 2048 } }).contextTokens, 2048);
   assert.equal(contextWindow(PRESETS[0], "Tao-S1", {}, 0), 128000);
   // the relay's health says both; an older relay that says neither leaves the preset's
   const h = await relayHealth({ fetch: fakeFetch(() => new Response(JSON.stringify({ ok: true, max_output_tokens: 8192, context_tokens: 204800, max_body_bytes: 2000000 }))) });

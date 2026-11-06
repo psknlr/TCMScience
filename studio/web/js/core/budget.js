@@ -16,6 +16,8 @@
 // last request may shorten the newest results too. A request under budget is returned unchanged.
 
 export const DEFAULT_CONTEXT_TOKENS = 32000;
+/** The least context window Settings may give a model: a smaller number ("32" meant as 32k) is read as none. */
+export const MIN_CONTEXT_TOKENS = 2048;
 /** The share of the context window a request and its answer may take. */
 export const WINDOW_SHARE = 0.8;
 /** The share of the relay's body cap a request may take. */

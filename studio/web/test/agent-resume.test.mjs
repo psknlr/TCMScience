@@ -138,10 +138,73 @@ test("an answer cut off at the output limit goes on from where it stopped, in th
   const llm = scriptedLLM([openaiStep({ text: "大枣、甘草组成。" })]);
   const res = await runTurn({ provider: deepseek, system: "", history: [question], router: null, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {}, resume: cut.assistant });
   assert.deepEqual(llm.calls[0].messages.slice(-2), [{ role: "assistant", content: "桂枝汤由桂枝、芍药、生姜、" }, { role: "user", content: CONTINUE_TEXT }]);
-  assert.equal(res.assistant.content, "桂枝汤由桂枝、芍药、生姜、\n\n大枣、甘草组成。");
+  // one text, as it was meant: the continuation goes on in the text it was cut off in (no paragraph break mid-sentence)
+  assert.equal(res.assistant.content, "桂枝汤由桂枝、芍药、生姜、大枣、甘草组成。");
+  assert.deepEqual(res.assistant.segments, [{ type: "text", step: 1, text: "桂枝汤由桂枝、芍药、生姜、大枣、甘草组成。" }]);
   assert.equal(res.assistant.termination, "answered");
   assert.equal(res.assistant.notice, undefined, "the cut-off notice goes with the cut");
   assert.deepEqual(res.assistant.wire.map((m) => m.role), ["assistant", "user", "assistant"], "the request to go on is kept: the replayed roles alternate");
+  assert.deepEqual(cut.assistant.segments, [{ type: "text", step: 1, text: "桂枝汤由桂枝、芍药、生姜、" }], "the stored message is not changed");
+
+  // cut inside a code fence, and the continuation thinks first: its reasoning comes before the one text; the live
+  // events say the text goes on in the cut one
+  const fence = await runTurn({ provider: deepseek, system: "", history: [question], router: null, catalog, settings: {}, onEvent: () => {},
+    llm: { openai: scriptedLLM([openaiStep({ reasoning: "列出组成", text: "组成：\n```\n桂枝 9g\n芍药", finish: "length" })]) } });
+  const events = [];
+  const more = await runTurn({ provider: deepseek, system: "", history: [question], router: null, catalog, settings: {}, onEvent: (e) => events.push(e), resume: fence.assistant,
+    llm: { openai: scriptedLLM([openaiStep({ reasoning: "接着写", text: " 9g\n```\n共五味。" })]) } });
+  assert.equal(more.assistant.content, "组成：\n```\n桂枝 9g\n芍药 9g\n```\n共五味。");
+  assert.deepEqual(more.assistant.segments.map((s) => [s.type, s.step]), [["reasoning", 1], ["reasoning", 2], ["text", 1]]);
+  assert.deepEqual(events.filter((e) => e.type === "text").map((e) => e.joins), [true]);
+  // a stop in the middle of the stream goes on in the same text too
+  const ctl = new AbortController();
+  const stopped = await runTurn({ provider: deepseek, system: "", history: [question], router: null, catalog, settings: {}, signal: ctl.signal, onEvent: (e) => { if (e.type === "text") ctl.abort(); },
+    llm: { openai: scriptedLLM([[{ type: "text", delta: "葛根解肌" }, { type: "text", delta: "退热" }]]) } });
+  assert.equal(stopped.assistant.termination, "stopped");
+  const on = await runTurn({ provider: deepseek, system: "", history: [question], router: null, catalog, settings: {}, onEvent: () => {}, resume: stored(stopped), llm: { openai: scriptedLLM([openaiStep({ text: "退热，生津止渴。" })]) } });
+  assert.equal(on.assistant.content, "葛根解肌退热，生津止渴。");
+});
+
+test("a repeat of a call the earlier run settled is answered from it, not run again", async () => {
+  const { router, runtimes } = makeRouter();
+  const first = await runTurn({ provider: deepseek, system: "", history: [question], router, catalog, settings: {}, onEvent: () => {},
+    llm: { openai: scriptedLLM([openaiStep({ calls: [herb("a", "葛根")] }), new ProviderError("busy", { status: 503, retryable: false })]) } });
+  assert.equal(calls(runtimes), 1);
+  const llm = scriptedLLM([openaiStep({ calls: [herb("a2", "葛根")] }), openaiStep({ text: "葛根 [E1]。" })]);
+  const res = await runTurn({ provider: deepseek, system: "", history: [question], router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {}, resume: stored(first) });
+  assert.equal(calls(runtimes), 1, "the same call with the same arguments: answered from the first");
+  const env = res.toolMessages[0].envelope;
+  assert.deepEqual(env.reused, { step: 1, callId: "a" });
+  assert.match(llm.calls[1].messages.find((m) => m.tool_call_id === "a2").content, /Not run again: the same call/);
+  assert.equal(res.assistant.termination, "answered");
+});
+
+test("Continue after a stop during the call for the answer: the calls the step limit left unrun stay unrun", async () => {
+  const { router, runtimes } = makeRouter();
+  let k = 0;
+  const step = () => openaiStep({ calls: [herb(`t${++k}`, `h${k}`)] });
+  const ctl = new AbortController();
+  const first = await runTurn({ provider: deepseek, system: "", history: [question], router, catalog, settings: { maxSteps: 2 }, signal: ctl.signal,
+    onEvent: (e) => { if (e.type === "text") ctl.abort(); },
+    llm: { openai: scriptedLLM([step, step, [{ type: "text", delta: "据已有结果，" }, { type: "text", delta: "葛根" }]]) } });
+  assert.equal(first.status, "stopped");
+  assert.equal(calls(runtimes), 1, "t2 was asked for on the last allowed call: not run");
+  const t2 = first.toolMessages.find((m) => m.toolCallId === "t2").envelope;
+  assert.deepEqual([t2.status, t2.receipt.result.outcome, t2.limit], ["cancelled", "not_executed", "max_steps"]);
+  assert.deepEqual(resumeOf(stored(first), "openai").unsettled, [], "not under way: it was never handed to the router");
+  assert.equal(canContinue(first.assistant, deepseek, toolRecords(first)), "continue", "t1 is settled");
+  const llm = scriptedLLM([openaiStep({ text: "葛根的主要成分是葛根素。" })]);
+  const res = await runTurn({ provider: deepseek, system: "", history: [question], router, catalog, settings: { maxSteps: 2 }, llm: { openai: llm }, onEvent: () => {}, resume: stored(first) });
+  assert.equal(calls(runtimes), 1, "router.call for t2 during Continue: 0");
+  assert.equal(llm.calls.length, 1);
+  assert.deepEqual(llm.calls[0].tools, [], "at the limit already: the call for the answer, with no tools");
+  assert.equal(llm.calls[0].toolChoice, undefined);
+  assert.equal(llm.calls[0].messages.at(-1).content, CONTINUE_TEXT, "asked to go on where it stopped, not to start the answer again");
+  assert.equal(res.assistant.content, "据已有结果，葛根的主要成分是葛根素。");
+  assert.equal(res.assistant.termination, "max_steps_synthesized");
+  // only placeholders for unrun calls: nothing settled to go on from
+  const unrun = toolRecords(first).map((m) => ({ ...m, envelope: m.toolCallId === "t1" ? { ...m.envelope, status: "cancelled", limit: "max_steps" } : m.envelope }));
+  assert.equal(canContinue(first.assistant, deepseek, unrun), null);
 });
 
 test("the steps a turn used count against the limit; a continued request goes through the budget", async () => {
@@ -152,9 +215,13 @@ test("the steps a turn used count against the limit; a continued request goes th
     llm: { openai: scriptedLLM([step, step, step, new ProviderError("x", { status: 400, type: "bad_request" })]) } });
   assert.equal(first.assistant.steps, 4);
   const llm = scriptedLLM([openaiStep({ text: "答。" })]);
-  await runTurn({ provider: deepseek, system: "", history: [question], router, catalog, settings: { maxSteps: 4 }, llm: { openai: llm }, onEvent: () => {}, resume: stored(first) });
-  assert.equal(llm.calls[0].toolChoice, "none", "at the limit already: the last allowed call");
-  assert.equal(first.assistant.steps + 1, 5);
+  const atLimit = await runTurn({ provider: deepseek, system: "", history: [question], router, catalog, settings: { maxSteps: 4 }, llm: { openai: llm }, onEvent: () => {}, resume: stored(first) });
+  // at the limit already: what is left is the call for the answer (no tools, no tool_choice on this path)
+  assert.deepEqual(llm.calls[0].tools, []);
+  assert.equal(llm.calls[0].toolChoice, undefined);
+  assert.match(llm.calls[0].messages.at(-1).content, /limit of model calls for this turn is reached/);
+  assert.equal(atLimit.assistant.steps, 5);
+  assert.equal(atLimit.assistant.termination, "max_steps_synthesized");
   // a small window: the earlier results are compacted in the continued request, the newest kept whole
   const big = { ...deepseek, contextTokens: 3000, maxTokens: 100 };
   const wide = await runTurn({ provider: deepseek, system: "", history: [question], router, catalog, settings: {}, onEvent: () => {},
