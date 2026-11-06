@@ -88,13 +88,14 @@ function sizeVerdict(row, { adapter, gpuError, knownAnswer, allowSoftware }) {
  * unless save is false (report.stored says whether it was). options: navigator; allowSoftware (tests and the harness's
  * --software only); sizes ([queries, refs] pairs); reps; timestamps (GPU timestamp queries where offered); timeoutMs
  * (each GPU step); indexedDB; save; gpu (a ScienceGPU to use instead of a new one); onProgress({stage, size, fraction});
- * isCancelled; seed.
+ * isCancelled; seed; clock (→ a reading in milliseconds, performance.now() by default: the tests give a virtual one, so
+ * that a verdict they check is not decided by how loaded the machine running them was).
  */
 export async function deviceCheck({
   navigator = globalThis.navigator, allowSoftware = false, sizes = DEVICE_CHECK_SIZES, reps = 3, timestamps = true, timeoutMs = 30_000,
-  indexedDB = globalThis.indexedDB, save = true, gpu = null, onProgress, isCancelled, seed = DEVICE_CHECK_SEED,
+  indexedDB = globalThis.indexedDB, save = true, gpu = null, onProgress, isCancelled, seed = DEVICE_CHECK_SEED, clock = now,
 } = {}) {
-  const t0 = now();
+  const t0 = clock();
   const g = gpu || new ScienceGPU({ navigator, allowSoftware, timestamps, timeoutMs });
   const simd = scienceSimdStatus();
   const kernel = { kernel: TANIMOTO_KERNEL, known_answer: null, sizes: [] };
@@ -127,17 +128,18 @@ export async function deviceCheck({
         timings: { js: null, "wasm-simd": null, webgpu: null }, cpu_baseline: simd.available ? "wasm-simd" : "js", gpu_error: null, accelerated: null, reason: "",
       };
       // the reference: JavaScript, once
-      let t = now();
+      let t = clock();
       const want = tanimotoBestJS(queries, refs, { words, isCancelled });
-      row.timings.js = { ms: ms3(now() - t), runs: [ms3(now() - t)] };
+      const jsMs = ms3(clock() - t);
+      row.timings.js = { ms: jsMs, runs: [jsMs] };
       row.result_sha256 = await sha256Bytes(tanimotoRows(want));
       if (simd.available) {
         const runs = [];
         let exact = true;
         for (let k = 0; k < reps; k++) {
-          t = now();
+          t = clock();
           const got = tanimotoBestWasm(queries, refs, { words, isCancelled });
-          runs.push(ms3(now() - t));
+          runs.push(ms3(clock() - t));
           exact &&= same(got, want);
         }
         row.exact["wasm-simd"] = exact;
@@ -145,17 +147,17 @@ export async function deviceCheck({
       }
       if (useGpu) {
         try {
-          t = now();
+          t = clock();
           const first = await g.tanimotoBest(queries, refs, { words, isCancelled });
-          const firstMs = ms3(now() - t);
+          const firstMs = ms3(clock() - t);
           let exact = same(first, want);
           const runs = [], search = [], kernelMs = [], bands = [], maxBand = [];
           let pieces = null;
           for (let k = 0; k < reps; k++) {
-            t = now();
+            t = clock();
             const got = await g.tanimotoBest(queries, refs, { words, isCancelled });
             const check = validateTanimoto(queries, refs, got, { words, isCancelled });
-            runs.push(ms3(now() - t));
+            runs.push(ms3(clock() - t));
             const run = g.lastRun;
             search.push(run.work_ms); bands.push(run.bands); maxBand.push(run.max_band_ms); pieces = run.pieces;
             if (Number.isFinite(run.kernel_ms)) kernelMs.push(run.kernel_ms);
@@ -209,7 +211,7 @@ export async function deviceCheck({
   } finally {
     if (!gpu) g.stop();
   }
-  report.seconds = ms3((now() - t0) / 1000);
+  report.seconds = ms3((clock() - t0) / 1000);
   report.id = await sha256Text(canonicalJson({ ...report, id: null, stored: null }));
   progress("done", null, 1);
   if (save) {

@@ -14,6 +14,20 @@ import { classifyAdapter } from "../js/runtime/webgpu.js";
 import { calibrationFor, fakeScienceGPU } from "./science-fakes.mjs";
 
 const SIZES = [[8, 300], [40, 700]];
+
+/**
+ * A clock for the device check (its `clock` option) that a test, not the machine, moves: each reading is a millisecond
+ * after the one before, so every timed span costs 1 ms; `advance(ms)` charges more (a fake GPU's waits for its device);
+ * `still()` makes the next reading the same instant as the last (what ran in between took no time). A verdict that
+ * compares timings is then the same on a loaded test run as on an idle one.
+ */
+function virtualClock() {
+  let t = 0, still = false;
+  const read = () => { if (still) still = false; else t += 1; return t; };
+  read.advance = (ms) => { t += ms; };
+  read.still = () => { still = true; };
+  return read;
+}
 const nav = (version = "1") => ({ userAgent: `TestBrowser/${version}`, userAgentData: { brands: [{ brand: "Test", version }], platform: "Test", mobile: false } });
 
 test("the device fingerprint: the adapter and the browser, hashed; another of either is another device", async () => {
@@ -90,10 +104,12 @@ test("the seeded inputs are the same everywhere and hold what they are for", () 
 });
 
 test("the device check on a physical adapter: known answer, exact parity, timings, a verdict per size, kept as the calibration", async () => {
-  const gpu = fakeScienceGPU({ timestamps: true });
+  // each of the device's waits costs the GPU a millisecond on this clock, on top of the 1 ms every span costs
+  const clock = virtualClock();
+  const gpu = fakeScienceGPU({ timestamps: true, onWait: () => clock.advance(1) });
   const indexedDB = new IDBFactory();
   const stages = [];
-  const report = await deviceCheck({ navigator: gpu.navigator, sizes: SIZES, reps: 2, indexedDB, onProgress: (p) => stages.push(p.stage) });
+  const report = await deviceCheck({ navigator: gpu.navigator, sizes: SIZES, reps: 2, indexedDB, onProgress: (p) => stages.push(p.stage), clock });
   assert.equal(report.schema, DEVICE_CHECK_SCHEMA);
   assert.equal(report.ok, true);
   assert.equal(report.device.adapter.kind, "physical");
@@ -107,9 +123,11 @@ test("the device check on a physical adapter: known answer, exact parity, timing
   for (const [i, s] of k.sizes.entries()) {
     assert.deepEqual([s.queries, s.refs, s.pairs], [SIZES[i][0], SIZES[i][1], SIZES[i][0] * SIZES[i][1]]);
     assert.deepEqual(s.exact, { "wasm-simd": true, webgpu: true });
-    assert.equal(s.timings["wasm-simd"].runs.length, 2);
+    assert.deepEqual(s.timings.js, { ms: 1, runs: [1] }, "JavaScript once, timed once");
+    assert.deepEqual(s.timings["wasm-simd"], { ms: 1, runs: [1, 1] });
     assert.equal(s.timings.webgpu.runs.length, 2);
-    assert.ok(s.timings.webgpu.first_ms >= 0);
+    assert.ok(s.timings.webgpu.runs.every((ms) => ms > 1), `the GPU's runs include its waits: ${s.timings.webgpu.runs}`);
+    assert.ok(s.timings.webgpu.first_ms > 1);
     assert.equal(s.timings.webgpu.kernel_ms, 2.5 * (s.timings.webgpu.bands + 1), "the GPU's own time, from its timestamps");
     assert.equal(s.cpu_baseline, "wasm-simd");
     assert.equal(typeof s.accelerated, "boolean", "a physical, verified, exact adapter gets a verdict");
@@ -118,7 +136,7 @@ test("the device check on a physical adapter: known answer, exact parity, timing
     assert.match(s.result_sha256, /^[0-9a-f]{64}$/);
     assert.equal(tanimotoBestJS(queries, refs).arg.length, s.queries);
   }
-  // a double computes on this CPU in JavaScript: slower than WebAssembly, so not faster here
+  // the GPU, its waits counted, took longer than WebAssembly SIMD at every size: not faster here
   assert.equal(report.verdict, "not faster than the CPU at any size");
   assert.equal(report.label, null);
   assert.match(report.versions.wasm_sha256, /^[0-9a-f]{64}$/);
@@ -132,17 +150,20 @@ test("the device check on a physical adapter: known answer, exact parity, timing
 });
 
 test("a GPU measured faster gets accelerated: true, and the calibration then selects it", async () => {
-  // a stand-in GPU that answers from memory after its first (uncounted) call: faster than any CPU kernel
+  // a stand-in GPU that answers from memory after its first (uncounted) call, taking no time on this clock: faster
+  // than any CPU kernel, each of whose runs costs 1 ms
+  const clock = virtualClock();
   const fake = fakeScienceGPU();
   const real = new (await import("../js/compute/science-gpu.js")).ScienceGPU(fake);
   const memo = new Map();
   const fast = {
     ready: (o) => real.ready(o), get adapter() { return real.adapter; }, get knownAnswer() { return real.knownAnswer; }, get limits() { return real.limits; },
     get lastRun() { return { dispatched: true, work_ms: 0, bands: 1, max_band_ms: 0, pieces: 1, kernel_ms: null }; }, stop() { real.stop(); },
-    async tanimotoBest(q, r, o) { if (!memo.has(q)) memo.set(q, await real.tanimotoBest(q, r, o)); return memo.get(q); },
+    async tanimotoBest(q, r, o) { if (!memo.has(q)) memo.set(q, await real.tanimotoBest(q, r, o)); clock.still(); return memo.get(q); },
   };
-  const report = await deviceCheck({ navigator: fake.navigator, sizes: [[64, 2000]], reps: 2, gpu: fast, save: false });
+  const report = await deviceCheck({ navigator: fake.navigator, sizes: [[64, 2000]], reps: 2, gpu: fast, save: false, clock });
   const s = report.kernels["tanimoto.best"].sizes[0];
+  assert.deepEqual([s.timings.webgpu.runs, s.timings["wasm-simd"].runs], [[0, 0], [1, 1]]);
   assert.equal(s.accelerated, true, s.reason);
   assert.match(s.reason, /faster here/);
   assert.equal(report.verdict, "accelerated at 1 of 1 sizes");

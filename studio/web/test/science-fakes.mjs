@@ -84,12 +84,13 @@ function reduce(views, x, wrong) {
 
 export function fakeScienceGPU({
   info = { vendor: "nvidia", architecture: "ampere" }, adapterLimits = {}, corrupt = null, delayMs = 0, lost = false, fail = false, timestamps = false,
-  errorFromPop = Infinity,
+  errorFromPop = Infinity, onWait = null,
 } = {}) {
   let resolveLoss;
   const state = { dispatches: [], created: [], destroyed: [], deviceRequests: [], adapters: 0, reduces: 0, delayMs, waits: 0, pops: 0, errorFromPop };
   const offered = { maxStorageBufferBindingSize: 1 << 30, maxBufferSize: 1 << 30, maxComputeWorkgroupsPerDimension: 65535, ...adapterLimits };
-  const wait = async () => { state.waits++; if (state.delayMs) await new Promise((r) => setTimeout(r, state.delayMs)); };
+  // onWait: called on each wait for the device (a test's virtual clock charges the GPU's time there)
+  const wait = async () => { state.waits++; onWait?.(); if (state.delayMs) await new Promise((r) => setTimeout(r, state.delayMs)); };
   let device = null;
   const makeDevice = (descriptor = {}) => {
     const req = descriptor.requiredLimits || {};
