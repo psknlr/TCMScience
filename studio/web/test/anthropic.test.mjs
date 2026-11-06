@@ -1,7 +1,9 @@
 import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { anthropicTools, buildRequest, streamChat, thinkingParam, toolResultMessages } from "../js/core/llm/anthropic.js";
+import { anthropicTools, buildRequest, cachedSystem, streamChat, thinkingParam, toolResultMessages } from "../js/core/llm/anthropic.js";
+import { buildSystemPrompt, splitSystemPrompt } from "../js/core/prompt.js";
 import { anthropicSse, bytePieces, fakeFetch, streamResponse } from "./fixtures/fakes.mjs";
 
 function provider(overrides = {}) {
@@ -53,7 +55,7 @@ test("a streamed turn: thinking (with signature), text, a tool call assembled fr
     assert.equal(out.filter((e) => e.type === "text").map((e) => e.delta).join(""), "我先查一下。");
     const call = out.find((e) => e.type === "tool_call");
     assert.deepEqual([call.id, call.name, call.arguments], ["toolu_1", "tcm_compatibility", { herbs: ["甘草", "甘遂"] }]);
-    assert.deepEqual(out.find((e) => e.type === "usage"), { type: "usage", input: 1000, output: 42 });
+    assert.deepEqual(out.find((e) => e.type === "usage"), { type: "usage", input: 1000, output: 42, cache_read: 100 });
     assert.equal(done.finish_reason, "tool_use");
     assert.deepEqual(done.wire, {
       role: "assistant",
@@ -75,10 +77,10 @@ test("request: headers for a browser call, tools with input_schema, adaptive thi
   assert.equal(headers["anthropic-dangerous-direct-browser-access"], "true");
   assert.equal(headers["anthropic-beta"], "server-side-fallback-2026-07-01,thinking-binding-controls-2026-08-01");
   assert.equal(body.fallbacks, "default");
-  assert.equal(body.system, "SYS");
+  assert.deepEqual(body.system, [{ type: "text", text: "SYS", cache_control: { type: "ephemeral" } }]);
   assert.equal(body.stream, true);
   assert.deepEqual(body.thinking, { type: "adaptive", display: "summarized", block_binding: { prefix_mismatch_behavior: "drop_block" } });
-  assert.deepEqual(body.tools[0], { name: "tcm_herb", description: "d", input_schema: { type: "object", properties: { name: { type: "string" } } }, eager_input_streaming: true });
+  assert.deepEqual(body.tools[0], { name: "tcm_herb", description: "d", input_schema: { type: "object", properties: { name: { type: "string" } } }, eager_input_streaming: true, cache_control: { type: "ephemeral" } });
   assert.deepEqual(body.tool_choice, { type: "auto" });
   assert.equal(body.temperature, undefined);
 });
@@ -192,4 +194,46 @@ test("preserved thinking: drop_block with its beta header on the first-party API
   const own = req({}, { "Anthropic-Beta": "some-beta-2026-01-01" });
   assert.equal(own.headers["anthropic-beta"], undefined);
   assert.equal(own.headers["Anthropic-Beta"], "some-beta-2026-01-01,server-side-fallback-2026-07-01,thinking-binding-controls-2026-08-01", "a user's own beta header is kept and ours are added");
+});
+
+test("prompt caching: breakpoints on the system prompt's stable prefix and on the last tool, at most 4", () => {
+  const system = buildSystemPrompt({ lang: "zh", provider: provider(), project: { name: "p" }, env: { date: "2026-11-06", runner: { status: "offline" } } });
+  const [prefix, environment] = splitSystemPrompt(system);
+  const tools = [{ name: "tcm_herb", parameters: { type: "object" } }, { name: "tcm_formula", parameters: { type: "object" } }, { name: "literature_search", parameters: { type: "object" } }];
+  const { body } = buildRequest({ provider: provider(), system, messages: [{ role: "user", content: "hi" }], tools });
+  assert.deepEqual(body.system, [
+    { type: "text", text: prefix, cache_control: { type: "ephemeral" } },
+    { type: "text", text: environment },
+  ]);
+  assert.equal(body.system.map((b) => b.text).join(""), system, "the model reads the same text");
+  assert.ok(environment.startsWith("# Environment\n"));
+  assert.deepEqual(body.tools.map((x) => x.cache_control ?? null), [null, null, { type: "ephemeral" }]);
+  assert.ok(JSON.stringify(body).split('"cache_control"').length - 1 <= 4, "Anthropic allows at most 4 breakpoints");
+  assert.equal(tools[2].cache_control, undefined, "the caller's tools are not changed");
+  // a Claude model behind a gateway is cached too; another service's model behind an Anthropic-compatible endpoint is
+  // sent the request as before
+  const gateway = buildRequest({ provider: provider({ baseUrl: "https://gateway.example/anthropic/v1" }), system, messages: [], tools });
+  assert.equal(gateway.body.system[0].cache_control.type, "ephemeral");
+  const other = buildRequest({ provider: provider({ baseUrl: "https://api.moonshot.cn/anthropic", model: "kimi-k2-0905-preview" }), system, messages: [], tools });
+  assert.equal(other.body.system, system);
+  assert.doesNotMatch(JSON.stringify(other.body), /cache_control/);
+  assert.deepEqual(cachedSystem("SYS"), [{ type: "text", text: "SYS", cache_control: { type: "ephemeral" } }], "a prompt without the section is one cached block");
+});
+
+test("usage: the tokens read from and written to the prompt cache (a second call's recorded stream reads them)", async () => {
+  const second = readFileSync(new URL("./fixtures/anthropic_cache_second_call.sse", import.meta.url), "utf8");
+  const f = fakeFetch(() => streamResponse(bytePieces(second, 97)));
+  const out = [];
+  for await (const ev of streamChat({ provider: { ...provider(), fetch: f }, system: "SYS", messages: [{ role: "user", content: "hi" }] })) out.push(ev);
+  const usage = out.find((e) => e.type === "usage");
+  assert.ok(usage.cache_read > 0, "cache_read_input_tokens > 0 from the second call on");
+  assert.deepEqual(usage, { type: "usage", input: 412 + 13850, output: 57, cache_read: 13850 });
+  assert.equal(out.filter((e) => e.type === "text").map((e) => e.delta).join(""), "葛根芩连汤由葛根、黄芩、黄连、炙甘草组成 [E1]。");
+  // the first call writes the prefix to the cache
+  const { out: first } = await run([
+    { type: "message_start", message: { model: "claude-opus-5-5", usage: { input_tokens: 412, cache_creation_input_tokens: 13850, cache_read_input_tokens: 0, output_tokens: 1 } } },
+    start(0, { type: "text", text: "" }), delta(0, { type: "text_delta", text: "好" }), stop(0),
+    { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 3 } },
+  ]);
+  assert.deepEqual(first.find((e) => e.type === "usage"), { type: "usage", input: 412 + 13850, output: 3, cache_write: 13850 });
 });

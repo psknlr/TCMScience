@@ -8,9 +8,14 @@
 // turn that stops on max_tokens or a refusal never runs its tools. On the first-party API the newest models are asked
 // for server-side refusal fallbacks (`fallbacks: "default"`): a declined request is re-run on the model Anthropic
 // recommends for that category, inside the same call, and the reply says which model answered.
+//
+// Prompt caching: the system prompt's stable prefix (everything before its Environment section, which comes last) and
+// the tool definitions carry cache_control breakpoints, so the second call of a turn, and the next turn, read them
+// from Anthropic's prompt cache; usage reports the tokens read from it and written to it.
 
 import { t } from "../i18n.js";
-import { ProviderError, isRetryableStatus, parseErrorBody, readSSE, retryAfterSeconds } from "./sse.js";
+import { splitSystemPrompt } from "../prompt.js";
+import { ProviderError, idleTimeout, isRetryableStatus, parseErrorBody, readSSE, retryAfterSeconds } from "./sse.js";
 import { parseArguments, unreachable } from "./openai.js";
 
 export const ANTHROPIC_VERSION = "2023-06-01";
@@ -52,18 +57,37 @@ export function anthropicTools(tools, { eager = false } = {}) {
   });
 }
 
+const EPHEMERAL = { type: "ephemeral" };
+
+/**
+ * The system prompt as text blocks for caching: its stable prefix with a breakpoint, then the Environment section
+ * (which changes from call to call) after it; together the same text as `system`.
+ */
+export function cachedSystem(system) {
+  const [prefix, environment] = splitSystemPrompt(system);
+  if (!prefix.trim()) return [{ type: "text", text: system, cache_control: EPHEMERAL }];
+  const blocks = [{ type: "text", text: prefix, cache_control: EPHEMERAL }];
+  if (environment) blocks.push({ type: "text", text: environment });
+  return blocks;
+}
+
 export function buildRequest({ provider, system, messages, tools, thinking = true, toolChoice }) {
   const base = String(provider.baseUrl || "").replace(/\/+$/, "");
   const target = provider.full_url ? base : `${base}/messages`;
   if (!/^https?:\/\//i.test(target)) throw new ProviderError(t("core.provider.bad_url", { url: target || "—" }));
   const firstParty = isFirstParty(target);
+  // breakpoints for Claude models (the first-party API, or a gateway that serves them); another service's model behind
+  // an Anthropic-compatible endpoint gets the request as before
+  const cache = firstParty || /^claude-/.test(String(provider.model || ""));
   const maxTokens = Number(provider.maxTokens) || 8192;
   const body = { model: provider.model, max_tokens: maxTokens };
-  if (system) body.system = system;
+  if (system) body.system = cache ? cachedSystem(system) : system;
   body.messages = messages;
   body.stream = true;
   if (tools?.length && provider.tools !== false) {
     body.tools = anthropicTools(tools, { eager: firstParty });
+    // the last tool's breakpoint caches every definition; with the system prompt's, two of the four allowed
+    if (cache) body.tools[body.tools.length - 1] = { ...body.tools[body.tools.length - 1], cache_control: EPHEMERAL };
     body.tool_choice = { type: toolChoice === "none" ? "none" : "auto" };
   }
   const th = thinkingParam(provider.model, thinking, maxTokens, firstParty);
@@ -103,7 +127,10 @@ export function buildRequest({ provider, system, messages, tools, thinking = tru
   return { url, headers, body, target };
 }
 
-/** Same events as openai.streamChat; `done` also carries `refusal: {category, explanation}` when the model declined. */
+/**
+ * Same events as openai.streamChat; `usage` may also carry cache_write (tokens written to the prompt cache), and `done`
+ * also carries `refusal: {category, explanation}` when the model declined.
+ */
 export async function* streamChat({ provider, system, messages, tools, signal, thinking = true, toolChoice, fetch: fetchImpl }) {
   const doFetch = fetchImpl || provider.fetch || globalThis.fetch;
   if (!provider.apiKey && provider.key_required) {
@@ -119,16 +146,16 @@ export async function* streamChat({ provider, system, messages, tools, signal, t
   }
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
-    const { message, type } = parseErrorBody(text);
+    const { message, type, code } = parseErrorBody(text);
     const status = resp.status;
     const hint = status === 401 || status === 403 ? t("core.provider.hint.auth") : status === 404 ? t("core.provider.hint.not_found")
       : status === 429 ? t("core.provider.hint.rate") : status >= 500 ? t("core.provider.hint.server") : "";
     throw new ProviderError(t("core.provider.http", { status, hint, message: message || resp.statusText || "" }), {
-      status, type, retryable: isRetryableStatus(status, type) || RETRYABLE_TYPES.has(type), retryAfter: retryAfterSeconds(resp.headers), body: text.slice(0, 2000),
+      status, type, code, retryable: isRetryableStatus(status, type, code) || RETRYABLE_TYPES.has(type), retryAfter: retryAfterSeconds(resp.headers), body: text.slice(0, 2000),
     });
   }
 
-  const st = { blocks: new Map(), stopReason: null, stopDetails: null, usage: { input: 0, output: 0 }, model: provider.model };
+  const st = { blocks: new Map(), stopReason: null, stopDetails: null, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, model: provider.model };
   const ctype = resp.headers?.get?.("content-type") || "";
   if (!ctype.includes("event-stream")) {
     const text = await resp.text();
@@ -138,7 +165,7 @@ export async function* streamChat({ provider, system, messages, tools, signal, t
     yield* wholeMessage(j, st);
   } else {
     try {
-      for await (const ev of readSSE(resp.body, { signal })) {
+      for await (const ev of readSSE(resp.body, { signal, idleMs: idleTimeout(provider) })) {
         let j;
         try { j = JSON.parse(ev.data); } catch { continue; }
         yield* handleEvent(j, st);
@@ -203,9 +230,7 @@ function* handleEvent(j, st) {
       if (j.usage) {
         // message_delta usage is cumulative for output; input appears here only on some paths
         if (typeof j.usage.output_tokens === "number") st.usage.output = j.usage.output_tokens;
-        if (typeof j.usage.input_tokens === "number" && j.usage.input_tokens > 0) {
-          st.usage.input = j.usage.input_tokens + (j.usage.cache_read_input_tokens || 0) + (j.usage.cache_creation_input_tokens || 0);
-        }
+        if (typeof j.usage.input_tokens === "number" && j.usage.input_tokens > 0) addUsage(st, j.usage);
       }
       break;
     }
@@ -216,9 +241,15 @@ function* handleEvent(j, st) {
   }
 }
 
+/**
+ * Input counts every prompt token: those after the last breakpoint, those read from the cache and those written to it
+ * (a later usage that leaves the cache counts out keeps the ones already reported).
+ */
 function addUsage(st, u) {
   if (!u) return;
-  st.usage.input = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+  if (typeof u.cache_read_input_tokens === "number") st.usage.cacheRead = u.cache_read_input_tokens;
+  if (typeof u.cache_creation_input_tokens === "number") st.usage.cacheWrite = u.cache_creation_input_tokens;
+  st.usage.input = (u.input_tokens || 0) + st.usage.cacheRead + st.usage.cacheWrite;
   if (typeof u.output_tokens === "number") st.usage.output = u.output_tokens;
 }
 
@@ -266,7 +297,10 @@ function* finish(st) {
   for (const c of toolCalls) {
     yield { type: "tool_call", id: c.id, name: c.name, arguments: c.arguments, raw: c.raw, ...(c.error ? { error: c.error } : {}) };
   }
-  if (st.usage.input || st.usage.output) yield { type: "usage", input: st.usage.input, output: st.usage.output };
+  if (st.usage.input || st.usage.output) {
+    const { input, output, cacheRead, cacheWrite } = st.usage;
+    yield { type: "usage", input, output, ...(cacheRead ? { cache_read: cacheRead } : {}), ...(cacheWrite ? { cache_write: cacheWrite } : {}) };
+  }
   // a refused reply is not replayed (its partial text is not an answer); an empty one cannot be
   const wire = refused || !content.length ? null : { role: "assistant", content };
   const done = { type: "done", finish_reason: st.stopReason || (toolCalls.length ? "tool_use" : "end_turn"), wire, model: st.model };

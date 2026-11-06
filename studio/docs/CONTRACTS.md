@@ -737,7 +737,20 @@ export async function testConnection(provider) → {ok, latency_ms, tools:bool, 
 // core/llm/openai.js, core/llm/anthropic.js
 export async function* streamChat({provider, system, messages, tools, signal, thinking}) →
   yields {type:"text", delta} | {type:"reasoning", delta} | {type:"tool_call", id, name, arguments}
-       | {type:"usage", input, output} | {type:"done", finish_reason, wire}   // wire = assistant message to replay to this provider
+       | {type:"usage", input, output, cache_read?, cache_write?}   // input counts every prompt token; cache_read of them
+       | {type:"done", finish_reason, wire}   // came from the provider's prompt cache, cache_write (Anthropic) went into it
+                                              // wire = assistant message to replay to this provider
+  // throws ProviderError (core/llm/sse.js) {status, type, code, kind, retryable, permanent, compactable, maxRetries?}:
+  //   permanent (no Retry): the relay's non-transient types; a user's own provider out of quota or credit
+  //     (insufficient_quota, billing and quota types, 402) or with an unknown key (invalid_api_key);
+  //   compactable, and permanent until the agent can shorten a conversation: context_length_exceeded, too_large,
+  //     request_too_large, any 413, a 400 that says the prompt is too long;
+  //   upstream_unknown: not retried by the agent, not permanent (the page keeps Retry); a 429 otherwise is retryable.
+  // A stream that sends nothing for idleTimeout(provider) — provider.idleMs, else 90 s (600 s for a model on the user's
+  // computer; 0: none) — is cancelled: ProviderError {kind:"network", type:"stream_stalled", retryable, maxRetries: 1}.
+  // Any chunk resets the timer (reasoning, keep-alive comments); a stop still aborts during the silence.
+  // anthropic.js puts cache_control breakpoints on the system prompt's stable prefix (splitSystemPrompt, §9) and on
+  // the last tool, for Claude models only.
 
 // core/catalog.js
 export async function loadCatalog(runtimes) → Catalog   // merges runtime catalogs; Catalog.core, .entries, .byId, .search(q, opts)
@@ -791,13 +804,14 @@ export async function runTurn({provider, system, history, router, catalog, setti
   //   "error" {message, kind:"model"|"network"|"runtime"|"aborted"}   "done" {status:"ok"|"stopped"|"error"|"max_steps"}
   // TurnResult = {assistant: Message, toolMessages: [...], usage, status}
   // max steps (model calls) default 16; tool results truncated to 2 500 chars in replayed history;
-  // <think> stripped from replayed history; transient errors retried twice (1.5 s, 4 s).
+  // <think> stripped from replayed history; transient errors retried twice (1.5 s, 4 s), a stalled stream once.
   // Also (CONTRACT_NOTES "web-core"): onApproval(request) → decision; events "tool.pending" {index, name, step},
   // "model.retry" {step, …} (drop that step's partial text), "tool.update" {callId, envelope} (citations renumbered);
   // the last allowed model call is made with toolChoice "none".
 
 // core/prompt.js
 export function buildSystemPrompt({lang, provider, project, knowledge, env}) → string   // §9
+export function splitSystemPrompt(text) → [prefix, environment]   // prefix + environment = text; §9
 
 // core/governance.js — pure functions over envelopes
 export function resultOf(envelope) → receipt.result   // {kind, outcome, assurance, …}; derived:true for a legacy envelope
@@ -957,17 +971,24 @@ The language is also mirrored in `localStorage["tcmscience.lang"]`, matching the
    record ≠ safe, and not significant ≠ irrelevant. Classical records are attributions, not clinical evidence. The clinic gives drafts for a
    licensed practitioner. Cite tool evidence as `[E1]` using the envelope citations. Say what was refused, and why.
 3. Tool guidance: prefer the core tools. Use `catalog_search` then `call_tool` for the rest. For a question that
-   needs several sources, `research_routes` first; calls that do not depend on each other in one response (they
-   run together). Long work → a job (`job_status`). Never fabricate tool output. If a tool is unavailable, say what
-   would be needed.
+   needs several sources, `research_routes` first; calls that do not depend on each other in one response (the
+   environment says whether they run together). Long work → a job (`job_status`). Never fabricate tool output. If a
+   tool is unavailable, say what would be needed. What the browser's connectors can reach.
    Research questions: past the curated corpus, and a method: frame the question (exact entities, population,
    outcome, claim kind), gather every runnable source of each step of its route (a source that cannot run is
    covered and named, never switched silently), name rival explanations with an artefact among them, tell them
    apart (`research_inquiry`, predictions sealed first), and conclude at the strength the evidence licenses. A
    safety signal is reported when it appears.
-4. Environment: the language, the compute available now (browser/runner, device), whether web access is on,
-   and the date.
+4. Conversation: the language to answer in, and, unless the model runs on the user's computer, that the
+   conversation leaves it (patient intakes use a pseudonymous case id).
 5. Project instructions, and the knowledge index (names, sizes, sha256; texts under 8 kB are inlined).
+6. Environment, last: the date, the compute available now (browser/runner, device, browser jobs), how calls run
+   (together on a connected runner, unless compute is set to the browser; one after another in the browser, whose
+   Python worker takes one call at a time), and whether web access is on.
+
+Parts 1–5 depend only on the language, the provider and the project, so they are byte-identical from call to call
+and from turn to turn: a stable prefix (about 94 % of the prompt) that providers can cache. `splitSystemPrompt`
+splits a prompt there; the Anthropic client marks the prefix, and the last tool definition, with `cache_control`.
 
 Identity questions (`你是谁`, `what model are you`, …) to the relay are sent with
 `thinking:{type:"disabled"}`, and no reasoning is shown or stored for that turn.

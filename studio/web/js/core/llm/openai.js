@@ -12,7 +12,7 @@
 
 import { lang, t } from "../i18n.js";
 import { isLoopbackUrl } from "../util.js";
-import { ProviderError, isRetryableStatus, parseErrorBody, readSSE, retryAfterSeconds } from "./sse.js";
+import { ProviderError, idleTimeout, isRetryableStatus, parseErrorBody, readSSE, retryAfterSeconds } from "./sse.js";
 
 const STREAM_MODES = new Set(["cumulative", "delta", "auto"]);
 
@@ -162,8 +162,9 @@ export function buildRequest({ provider, system, messages, tools, thinking = tru
 
 /**
  * Stream one completion. Yields {type:"text", delta} · {type:"reasoning", delta} · {type:"tool_call_delta", index,
- * name} · {type:"tool_call", id, name, arguments, raw, error?} · {type:"usage", input, output} ·
- * {type:"done", finish_reason, wire, model}. Throws ProviderError (or an AbortError when `signal` aborts).
+ * name} · {type:"tool_call", id, name, arguments, raw, error?} · {type:"usage", input, output, cache_read?} ·
+ * {type:"done", finish_reason, wire, model}. Throws ProviderError (or an AbortError when `signal` aborts); a stream
+ * that sends nothing for idleTimeout(provider) is a stream_stalled one.
  */
 export async function* streamChat({ provider, system, messages, tools, signal, thinking = true, toolChoice, fetch: fetchImpl }) {
   const doFetch = fetchImpl || provider.fetch || globalThis.fetch;
@@ -178,17 +179,19 @@ export async function* streamChat({ provider, system, messages, tools, signal, t
   }
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
-    const { message, type } = parseErrorBody(text);
+    const { message, type, code } = parseErrorBody(text);
     const status = resp.status;
     const retryAfter = retryAfterSeconds(resp.headers);
+    // classified by type and code: OpenAI's quota, key and context errors are a generic type with a specific code
+    const retryable = isRetryableStatus(status, type, code);
     if (provider.relay) {
       const shown = relayError(type, message, { retryAfter });
-      const e = new ProviderError(shown.text, { status, type, retryable: isRetryableStatus(status, type), retryAfter, kind: "model" });
+      const e = new ProviderError(shown.text, { status, type, code, retryable, retryAfter, kind: "model" });
       if (shown.lang) e.lang = shown.lang;
       throw e;
     }
     const shown = t("core.provider.http", { status, hint: httpHint(status), message: message || resp.statusText || "" });
-    throw new ProviderError(shown, { status, type, retryable: isRetryableStatus(status, type), retryAfter, kind: "model", body: text.slice(0, 2000) });
+    throw new ProviderError(shown, { status, type, code, retryable, retryAfter, kind: "model", body: text.slice(0, 2000) });
   }
 
   const st = newState(provider);
@@ -201,7 +204,7 @@ export async function* streamChat({ provider, system, messages, tools, signal, t
     yield* handleChunk(j, st, true, provider.relay);
   } else {
     try {
-      for await (const ev of readSSE(resp.body, { signal })) {
+      for await (const ev of readSSE(resp.body, { signal, idleMs: idleTimeout(provider) })) {
         const payload = ev.data.trim();
         if (payload === "[DONE]") break;
         let j;
@@ -244,10 +247,11 @@ function* handleChunk(j, st, whole, relay = false) {
     const e = j.error || {};
     const message = (typeof e === "string" ? e : e.message || e.msg) || j.base_resp?.status_msg || "unknown error";
     const type = (typeof e === "object" && (e.type || e.code)) || "";
+    const code = typeof e === "object" && e.code !== undefined && e.code !== null ? String(e.code) : "";
     // the relay's errors are told in the page's language, by their type
     const shown = relay ? relayError(String(type), message === "unknown error" ? "" : message) : { text: t("core.provider.stream_error", { message }) };
     const err = new ProviderError(shown.text, {
-      type: String(type), status: Number(e.status || j.base_resp?.status_code || 0) || 0,
+      type: String(type), code, status: Number(e.status || j.base_resp?.status_code || 0) || 0,
       retryable: ["upstream_error", "upstream_unreachable", "unavailable", "rate_limited", "upstream_rate", "overloaded_error", "server_error", "api_error"].includes(String(type)),
     });
     if (shown.lang) err.lang = shown.lang;
@@ -397,12 +401,17 @@ export function parseArguments(raw) {
   }
 }
 
+/**
+ * {input, output, cache_read?}: input counts every prompt token; cache_read, those of them the service read from its
+ * prompt cache (usage.prompt_tokens_details.cached_tokens, or DeepSeek's prompt_cache_hit_tokens), when it says so.
+ */
 export function normalizeUsage(u) {
   if (!u || typeof u !== "object") return null;
   const input = Number(u.prompt_tokens ?? u.input_tokens ?? 0) || 0;
   const output = Number(u.completion_tokens ?? u.output_tokens ?? 0) || 0;
   if (!input && !output) return null;
-  return { input, output };
+  const cached = Number(u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? 0) || 0;
+  return cached > 0 ? { input, output, cache_read: cached } : { input, output };
 }
 
 /** Error types of the Tao-S1 relay (studio/edge/src/relay.js) and of a runner that has no relay, each with its own sentence. */

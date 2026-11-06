@@ -1,6 +1,7 @@
-// The system prompt (CONTRACTS §9): identity, the TCMScience governance rules, tool guidance, the environment, and
-// the project's instructions and knowledge. Written in English for the model; the model answers in the user's
-// language. The upstream vendor of Tao-S1 is never named here or anywhere in the page.
+// The system prompt (CONTRACTS §9): identity, the TCMScience governance rules, tool guidance, the conversation's
+// language and privacy, the project's instructions and knowledge, and last the environment. Written in English for the
+// model; the model answers in the user's language. The upstream vendor of Tao-S1 is never named here or anywhere in
+// the page.
 
 import { CLAIM_SUPPORT, TIERS } from "./glossary.js";
 import { isLoopbackUrl, utf8Bytes } from "./util.js";
@@ -8,15 +9,31 @@ import { isLoopbackUrl, utf8Bytes } from "./util.js";
 export const INLINE_LIMIT = 8 * 1024; // knowledge texts under 8 kB are inlined (CONTRACTS §9)
 export const INLINE_TOTAL = 64 * 1024; // and no more than this in all, so a large project does not crowd out the turn
 
+/** The heading of the last section: the only one that changes with the date and with what is connected. */
+export const ENVIRONMENT_HEADING = "# Environment";
+
 /**
  * buildSystemPrompt({lang, provider, project, knowledge, env}) → string.
  * provider: activeProvider(); project: {name, description, instructions, defaults:{web}};
  * knowledge: [{name, bytes, sha256, type?, text?}]; env: {date, web, compute, browser:{status, device}, runner:{status,
  * url, version, devices:[{id, name, kind, available}]}}.
+ * Everything before the environment section depends only on the language, the provider, the project and its
+ * knowledge, so it is byte-identical from call to call and turn to turn, and a provider can cache it
+ * (splitSystemPrompt).
  */
 export function buildSystemPrompt({ lang = "zh", provider = {}, project = null, knowledge = [], env = {} } = {}) {
-  const parts = [identity(provider), governance(lang), tools(), research(), environment(lang, env, project, provider), projectPart(project, knowledge)];
+  const parts = [identity(provider), governance(lang), tools(), research(), conversation(lang, provider), projectPart(project, knowledge), environment(env, project)];
   return parts.filter(Boolean).join("\n\n").trim() + "\n";
+}
+
+/**
+ * [prefix, environment]: a system prompt split where its stable prefix ends (the prefix keeps the blank line that
+ * separates them, so the two together are the text). A text without the environment section is all prefix.
+ */
+export function splitSystemPrompt(text) {
+  const s = String(text ?? "");
+  const at = s.lastIndexOf(`\n\n${ENVIRONMENT_HEADING}\n`);
+  return at < 0 ? [s, ""] : [s.slice(0, at + 2), s.slice(at + 2)];
 }
 
 function identity(provider) {
@@ -65,8 +82,9 @@ function tools() {
     "# Tools",
     "- Prefer the core tools offered to you. For anything else, find it with catalog_search, then run it with call_tool {\"tool\": \"<entry id>\", \"arguments\": {…}} following the entry's parameters.",
     "- For a research question that needs more than one source, call research_routes first (with the question, or a route id). It gives, step by step, every source that answers each part, with its call and the kind of evidence it gives, whether it can run here, and what covers one that cannot.",
-    "- Calls that do not depend on each other go in the same response: they run together. A call that needs an earlier result (an id, a list of targets) waits for it.",
+    "- Calls that do not depend on each other go in the same response; the Environment section says whether they run together. A call that needs an earlier result (an id, a list of targets) waits for it.",
     "- Each tool result says where it ran (the browser or the user's local runner) and what the kernel decided. Read its text; the full result is shown to the user.",
+    "- Registered public database connectors and local TCM data inspection can run in the browser. Online requests use the site's bounded source gateway after project web access and approval. Read each entry's execution requirements; a source in the catalog does not mean its entire database is downloaded or freely reusable.",
     "- Long work becomes a job: pipelines on the local runner; the network-pharmacology research jobs (job.research.snapshot, then network_pharmacology_run) in this browser's job workers as well, when no runner is connected. Report that it was submitted and follow it with job_status (a browser job's id starts bj-; if the page closes, it stops and can be resumed — nothing runs in the background). Until a job has succeeded and its outputs are verified, it is pending, and nothing it has produced is a result.",
     "- Never fabricate tool output. If a tool is unavailable here, say what it would need (the local runner, an installed engine, web access for the project) and do not substitute an approximation.",
     "- Some calls need the user's approval (jobs, network access, sending data to a third-party service, the first call to the local runner). If the user declines, do not call it again unless they ask; continue with what you have.",
@@ -94,18 +112,33 @@ function research() {
   ].join("\n");
 }
 
-function environment(lang, env, project, provider = {}) {
+function conversation(lang, provider = {}) {
+  const lines = [
+    "# Conversation",
+    `- Interface language: ${lang === "zh" ? "Chinese (zh)" : "English (en)"}. Answer in the language of the user's message unless the project instructions say otherwise. Herb and formula names stay in Chinese characters; in English you may add pinyin or the Latin name.`,
+  ];
+  // Tao-S1 (through the relay) or a cloud API: what is written here leaves the user's computer
+  if (!provider.local && !isLoopbackUrl(provider.base_url || "")) {
+    lines.push("- This conversation (these instructions, the user's messages, the tool results you read) goes to a model service outside the user's computer. For a patient intake (the clinic tools), use a pseudonymous case id, never the patient's name or other direct identifiers; if the user writes them, do not repeat them, and suggest a case id instead.");
+  }
+  return lines.join("\n");
+}
+
+function environment(env, project) {
   const date = env.date ? new Date(env.date) : new Date();
   const day = Number.isNaN(date.getTime()) ? String(env.date) : date.toISOString().slice(0, 10);
   const browser = env.browser?.status || "idle";
   const runner = env.runner?.status || "offline";
   const web = typeof project?.defaults?.web === "boolean" ? project.defaults.web : env.web !== false;
+  // the runner answers calls from a pool; the browser's Python worker takes one call at a time (runtime/browser.js)
+  const onRunner = runner === "ready" && [undefined, null, "", "auto", "runner"].includes(env.compute);
   const lines = [
-    "# Environment",
-    `- Interface language: ${lang === "zh" ? "Chinese (zh)" : "English (en)"}. Answer in the language of the user's message unless the project instructions say otherwise. Herb and formula names stay in Chinese characters; in English you may add pinyin or the Latin name.`,
+    ENVIRONMENT_HEADING,
     `- Today: ${day}.`,
     `- Compute: browser runtime ${browser} (Python tools use WebAssembly CPU; compatible numerical tools can use WebGPU with CPU fallback)${runner === "ready" ? `; local runner connected${env.runner?.url ? ` at ${env.runner.url}` : ""}${env.runner?.version ? ` (tcmstudio ${env.runner.version})` : ""}` : "; local runner not connected (pipelines, native engines and process-based third-party tools require it; the research jobs can run in this browser)"}.`,
-    "- Registered public database connectors and local TCM data inspection can run in the browser. Online requests use the site's bounded source gateway after project web access and approval. Read each entry's execution requirements; a source in the catalog does not mean its entire database is downloaded or freely reusable.",
+    onRunner
+      ? "- Calls in one response run together on the local runner; any that run in this browser run one after another."
+      : "- Calls in this browser run one after another: the calls of one response wait for each other.",
   ];
   if (env.jobs) {
     lines.push(env.jobs.status === "ready"
@@ -116,10 +149,6 @@ function environment(lang, env, project, provider = {}) {
   if (runner === "ready" && devices.length) lines.push(`- Runner devices: ${devices.map((d) => d.name ? `${d.id} (${d.name})` : d.id).join(", ")}.`);
   if (env.compute && env.compute !== "auto") lines.push(`- The user set compute to: ${env.compute}.`);
   lines.push(`- Web access for this project: ${web ? "on" : "off (network tools will not run)"}.`);
-  // Tao-S1 (through the relay) or a cloud API: what is written here leaves the user's computer
-  if (!provider.local && !isLoopbackUrl(provider.base_url || "")) {
-    lines.push("- This conversation (these instructions, the user's messages, the tool results you read) goes to a model service outside the user's computer. For a patient intake (the clinic tools), use a pseudonymous case id, never the patient's name or other direct identifiers; if the user writes them, do not repeat them, and suggest a case id instead.");
-  }
   return lines.join("\n");
 }
 

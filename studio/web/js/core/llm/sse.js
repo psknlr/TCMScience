@@ -1,14 +1,31 @@
 // Server-sent events over a fetch body, and the error type both model clients throw.
 
-import { abortError } from "../util.js";
+import { t } from "../i18n.js";
+import { abortError, isLoopbackUrl } from "../util.js";
+
+/** How long a model stream may send nothing at all before it counts as stalled. */
+export const IDLE_MS = 90_000;
+/** A model on the user's own computer can be silent for minutes while it reads a long prompt on a CPU. */
+export const LOCAL_IDLE_MS = 600_000;
+
+/** The idle limit for a provider's streams, in ms: its own `idleMs` (0: none), else the default for where it runs. */
+export function idleTimeout(provider = {}) {
+  const own = provider.idleMs;
+  if (own !== undefined && own !== null && own !== "" && Number.isFinite(Number(own)) && Number(own) >= 0) return Number(own);
+  return provider.local || isLoopbackUrl(provider.baseUrl || "") ? LOCAL_IDLE_MS : IDLE_MS;
+}
 
 /**
  * Parse an SSE byte stream into events {event, data, id}. Follows the WHATWG rules that matter for model APIs: lines
  * end in LF, CRLF or CR (a CRLF split across two chunks is one line end); several `data:` lines join with "\n"; a line
  * starting with ":" is a comment (keep-alive); a blank line dispatches. A provider that streams bare JSON lines
  * (no "data:") gets each line treated as one event. The stream may end without a final blank line.
+ *
+ * `idleMs` (0: none): when no byte at all arrives for that long (any chunk counts, a keep-alive comment or a piece of
+ * reasoning as much as answer text), the read stops with a retryable network ProviderError of type "stream_stalled",
+ * and the body is cancelled, which aborts its fetch. An abort of `signal` stops a read that is waiting at once.
  */
-export async function* readSSE(body, { signal } = {}) {
+export async function* readSSE(body, { signal, idleMs = 0 } = {}) {
   if (!body) return;
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -41,10 +58,19 @@ export async function* readSSE(body, { signal } = {}) {
     }
     return null;
   };
+  // one read, raced against the idle limit and the signal (a stalled body may never settle a read on its own)
+  const read = () => new Promise((resolve, reject) => {
+    let timer = null;
+    const onAbort = () => { cleanup(); reject(abortError()); };
+    const cleanup = () => { if (timer !== null) clearTimeout(timer); signal?.removeEventListener?.("abort", onAbort); };
+    if (idleMs > 0) timer = setTimeout(() => { cleanup(); reject(stalled(idleMs)); }, idleMs);
+    signal?.addEventListener?.("abort", onAbort, { once: true });
+    reader.read().then((r) => { cleanup(); resolve(r); }, (err) => { cleanup(); reject(err); });
+  });
   try {
     for (;;) {
       if (signal?.aborted) throw abortError();
-      const { value, done } = await reader.read();
+      const { value, done } = await read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
       if (pendingCR && buf[0] === "\n") buf = buf.slice(1);
@@ -76,23 +102,35 @@ export async function* readSSE(body, { signal } = {}) {
 }
 
 /**
- * A model call that failed. `retryable`: a network failure, 429 or 5xx (the agent retries twice). `kind`: "network"
- * (never reached the service) or "model" (the service answered with an error). `permanent`: its type is one a retry
- * cannot fix. `retryAfter`: seconds, from the Retry-After header.
+ * A model call that failed. `retryable`: a network failure, 429 or 5xx (the agent retries twice; `maxRetries`, when
+ * set, retries it at most that often), never an error that is permanent or that the relay could not classify. `kind`:
+ * "network" (never reached the service) or "model" (the service answered with an error). `type` and `code`: the
+ * service's own (OpenAI sends both: a generic type and a specific code). `permanent`: a retry cannot fix it.
+ * `compactable`: the request is more than the service takes, which a shorter conversation can fix (until the agent
+ * shortens it itself, it is also permanent). `retryAfter`: seconds, from the Retry-After header.
  */
 export class ProviderError extends Error {
-  constructor(message, { status = 0, type = "", retryable = false, kind = "model", retryAfter = null, body = "" } = {}) {
+  constructor(message, { status = 0, type = "", code = "", retryable = false, kind = "model", retryAfter = null, body = "", maxRetries = null } = {}) {
     super(message);
     this.name = "ProviderError";
     this.status = status;
     this.type = type;
-    this.retryable = retryable;
+    this.code = code;
     this.kind = kind;
     this.retryAfter = retryAfter;
     this.body = body;
-    // retrying cannot help (a daily quota, a request the service will never take): the page offers no Retry
-    this.permanent = isPermanentType(type);
+    this.maxRetries = maxRetries;
+    this.compactable = isCompactable(status, type, code, body);
+    // retrying cannot help (a daily quota, an account out of credit, a request the service will never take): the page
+    // offers no Retry
+    this.permanent = this.compactable || isPermanent(status, type, code);
+    this.retryable = Boolean(retryable) && !this.permanent && !NO_AUTO_RETRY.has(String(type || ""));
   }
+}
+
+/** A stream that sent nothing for `ms`: retried once, as a network failure. */
+function stalled(ms) {
+  return new ProviderError(t("core.provider.stalled", { seconds: Math.round(ms / 1000) }), { kind: "network", type: "stream_stalled", retryable: true, maxRetries: 1 });
 }
 
 /** Relay error types that are not transient: retrying them only spends the visitor's quota. */
@@ -102,20 +140,47 @@ const PERMANENT_TYPES = new Set([
   "method_not_allowed",
 ]);
 
+/** A user's own account that cannot pay for the call, or a key the service does not know: a retry fails the same way. */
+const ACCOUNT_TYPES = new Set([
+  "insufficient_quota", "billing_hard_limit_reached", "billing_not_active", "billing_error", "quota_exceeded",
+  "insufficient_balance", "exceeded_current_quota_error", "payment_required", "invalid_api_key", "authentication_error",
+]);
+
+/** The request is longer than the service takes (its context window, the relay's body limit). */
+const OVERSIZE_TYPES = new Set(["context_length_exceeded", "too_large", "request_too_large", "exceed_context_size_error"]);
+/** How a service without such a type says so in a 400 (Anthropic: "prompt is too long: … tokens > … maximum"). */
+const OVERSIZE_WORDS = /maximum context length|context[ _-](?:length|window|size)|prompt is too long|exceeded model token limit/i;
+
+/** Not retried by the agent, and not permanent either: the relay could not tell what failed, so the page keeps Retry. */
+const NO_AUTO_RETRY = new Set(["upstream_unknown"]);
+
 /** Is this error type one that a retry cannot fix? */
 export function isPermanentType(type) {
-  return PERMANENT_TYPES.has(String(type || ""));
+  const s = String(type || "");
+  return PERMANENT_TYPES.has(s) || ACCOUNT_TYPES.has(s) || OVERSIZE_TYPES.has(s);
 }
 
-export function isRetryableStatus(status, type = "") {
-  if (isPermanentType(type)) return false;
+/** A retry cannot fix it: a permanent type or code, or 402 (payment required). */
+export function isPermanent(status, type = "", code = "") {
+  return status === 402 || isPermanentType(type) || isPermanentType(code);
+}
+
+/** Would a shorter conversation get through? An oversize type or code, a 413, or a 400 that says so in its words. */
+export function isCompactable(status, type = "", code = "", detail = "") {
+  if (OVERSIZE_TYPES.has(String(type || "")) || OVERSIZE_TYPES.has(String(code || "")) || status === 413) return true;
+  return status === 400 && OVERSIZE_WORDS.test(String(detail || ""));
+}
+
+export function isRetryableStatus(status, type = "", code = "") {
+  if (isPermanent(status, type, code) || NO_AUTO_RETRY.has(String(type || ""))) return false;
   return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
-/** Pull a message and type out of an error body of any common shape. */
+/** Pull a message, type and code out of an error body of any common shape. */
 export function parseErrorBody(text) {
   let message = String(text || "").trim();
   let type = "";
+  let code = "";
   try {
     const j = JSON.parse(text);
     const e = j.error ?? j;
@@ -123,10 +188,11 @@ export function parseErrorBody(text) {
     else {
       message = e.message || e.msg || j.message || j.base_resp?.status_msg || j.detail || message;
       type = e.type || e.code || j.type || "";
+      code = e.code ?? "";
     }
     if (typeof message !== "string") message = JSON.stringify(message);
   } catch { /* not JSON */ }
-  return { message: message.slice(0, 600), type: typeof type === "string" ? type : String(type) };
+  return { message: message.slice(0, 600), type: typeof type === "string" ? type : String(type), code: code === null ? "" : String(code) };
 }
 
 export function retryAfterSeconds(headers) {

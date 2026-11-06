@@ -842,7 +842,8 @@ for a GPU job). `browser_compute._mirror` copies `compute.backend` into `executi
   path, and the UI resolves `[E#]` in the turn first, then in earlier turns, never by guessing) and `error.permanent` /
   `error.lang` (a daily limit, a conversation too long, a relay that is not configured: no Retry button; the relay's
   own Chinese text on an English page is marked `lang="zh-Hans"`). Provider presets gain `stream` (how a service
-  streams content and reasoning).
+  streams content and reasoning) and may set `idleMs` (how long a model stream may send nothing before it is cut and
+  retried once; default 90 s, 600 s for a model on the user's computer, 0 for none).
 - **Governance views (web-core).** `licensingLadder(kindOrClaim, weakestTier, lang, {codes, cited, evidence})`: with a
   claim view and its evidence the ladder licenses by the whole cited set and its codes (a CLM005 refusal is never ✓).
   `releaseOf` gives `release_authorized` its reasons in unmet wording (「输出未核验」) with the state ids in `unmet`;
