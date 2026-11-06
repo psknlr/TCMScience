@@ -67,16 +67,19 @@ test("max steps: the last allowed call is made with tool_choice none; the turn e
   const llm = scriptedLLM([() => openaiStep({ text: `第${++n}步`, calls: [{ id: `t${n}`, name: "tcm_herb", args: { name: `葛根${n}` } }] })]);
   const { router, runtimes } = makeRouter();
   const res = await runTurn({ provider: deepseek, system: "", history: [user("循环")], router, catalog, settings: { maxSteps: 3 }, llm: { openai: llm }, onEvent: () => {} });
-  assert.equal(llm.calls.length, 3, "never more model calls than maxSteps");
+  // maxSteps calls that may run tools, and one more that offers none and asks for the answer (agent-termination.test)
+  assert.equal(llm.calls.length, 4, "never more tool-running model calls than maxSteps, then one call for the answer");
   assert.equal(llm.calls[2].toolChoice, "none");
+  assert.deepEqual(llm.calls[3].tools, [], "the call for the answer offers no tools");
   assert.equal(res.status, "max_steps");
   assert.equal(res.assistant.limitReached, true);
   assert.equal(res.assistant.status, "ok");
+  assert.equal(res.assistant.termination, "max_steps", "this model asked for tools even then: no answer");
   assert.equal(runtimes.browser.calls.length, 2, "tools requested on the final call are not run");
   const last = res.toolMessages.at(-1);
   assert.equal(last.envelope.status, "cancelled");
   assert.equal(last.envelope.receipt.result.outcome, "not_executed", "it never reached the router or a runtime");
-  assert.deepEqual(res.assistant.wire.at(-1), { role: "tool", tool_call_id: "t3", content: last.content }, "and still answered, so the history stays valid");
+  assert.deepEqual(res.assistant.wire.at(-1), { role: "tool", tool_call_id: "t4", content: last.content }, "and still answered, so the history stays valid");
 });
 
 test("a lookup repeated in a turn with the same arguments is answered from the first, not run again; a job between starts over", async () => {
@@ -124,7 +127,8 @@ test("a repeat is run again when the first did not settle (a runtime error), and
 test("default limit is 16 model calls", async () => {
   const llm = scriptedLLM([() => openaiStep({ calls: [{ id: Math.random().toString(36), name: "tcm_herb", args: { name: "x" } }] })]);
   const res = await runTurn({ provider: deepseek, system: "", history: [user("x")], router: makeRouter().router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {} });
-  assert.equal(llm.calls.length, 16);
+  assert.equal(llm.calls.length, 17, "16 that may run tools, then the one that asks for the answer");
+  assert.equal(llm.calls.filter((c) => c.tools.length).length, 16);
   assert.equal(res.status, "max_steps");
 });
 
@@ -142,7 +146,7 @@ test("abort mid-stream: what was said is kept, the turn is stopped, the history 
   assert.deepEqual(res.assistant.wire.map((m) => m.role), ["assistant", "tool", "assistant"]);
   assert.equal(res.assistant.wire[2].content, "甘草");
   assert.ok(c.events.some((e) => e.type === "error" && e.kind === "aborted"));
-  assert.deepEqual(c.events.at(-1), { type: "done", status: "stopped" });
+  assert.deepEqual(c.events.at(-1), { type: "done", status: "stopped", termination: "stopped" });
 });
 
 test("abort while tools run: the calls are cancelled and answered", async () => {

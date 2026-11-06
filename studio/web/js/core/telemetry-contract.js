@@ -40,9 +40,13 @@ export const WORKFLOW_PHASES = ["started", "submitted", "completed", "failed", "
 export const SERVICES = ["relay", "runner", "browser_runtime", "storage"];
 export const ERROR_CATEGORIES = ["js_error", "unhandled_rejection", "model", "network", "runtime", "storage"];
 export const ERROR_KINDS = ["model", "network", "runtime"];
-/** How a turn ended, as the agent names it (assistant.termination): answered, a synthesis at the step limit, cut off by
- * the output limit, stopped, refused by the model, or an error of one of ERROR_KINDS. */
-export const TERMINATIONS = ["answered", "max_steps_synthesized", "truncated", "stopped", "refused_by_model", ...ERROR_KINDS.map((k) => `error:${k}`)];
+/** How a turn ended, as the agent names it (assistant.termination, core/agent.js TERMINATIONS): answered, a synthesis
+ * at the step limit (or none after it), a synthesis when the context was full (or none after it), cut off by the output
+ * limit, stopped, refused by the model, or an error of one of ERROR_KINDS. */
+export const TERMINATIONS = [
+  "answered", "max_steps_synthesized", "max_steps", "context_synthesized", "context_full", "truncated", "stopped", "refused_by_model",
+  ...ERROR_KINDS.map((k) => `error:${k}`),
+];
 export const CONSENT_DECISIONS = ["granted", "declined", "withdrawn", "deleted"];
 /** Why a turn's content was not recorded (the turn is still counted, without its words). */
 export const EXCLUSIONS = ["no_consent", "uploaded_file", "project_files", "clinical_tool", "user_data_tool", "sensitive_text", "discarded", "unavailable"];

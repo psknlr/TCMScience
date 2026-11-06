@@ -45,7 +45,7 @@ MiniMax 控制台 → 复制密钥 → GitHub 仓库 Secrets → studio 工作�
 - **推荐为这个网站单独建一把按量付费的 API Key**（上面创建的就是）。它按实际用量从账户余额扣费，余额就是费用上限：测试期间只充值你愿意花的金额。
   不要与 TaoChronos（chat.impf.ai）共用同一把：分开后可以单独更换、单独停用，用量也分得清。
 - Token Plan 订阅密钥（以 `sk-cp-` 开头）也能用，但它的额度按 5 小时和每周的窗口计算。Studio 的智能体每个问题要调用模型好几次
-  （每轮工具调用一次，最多 16 次），公开网站可能很快用完；用完后网页会提示“Tao-S1 的模型额度暂时用完了”，直到下一个窗口。
+  （每轮工具调用一次，最多 18 次），公开网站可能很快用完；用完后网页会提示“Tao-S1 的模型额度暂时用完了”，直到下一个窗口。
 
 ## 第 2 步　创建 Cloudflare API Token
 
@@ -178,7 +178,7 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 1. 浏览器打开 <https://science.impf.ai/v1/health>，应看到：
 
    ```json
-   {"ok":true,"service":"tcmscience-studio","version":"1","model":"Tao-S1","models":["Tao-S1"],"max_output_tokens":8192,"limits":{"per_minute":40,"per_day":1200,"tokens_per_day":10000000}}
+   {"ok":true,"service":"tcmscience-studio","version":"1","model":"Tao-S1","models":["Tao-S1"],"max_output_tokens":8192,"context_tokens":128000,"max_body_bytes":2000000,"limits":{"per_minute":40,"per_day":1200,"tokens_per_day":10000000}}
    ```
 
    如果是 `"ok":false`，说明 Worker 已上线但没有密钥（或 `RELAY = "off"`）：补上 `MINIMAX_API_KEY` 后重跑 studio 工作流。

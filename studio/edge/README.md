@@ -26,7 +26,7 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
-| GET | `/v1/health` | `{ok, reason?, until?, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, limits:{per_minute, per_day, tokens_per_day}}`。没有密钥或 `RELAY = "off"` 时 `ok:false`，网页据此改用访客自己的模型；上游断路器打开时也是 `ok:false`，并带 `reason`（`upstream_quota` 或 `upstream_error`）与 `until`（ISO 时间，在此之前不转发调用） |
+| GET | `/v1/health` | `{ok, reason?, until?, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, context_tokens, max_body_bytes, limits:{per_minute, per_day, tokens_per_day}}`（网页按 `context_tokens` 与 `max_body_bytes` 控制每次请求的大小）。没有密钥或 `RELAY = "off"` 时 `ok:false`，网页据此改用访客自己的模型；上游断路器打开时也是 `ok:false`，并带 `reason`（`upstream_quota` 或 `upstream_error`）与 `until`（ISO 时间，在此之前不转发调用） |
 | GET | `/v1/models` | `{object:"list", data:[{id:"Tao-S1", object:"model", owned_by:"impf"}]}` |
 | POST | `/v1/chat/completions` | OpenAI 格式（流式或非流式）。`model` 只能是 `Tao-S1` 或不写；网页把 `model` 写成 JSON 的**第一个键**，中继就只改这一段文本、不重新序列化整段对话 |
 | GET | `/api/sources/health` | 网关状态、已注册数据库及操作数量、数据大小与调用频率上限；不要求模型密钥 |
@@ -69,7 +69,8 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
   `TOTAL_PER_DAY` 次；每位访客每天 `TOKENS_PER_DAY`、全体每天 `TOTAL_TOKENS_PER_DAY` 个 token（输入 + 输出）。调用发出时先按请求
   大小预扣（约 3 字节一个 token），回复末尾报告用量后补差；没得到回答的调用（上游报错、连不上）退回预扣，但仍算一次调用。
   「每天」按 UTC 计，北京时间 8:00 重置。另有 `BURST`（Cloudflare 速率限制绑定）：每位访客 10 秒 40 次，在读请求体之前就检查。
-  智能体每轮工具调用都要调用一次模型（一个问题最多 16 次），所以这些数比聊天页面需要的高。
+  智能体每轮工具调用都要调用一次模型（一个问题最多 18 次：可运行工具的 16 次，到上限后据已有结果作答的 1 次，请求超出
+  模型上下文时缩短重试的 1 次），所以这些数比聊天页面需要的高。
 - **访客不留地址**：计数用 `sha256(VISITOR_SALT | IP（IPv6 取 /64）| UTC 日期)` 的前 24 位，IP 本身不存；Worker 的调用日志
   （invocation logs）关闭，只保留它自己的一行错误（状态码或错误名）。同一出口 IP 后的访客（例如一个实验室）共用限额。
   使用统计的每日访客数另用每天更换、次日删除的随机盐，安全日志只存月度哈希与网段（TELEMETRY.md「IP 地址」）。
@@ -142,6 +143,7 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 | `UPSTREAM_FIELDS` | `{"reasoning_split":true}` | 网页没写的这些键加进上游请求 |
 | `FORMAT_PREFIX` | `MiniMax-` | 上游思考格式的前缀，对访客显示为 `Tao-` |
 | `MAX_OUTPUT_TOKENS` | `8192` | 输出 token 上限 |
+| `CONTEXT_TOKENS` | `128000` | 上游模型的上下文窗口（token），经 health 告诉网页：网页让每次请求不超过它的 80%（扣除输出上限），超出时先缩短较早的工具结果。请填上游模型自己的窗口 |
 | `MAX_BODY_BYTES` | `2000000` | 请求体上限（字节） |
 | `PER_MINUTE` / `PER_DAY` / `TOTAL_PER_DAY` | `40` / `1200` / `20000` | 模型调用次数：每人每分钟、每人每天、全体每天（`0` 不限） |
 | `TOKENS_PER_DAY` / `TOTAL_TOKENS_PER_DAY` | `10000000` / `200000000` | token：每人每天、全体每天（`0` 不限） |
@@ -161,8 +163,8 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 
 改 `[vars]` 只需改这个文件：`src/relay.js` 的 `DEFAULTS` 是变量缺失或写错时的后备，不必跟着改。`test/config.test.js`
 检查每个变量都在、写法正确（`RELAY` 是 `on`/`off`，`UPSTREAM_BASE` 是 https 地址，数字是整数，`ALLOWED_ORIGINS`
-含 `https://science.impf.ai` 且每项都是完整的来源），并且调用次数限额要么是 `0`（不限）、要么至少 16（一个问题最多调用模型
-16 次）；只固定 `PUBLIC_MODEL = "Tao-S1"` 和 `UPSTREAM_FIELDS` 里的 `"reasoning_split":true`。写错时 test 作业失败，日志列出
+含 `https://science.impf.ai` 且每项都是完整的来源），并且调用次数限额要么是 `0`（不限）、要么至少 18（一个问题最多调用模型
+18 次）；只固定 `PUBLIC_MODEL = "Tao-S1"` 和 `UPSTREAM_FIELDS` 里的 `"reasoning_split":true`。写错时 test 作业失败，日志列出
 是哪个变量、错在哪里。
 
 「访客看不到上游」指网页与中继的回答：模型名、思考格式和错误都换成本服务自己的说法。这个仓库是公开的，它本身写明了上游服务：

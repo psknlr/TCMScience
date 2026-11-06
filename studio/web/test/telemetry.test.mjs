@@ -18,6 +18,7 @@ import {
 import { PRESETS, newCustomProvider } from "../js/core/providers.js";
 import { OUTBOX_PREFIX, RECORDS_KEY, STALE_TURN_MS, TURNS_KEY, Telemetry, VISIT_IDLE_MS } from "../js/core/telemetry.js";
 import { SKILL_FILES, buildRecord, callName, citedIds, evidenceStats, exclusionOf, jobWorkflow, toolRuns, turnEndEvent, turnStatus } from "../js/core/turnrecord.js";
+import { TERMINATIONS as AGENT_TERMINATIONS } from "../js/core/agent.js";
 import { Catalog } from "../js/core/catalog.js";
 import { ToolRouter } from "../js/core/router.js";
 import { fakeRuntime, testCatalogDoc } from "./fixtures/fakes.mjs";
@@ -377,6 +378,8 @@ test("contract: turn_end's new fields are whole numbers, two flags and one enum 
   assert.deepEqual(strings, ["error_kind", "error_type", "excluded", "model", "provider", "status", "termination", "turn", "type"]);
   for (const t of TERMINATIONS) assert.equal(normalizeEvent({ ...full, termination: t }).termination, t);
   assert.ok(TERMINATIONS.includes("error:network") && TERMINATIONS.includes("max_steps_synthesized"));
+  // every way the agent names a turn's end is one the contract keeps (a name outside it would be dropped, not sent)
+  assert.deepEqual([...AGENT_TERMINATIONS].sort(), [...TERMINATIONS].sort());
   // text in any of the new fields is dropped, never kept
   for (const k of [...CHECK_COUNTS, "termination", "truncated", "synthesized_at_limit"]) {
     for (const bad of ["临床证明安全有效 [E7]", "error:quota", "1e999", "-3"]) {

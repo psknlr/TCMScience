@@ -5,6 +5,7 @@
 // once each through #announcer (DESIGN §8.2). A turn's start appends the live message and its end replaces only that
 // message, so the rest of the thread (focus, open tool cards) is not rebuilt.
 
+import { canContinue } from "../core/agent.js";
 import { KINDS as CHECK_KINDS, checkAnswer } from "../core/answercheck.js";
 import { citationsOf, claimsOf, evidenceOf, refusalsOf, releaseOf } from "../core/governance.js";
 import { lang, t } from "../core/i18n.js";
@@ -323,6 +324,15 @@ export function mountConversation(app, main) {
 
     function renderNotices() {
       const out = [];
+      // Continue (core/agent.js canContinue): on the provider that made this answer, from its settled results, in this
+      // message; Retry starts a new answer from the question. Only the branch's last answer goes on: a later turn
+      // was asked after it as it is
+      const last = !live && app.path().at(-1)?.id === vm.id;
+      const resumable = last ? canContinue(vm.record, app.provider(), app.toolMessagesOf(vm.id)) : null;
+      const continueButton = (label) => button({
+        label, size: "sm", icon: "play", disabled: Boolean(app.state.turn), attrs: { "data-turn-lock": "", "data-continue": "", title: t("ui.thread.continue_tip") },
+        onClick: () => app.continueTurn(vm.id),
+      });
       if (vm.error) {
         // a permanent error (a daily limit, a conversation too large, a relay that is not configured) has no Retry:
         // retrying cannot fix it; a key or an account the service refuses ("invalid x-api-key", out of credit) is
@@ -330,18 +340,33 @@ export function mountConversation(app, main) {
         const actions = vm.error.needsKey || isAccountError(vm.error) || /API[ -]?Key/i.test(vm.error.message)
           ? [button({ label: t("ui.thread.open_models"), size: "sm", onClick: () => app.navigate({ name: "settings", tab: "models" }) })]
           : !live && !vm.error.permanent ? [button({ label: t("ui.action.retry"), size: "sm", icon: "regenerate", onClick: () => app.regenerate(vm.id) })] : [];
+        if (resumable === "continue") actions.push(continueButton(t("ui.thread.continue")));
         // the service's own Chinese text on an English page is voiced as Chinese
         const body = vm.error.lang === "zh" ? h("p.notice__body", { lang: "zh-Hans" }, vm.error.message) : vm.error.message;
         out.push(notice({ tone: "warn", title: t(`ui.thread.error.${vm.error.kind || "model"}`), body, actions, role: "alert" }));
       }
-      if (!live && vm.status === "stopped" && !vm.error) out.push(h("p.msg__note", icon("circleStop", { size: 12 }), t("core.agent.stopped")));
+      if (!live && vm.status === "stopped" && !vm.error) {
+        out.push(h("p.msg__note", icon("circleStop", { size: 12 }), t("core.agent.stopped"), resumable === "continue" ? continueButton(t("ui.thread.continue")) : null));
+      }
       if (!live && vm.status === "interrupted") {
         out.push(notice({
           tone: "neutral", icon: "circleDashed", title: t("ui.thread.interrupted_title"), body: t("ui.thread.interrupted"),
           actions: [button({ label: t("ui.msg.regenerate"), size: "sm", icon: "regenerate", disabled: Boolean(app.state.turn), attrs: { "data-turn-lock": "" }, onClick: () => app.regenerate(vm.id) })],
         }));
       }
-      if (vm.notice) out.push(h("p.msg__note", icon("info", { size: 12 }), vm.notice));
+      if (vm.notice && !live && vm.termination === "truncated") {
+        // an answer cut off at the output limit: continued in this message when the provider that wrote it is in use,
+        // else asked for in a new question
+        out.push(notice({
+          tone: "neutral", icon: "info", body: vm.notice,
+          actions: last ? [button({
+            label: t("ui.thread.continue_answer"), size: "sm", icon: "play", disabled: Boolean(app.state.turn), attrs: { "data-turn-lock": "", "data-continue-answer": "" },
+            onClick: () => (resumable === "answer" ? app.continueTurn(vm.id) : app.send(t("ui.thread.continue_prompt"))),
+          })] : [],
+        }));
+      } else if (vm.notice) out.push(h("p.msg__note", icon("info", { size: 12 }), vm.notice));
+      // results the model read shortened, to fit its context: said once, quietly; the inspector has them whole
+      if (vm.compacted > 0 && !(live && vm.status === "streaming")) out.push(h("p.msg__note", icon("layers", { size: 12 }), t("ui.thread.compacted", { n: vm.compacted })));
       if (vm.refusal) out.push(notice({ tone: "refusal", title: t("ui.thread.model_refused"), body: vm.refusal.explanation || "" }));
       if (vm.fallback) out.push(h("p.msg__note", icon("info", { size: 12 }), t("ui.thread.fallback", { model: vm.fallback.model || vm.fallback })));
       if (!vm.segments.length && live && vm.status === "streaming") out.push(h("div.msg__typing", h("span"), h("span"), h("span")));
@@ -458,6 +483,8 @@ export function mountConversation(app, main) {
     }),
     app.on("layout", () => renderAll()),
     app.on("catalog", () => renderAll()),
+    // Continue is offered only on the provider that wrote the answer: a model switch can add or remove it
+    app.on("model", () => { if (!app.state.turn) renderAll(); }),
     app.on("runtime", (e) => { if (e?.kind === "runner") jobs.refresh(); }),
   ];
   renderAll();
@@ -498,6 +525,7 @@ export function viewOfStored(app, m) {
   }
   return {
     id: m.id, record: m, segments, tools, status: interrupted ? "interrupted" : m.status || "ok", error: m.error || null, notice: m.notice || "",
+    termination: m.termination || null, compacted: Number(m.compacted) || 0,
     model: m.model, provider: m.provider, servedBy: m.servedBy, fallback: m.fallback, refusal: m.refusal, hideReasoning: m.hideReasoning,
     thinkingMs: m.ui?.thinkingMs || {}, startedAt: m.ui?.startedAt || m.createdAt, endedAt: m.ui?.endedAt || null, usage: m.usage || null,
     approvals: m.ui?.approvals || {}, createdAt: m.createdAt,

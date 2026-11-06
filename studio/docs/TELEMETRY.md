@@ -114,7 +114,8 @@ Worker 另加 `seq`（递增编号）、`received`（收到时间）、`day`（�
 探究结论是暂定、未决或初步，回答却说已接受、已确立；已算作 `banned_terms` 的词不再算一次）。消息旁的处数还含「工具给出了
 引文，回答一处都没引」（`uncited_with_evidence`），它不单独计数：同一轮的 `citations` 与 `citations_used` 已能看出。一轮没有
 回答（出错或在任何文字之前就停止），或检查读不了这一轮时，这五项都不发，这一轮不算作检查过的轮次。`termination` 只取固定的几种
-（`answered`、`max_steps_synthesized`、`truncated`、`stopped`、`refused_by_model`、`error:model|network|runtime`），由智能体
+（`answered`、`max_steps_synthesized`、`max_steps`、`context_synthesized`、`context_full`、`truncated`、`stopped`、
+`refused_by_model`、`error:model|network|runtime`，与智能体 `core/agent.js` 的 `TERMINATIONS` 相同），由智能体
 写在回答上，没写时不发；`truncated` 由智能体的结束方式或模型服务的 `finish_reason`（`length` / `max_tokens`）判定。网页在消息
 旁显示同一份检查结果（「回答检查：N 处」，细节在检查器的「过程」中）；没有标出问题不表示回答正确。
 

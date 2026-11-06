@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setLang } from "../js/core/i18n.js";
 import { IDLE_MS, LOCAL_IDLE_MS, MAX_IDLE_MS, idleTimeout } from "../js/core/llm/sse.js";
-import { PRESETS, activeProvider, allProviders, customPreset, localFix, relayBaseUrl, relayHealth, relayHealthError, routeFor, testConnection } from "../js/core/providers.js";
+import { PRESETS, activeProvider, allProviders, contextWindow, customPreset, localFix, relayBaseUrl, relayHealth, relayHealthError, routeFor, testConnection } from "../js/core/providers.js";
 import { anthropicSse, fakeFetch, sse, streamResponse } from "./fixtures/fakes.mjs";
 
 test("the presets: Tao-S1 first, the cloud services, local servers, custom endpoints; the relay's vendor is never listed", () => {
@@ -230,4 +230,32 @@ test("the idle limit reaches every provider: the OpenAI preset's longer one, a c
   assert.equal(idleTimeout(activeProvider({ provider: "tao", idleLimits: { openai: 600_000 } }, { provider: "openai" })), 600_000);
   assert.equal(idleTimeout(activeProvider({ provider: "openai", idleLimits: { openai: null, deepseek: 1 } })), 300_000);
   assert.equal(idleTimeout(activeProvider({ provider: "openai", idleLimits: { openai: 3e9 } })), MAX_IDLE_MS);
+});
+
+test("the context window a request is budgeted against: the relay's health, Settings, the preset's for the model, else 32 000", async () => {
+  for (const p of PRESETS.filter((x) => !x.local && !x.custom)) assert.ok(p.context_tokens > 0, `${p.id} states its window`);
+  const tao = activeProvider({});
+  assert.deepEqual([tao.contextTokens, tao.maxBodyBytes], [128000, 2000000]);
+  const told = activeProvider({}, { contextTokens: 204800, maxBody: 1500000 });
+  assert.deepEqual([told.contextTokens, told.maxBodyBytes], [204800, 1500000], "the relay's own health wins");
+  assert.equal(activeProvider({ provider: "deepseek", keys: { deepseek: "k" } }, { contextTokens: 999 }).contextTokens, 128000, "a health is the relay's only");
+  assert.equal(activeProvider({ provider: "deepseek", keys: { deepseek: "k" } }).maxBodyBytes, null, "no body cap off the relay");
+  assert.equal(activeProvider({ provider: "qwen", keys: { qwen: "k" }, models: { qwen: "qwen-max" } }).contextTokens, 32000, "a listed model with a smaller window");
+  assert.equal(activeProvider({ provider: "ollama" }).contextTokens, 32000, "a local server: 32 000 until Settings say");
+  assert.equal(activeProvider({ provider: "ollama", contextTokens: { ollama: 131072 } }).contextTokens, 131072);
+  const custom = { customProviders: [{ id: "c1", base_url: "http://127.0.0.1:9/v1", model: "m" }] };
+  assert.equal(activeProvider({ ...custom, provider: "c1" }).contextTokens, 32000);
+  assert.equal(activeProvider({ customProviders: [{ ...custom.customProviders[0], context_tokens: 65536 }], provider: "c1" }).contextTokens, 65536);
+  assert.equal(customPreset({ id: "c2", context_tokens: "lots" }).context_tokens, 32000, "a mistyped window is the default");
+  // "32" meant as 32k: no model has so small a window; read as none, never as a budget of a few tokens
+  assert.equal(customPreset({ id: "c2", context_tokens: 32 }).context_tokens, 32000);
+  assert.equal(activeProvider({ provider: "ollama", contextTokens: { ollama: 32 } }).contextTokens, 32000);
+  assert.equal(activeProvider({ provider: "ollama", contextTokens: { ollama: 2047 } }).contextTokens, 32000);
+  assert.equal(activeProvider({ provider: "ollama", contextTokens: { ollama: 2048 } }).contextTokens, 2048);
+  assert.equal(contextWindow(PRESETS[0], "Tao-S1", {}, 0), 128000);
+  // the relay's health says both; an older relay that says neither leaves the preset's
+  const h = await relayHealth({ fetch: fakeFetch(() => new Response(JSON.stringify({ ok: true, max_output_tokens: 8192, context_tokens: 204800, max_body_bytes: 2000000 }))) });
+  assert.deepEqual([h.context_tokens, h.max_body_bytes], [204800, 2000000]);
+  const old = await relayHealth({ fetch: fakeFetch(() => new Response(JSON.stringify({ ok: true, max_output_tokens: 8192 }))) });
+  assert.deepEqual([old.context_tokens, old.max_body_bytes], [null, null]);
 });

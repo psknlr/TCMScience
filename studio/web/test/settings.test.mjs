@@ -92,3 +92,12 @@ test("idle limits: ms by provider id; an update merges them; a cleared or invali
   localStorage.setItem(SETTINGS_KEY, JSON.stringify({ idleLimits: [120_000], webDefault: WEB_DEFAULT_VERSION }));
   assert.deepEqual(loadSettings().idleLimits, {});
 });
+
+test("a local server's context window is kept per provider, merged like the other per-provider maps", () => {
+  assert.deepEqual(loadSettings().contextTokens, {});
+  updateSettings({ contextTokens: { ollama: 131072 } });
+  updateSettings({ contextTokens: { vllm: 65536 } });
+  assert.deepEqual(loadSettings().contextTokens, { ollama: 131072, vllm: 65536 });
+  saveSettings({ ...loadSettings(), contextTokens: "lots" });
+  assert.deepEqual(loadSettings().contextTokens, {}, "anything but a map is none");
+});

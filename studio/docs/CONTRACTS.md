@@ -15,7 +15,7 @@ Same origin as the app. OpenAI-compatible. The browser never sends a key.
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/v1/health` | `{ok, reason?, until?, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, limits:{per_minute, per_day, tokens_per_day}, telemetry:{analytics, conversations, consent_version, geo, retention_days:{conversations, events, aggregates, security}}}`. `ok:false` when `MINIMAX_API_KEY` is not set, and while the upstream breaker is open: then `reason` (`upstream_quota` or `upstream_error`) and `until` (an ISO time) say why and until when. `telemetry` says what the site takes (`docs/TELEMETRY.md`); a page sends usage events and asks for consent only when the health of its **own** origin says so (the runner's health has no `telemetry`: nothing is sent). |
+| GET | `/v1/health` | `{ok, reason?, until?, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, context_tokens, max_body_bytes, limits:{per_minute, per_day, tokens_per_day}, telemetry:{analytics, conversations, consent_version, geo, retention_days:{conversations, events, aggregates, security}}}`. `ok:false` when `MINIMAX_API_KEY` is not set, and while the upstream breaker is open: then `reason` (`upstream_quota` or `upstream_error`) and `until` (an ISO time) say why and until when. `context_tokens` and `max_body_bytes` are what one request may hold: the page fits each request of a turn to them (`core/budget.js`). `telemetry` says what the site takes (`docs/TELEMETRY.md`); a page sends usage events and asks for consent only when the health of its **own** origin says so (the runner's health has no `telemetry`: nothing is sent). |
 | GET | `/v1/models` | `{object:"list", data:[{id:"Tao-S1", object:"model", owned_by:"impf"}]}` |
 | POST | `/v1/chat/completions` | OpenAI chat-completions request/stream. `model` must be `"Tao-S1"` (or absent). Write `model` as the **first** JSON key (the relay edits the text). Streaming SSE is returned with `model` renamed to `Tao-S1`, reasoning formats `MiniMax-…` → `Tao-…`, and vendor-only fields removed. `thinking:{type:"disabled"}` in the request removes all reasoning from the answer; the relay sets it itself when the last user message asks about the assistant's identity or model (the page's own detector, run again as defence in depth). |
 
@@ -814,13 +814,15 @@ export async function runTurn({provider, system, history, router, catalog, setti
   //   "model.start" {step}            "text" {delta}            "reasoning" {delta}
   //   "tool.start" {callId, name, args, where}                  "tool.approval" {callId, request} (UI may show card)
   //   "tool.end" {callId, envelope}   "usage" {input, output}  "model.end" {step, finish_reason}
-  //   "error" {message, kind:"model"|"network"|"runtime"|"aborted"}   "done" {status:"ok"|"stopped"|"error"|"max_steps"}
+  //   "error" {message, kind:"model"|"network"|"runtime"|"aborted"}   "done" {status:"ok"|"stopped"|"error"|"max_steps", termination}
   // TurnResult = {assistant: Message, toolMessages: [...], usage, status}
   // max steps (model calls) default 16; tool results truncated to 2 500 chars in replayed history;
   // <think> stripped from replayed history; transient errors retried twice (1.5 s, 4 s), a stalled stream once.
   // Also (CONTRACT_NOTES "web-core"): onApproval(request) → decision; events "tool.pending" {index, name, step},
   // "model.retry" {step, …} (drop that step's partial text), "tool.update" {callId, envelope} (citations renumbered);
-  // the last allowed model call is made with toolChoice "none".
+  // the last allowed model call is made with toolChoice "none", then one more without tools asks for the answer;
+  // every request is fitted to the context budget (core/budget.js); `resume` continues a stored turn (Continue), a
+  // cut-off text going on in that text ("text" {delta, step, joins:true}).
 
 // core/prompt.js
 export function buildSystemPrompt({lang, provider, project, knowledge, env}) → string   // §9
@@ -958,8 +960,9 @@ debounced during streaming.
   "models": {}, "baseUrls": {}, "keys": {}, "rememberKeys": true,
   "idleLimits": {},                                // {providerId: ms}: how long a model stream may send nothing
                                                    //   (0: no limit); absent: the default (§6 idleTimeout)
+  "contextTokens": {},                             // provider id → its context window in tokens (local servers)
   "customProviders": [],                           // {id,label,format,base_url,model,headers,extra_body,max_tokens_param,
-                                                   //   idleMs?}
+                                                   //   idleMs?, context_tokens?}
   "route": "auto",                                 // auto | direct | runner (for model calls)
   "thinking": true, "temperature": null, "maxTokens": 8192, "maxSteps": 16,
   "compute": "auto",                               // auto | browser | runner | remote (no backend: every call

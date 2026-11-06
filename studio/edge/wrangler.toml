@@ -43,6 +43,9 @@ UPSTREAM_FIELDS = '{"reasoning_split":true}'
 # the upstream's reasoning formats (MiniMax-…) are shown as Tao-… and restored when the page sends them back
 FORMAT_PREFIX = "MiniMax-"
 MAX_OUTPUT_TOKENS = "8192"
+# the upstream model's context window, in tokens: the page fits each request of a turn to 80% of it, less the output
+# (health tells it; set it to the model's own window)
+CONTEXT_TOKENS = "128000"
 # bytes, not characters (a CJK character is 3 bytes)
 MAX_BODY_BYTES = "2000000"
 # model calls. The agent makes one per round of tool use (up to 16 for a question), so these are higher than a chat
