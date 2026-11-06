@@ -3566,7 +3566,8 @@ _INQUIRY_HINTS = {
               "declared outcomes) with evidence_ref (PMID, DOI, NCT id, a receipt hash).",
     "withdraw": "Give inquiry_id, analysis_id and reason: the reason it cannot be run.",
     "admit": "Give inquiry_id, explanations (each with claim_kind, or role \"artefact\") and "
-             "shares {explanation id: share of the catch-all's mass}, together at most 0.95.",
+             "shares {explanation id: share of the catch-all's mass}, together leaving the "
+             "catch-all at least the rule's catch_all_floor of it",
     "conclude": "Give the inquiry_id open returned (inq_ and 16 hex digits); action list "
                 "shows this project's inquiries.",
 }
@@ -3735,7 +3736,7 @@ def _study_inquiry(args: Mapping[str, Any], ctx: Context) -> Outcome:
         hint = exc.remedy
         if exc.code in ("INQ110", "INQ111"):
             # a missing or misshapen prediction: the one to fill in, ids and outcomes written
-            skeleton = _inquiry_skeleton(store, args, action)
+            skeleton = _inquiry_skeleton(store, args, action, exc.code)
             hint = f"{hint}. {skeleton}" if skeleton else hint
         return _failure("study", "refused", str(exc), hint, status="refused",
                         summary=f"探究引擎拒绝（{exc.code}）：{_short(exc.detail)}",
@@ -3752,7 +3753,7 @@ def _study_inquiry(args: Mapping[str, Any], ctx: Context) -> Outcome:
                         "where it was opened (the local runner, or this browser).")
     except (ValueError, TypeError, KeyError) as exc:
         return _failure("study", "bad_arguments", f"{type(exc).__name__}: {exc}",
-                        _INQUIRY_HINTS.get(action, _INQUIRY_HINTS["scaffolds"]))
+                        _inquiry_hint(store, args, action))
     g = gv.empty("study")
     if action == "conclude":
         g["limitations"] = [_INQUIRY_LIMITS[1], *(r["conclusion"].get("limitations") or ())]
@@ -3763,9 +3764,25 @@ def _study_inquiry(args: Mapping[str, Any], ctx: Context) -> Outcome:
     return Outcome(result=r, governance=g, summary=zh, summary_en=en)
 
 
-def _inquiry_skeleton(store: Any, args: Mapping[str, Any], action: str) -> str:
+def _inquiry_hint(store: Any, args: Mapping[str, Any], action: str) -> str:
+    """How to call ``action``; for admit, with this inquiry's bound on the shares (the rule's
+    catch-all floor, which a rule may have raised) when the inquiry can be read."""
+    hint = _INQUIRY_HINTS.get(action, _INQUIRY_HINTS["scaffolds"])
+    if action != "admit":
+        return hint
+    try:
+        inquiry, _ = store.load(str(args.get("inquiry_id") or ""))
+    except Exception:                                           # noqa: BLE001
+        return f"{hint}."
+    most = 1.0 - inquiry.rule.catch_all_floor
+    return f"{hint}: in this inquiry, together at most {most:.6g}."
+
+
+def _inquiry_skeleton(store: Any, args: Mapping[str, Any], action: str, code: str) -> str:
     """After INQ110 or INQ111: the predictions still to seal, in the shape the action takes,
-    with every explanation and outcome written in and each probability left null."""
+    with every explanation and outcome written in and each probability left null. An
+    analysis id the inquiry does not have gets the ids it has instead: another analysis's
+    seal answers a different call, and a sealed prediction cannot be changed (INQ116)."""
     from bioagent.research import inquiries as inq
     from psh.scientist import CATCH_ALL
     from psh.sir.values import LICENSING, ClaimKind, Licensing, StudyDesign
@@ -3793,7 +3810,9 @@ def _inquiry_skeleton(store: Any, args: Mapping[str, Any], action: str) -> str:
         inquiry, _ = store.load(str(args.get("inquiry_id") or ""))
         known = [a.id for a in inquiry.analyses]
         wanted = str(args.get("analysis_id") or "")
-        for analysis_id in [wanted] if wanted in known else known:
+        # the analysis named; with none named, after INQ110, the first still lacking a seal
+        for analysis_id in ([wanted] if wanted in known
+                            else known if code == "INQ110" and not wanted else []):
             missing = inquiry.missing(analysis_id)
             if missing and not inquiry.observed(analysis_id) \
                     and analysis_id not in inquiry.withdrawn:

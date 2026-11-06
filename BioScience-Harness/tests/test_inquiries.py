@@ -217,8 +217,12 @@ def test_an_explanation_says_its_claim_kind_or_that_it_is_an_artefact(store):
     with pytest.raises(InquiryRefused) as exc:
         inq.open_inquiry(store, **{**CUSTOM, "explanations": bare})
     assert exc.value.code == "INQ103"
-    assert exc.value.detail == ('raises gives neither claim_kind nor role: give claim_kind, '
-                                'or role "artefact" if the method or the data make the signal')
+    assert exc.value.detail == "raises gives neither claim_kind nor role"
+    # its own repair, not the engine's for any malformed explanation, in the remedy too
+    remedy = 'give claim_kind, or role "artefact" if the method or the data make the signal'
+    assert exc.value.remedy == remedy
+    assert str(exc.value) == ("INQ103 malformed explanation: raises gives neither claim_kind "
+                              f"nor role. Remedy: {remedy}")
     assert store.ids() == []
     iid = inq.open_inquiry(store, **CUSTOM)["inquiry_id"]
     with pytest.raises(InquiryRefused, match="INQ103"):

@@ -83,6 +83,9 @@ DESIGN_ALIASES = {"randomized_trial": "randomised_trial",
 #: How far from 1 a prediction may sum and be sealed divided by its sum; the engine's own
 #: tolerance (1e-6) is unchanged, and a row it already accepts is sealed as it was given.
 _SUM_SLACK = 0.01
+#: The repair for an explanation that gives neither a claim kind nor a role (INQ103), in
+#: place of the engine's remedy for any malformed explanation.
+_ROLE_REMEDY = 'give claim_kind, or role "artefact" if the method or the data make the signal'
 _VERDICT_ZH = {"accepted": "接受", "provisional": "暂定", "undetermined": "未定",
                "needs_hypotheses": "需要新的解释"}
 
@@ -211,8 +214,17 @@ def _decisive(update: Any) -> bool:
     return str(update.evidence_ref or "").startswith("runtime:")
 
 
+def _refused(code: str, detail: str, remedy: str) -> Exception:
+    """The engine's refusal ``code``, repaired by ``remedy`` rather than the code's own."""
+    from psh.scientist import INQUIRY_CODES, InquiryRefused
+    refused = InquiryRefused(code, detail)
+    refused.remedy = remedy
+    refused.args = (f"{code} {INQUIRY_CODES[code][0]}: {detail}. Remedy: {remedy}",)
+    return refused
+
+
 def _explanation(data: Mapping[str, Any]) -> Any:
-    from psh.scientist import Explanation, InquiryRefused, Role
+    from psh.scientist import Explanation, Role
     from psh.sir.values import ClaimKind
     if not isinstance(data, Mapping):
         raise ValueError("each explanation is an object {id, proposition, claim_kind or "
@@ -221,9 +233,8 @@ def _explanation(data: Mapping[str, Any]) -> Any:
     if not kind and not data.get("role"):
         # never read as an artefact: no licensing reaches one, so a docking run could
         # carry it to a claim about patients
-        raise InquiryRefused("INQ103", f"{data.get('id')} gives neither claim_kind nor role: "
-                             'give claim_kind, or role "artefact" if the method or the data '
-                             "make the signal")
+        raise _refused("INQ103", f"{data.get('id')} gives neither claim_kind nor role",
+                       _ROLE_REMEDY)
     role = data.get("role") or "substantive"
     if role not in ("substantive", "artefact"):
         raise ValueError(f"{data.get('id')}: role is substantive (with a claim kind) or "

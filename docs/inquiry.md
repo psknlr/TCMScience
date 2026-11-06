@@ -270,7 +270,13 @@ every source that can produce the evidence ([studio/docs/ROUTES.md](../studio/do
 **Only outcomes the runtime classified decide acceptance** (the 2026-11 acceptance rule).
 An outcome the agent reports moves belief like any other. Whatever source it cites, it is
 never the severe test or the replication an acceptance rests on: a cited PMID shows that a
-source exists, not that the agent read its outcome correctly. In the chat, then,
+source exists, not that the agent read its outcome correctly. Runtime classification does
+not check the data either. It applies the sealed rule to the numbers in `data`, and in the
+chat the agent supplies them: trial estimates with their standard errors, an interval or
+measurements it read from a source, with `evidence_ref` as free text. It guarantees that
+the sealed rule, not the agent, decided the outcome from those numbers. It does not check
+where the numbers came from, so numbers an agent invents reach "accepted" like real ones.
+In the chat, then,
 `formula_vs_constituent`, `combination`, `exposure`, `efficacy` and `herb_drug_interaction`
 (on its clinical tests) can reach "accepted". `pathway_signal`, `safety_signal`,
 `target_engagement` and an inquiry an agent opens from its own analyses end provisional at
@@ -376,7 +382,8 @@ through `tcm_applicability` and the release gate, and the tool's summary says so
   classified into one of them. In the pathway inquiry and in a scaffold's runtime-classified
   tests the classifier is code in the repository. A test the agent classifies (the table
   above) is the agent's judgement of the source it cites, which is why, in the chat, such an
-  outcome cannot decide acceptance.
+  outcome cannot decide acceptance. The code classifies the numbers it is given. In the
+  chat the agent gives them, and nothing checks them against their source.
 - **Execution is in-process here.** The pathway inquiry runs its analyses in this process
   and says so (`governed_execution: false`). The executor is the port where the kernel's
   execution broker goes, as it does in the research loop.
@@ -427,7 +434,7 @@ write-ahead refusal),
 - **八套模板：** `bioagent.research.rivals` 为常见问题准备了竞争解释、检验、封存的预测和产生结果的工具，包括通路信号、复方与主要成分、联合用药、体内暴露、疗效、安全信号、药材–药物相互作用、靶点结合。`action: "scaffolds"` 列出全部模板，也可以自己提出竞争解释。每个解释须给出主张类型，或在信号来自方法或数据时给出角色 `artefact`；两者都没有的解释被拒绝（INQ103），不再默认为伪影（伪影不受证据许可约束）。概率之和与 1 相差不超过 0.01 的预测（如三个 0.33）按其和归一后封存；`randomized_*` 视同 `randomised_*`。
 - **判定标准同样封存：** 等效界值、最小重要获益、联合作用的参照模型、临床相关变化都是模板参数，写入检验标题，与预测一起进入审计轨迹。按其他标准分析的数据被拒绝。
 - **谁判定的结果写在轨迹里：** 提供 `data` 时，模板指定的工具在同一次调用中运行，由运行时按模板规则判定，证据记为 `runtime:<工具>:<摘要>`。同一数据不能记录两次：比较的是判定器读取的数字，改换试验标签、多加字段或把 1 写成 1.0 仍是同一数据；每个试验的估计值与其标准误、每个孔的数值与其字段保持配对，同样的数字换一种配对则是另一组数据。没有判定器的检验由智能体报告结果，必须给出 `evidence_ref`，记为 `agent:`；重复检验不能引用原检验的来源（不论由谁判定；PMID 或 DOI 无论怎样书写，带不带标签、写成网址、用全角字符或后附标点、说明，都视为同一来源）。智能体为运行时判定的检验添加的重复检验，同样按原检验的规则从数据判定，不接受报告的结果。结论分别计数两类结果。
-- **只有运行时判定的结果决定是否接受（2026-11 接受规则）：** 智能体报告的结果照常移动信念，但无论引用什么来源，都不能作为接受所依据的严格检验或重复：引用的 PMID 只说明来源存在，不说明智能体对结果的判断正确。因此在对话中，复方与主要成分、联合用药、体内暴露、疗效以及药材–药物相互作用（其临床检验）可以达到"接受"；通路信号、安全信号、靶点结合，以及智能体用自己的分析开启的探究，至多为"暂定"，结论会说明。在每个检验上设定各解释最可能的结果、无工具判定的检验由智能体报告时，前五套模板的每个解释都被接受，后三套都不被接受。智能体在模板检验之外另加的分析（不是其重复检验）只接受报告的结果，不决定是否接受；结论的理由列出仍需记录的运行时判定检验，`to_decide` 也列出它们。引擎的建议仍计入所有结果，以便保存的轨迹重放其记录的建议，所以 `next` 可能指向不能决定接受的分析。此规则之前保存的探究按此规则作结；裁决因此改变时，结论附中英文一句说明"已按 2026-11 接受规则重新评估"（`re_evaluated`）。调用卡片上的裁决徽章在提示中给出运行时判定和智能体报告的结果数。
+- **只有运行时判定的结果决定是否接受（2026-11 接受规则）：** 智能体报告的结果照常移动信念，但无论引用什么来源，都不能作为接受所依据的严格检验或重复：引用的 PMID 只说明来源存在，不说明智能体对结果的判断正确。运行时判定也不核对数据：它把封存的规则用于 `data` 中的数字，而在对话中这些数字由智能体提供（试验的估计值及其标准误、区间，或它从来源读出的测量值），`evidence_ref` 只是自由文本。它保证结果由封存的规则而非智能体根据这些数字判定，但不核对数字从何而来，所以智能体编造的数字与真实数字一样能达到"接受"。因此在对话中，复方与主要成分、联合用药、体内暴露、疗效以及药材–药物相互作用（其临床检验）可以达到"接受"；通路信号、安全信号、靶点结合，以及智能体用自己的分析开启的探究，至多为"暂定"，结论会说明。在每个检验上设定各解释最可能的结果、无工具判定的检验由智能体报告时，前五套模板的每个解释都被接受，后三套都不被接受。智能体在模板检验之外另加的分析（不是其重复检验）只接受报告的结果，不决定是否接受；结论的理由列出仍需记录的运行时判定检验，`to_decide` 也列出它们。引擎的建议仍计入所有结果，以便保存的轨迹重放其记录的建议，所以 `next` 可能指向不能决定接受的分析。此规则之前保存的探究按此规则作结；裁决因此改变时，结论附中英文一句说明"已按 2026-11 接受规则重新评估"（`re_evaluated`）。调用卡片上的裁决徽章在提示中给出运行时判定和智能体报告的结果数。
 - **门槛只能提高：** `rule` 可以提高接受阈值、严格度或兜底下限，降低警戒线或减少步数，但不能关闭重复要求，也不能放宽任何一项。探究按项目保存，每次加载都重放审计轨迹（INQ150）。
 - **撤回也是发现：** 无法运行的检验连同原因撤回，结论在 `to_decide` 中列出它们，以及其他能严格区分存活解释、尚未运行的检验，也就是能解决问题的研究。安全信号不等待接受：暂定或未决不等于安全。
 - **同时运行：** `action: "plan"`（`size` 为 2 到 4）封存引擎的批次，并给出每项分析的运行工具和增加的信息量；智能体并行运行后逐项记录。每个结论附带 `sensitivity`；领先者改变时，这一点排在模板警示之后的第一条局限，摘要也用一句话说明。

@@ -191,6 +191,9 @@ test("an inquiry's badge says in its tip who classified the outcomes it rests on
   const accepted = inquiryOf(concluded({ verdict: "accepted" }, { by_runtime: 2, by_agent: 0 }), "zh");
   assert.deepEqual(accepted.badge, verdictBadge("accepted", "inquiry", "zh"));
   assert.match(accepted.tip, /运行时判定的结果 2 项，智能体报告的结果 0 项/);
+  // one outcome is one, in English
+  const one = inquiryOf(concluded({ verdict: "provisional" }, { by_runtime: 1, by_agent: 1 }), "en");
+  assert.ok(one.tip.startsWith("Inquiry conclusion: 1 outcome classified by the runtime, 1 reported by the agent;"), one.tip);
   // a saved inquiry the acceptance rule re-evaluated says so in the tip as well
   const note = { rule: "2026-11", earlier_verdict: "accepted", en: "re-evaluated under the 2026-11 acceptance rule: …", zh: "已按 2026-11 接受规则重新评估：…" };
   const saved = concluded({ verdict: "provisional", re_evaluated: note }, { by_runtime: 0, by_agent: 2 });

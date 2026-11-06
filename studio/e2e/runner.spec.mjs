@@ -205,6 +205,11 @@ test("an inquiry's verdict is on its card, and its tip says who classified the o
   await expect(pill).toHaveCount(1);
   await expect(pill).toContainText("暂定");
   await expect(pill).toHaveAttribute("data-tip", "探究结论：运行时判定的结果 0 项，智能体报告的结果 2 项；只有运行时判定的结果能决定是否接受");
+  // and by keyboard: the pill takes focus and is read with its tip
+  await expect(pill).toHaveAttribute("tabindex", "0");
+  await expect(pill).toHaveAttribute("aria-label", "暂定: 探究结论：运行时判定的结果 0 项，智能体报告的结果 2 项；只有运行时判定的结果能决定是否接受");
+  await pill.focus();
+  await expect(pill).toBeFocused();
   const tool = (await readDb(page)).messages.filter((m) => m.role === "tool").at(-1);
   expect(tool.envelope.result.conclusion.verdict).toBe("provisional");
   expect(tool.envelope.result.conclusion.certainty).toBe("tentative");

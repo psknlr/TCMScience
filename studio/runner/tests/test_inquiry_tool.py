@@ -264,8 +264,11 @@ def test_an_explanation_with_neither_claim_kind_nor_role_is_refused(runner_ctx):
     assert e["status"] == "refused" and e["error"]["type"] == "refused"
     refusal = e["governance"]["refusals"][0]
     assert refusal["code"] == "INQ103" and "INQ103" in e["summary_en"]
-    assert refusal["message"].startswith("cures gives neither claim_kind nor role")
-    assert 'give claim_kind, or role "artefact"' in refusal["message"]
+    assert refusal["message"] == "cures gives neither claim_kind nor role"
+    # the repair is this one, wherever the agent reads it, not the engine's general one
+    remedy = 'give claim_kind, or role "artefact" if the method or the data make the signal'
+    assert refusal["remedy"] == remedy and e["error"]["hint"] == remedy
+    assert e["error"]["message"].endswith(f"Remedy: {remedy}")
     assert inquire(runner_ctx, action="list")["result"]["inquiries"] == []     # nothing saved
     # the schema says so before the call: there is no artefact by default any more
     item = INQUIRY_SCHEMA["properties"]["explanations"]["items"]
@@ -486,6 +489,44 @@ def test_each_action_says_how_to_call_it(runner_ctx, action, args, says):
     assert says in e["error"]["hint"], e["error"]["hint"]
 
 
+@pytest.mark.parametrize("floor,most", [(None, "0.95"), (0.1, "0.9")])
+def test_the_admit_hint_gives_this_inquirys_bound_on_the_shares(runner_ctx, floor, most):
+    """The catch-all keeps at least the rule's floor of its mass, and a rule may raise the
+    floor: the hint gives the bound for this inquiry, not the default's 0.95."""
+    rule = {"catch_all_floor": floor} if floor else None
+    iid = inquire(runner_ctx, action="open", question="q", explanations=E2, analyses=A1,
+                  rule=rule)["result"]["inquiry_id"]
+    e = inquire(runner_ctx, action="admit", inquiry_id=iid, explanations=[
+        {"id": "c", "proposition": "C", "claim_kind": "mechanism_hypothesis"}])
+    assert e["error"]["type"] == "bad_arguments", e
+    assert e["error"]["hint"].endswith(f"in this inquiry, together at most {most}."), \
+        e["error"]["hint"]
+    if floor:
+        assert "0.95" not in e["error"]["hint"]
+
+
+A2 = [*A1, {"id": "t2", "title": "assay 2", "design": "in_vitro", "outcomes": ["hi", "lo"]}]
+
+
+@pytest.mark.parametrize("args", [
+    {"action": "withdraw", "analysis_id": "t1x", "reason": "no data"},
+    {"action": "record", "analysis_id": "t1x", "outcome": "up", "evidence_ref": "PMID 5"},
+    {"action": "declare", "analysis_id": "t1x", "predictions": {"a": {"up": 0.7, "down": 0.3}}},
+])
+def test_an_unknown_analysis_id_is_answered_with_the_ids_the_inquiry_has(runner_ctx, args):
+    """A mistyped analysis id (INQ111) came back, whatever the action, with the predictions
+    to seal for another analysis that still lacked them: a withdraw was told to declare,
+    and a sealed prediction cannot be changed (INQ116). It gets the inquiry's ids instead."""
+    iid = inquire(runner_ctx, action="open", question="q", explanations=E2, analyses=A2,
+                  predictions={"t1": {"a": {"up": 0.7, "down": 0.3},
+                                      "b": {"up": 0.3, "down": 0.7}}})["result"]["inquiry_id"]
+    e = inquire(runner_ctx, inquiry_id=iid, **args)
+    assert e["governance"]["refusals"][0]["code"] == "INQ111"
+    assert e["governance"]["refusals"][0]["message"] == "analysis 't1x'"
+    assert e["error"]["hint"] == ("use an id the inquiry has recorded. Its explanations are "
+                                  "a, b; its analyses t1, t2."), e["error"]["hint"]
+
+
 def test_a_missing_or_misshapen_prediction_comes_back_with_the_one_to_fill_in(runner_ctx):
     iid = inquire(runner_ctx, action="open", question="q", explanations=E2,
                   analyses=A1)["result"]["inquiry_id"]
@@ -501,6 +542,12 @@ def test_a_missing_or_misshapen_prediction_comes_back_with_the_one_to_fill_in(ru
         assert skeleton == {"action": "declare", "inquiry_id": iid, "analysis_id": "t1",
                             "predictions": {"a": {"up": None, "down": None},
                                             "b": {"up": None, "down": None}}}
+    # an unknown explanation in a declaration for an analysis it has: that analysis's seal
+    e = inquire(runner_ctx, inquiry_id=iid, action="declare", analysis_id="t1",
+                predictions={"zz": {"up": 0.7, "down": 0.3}})
+    assert e["governance"]["refusals"][0]["message"] == "explanation 'zz'"
+    hint = e["error"]["hint"]
+    assert json.loads(hint[hint.index("{"):])["analysis_id"] == "t1"
     # at open, an unknown analysis named in predictions: the shape for the ones it has
     e = inquire(runner_ctx, action="open", question="q", explanations=E2, analyses=A1,
                 predictions={"t9": {"a": {"up": 0.7, "down": 0.3}}})

@@ -325,7 +325,7 @@ registerStrings("en", {
   "core.release.unmet.outputs_verified": "Outputs not verified",
   "core.release.unmet.execution_declared": "Execution not declared",
   "core.release.unmet.execution_attested": "Execution not attested",
-  "core.inquiry.tip": "Inquiry conclusion: {runtime} outcomes classified by the runtime, {agent} reported by the agent; only the runtime's can decide acceptance",
+  "core.inquiry.tip": ({ runtime, agent }) => `Inquiry conclusion: ${runtime} ${Number(runtime) === 1 ? "outcome" : "outcomes"} classified by the runtime, ${agent} reported by the agent; only the runtime's can decide acceptance`,
   "core.ladder.caption": "Claim kind: {kind} — needs {needs}; weakest evidence here: {weakest} → {result}",
   "core.ladder.supports": "licensed",
   "core.ladder.does_not": "not licensed",
