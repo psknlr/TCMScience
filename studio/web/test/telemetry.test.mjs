@@ -334,6 +334,32 @@ test("turn_end counts the answer check's findings and says how the turn ended; n
   assert.equal(ended({ termination: "something new" }).termination, undefined, "a name the contract does not know is not sent");
 });
 
+test("turn_end: a turn with no answer is not checked, a check that fails sends no counts and keeps the event, and [E#] resolve on the turn's branch", () => {
+  const tools = [{ role: "tool", envelope: { status: "succeeded", citations: [{ id: "E1" }] } }];
+  const counts = (turn) => pick(turnEndEvent({ id: "a1", status: "completed", tools, ...turn }), CHECK_COUNTS);
+  const none = Object.fromEntries(CHECK_COUNTS.map((k) => [k, undefined]));
+  // nothing was said (an error or a stop before any text): no counts, so the Worker does not count it as checked
+  for (const content of ["", "  \n", undefined]) assert.deepEqual(counts({ status: "failed", assistant: { content, error: { kind: "model" } } }), none, JSON.stringify(content));
+  assert.deepEqual(counts({ assistant: { content: "桂枝汤由五味药组成 [E1]。" } }), { citations_unresolved: 0, banned_terms: 0, refusal_unreported: 0, released_wording: 0, overclaim_inquiry: 0 });
+  // the review's repro: a refused claim whose code held pattern characters threw out of turnEndEvent, and the event was lost
+  const odd = [{ role: "tool", envelope: FIX("answercheck-corpus.json").envelopes.refused_odd_code }];
+  const ev = turnEndEvent({ id: "a2", provider: "tao", model: "Tao-S1", status: "completed", assistant: { content: "葛根可以减轻炎症 [E1]。", steps: 1 }, tools: odd });
+  assert.equal(ev.refusal_unreported, 1);
+  assert.equal(ev.claims_refused, 1);
+  // a check that cannot read the turn: every other field is still sent, the check's counts are not
+  const unreadable = [{ get envelope() { throw new Error("unreadable"); } }];
+  let broken;
+  assert.doesNotThrow(() => { broken = turnEndEvent({ id: "a3", provider: "tao", model: "Tao-S1", status: "completed", assistant: { content: "见 [E1]。", steps: 2 }, tools, onPath: unreadable }); });
+  assert.deepEqual(pick(broken, CHECK_COUNTS), none);
+  assert.deepEqual(pick(broken, ["type", "turn", "status", "steps", "citations", "citations_used"]), { type: "turn_end", turn: "a3", status: "completed", steps: 2, citations: 1, citations_used: 1 });
+  // the page resolves an earlier turn's [E#] on the branch it shows: so does the event (onPath), not on a sibling branch's tools
+  const sibling = { role: "tool", envelope: { citations: [{ id: "E7" }] } };
+  const answer = { content: "见 [E1] 与 [E7]。" };
+  assert.equal(turnEndEvent({ id: "a4", status: "completed", assistant: answer, tools, known: [sibling, ...tools], onPath: tools }).citations_unresolved, 1);
+  assert.equal(turnEndEvent({ id: "a4", status: "completed", assistant: answer, tools, known: [sibling, ...tools], onPath: [sibling, ...tools] }).citations_unresolved, 0);
+  assert.equal(turnEndEvent({ id: "a4", status: "completed", assistant: answer, tools, known: [sibling, ...tools] }).citations_unresolved, 0, "known, when no branch is given");
+});
+
 test("contract: turn_end's new fields are whole numbers, two flags and one enum — no string field but the termination", () => {
   const full = {
     type: "turn_end", turn: "t1", provider: "tao", model: "Tao-S1", status: "completed", first: true, steps: 3, tool_rounds: 2, calls: 3, tools: 2,

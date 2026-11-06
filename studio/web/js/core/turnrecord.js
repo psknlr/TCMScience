@@ -244,14 +244,15 @@ export function truncatedOf(assistant) {
 
 /**
  * The usage event of a finished turn ("turn_end"): counts and timings, never text. turn: {id, provider, model, status,
- * first, startedAt, endedAt, firstAt, calls, assistant, tools, known, excluded, recorded}. The answer check's findings
- * (answercheck.js) are counted by kind; their words never leave the page.
+ * first, startedAt, endedAt, firstAt, calls, assistant, tools, known, onPath, excluded, recorded}. The answer check's
+ * findings (answercheck.js) are counted by kind, an [E#] resolved as the page resolves it (onPath: the tool messages of
+ * the turn's own branch; known when not given); their words never leave the page.
  */
 export function turnEndEvent(turn) {
   const a = turn.assistant || {};
   const tools = turn.tools || [];
   const stats = evidenceStats(tools, safeText(a.content), turn.known || tools);
-  const check = checkTurn({ content: safeText(a.content), tools, known: turn.known || tools }).counts;
+  const check = answerCounts(safeText(a.content), tools, turn.onPath || turn.known || tools) || {};
   return {
     type: "turn_end", turn: turn.id, provider: turn.provider, model: turn.model, status: turn.status, first: Boolean(turn.first),
     steps: a.steps, tool_rounds: toolRounds(a), calls: turn.calls || a.steps, tools: tools.length,
@@ -270,6 +271,20 @@ export function turnEndEvent(turn) {
     recorded: Boolean(turn.recorded), excluded: turn.excluded || undefined,
     error_kind: a.error?.kind, error_type: a.error?.type || (a.error?.status ? `http_${a.error.status}` : undefined),
   };
+}
+
+/**
+ * The answer check's counts for turn_end, or null — no counts, so the turn is not one the check read — when the turn
+ * has no answer (nothing was said: an error or a stop before any text) or the check cannot read it. It never throws:
+ * the event keeps every other field.
+ */
+function answerCounts(content, tools, known) {
+  if (!content.trim()) return null;
+  try {
+    return checkTurn({ content, tools, known }).counts;
+  } catch {
+    return null;
+  }
 }
 
 /**

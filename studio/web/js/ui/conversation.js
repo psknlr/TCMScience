@@ -5,7 +5,7 @@
 // once each through #announcer (DESIGN §8.2). A turn's start appends the live message and its end replaces only that
 // message, so the rest of the thread (focus, open tool cards) is not rebuilt.
 
-import { checkAnswer } from "../core/answercheck.js";
+import { KINDS as CHECK_KINDS, checkAnswer } from "../core/answercheck.js";
 import { citationsOf, claimsOf, evidenceOf, refusalsOf, releaseOf } from "../core/governance.js";
 import { lang, t } from "../core/i18n.js";
 import { renderMarkdown } from "../core/markdown.js";
@@ -551,13 +551,18 @@ export function messageContext(vm, { earlier } = {}) {
 
 /**
  * The answer check of a message's view model (core/answercheck.js): its answer read against its turn's envelopes, an
- * [E#] resolved as messageContext resolves it (this turn's, then the earlier turns' on the path). Report-only.
- * → {findings, counts, content} (content: the answer that was read).
+ * [E#] resolved as messageContext resolves it (this turn's, then the earlier turns' on the path). Report-only, and it
+ * never throws into the thread's rendering: a check that fails (an envelope it cannot read) marks nothing and says so.
+ * → {findings, counts, content, failed} (content: the answer that was read).
  */
 export function answerCheckOf(app, vm) {
-  const content = typeof vm.record?.content === "string" ? vm.record.content : vm.segments.filter((s) => s.type === "text").map((s) => s.text).join("\n\n");
-  const c = messageContext(vm, { earlier: () => earlierViews(app, vm.id) });
-  return { ...checkAnswer(content, { turnEnvelopes: c.envelopes.map((e) => e.env), conversationCites: (id) => Boolean(c.cite(id)) }), content };
+  const content = typeof vm.record?.content === "string" ? vm.record.content : (vm.segments || []).filter((s) => s.type === "text").map((s) => s.text).join("\n\n");
+  try {
+    const c = messageContext(vm, { earlier: () => earlierViews(app, vm.id) });
+    return { ...checkAnswer(content, { turnEnvelopes: c.envelopes.map((e) => e.env), conversationCites: (id) => Boolean(c.cite(id)) }), content, failed: false };
+  } catch {
+    return { findings: [], counts: Object.fromEntries(CHECK_KINDS.map((k) => [k, 0])), content, failed: true };
+  }
 }
 
 /** The view models of the assistant messages before `id` on the app's current path, oldest first. */

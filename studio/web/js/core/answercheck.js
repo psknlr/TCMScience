@@ -6,22 +6,26 @@
 // give the same findings.
 //
 // Findings, each {kind, …}:
-//   unresolved_citation    an [E#] that no tool returned anywhere in the conversation (the page resolves an earlier
+//   unresolved_citation    an [E#] that no tool returned on the conversation's branch (the page resolves an earlier
 //                          turn's ids too: ui/conversation.js messageContext), {id}
 //   banned_term            a word the rule forbids whatever the evidence (prompt.js BANNED_TERMS), outside the forms
-//                          that negate or only mention it (无记录不等于安全, 不能证明, not proven, 「证明」), {term, use, at}
+//                          that negate, hedge or only mention it (无记录不等于安全, 未证实, 不能证明, not proven, 「证明」),
+//                          {term, use, at}
 //   released_wording       released, 已发布 or 已放行 said of a result while no envelope of the turn is release-authorized,
 //                          {term, at}
 //   refusal_unreported     the turn's kernel refused claims, and the answer gives neither their code nor any word of
 //                          refusal, {codes}
 //   uncited_with_evidence  the turn's tools returned citations and the answer cites none, {citations}
 //   overclaim_inquiry      accepted or established wording while every inquiry concluded in the turn is provisional,
-//                          undetermined or tentative (explicit word lists only), {term, at, verdict, certainty}
+//                          undetermined or tentative (explicit word lists only; a word already reported as banned_term
+//                          is not reported again), {term, at, verdict, certainty}
 //
 // The word rules read clauses, not meaning: a term is let through when a negation, a question or a condition governs
-// it in its own clause (不等于, 不能, 是否, not, whether, would …), when it is quoted as a word, in code, or in a link.
-// They are tuned on studio/web/test/fixtures/answercheck-corpus.json (answercheck.test.mjs holds the precision and
-// recall each rule must keep).
+// it in its own clause (不等于, 未证实, 是否, 需…证实, not, whether, would …), when it opens its clause as a purpose or
+// as what is still needed (要证明疗效，…; Proving efficacy requires …), when it is quoted as a word, in code, or in a
+// link. They are tuned on studio/web/test/fixtures/answercheck-corpus.json and the `tuning` sentences of
+// answercheck-hedges.json; that file's `heldout` sentences were not used to tune them (answercheck.test.mjs holds the
+// precision and recall each rule must keep on the corpus, and the false-alarm rate and recall on the held-out set).
 
 import { citationsOf, claimsOf, refusalsOf, releaseOf } from "./governance.js";
 import { BANNED_TERMS } from "./prompt.js";
@@ -42,17 +46,34 @@ export function citedIds(text) {
 // ------------------------------------------------------------------------------------------------- reading the text
 
 // where a clause ends: its punctuation, the words that turn it (但 / however), and an "and" that starts a new predicate
-// (not toxic and is safe): a negation before them does not govern what follows
-const BOUNDARY = /[。！？；!?;\n，,]|但是|但|然而|不过|却|而是|而且|反而|\b(?:but|however|although|though|whereas)\b|\band\s+(?=(?:is|are|was|were|can|has|have|it)\b)/gi;
-// what negates, asks or doubts what follows in its clause (Chinese: a multi-character form; a bare 不 only right before
-// the term, so 不仅、不但 and 非常 never count)
-const NEGATION_ZH = /不等于|不代表|不意味着|不说明|不表示|不能|不可|不足以|不一定|不宜|不应|不会|不是|不再|未必|并非|并不|并未|尚未|尚不|尚无|尚缺|未经|未被|未能|未获|未有|未证|未确|未表明|未显示|没有|没|无法|无从|无证据|缺乏|缺少|难以|是否|能否|可否|是不是|有没有|≠|否认/;
-const NEGATION_EN = /\b(?:not|no|never|cannot|nor|neither|without|lacks?|lacking|absence|unclear|whether|if|none|nothing|yet to)\b|n['’]t\b|≠/i;
-// what makes a word a condition or a limit rather than a statement (需要随机对照试验才能证明, would be needed to prove)
-const HEDGE_ZH = /如果|若|待|只有|才能|才可|仍需|尚需|需要|一旦|之前|以前|至多|才会|假如|除非/;
-const HEDGE_EN = /\b(?:would|could|might|until|unless|only after|before|once|at most)\b/i;
+// (未见不良反应且安全, not toxic and is safe): a negation before them does not govern what follows
+const BOUNDARY = /[。！？；!?;\n，,]|但是|但|然而|不过|却|而是|而且|并且|且|反而|\b(?:but|however|although|though|whereas)\b|\band\s+(?=(?:is|are|was|were|can|has|have|it|its|the|this|that|these|those|they|we)\b)/gi;
+// what negates, asks or doubts what follows in its clause (Chinese: a multi-character form; a bare 不 or 未 only right
+// before the term, NEGATED_ZH, so 不仅、不但、不少 and 非常 never count)
+const NEGATION_ZH = /不等于|不代表|不意味着|不说明|不表示|不能|不可|不足以|不一定|不宜|不应|不会|不是|不再|不够|不太|不完全|不十分|不充分|未必|并非|并不|并未|尚未|尚不|尚无|尚缺|未经|未被|未能|未获|未有|未见|未表明|未显示|没有|没|无法|无从|无证据|无任何|无一|缺乏|缺少|难以|是否|能否|可否|是不是|有没有|≠|否认/;
+// 不安全, 未证实, 均未证实, 从未证明; 未 also a word or two before it (未得到证实, 未充分证明), but not 未来 or 未成年
+const NEGATED_ZH = /[不未]$|未(?!来|成年)[\u3400-\u9fff]{1,2}$/;
+const NEGATION_EN = /\b(?:not|no|never|cannot|nor|neither|without|lacks?|lacking|absence|unclear|whether|if|none|nothing|nobody|no one|yet to|short of|far from|insufficient|inadequate|unable|fail(?:s|ed|ing)? to|too early|premature|remains? to be)\b|n['’]t\b|≠/i;
+// a negation that opens the clause governs the whole of it (目前尚无高质量随机对照试验证实…, No study has shown it to be
+// safe), however far the term is
+const OPENS_NEGATED_ZH = /^(?:目前|迄今|至今|现有|当前|现阶段|迄今为止|到目前为止)?(?:尚|仍|还|也)?(?:没有|并无|无任何|无一|未有|从未|缺乏|缺少|尚无|未见)/;
+const OPENS_NEGATED_EN = /^(?:no|none|neither|nothing|never|nobody|no one|not)\b/i;
+// … and so does a doubt about the whole clause, wherever it stands in it (目前不清楚长期大剂量服用是否安全, It is too
+// early to say the formula is safe)
+const DOUBTS_ZH = /不清楚|不明确|不确定|是否|能否/;
+const DOUBTS_EN = /\b(?:too early|premature|unclear|unknown|not (?:known|clear)|uncertain|whether)\b/i;
+// what makes a word a condition or a limit rather than a statement (需要随机对照试验才能证明, 其机制需进一步研究证实,
+// would be needed to prove): 需 as need (需要, 仍需, 还需, 如需), not 所需, 必需, 无需 or 需求
+const NEED_ZH = /(?<![所必无不毋])需(?!求)/;
+const HEDGE_ZH = new RegExp(`如果|若|待|只有|才能|才可|一旦|之前|以前|至多|才会|假如|除非|${NEED_ZH.source}`);
+const HEDGE_EN = /\b(?:would|could|might|until|unless|only after|before|once|at most|(?:needs?|needed|required|necessary) to)\b/i;
 // … or right after it (被接受的条件是, accepted only if)
 const HEDGE_AFTER = /^(?:的(?:条件|前提|标准)|还需|尚需|仍需|\s+(?:only\s+)?(?:if|once|when|provided|unless)\b)/i;
+// a clause that opens with a purpose: 要证明疗效，… 为证实这一作用，… To prove efficacy, … (the term follows it directly)
+const PURPOSE = /^(?:要|若要|如要|想要|为了|为|欲|旨在|in order to|so as to|to)$/i;
+// a clause the term opens as what is still to be done: 证实这一点需要随机对照试验, Proving efficacy requires a trial
+const NEEDED_ZH = new RegExp(`${NEED_ZH.source}|才能|有待|取决于`);
+const NEEDED_EN = /\b(?:requires?|required|needs?|needed|would|calls? for|depends? on)\b/i;
 const OPEN_QUOTE = "「“\"'‘『《";
 const CLOSE_QUOTE = "」”\"'’』》";
 const ZH_WINDOW = 12; // characters before a Chinese term a negation may stand
@@ -94,14 +115,19 @@ function inQuestion(text, at) {
 
 const isCJK = (s) => /[\u3400-\u9fff]/.test(s);
 
-/** Is the term at [at, end) negated, asked about, made a condition, or quoted as a word? */
+/** Is the term at [at, end) negated, asked about, made a condition or a purpose, or quoted as a word? */
 function letThrough(text, at, end) {
   if (OPEN_QUOTE.includes(text[at - 1] || "\u0000") && CLOSE_QUOTE.includes(text[end] || "\u0000")) return true;
   if (inQuestion(text, at) || HEDGE_AFTER.test(text.slice(end, end + 20))) return true;
+  const zh = isCJK(text.slice(at, end));
   const before = clauseBefore(text, at);
+  const lead = before.trim();
+  if (PURPOSE.test(lead) || (zh ? OPENS_NEGATED_ZH : OPENS_NEGATED_EN).test(lead) || (zh ? DOUBTS_ZH : DOUBTS_EN).test(lead)) return true;
+  // the term opens its clause (up to the sentence's end) and the clause says it is still needed
+  if (!lead && (zh ? NEEDED_ZH : NEEDED_EN).test(clauseAfter(text, end).split(/\.(?=\s|$)/)[0])) return true;
   const near = before.slice(-ZH_WINDOW);
   const words = before.split(/\s+/).filter(Boolean).slice(-EN_WINDOW).join(" ");
-  if (isCJK(text.slice(at, end))) return /不$/.test(near) || NEGATION_ZH.test(near) || HEDGE_ZH.test(near) || NEGATION_EN.test(near);
+  if (zh) return NEGATED_ZH.test(near) || NEGATION_ZH.test(near) || HEDGE_ZH.test(near) || NEGATION_EN.test(near);
   return NEGATION_EN.test(words) || HEDGE_EN.test(words) || NEGATION_ZH.test(near);
 }
 
@@ -124,10 +150,13 @@ function occurrences(text, term) {
 
 // ------------------------------------------------------------------------------------------------- banned terms
 
-// The rule replaces these for a prediction (预测, not 发现/揭示) and a result that is not significant (not irrelevant);
-// in other sentences they are ordinary words (一项随机对照试验发现…, irrelevant to the question), so the check leaves
-// them to the forms the rule names whole (发现了机制).
-const CONTEXTUAL = new Set(["发现", "揭示", "irrelevant"]);
+// The rule replaces these for a prediction (预测, not 发现/揭示; predicted, not discovered) and a result that is not
+// significant (not irrelevant); in other sentences they are ordinary words (一项随机对照试验发现…, discovered by Tu
+// Youyou in 1972, irrelevant to the question). So 发现, 揭示 and discovered are reported only in a clause that names a
+// computation (分子对接发现…, Docking discovered…), in both languages alike, and irrelevant never (the rule names no
+// whole form of it, as it names 发现了机制).
+const COMPUTED = /对接|网络药理学|网络分析|分子模拟|动力学模拟|计算|预测|算法|生物信息|富集分析|虚拟筛选|机器学习|\b(?:docking|in silico|network (?:analysis|pharmacology)|computational(?:ly)?|simulations?|predict\w*|enrichment|algorithms?|machine learning|virtual screening)\b/i;
+const CONTEXTUAL = { 发现: COMPUTED, 揭示: COMPUTED, discovered: COMPUTED, irrelevant: null };
 // what makes a banned word part of another word that says nothing forbidden: 安全信号, 安全性评价, 精准医学, a safe harbor
 const COMPOUND = {
   安全: {
@@ -139,15 +168,19 @@ const COMPOUND = {
   safe: { after: /^[\s-]+(?:harbou?r|mode|search|word|use|handling|practice|storage)\b/i },
 };
 
+// the longer terms first, so a term inside a longer one (发现 in 发现了机制) is reported once, by the longer
+const BY_LENGTH = [...BANNED_TERMS].sort((a, b) => b.term.length - a.term.length);
+
 function bannedTerms(text) {
   const out = [];
-  for (const b of BANNED_TERMS) {
-    if (CONTEXTUAL.has(b.term)) continue;
+  for (const b of BY_LENGTH) {
+    const context = Object.hasOwn(CONTEXTUAL, b.term) ? CONTEXTUAL[b.term] : undefined;
+    if (context === null) continue;
     const c = COMPOUND[b.term] || {};
     for (const { at, end } of occurrences(text, b.term)) {
       if (c.after?.test(text.slice(end, end + 8)) || c.before?.test(text.slice(Math.max(0, at - 4), at))) continue;
-      // inside a longer banned term found as well (none today): reported once, by the longer
       if (out.some((f) => at >= f.at && end <= f.end)) continue;
+      if (context && !context.test(`${clauseBefore(text, at)}${text.slice(at, end)}${clauseAfter(text, end)}`)) continue;
       if (letThrough(text, at, end)) continue;
       out.push({ kind: "banned_term", term: b.term, form: text.slice(at, end), lang: b.lang, use: b.use, at, end });
     }
@@ -192,7 +225,7 @@ export function refusedClaimCodes(envelopes = []) {
     for (const c of safe(() => claimsOf(env), [])) {
       if (c.allowed !== false) continue;
       refused++;
-      for (const code of c.codes || []) codes.add(String(code).toUpperCase());
+      for (const code of c.codes || []) if (String(code ?? "").trim()) codes.add(String(code).trim().toUpperCase());
     }
     for (const r of safe(() => refusalsOf(env), [])) {
       if (!/^CLM\d+$/i.test(String(r.code || ""))) continue;
@@ -201,6 +234,20 @@ export function refusedClaimCodes(envelopes = []) {
     }
   }
   return { refused, codes: [...codes].sort() };
+}
+
+const ASCII_WORD = /[A-Za-z0-9_]/;
+
+/** Does the text name this code as a word of its own (CLM005, not CLM0051)? Plain text, never a pattern: a code comes
+ * from an envelope, and whatever characters it holds (CLM005[draft) it is only looked for. */
+export function mentionsCode(text, code) {
+  const s = String(text || "").toUpperCase();
+  const c = String(code || "").toUpperCase();
+  if (!c) return false;
+  for (let i = s.indexOf(c); i >= 0; i = s.indexOf(c, i + 1)) {
+    if (!ASCII_WORD.test(s[i - 1] || "") && !ASCII_WORD.test(s[i + c.length] || "")) return true;
+  }
+  return false;
 }
 
 // ------------------------------------------------------------------------------------------------- inquiry
@@ -220,14 +267,15 @@ export function inquiryConclusionsOf(envelopes = []) {
   return out;
 }
 
-function overclaim(text, conclusions) {
+/** `taken`: the findings already reported (a word the rule bans, 证实, is reported once, as banned_term). */
+function overclaim(text, conclusions, taken = []) {
   // only when every conclusion of the turn is weak: with an accepted one beside it, the words may be about that one
   if (!conclusions.length || !conclusions.every((c) => WEAK_VERDICTS.has(c.verdict) || WEAK_CERTAINTY.has(c.certainty))) return [];
   const weak = conclusions[0];
   const out = [];
   for (const term of SETTLED) {
     for (const { at, end } of occurrences(text, term)) {
-      if (out.some((f) => at < f.end && end > f.at)) continue;
+      if ([...taken, ...out].some((f) => f.at >= 0 && at < f.end && end > f.at)) continue;
       if (letThrough(text, at, end)) continue;
       out.push({ kind: "overclaim_inquiry", term, at, end, verdict: weak.verdict, certainty: weak.certainty });
     }
@@ -270,11 +318,11 @@ export function checkAnswer(content, { turnEnvelopes = [], conversationCites = n
     if (on.has("released_wording") && !envs.some((e) => safe(() => releaseOf(e), null)?.authorized)) findings.push(...releasedWording(text));
     if (on.has("refusal_unreported")) {
       const { refused, codes } = refusedClaimCodes(envs);
-      const told = codes.some((c) => new RegExp(`\\b${c}\\b`, "i").test(raw)) || REFUSAL_WORDS.test(text);
+      const told = codes.some((c) => mentionsCode(raw, c)) || REFUSAL_WORDS.test(text);
       if (refused && !told) findings.push({ kind: "refusal_unreported", codes, at: -1 });
     }
     if (on.has("uncited_with_evidence") && turnIds.size && !cited.size) findings.push({ kind: "uncited_with_evidence", citations: turnIds.size, at: -1 });
-    if (on.has("overclaim_inquiry")) findings.push(...overclaim(text, Array.isArray(inquiryConclusions) ? inquiryConclusions : inquiryConclusionsOf(envs)));
+    if (on.has("overclaim_inquiry")) findings.push(...overclaim(text, Array.isArray(inquiryConclusions) ? inquiryConclusions : inquiryConclusionsOf(envs), findings));
   }
   findings.sort((a, b) => (a.at < 0 ? Infinity : a.at) - (b.at < 0 ? Infinity : b.at));
   const counts = Object.fromEntries(KINDS.map((k) => [k, 0]));

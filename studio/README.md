@@ -203,8 +203,9 @@ tcmstudio serve
 - 种子语料是示范性的：没有记载不等于安全，未显著不等于无关；古籍记载是出处，不是临床证据；预测不等于实测，网络药理最多支持
   机制**假说**。
 - 「已准予发布」只表示内核的六项发布检查通过，不表示结论正确；证据种类是类型，不是等级。
-- 回答旁的「回答检查」只作提示，从不改动或拦下回答：它只查回答引用的编号是否有工具给出、是否用了治理规则不用的词、是否漏说
-  内核的拒绝、是否把未获准发布的结果说成已发布、是否超出探究结论的措辞；没有标出问题不表示回答正确。
+- 回答旁的「回答检查」只作提示，从不改动或拦下回答：它只查回答引用的编号是否有工具给出、工具给了引文时回答是否一处都没引、
+  是否用了治理规则不用的词（否定、条件与目的里的不算，如「未证实」「需进一步研究证实」）、是否漏说内核的拒绝、是否把未获准发布
+  的结果说成已发布、是否超出探究结论的措辞；没有标出问题不表示回答正确。
 - 浏览器里的 Python 在 CPU 上单线程运行；本机内核覆盖 7 个序列工具（比对、编辑距离和三项整数计数）与 ADMET 的适用域检索
   （Tanimoto），不代表所有 Python 引擎都能使用 GPU。WebGPU 只用于其中的整数计数（调度器预计更快、且适配器未被识别为软件渲染器时）和
   ADMET 适用域检索（仅在本设备自身的检查测得实体适配器既精确又更快时）——两者都只在软件适配器上测试过、从未在硬件 GPU 上运行；本处
@@ -376,9 +377,10 @@ goes to that provider; with a local model it stays on your computer. Conversatio
 withdrawable with deletion under Settings → Privacy, kept 90 days, readable only by the site's administrators); anonymous
 usage statistics hold no conversation content and cannot follow a visitor from one day to the next. Studio gives no clinical advice: clinic outputs are drafts for a licensed practitioner, no record
 is not evidence of safety, and predicted is not measured. The answer check beside an answer is a note only and never changes
-or holds back the answer: it checks that the answer's citation ids were given by a tool, that it avoids the words the
-governance rule does not use, that it reports the kernel's refusals, and that it calls nothing released or settled beyond what
-the tools returned; nothing marked does not mean the answer is right.
+or holds back the answer: it checks that the answer's citation ids were given by a tool, that it cites the tools' citations at
+all when there are some, that it avoids the words the governance rule does not use (a negation, a condition or a purpose does
+not count: "not proven", "would be needed to prove"), that it reports the kernel's refusals, and that it calls nothing
+released or settled beyond what the tools returned; nothing marked does not mean the answer is right.
 
 Tests: `node --test studio/edge/test/*.test.js`, `python3 -m pytest -q studio/runner/tests`, `cd studio && npm test`,
 `cd studio && npm run test:e2e` (Playwright: the real runner, Pyodide from jsDelivr, `wrangler dev` of the Worker; the specs

@@ -107,10 +107,13 @@ Worker 另加 `seq`（递增编号）、`received`（收到时间）、`day`（�
 | `consent` | 同意 / 拒绝 / 撤回 / 删除，说明版本 | 同意情况 |
 
 **回答检查**（`web/js/core/answercheck.js`，网页在一轮结束时对回答做的检查，只作提示，从不改动或拦下回答）在 `turn_end` 里
-只留每类的处数，不留回答的任何文字：`citations_unresolved`（回答里的 `[E#]` 不是本对话中任何工具给出的编号）、`banned_terms`
-（治理规则不用的词，如「证明」「安全」，否定、提问、条件、引号与代码里的不算）、`refusal_unreported`（内核拒绝了本轮的主张，
-回答既没写拒绝代码也没说拒绝）、`released_wording`（本轮没有结果获准发布，回答却说 released / 已发布 / 已放行）、
-`overclaim_inquiry`（本轮的探究结论是暂定、未决或初步，回答却说已接受、已确立）。`termination` 只取固定的几种
+只留每类的处数，不留回答的任何文字：`citations_unresolved`（回答里的 `[E#]` 不是本轮所在分支上任何工具给出的编号，与网页
+的判定相同）、`banned_terms`（治理规则不用的词，如「证明」「安全」；否定、提问、条件或尚需、目的、引号与代码里的不算，如
+「未证实」「其机制需进一步研究证实」「要证明疗效，……」）、`refusal_unreported`（内核拒绝了本轮的主张，回答既没写拒绝代码也
+没说拒绝）、`released_wording`（本轮没有结果获准发布，回答却说 released / 已发布 / 已放行）、`overclaim_inquiry`（本轮的
+探究结论是暂定、未决或初步，回答却说已接受、已确立；已算作 `banned_terms` 的词不再算一次）。消息旁的处数还含「工具给出了
+引文，回答一处都没引」（`uncited_with_evidence`），它不单独计数：同一轮的 `citations` 与 `citations_used` 已能看出。一轮没有
+回答（出错或在任何文字之前就停止），或检查读不了这一轮时，这五项都不发，这一轮不算作检查过的轮次。`termination` 只取固定的几种
 （`answered`、`max_steps_synthesized`、`truncated`、`stopped`、`refused_by_model`、`error:model|network|runtime`），由智能体
 写在回答上，没写时不发；`truncated` 由智能体的结束方式或模型服务的 `finish_reason`（`length` / `max_tokens`）判定。网页在消息
 旁显示同一份检查结果（「回答检查：N 处」，细节在检查器的「过程」中）；没有标出问题不表示回答正确。
@@ -357,8 +360,8 @@ node studio/edge/scripts/export-telemetry.mjs --out ~/tcmscience-exports --days 
 | 测试 | 覆盖 |
 |---|---|
 | `web/test/publiclinks.test.mjs` | 网页不出现项目主页、Arena 与仓库链接（含运行时文本） |
-| `web/test/telemetry.test.mjs` | 同意的版本与撤回；敏感内容与隐去；契约的字段与长度；不记录的原因；记录与事件的构建；只在本站收统计时发送；DNT/GPC；失败重试与刷新后续发；中断的轮次 |
-| `web/test/answercheck.test.mjs` | 回答检查：在中英文回答语料（`fixtures/answercheck-corpus.json`）上每类的精确率与召回率、否定与引用的放行、只作提示（回答与工具结果不变）、消息旁的提示与检查器里的细节 |
+| `web/test/telemetry.test.mjs` | 同意的版本与撤回；敏感内容与隐去；契约的字段与长度；不记录的原因；记录与事件的构建；只在本站收统计时发送；DNT/GPC；失败重试与刷新后续发；中断的轮次；`turn_end` 的回答检查计数（没有回答的轮次不计，检查读不了这一轮时不发，其余字段照发） |
+| `web/test/answercheck.test.mjs` | 回答检查：在中英文回答语料（`fixtures/answercheck-corpus.json`）上每类的精确率与召回率、否定与引用的放行、留出的措辞句（`fixtures/answercheck-hedges.json` 的 `heldout`，未用于调规则）上的误报率与召回率、拒绝代码按文字查找而从不抛错、只作提示（回答与工具结果不变）、消息旁的提示与检查器里的细节 |
 | `web/dev/test/telemetry-ui.test.mjs` | 真实应用里的询问对话框、同意 / 拒绝 / 撤回、上传文件与敏感问题不记录、隐私设置页、发送失败不影响对话 |
 | `web/test/admin.test.mjs` | 后台文字中英文对齐；图表刻度；仪表板对真实接口的显示；访客文字只作文本；按需读取与审计；删除；会话过期；公开代码不含管理接口与令牌 |
 | `edge/test/telemetry-store.test.js` | 三个存储：计数互不混淆、去重、每日盐、筛选与对比、保留期、删除与墓碑、安全事件的地址处理；旧表补列只做加法、回答检查按模型与日的统计 |

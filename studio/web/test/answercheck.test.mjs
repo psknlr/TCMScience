@@ -7,7 +7,7 @@ import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { KINDS, RULES, checkAnswer, checkTurn, citedIds, excerpt, inquiryConclusionsOf, refusedClaimCodes } from "../js/core/answercheck.js";
+import { KINDS, RULES, checkAnswer, checkTurn, citedIds, excerpt, inquiryConclusionsOf, mentionsCode, refusedClaimCodes } from "../js/core/answercheck.js";
 import { BANNED_TERMS, VOCABULARY, buildSystemPrompt } from "../js/core/prompt.js";
 import { plan } from "../../e2e/mock-llm.mjs";
 
@@ -85,16 +85,71 @@ test("negation and mention allow-list: the negated, asked, conditional, quoted a
     "Not proven.", "This has not been proven.", "No record (not safe).", "The absence of a record does not mean it is safe.",
     "Whether it is safe is unknown.", "Is it safe?", "A trial would be needed to prove it.", "We cannot prove efficacy.", "Nothing here is proven.",
     "Fail-safe storage.", "`safe` is a word the rule forbids.", "安全信号 2 条。", "安全性评价未做。", "精准医学。",
+    // a bare 未 right before the term, or a word or two before it (the review's repro: these four were marked)
+    "研究未证明有效。", "目前未证实其疗效。", "均未证实。", "从未证明。", "疗效未得到证实。", "其作用未充分证明。",
+    // a need, a purpose, what is still to be done, a negation that opens the clause
+    "其机制需进一步研究证实。", "该作用还需临床试验证实。", "需临床研究证明其疗效。", "如需证实这一关联，应开展队列研究。", "要证明疗效，需要随机对照试验。",
+    "证实这一点需要随机对照试验。", "目前尚无高质量随机对照试验证实其疗效。", "目前不清楚长期大剂量服用是否安全。",
+    "To prove efficacy, a randomized trial would be needed.", "Proving efficacy requires a randomized trial.", "No study has shown it to be safe.",
+    "The data fall short of proving efficacy.", "Further trials are needed to prove it works.", "It is too early to say the formula is safe.",
   ]) assert.deepEqual(banned(ok), [], ok);
   for (const [text, term] of [
     ["临床证明有效。", "证明"], ["长期服用安全。", "安全"], ["研究证实了这一点。", "证实"], ["精准定位靶点。", "精准"], ["发现了机制。", "发现了机制"],
     ["副作用确认。", "副作用确认"], ["不仅有效，而且安全。", "安全"], ["非常安全。", "安全"], ["安全性良好。", "安全"],
     ["It is proven.", "proven"], ["Trials prove it works.", "proven"], ["It is safe.", "safe"], ["It can be safely combined.", "safe"], ["It is not toxic and is safe.", "safe"],
     ["Docking discovered the target.", "discovered"], ["A confirmed side effect.", "confirmed side effect"],
+    // what looks like a negation or a need and is not: 未成年, 已得到, 不少, 所需, 无需; a negation that ends with its clause
+    ["未成年人服用安全。", "安全"], ["其疗效已得到证实。", "证实"], ["不少研究证实了它的疗效。", "证实"], ["达到疗效所需剂量是安全的。", "安全"],
+    ["安全无需担心。", "安全"], ["未见不良反应且长期服用安全。", "安全"], ["No adverse events occurred, so it is safe.", "safe"], ["To be clear, it is safe.", "safe"],
+    ["分子对接发现了新的结合位点。", "发现"],
   ]) assert.deepEqual(banned(text), [term], text);
-  // 发现、揭示 and irrelevant are the rule's words for a prediction and a result that is not significant only: elsewhere
-  // they are ordinary (一项试验发现…), so they are not reported alone
+  // 发现、揭示, discovered and irrelevant are the rule's words for a prediction and a result that is not significant only:
+  // elsewhere they are ordinary (一项试验发现…, discovered in 1972), so they are reported only beside a computation, in
+  // both languages alike, and irrelevant never alone
   assert.deepEqual(banned("一项随机对照试验发现血压下降。The p-value is irrelevant here."), []);
+  assert.deepEqual(banned("Artemisinin was discovered by Tu Youyou in 1972. 青蒿素由屠呦呦于1972年发现。"), []);
+});
+
+test("hedged wording: every tuning sentence reads right; the held-out sentences keep the false-alarm rate and recall measured on them", () => {
+  const HEDGES = FIX("answercheck-hedges.json");
+  const banned = (text) => checkAnswer(text, { turnEnvelopes: [{ citations: [{ id: "E1" }] }] }).findings.filter((f) => f.kind === "banned_term").map((f) => f.term).sort();
+  for (const c of HEDGES.tuning) assert.deepEqual(banned(c.text), [...c.expect].sort(), `${c.id}: ${c.text}`);
+  const held = HEDGES.heldout;
+  assert.deepEqual(new Set(held.map((c) => c.lang)), new Set(["zh", "en"]));
+  const hedges = held.filter((c) => !c.expect.length);
+  const claims = held.filter((c) => c.expect.length);
+  assert.ok(hedges.length >= 50 && claims.length >= 25, `${hedges.length} hedges, ${claims.length} claims`);
+  const alarms = hedges.filter((c) => banned(c.text).length).map((c) => `${c.id} ${c.text}`);
+  let expected = 0;
+  let found = 0;
+  const extra = [];
+  for (const c of claims) {
+    const got = banned(c.text);
+    expected += c.expect.length;
+    found += c.expect.filter((t) => got.includes(t)).length;
+    extra.push(...got.filter((t) => !c.expect.includes(t)).map((t) => `${c.id} ${t}`));
+  }
+  // the first measure of the held-out set: 5 of its 54 hedges marked (12 before the fix), every claim found, nothing
+  // extra; a rule change may lower the count, never raise it
+  assert.ok(alarms.length <= 5, `${alarms.length} hedges marked: ${alarms.join("; ")}`);
+  assert.equal(found, expected, "every plain claim is marked");
+  assert.deepEqual(extra, []);
+  assert.equal(new Set([...HEDGES.tuning, ...held].map((c) => c.text)).size, HEDGES.tuning.length + held.length, "no sentence in both sets");
+});
+
+test("it never throws: a refused claim's code is looked for as text, whatever characters it holds", () => {
+  const odd = CORPUS.envelopes.refused_odd_code;
+  // the review's repro: an unbalanced [ or ( in a code raised a SyntaxError from the check
+  assert.deepEqual(refusedClaimCodes([odd]).codes, ["(X", "CLM005[DRAFT"]);
+  assert.equal(checkAnswer("葛根可以减轻炎症 [E1]。", { turnEnvelopes: [odd] }).counts.refusal_unreported, 1);
+  assert.equal(checkAnswer("内核判定：CLM005[draft [E1]。", { turnEnvelopes: [odd] }).counts.refusal_unreported, 0, "the odd code, named");
+  // a code is a word of its own: CLM005 is not CLM0051; beside Chinese, or in brackets, it is named
+  assert.equal(mentionsCode("见 CLM0051 [E1]", "CLM005"), false);
+  assert.equal(mentionsCode("已拒绝CLM005。", "clm005"), true);
+  assert.equal(mentionsCode("（CLM005）", "CLM005"), true);
+  assert.equal(mentionsCode("(x)", "(X"), true);
+  assert.equal(mentionsCode("anything", ""), false);
+  assert.deepEqual(refusedClaimCodes([{ governance: { claims: [{ id: "c", verdict: { allowed: false, codes: ["", "  ", null] } }] } }]), { refused: 1, codes: [] });
 });
 
 test("the banned words are the prompt's: each is in the rendered rule of its language, and the rule names the never-list", () => {
@@ -139,6 +194,11 @@ test("counts, order, rules and excerpts", () => {
   const weak = { result: { conclusion: { verdict: "provisional", certainty: "tentative" } }, citations: [{ id: "E1" }] };
   assert.equal(checkAnswer("H1 is accepted [E1].", { turnEnvelopes: [weak] }).counts.overclaim_inquiry, 1);
   assert.equal(checkAnswer("H1 is accepted [E1].", { turnEnvelopes: [weak], rules: KINDS.filter((k) => k !== "overclaim_inquiry") }).counts.overclaim_inquiry, 0);
+  // one word is one finding: 证实 is a banned word, so it is not also an overclaim (the badge said 2 处 for it)
+  const once = checkAnswer("A2 的结果证实了 H1 [E1]。", { turnEnvelopes: [weak] });
+  assert.deepEqual(once.findings.map((f) => `${f.kind}:${f.term}`), ["banned_term:证实"]);
+  // … unless the banned-term rule is off: then the overclaim rule reports it
+  assert.equal(checkAnswer("A2 的结果证实了 H1 [E1]。", { turnEnvelopes: [weak], rules: KINDS.filter((k) => k !== "banned_term") }).counts.overclaim_inquiry, 1);
   assert.deepEqual(inquiryConclusionsOf([weak, { result: {} }, null]), [{ verdict: "provisional", certainty: "tentative", leader: null }]);
   assert.deepEqual(refusedClaimCodes([FIX("envelope_claims_refused.json")]).codes.filter((c) => c.startsWith("CLM")), ["CLM004", "CLM005", "CLM006", "CLM008", "CLM009"]);
   assert.deepEqual([...citedIds("见 [E1, E2] 与 【E9】")], ["E1", "E2", "E9"]);
@@ -158,7 +218,9 @@ test("citations: an earlier turn's id resolves (the conversation's), a turn with
 test("the agent eval's evidence grader reads this module, not a copy", { skip: !fs.existsSync(new URL("../../eval/graders/evidence.mjs", import.meta.url)) && "studio/eval (plan item E1) is not in this tree" }, () => {
   const source = fs.readFileSync(new URL("../../eval/graders/evidence.mjs", import.meta.url), "utf8");
   assert.match(source, /from\s+["'](?:\.\.\/)+web\/js\/core\/answercheck\.js["']/);
-  assert.doesNotMatch(source, /证明\|确认有效|BANNED\s*=\s*\//, "no vocabulary of its own");
+  // no vocabulary of its own, however it is spelled: no Chinese word of the rule appears in it at all
+  for (const b of BANNED_TERMS.filter((x) => x.lang === "zh")) assert.ok(!source.includes(b.term), `the grader names ${b.term} itself`);
+  assert.doesNotMatch(source, /BANNED\w*\s*=\s*[[/]/, "no list of banned words of its own");
 });
 
 // ------------------------------------------------------------------------------------------------- in the page
@@ -199,6 +261,17 @@ test("in the page: a badge only when something is marked, the details for the in
     const clean = answerCheckOf(app, { ...vm, record: { ...record, content: "桂枝汤由五味药组成 [E1]。" } });
     assert.equal(answerCheckBadge(clean), null);
     assert.equal(answerCheckList(clean, clean.content).textContent, "Nothing marked.");
+    assert.equal(clean.failed, false);
+    // a check that fails never throws into the thread's rendering: it marks nothing and says so (the inspector then
+    // shows no check block); here the earlier turns an [E9] would be looked up in cannot be read
+    const broken = answerCheckOf({ path: () => { throw new Error("the store is gone"); } }, { ...vm, record: { ...record, content: "见 [E9]。" } });
+    assert.equal(broken.failed, true);
+    assert.deepEqual(broken.findings, []);
+    assert.equal(answerCheckBadge(broken), null);
+    assert.doesNotThrow(() => answerCheckOf(app, { id: "a2", record: { content: "x" } }), "a view model without segments");
+    // the review's envelope with a code that held pattern characters: read, not thrown
+    const odd = { ...vm, record: { ...record, content: "葛根可以减轻炎症 [E1]。" }, tools: new Map([["c1", { call: { id: "c1" }, envelope: CORPUS.envelopes.refused_odd_code }]]) };
+    assert.deepEqual(keys(answerCheckOf(app, odd)), ["refusal_unreported"]);
   } finally {
     setLang("zh");
   }

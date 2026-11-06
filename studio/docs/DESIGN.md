@@ -879,10 +879,16 @@ without it); a runner's GPU is reported or selected, never more; remote compute 
 ### 6.7 Answer check (report-only)
 
 `core/answercheck.js` reads a finished answer against its turn's envelopes and the governance rule's own vocabulary
-(`prompt.js` `BANNED_TERMS`): a `[E#]` no tool of the conversation returned, a word the rule does not use outside a
-negation, a question, a condition, quotes or code (无记录不等于安全, 不能证明 and "not proven" pass), a kernel refusal the
-answer leaves out, "released / 已发布 / 已放行" with nothing release-authorized, and 已接受 / established wording over a
-provisional or tentative inquiry. It is a note, never a verdict: the answer is shown exactly as the model wrote it.
+(`prompt.js` `BANNED_TERMS`): a `[E#]` no tool of the conversation's branch returned, an answer that cites none of the
+citations its turn's tools returned, a word the rule does not use outside a negation, a question, a condition or need, a
+purpose, quotes or code (无记录不等于安全, 不能证明, 未证实, 其机制需进一步研究证实, 要证明疗效，…, "not proven", "No study
+has shown it to be safe", "To prove efficacy, …" pass; 发现 / 揭示 / discovered only beside a computation, as the rule
+replaces them for a prediction), a kernel refusal the answer leaves out, "released / 已发布 / 已放行" with nothing
+release-authorized, and 已接受 / established wording over a provisional or tentative inquiry (a word already marked as
+banned is not marked twice). It is a note, never a verdict: the answer is shown exactly as the model wrote it. The word
+rules are measured on a corpus of answers and on hedged sentences held out from their tuning
+(`web/test/fixtures/answercheck-hedges.json`), and the check never throws into the thread: one that cannot read a turn
+marks nothing.
 
 - On the message: an ochre pill beside the attribution, 「回答检查：3 处」 / "Answer check: 3 notes" (! icon + words), only
   when something is marked; a clean answer carries none. It opens the inspector.

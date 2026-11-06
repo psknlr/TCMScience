@@ -240,10 +240,11 @@ export function mountInspector(app, host) {
     }));
   }
 
-  /** The answer check of a finished turn (core/answercheck.js): what it marked, as a note; nothing when there is no answer. */
+  /** The answer check of a finished turn (core/answercheck.js): what it marked, as a note; nothing when there is no
+   * answer, or when the check could not read the turn. */
   function checkBlock(vm) {
     const check = answerCheckOf(app, vm);
-    if (!check.content.trim()) return null;
+    if (check.failed || !check.content.trim()) return null;
     const n = check.findings.length;
     return h("div.run__check", { "data-check-for": vm.id },
       h("h3.run__check-title", t("ui.check.title"), n ? verdictPill({ tone: "caveat", icon: "!", label: t("ui.check.badge", { n }) }, { size: "sm" }) : null),

@@ -1200,11 +1200,14 @@ export class App {
       // judged whole: once a turn may not be recorded, no later turn of the conversation is
       if (reason && reason !== before && STICKY_EXCLUSIONS.includes(reason)) await this.#keepOut(conv.id, reason);
       const tools = toolMessages.map((m) => this.#namedTool(m));
+      // the tool messages of the turn's own branch: the answer check resolves an [E#] on them, as the page does
+      const onBranch = new Set([...path.map((m) => m.id), assistant.id]);
       const base = {
         id: assistant.id, provider: assistant.provider, model: assistant.model, status: turnStatus(assistant, { interrupted }),
         first: turn?.first ?? path.filter((m) => m.role === "user").length <= 1, startedAt: live?.startedAt,
         endedAt: endedAt ?? assistant.ui?.endedAt ?? Date.now(), firstAt: live?.firstAt, calls: live?.calls, assistant, tools,
         known: known.map((m) => this.#namedTool(m)),
+        onPath: known.filter((m) => onBranch.has(m.parentId) || toolMessages.includes(m)).map((m) => this.#namedTool(m)),
       };
       const agreed = tel.contentOn && turn?.consent === true;
       const excluded = reason || (!tel.conversationsAvailable ? "unavailable" : !agreed ? "no_consent" : null);
