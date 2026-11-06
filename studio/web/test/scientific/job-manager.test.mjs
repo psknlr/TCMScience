@@ -161,6 +161,23 @@ async function settle(svc, id, ms = 3000) {
   }
 }
 
+/**
+ * Ask `check` (it may be async) every 5 ms until it answers truthy or `ms` passes → its last answer. A test waits
+ * with it for the state its next step needs (the job's stage running, a lock released) rather than sleeping a fixed
+ * time: under a loaded test run a few ticks can take tens of milliseconds. The assertion after it still decides.
+ */
+async function until(check, ms = 3000) {
+  const t0 = Date.now();
+  for (;;) {
+    const v = await check();
+    if (v || Date.now() - t0 > ms) return v;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+/** The job's first stage has started: its handler is inside it. */
+const inStage = (svc, id) => until(async () => (await svc.get(id))?.stages[0]?.status === "running");
+
 function deferred() {
   let resolve;
   const promise = new Promise((r) => { resolve = r; });
@@ -423,7 +440,7 @@ test("cancel a queued job: cancelled at once, never run; cancel a running one: i
   };
   const h = setup({ run: async () => "hang", handlers: [handler] });
   const job = await h.svc.submit("test.hang", {});
-  await new Promise((r) => setTimeout(r, 30));
+  await inStage(h.svc, job.id);
   assert.equal((await h.svc.get(job.id)).stages[0].status, "running");
   const view = await h.svc.cancel(job.id);
   assert.equal(view.state, "running", "it ends once the handler has stopped");
@@ -433,9 +450,8 @@ test("cancel a queued job: cancelled at once, never run; cancel a running one: i
   assert.equal(h.Worker.instances[0].terminated, true, "the lease's worker was stopped");
   assert.equal(done.stages[0].status, "cancelled");
   assert.equal(done.error, null);
-  // released as the job's end is put away, just after its record says cancelled (which settle() saw): under a loaded
-  // test run that can be a few ticks later
-  for (let i = 0; i < 100 && h.registry.size; i++) await new Promise((r) => setTimeout(r, 5));
+  // released as the job's end is put away, just after its record says cancelled (which settle() saw)
+  await until(() => h.registry.size === 0);
   assert.equal(h.registry.size, 0, "its Web Lock is released");
   const r = await h.svc.receipt(job.id);
   assert.equal(r.doc.state, "cancelled");
@@ -454,7 +470,7 @@ test("a handler that ignores the cancel is ended as cancelled after the grace pe
   };
   const { svc } = setup({ handlers: [handler], cancelGraceMs: 30 });
   const job = await svc.submit("test.stubborn", {});
-  await new Promise((r) => setTimeout(r, 20));
+  await inStage(svc, job.id); // cancelled any sooner, it would stop at its stage's door instead of ignoring the cancel
   await svc.cancel(job.id);
   const done = await settle(svc, job.id);
   assert.equal(done.state, "cancelled");
@@ -700,7 +716,7 @@ test("a job that leases a worker and is cancelled while it waits for one stops w
   const { svc, pool } = setup({ handlers: [handler], maxConcurrent: 2, size: 1 });
   const holder = await svc.submit("test.lease", { hold: true });
   const waiter = await svc.submit("test.lease", {});
-  await new Promise((r) => setTimeout(r, 30));
+  await until(() => pool.stats().waiting === 1);
   assert.equal(pool.stats().waiting, 1);
   await svc.cancel(waiter.id);
   const w = await settle(svc, waiter.id);
@@ -782,6 +798,8 @@ test("a result that cannot be kept as JSON fails its job, and the queue goes on"
   assert.match(a.error.message, /cannot be kept as JSON/);
   assert.equal(a.result, null);
   assert.equal((await settle(svc, second.id)).state, "succeeded", "the next job still ran");
+  // the record says the job ended before its lock goes (written, then released): settle() can see it in between
+  await until(() => registry.size === 0);
   assert.equal(registry.size, 0, "both locks released");
 });
 
@@ -812,7 +830,7 @@ test("isolated: Python stops in place on a cancel, yet the cancelled job's worke
     });
     const { svc, Worker } = setup({ run, size: 1 });
     const job = await svc.submit("test.compute", { hang: true });
-    await new Promise((r) => setTimeout(r, 30));
+    await until(() => Worker.instances[0]?.received.some((m) => m.op === "run")); // Python is running the job's code
     await svc.cancel(job.id);
     assert.equal((await settle(svc, job.id)).state, "cancelled");
     assert.equal(Worker.instances[0].terminated, true, "whatever the job left in the worker's memory goes with it");
