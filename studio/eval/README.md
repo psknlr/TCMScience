@@ -44,9 +44,12 @@ In the PSH evaluator's order (`psh/runtime/evaluator.py`); all run on every turn
    (the Retry button).
 2. **execution**: trajectory recall and precision against the case's gold calls, by catalog entry; no forbidden call; no
    call repeated after it failed in a way a retry cannot change.
-3. **evidence**: every `[E#]` the answer cites was returned by a tool; none of the banned words (`prompt.js`), unless the
-   answer denies them ("无记录不等于安全"); every claim code the kernel refused is named; "released" only when a tool
-   authorized release. Inline until `web/js/core/answercheck.js` exists (plan item P1.2).
+3. **evidence**: every `[E#]` the answer cites was returned by a tool; none of the banned words (`prompt.js`
+   `BANNED_TERMS`), unless the answer denies, hedges or only mentions them ("无记录不等于安全"); every claim code the
+   kernel refused is named; "released" only when a tool authorized release. It reads the answer with the answer check
+   the page and the usage event use (`web/js/core/answercheck.js`, plan item P1.2), never a vocabulary of its own
+   (`web/test/answercheck.test.mjs` holds it to that); a case that fabricates on purpose (`flagged`) passes when the
+   turn's usage event (`turnrecord.js` `turnEndEvent`) counts the unresolved citation.
 4. **goal**: entity sets the answer must name, statements it must not make (patterns, never string equality with a
    reference answer), the outcome class of the key result (data_unavailable, never a negative finding), a ceiling on a
    research_inquiry verdict, and nothing sent off the machine.

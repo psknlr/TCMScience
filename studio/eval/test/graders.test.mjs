@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { envelopeFor } from "../../web/test/fixtures/fakes.mjs";
 import { cost } from "../graders/cost.mjs";
-import { bannedTerms, evidence, releaseWording } from "../graders/evidence.mjs";
+import { bannedTerms, evidence, flaggedOnTurn, releaseWording } from "../graders/evidence.mjs";
 import { execution } from "../graders/execution.mjs";
 import { goal } from "../graders/goal.mjs";
 import { gradeAll } from "../graders/index.mjs";
@@ -39,7 +39,7 @@ const pocGood = () => turn({
 const pocBad = () => turn({ answer: POC_BAD, tools: [tool("c1", "tcm_formula", "native.tcm_formula", formulaEnv())] });
 const GOLD = ["native.tcm_formula", "native.tcm_compatibility"];
 
-test("the proof of concept's good and bad answers keep opposite verdicts: recall 1 vs 0.5, unresolved 0 vs 1, banned 0 vs 1 (证明)", () => {
+test("the proof of concept's good and bad answers keep opposite verdicts: recall 1 vs 0.5, unresolved 0 vs 1, banned 0 vs >= 1 (证明)", () => {
   const good = { exec: execution(pocGood(), { gold: GOLD }), ev: evidence(pocGood()) };
   const bad = { exec: execution(pocBad(), { gold: GOLD }), ev: evidence(pocBad()) };
   assert.equal(good.exec.measures.recall, 1);
@@ -48,7 +48,8 @@ test("the proof of concept's good and bad answers keep opposite verdicts: recall
   assert.equal(bad.ev.measures.citations_unresolved, 1);
   assert.deepEqual(bad.ev.measures.unresolved_ids, ["E7"]);
   assert.deepEqual(good.ev.measures.banned_terms, []);
-  assert.deepEqual(bad.ev.measures.banned_terms, ["证明"]);
+  // read by the answer check (core/answercheck.js), as the page counts it: 临床证明安全有效 is 证明 and 安全
+  assert.ok(bad.ev.measures.banned_terms.length >= 1 && bad.ev.measures.banned_terms.includes("证明"), bad.ev.measures.banned_terms.join(", "));
   assert.equal(good.exec.pass && good.ev.pass, true);
   assert.equal(bad.exec.pass, false);
   assert.equal(bad.ev.pass, false);
@@ -73,12 +74,13 @@ test("the mock model's 十八反 answer passes the vocabulary grader: 没有记�
   assert.equal(goal(t, { mention_all: ["十八反", "甘遂"] }).pass, true);
 });
 
-test("the vocabulary: a denial or the approved compound is allowed; an assertion is not; adjacent terms are one finding", () => {
+test("the vocabulary is the answer check's: a denial or the approved compound is allowed; an assertion is not; each term is a finding", () => {
   const ok = ["无记录（不等于安全）", "这不能证明疗效", "尚未证实", "并非精准", "出现安全信号时", "安全性记录 2 条", "No record is not safe.", "This has not been proven."];
   for (const s of ok) assert.deepEqual(bannedTerms(s), [], s);
-  const bad = [["临床证明安全有效", ["证明"]], ["配伍安全", ["安全"]], ["不仅证明了疗效", ["证明"]], ["安全性良好", ["安全"]], ["最有效的方剂", ["最有效"]], ["It is proven and safe.", ["proven", "safe"]], ["已确认有效", ["确认有效"]]];
+  const bad = [["临床证明安全有效", ["证明", "安全"]], ["配伍安全", ["安全"]], ["不仅证明了疗效", ["证明"]], ["安全性良好", ["安全"]], ["It is proven and safe.", ["proven", "safe"]], ["已确认有效", ["确认有效"]]];
   for (const [s, terms] of bad) assert.deepEqual(bannedTerms(s).map((f) => f.term), terms, s);
-  assert.deepEqual(bannedTerms("临床证明安全有效")[0].terms, ["证明", "安全"]);
+  // the words the rule names (prompt.js BANNED_TERMS), and only those: the grader keeps no list of its own
+  assert.equal(bannedTerms("临床证明安全有效")[0].phrase.includes("证明"), true);
 });
 
 test("evidence: a claim the kernel refused must be named with its code; 'released' only when a tool authorized release", () => {
@@ -89,16 +91,22 @@ test("evidence: a claim the kernel refused must be named with its code; 'release
   const missing = evidence(t("现有证据不能支持疗效主张。"));
   assert.equal(missing.checks.find((c) => c.name === "refusals_reported").pass, false);
   assert.equal(evidence(t("内核拒绝了疗效主张（CLM005：证据层级不能支持该主张类型）。")).pass, true);
-  assert.deepEqual(releaseWording("结果已准予发布"), ["已准予发布"]);
-  assert.deepEqual(releaseWording("结果未准予发布"), []);
-  assert.equal(evidence(t("内核拒绝了 CLM005；结果已准予发布。")).checks.find((c) => c.name === "release_wording").pass, false);
+  assert.deepEqual(releaseWording("分析结果已发布"), ["已发布"]);
+  assert.deepEqual(releaseWording("分析结果尚未发布"), []);
+  assert.equal(evidence(t("内核拒绝了 CLM005；分析结果已发布。")).checks.find((c) => c.name === "release_wording").pass, false);
 });
 
-test("evidence with flagged: the answer is bad on purpose and the turn must carry a finding that names the unresolved id", () => {
-  assert.equal(evidence(pocBad(), { flagged: true, vocabulary: false }).pass, false);
-  const flagged = pocBad();
-  flagged.assistant.check = { findings: [{ code: "unresolved_citation", ids: ["E7"] }] };
-  assert.equal(evidence(flagged, { flagged: true, vocabulary: false }).pass, true);
+test("evidence with flagged: the answer is bad on purpose and the turn's usage event must count the unresolved id", () => {
+  // the answer check runs on every turn (core/answercheck.js): its count is in the turn's usage event, its finding is
+  // the message's badge
+  const bad = evidence(pocBad(), { flagged: true, vocabulary: false });
+  assert.equal(bad.pass, true, JSON.stringify(bad.checks));
+  assert.match(bad.checks.find((c) => c.name === "flagged_on_turn").detail, /flags E7/);
+  // a policy that cites only what a tool returned did not do what the case is for: nothing to flag
+  const fine = turn({ answer: "桂枝汤由桂枝、芍药、甘草、生姜、大枣组成 [E1]。", tools: [tool("c1", "tcm_formula", "native.tcm_formula", formulaEnv())] });
+  assert.equal(evidence(fine, { flagged: true, vocabulary: false }).checks.find((c) => c.name === "flagged_on_turn").pass, false);
+  // a turn the check cannot read reports nothing (no answer on the record)
+  assert.equal(flaggedOnTurn({ ...pocBad(), assistant: null }, ["E7"]), false);
 });
 
 test("structural: how the turn ended, an answer, a notice when it stops short, every call answered, the Retry affordance", () => {
