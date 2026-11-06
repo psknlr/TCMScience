@@ -20,7 +20,8 @@ from .loop import (
     TaskEvent, Termination,
 )
 from .plan import (
-    Criterion, InputBinding, Plan, PlanTask, RetryBudget, RetryPolicy, TaskKind, TestSpec,
+    RETRY_JITTER, Criterion, InputBinding, Plan, PlanTask, RetryBudget, RetryPolicy, TaskKind,
+    TestSpec, jittered_sleep,
 )
 from .planner import PLANNER_SYSTEM_PROMPT, ModelPlanner, PlanParseError, parse_plan
 from .plan_validator import (
@@ -43,6 +44,7 @@ __all__ = [
     "Planner", "StaticPlanner", "ModelPlanner", "parse_plan", "PlanParseError",
     "PLANNER_SYSTEM_PROMPT",
     "Plan", "PlanTask", "TaskKind", "TestSpec", "Criterion", "RetryPolicy", "RetryBudget",
+    "RETRY_JITTER", "jittered_sleep",
     "InputBinding", "BindingError", "resolve_bindings", "resolve_pointer",
     "OperationLedger", "OperationRecord", "OperationState",
     "PlanValidator", "PlanViolation", "ValidatedPlan", "PlanRejected", "task_envelope",

@@ -335,7 +335,8 @@ and a blocked or skipped live test is never counted as passed ([docs/validation.
 
 ```bash
 tcmstudio validate --out reports/                      # every capability through the dispatcher,
-                                                       # and twelve research scenarios
+                                                       # and twelve research scenarios: fixed tool
+                                                       # chains, no model deciding a step
 bioagent validate data --out reports/ --live           # the real NPASS, CMAUP, LOTUS, STRING,
                                                        # Reactome files: downloaded, verified, built
 bioagent validate benchmark --out reports/ --live      # 桂枝汤 and palpitations, twelve stages

@@ -216,6 +216,81 @@ def test_the_ledger_refuses_a_nonsensical_fraction():
         ledger.reserve("run", 1.5)
 
 
+def test_a_batch_the_lattice_refuses_leaves_the_ledger_untouched(kernel):
+    """Measured before the fix: 0.8 held for no children, and the next 0.3 refused.
+
+    Every request's fraction was reserved before any contract was minted, so the second
+    request's PolicyDenied came after both fractions were already held.
+    """
+    tools = {n: Tool(n) for n in "abc"}
+    supervisor = make(kernel, tools)
+    parent = kernel.policy.envelope()
+    with pytest.raises(PolicyDenied, match="destinations"):
+        supervisor.dispatch([request("a", budget_fraction=0.4),
+                             request("b", budget_fraction=0.4,
+                                     destinations=(Destination.PUBLIC_REMOTE,))], parent)
+    assert supervisor.dispatched == 0
+    assert supervisor.ledger.allocated(parent.run_id) == 0.0, \
+        "a refused batch held budget for children that never existed"
+    assert all(t.calls == 0 for t in tools.values())
+
+    children = supervisor.dispatch([request("c", budget_fraction=0.3)], parent)
+    assert [c.state for c in children] == [ChildState.COMPLETED]
+    assert supervisor.ledger.allocated(parent.run_id) == pytest.approx(0.3)
+    supervisor.close()
+
+
+def test_an_over_allocating_batch_leaves_the_ledger_untouched(kernel):
+    """Reserving one fraction at a time kept the first four when the fifth was refused."""
+    supervisor = make(kernel, {n: Tool(n) for n in "abcde"})
+    parent = kernel.policy.envelope()
+    with pytest.raises(BudgetExhausted):
+        supervisor.dispatch([request(n, budget_fraction=0.25) for n in "abcde"], parent)
+    assert supervisor.ledger.allocated(parent.run_id) == 0.0
+    children = supervisor.dispatch([request(n, budget_fraction=0.25) for n in "abcd"],
+                                   parent)
+    assert all(c.state is ChildState.COMPLETED for c in children)
+    supervisor.close()
+
+
+def test_a_ledger_batch_is_all_or_nothing():
+    ledger = BudgetLedger()
+    ledger.reserve_batch("run", [0.3, 0.3])
+    with pytest.raises(BudgetExhausted):
+        ledger.reserve_batch("run", [0.2, 0.3])
+    assert ledger.allocated("run") == pytest.approx(0.6)
+    with pytest.raises(ValueError):
+        ledger.reserve_batch("run", [0.1, 0.0])
+    assert ledger.allocated("run") == pytest.approx(0.6), "a bad fraction committed the rest"
+    ledger.reserve_batch("run", [])
+    assert ledger.allocated("run") == pytest.approx(0.6)
+    ledger.reserve_batch("run", [0.2, 0.2])
+    assert ledger.allocated("run") == pytest.approx(1.0)
+
+
+def test_concurrent_batches_cannot_both_take_the_same_budget():
+    """The sum is checked and committed under one lock: two 0.6 batches, one wins."""
+    ledger = BudgetLedger()
+    barrier = threading.Barrier(2)
+    outcomes: list[str] = []
+
+    def worker():
+        barrier.wait()
+        try:
+            ledger.reserve_batch("run", [0.3, 0.3])
+            outcomes.append("reserved")
+        except BudgetExhausted:
+            outcomes.append("refused")
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(outcomes) == ["refused", "reserved"]
+    assert ledger.allocated("run") == pytest.approx(0.6)
+
+
 # ============================================================ concurrency
 
 def test_children_actually_run_concurrently(kernel):

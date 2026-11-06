@@ -145,9 +145,10 @@ class LoopLimits:
 class LoopState:
     """Everything one loop knows. Serialisable, so a checkpoint is a copy of this.
 
-    Checkpointing is not implemented in this release — ``Runner``'s ``checkpoint`` stage is
-    still an audit event — but the state a checkpoint would have to carry is collected here
-    rather than spread across local variables, which is the part that is hard to retrofit.
+    ``checkpoint.capture`` copies it after every iteration when the controller has a
+    ``CheckpointStore``, and ``checkpoint.resume`` rebuilds it under the policy in force.
+    The state lives here rather than in local variables so that a copy of it is the whole
+    run. (``Runner``'s single-pass ``checkpoint`` stage is still only an audit event.)
     """
 
     loop_id: str

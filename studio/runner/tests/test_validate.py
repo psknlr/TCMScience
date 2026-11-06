@@ -318,6 +318,9 @@ def test_the_command_writes_every_report(tmp_path):
     regression = json.loads((out / "agent_regression_report.json").read_text())
     assert regression["summary"]["records"] == 12 and len(regression["scenarios"]) == 12
     assert regression["summary"]["status"][FAIL] == 0
+    # what it measures is said in the report: tool chains, and no model at all
+    assert regression["measures"] == "tool chains through the dispatcher; no model decides"
+    assert "model" in regression and regression["model"] is None
     sandbox = json.loads((out / "sandbox_execution_report.json").read_text())
     net = next(r for r in sandbox["records"] if r["component"] == "network")
     assert net["status"] == SKIPPED, "never 'online' without a request"

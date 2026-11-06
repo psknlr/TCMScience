@@ -2,14 +2,16 @@
 // A scripted OpenAI-compatible model for the end-to-end tests: POST /v1/chat/completions streams SSE the way real
 // services do (role first, reasoning_content, tool calls in fragments, usage in the last event, [DONE]). What it says is
 // decided by the last user message (the scenario) and by whether the request already ends with a tool result (the
-// second round of the agent loop). It never decides anything about the science: whatever the tool returned is echoed
-// back, so a test can check that the model saw the real envelope.
+// second round of the agent loop). It never decides anything about the science: what an answer says about a result is
+// read from the tool result (its status; for 甘草 + 甘遂 the 十八反 record and its citation number), so a test can check
+// that the model saw the real envelope. The rest of an answer is fixed text.
 //
 //   node studio/e2e/mock-llm.mjs [--port N] [--upstream]   (prints "mock-llm listening on http://127.0.0.1:N")
 //
 // Scenarios (matched against the last user message):
 //   甘草 + 甘遂          round 1 calls tcm_safety_report {subject:"甘草", co_administered:["甘遂"]};
-//                        round 2 answers with [E1] and the limits, plus "工具状态：<status>"
+//                        round 2 quotes the envelope's 十八反 record with the citation number the envelope gave it
+//                        (or says it found none), the limits, and "工具状态：<status>"
 //   RNA-seq / 流程       round 1 calls run_pipeline {pipeline:"rnaseq", …}; round 2 echoes the envelope's status and error
 //   文献 / literature    calls literature_search; round 2 echoes the status (and "（未联网）" for network_off)
 //   后台任务             round 1 submits job.skill.run through call_tool; then job_status until the job is done;
@@ -81,8 +83,14 @@ export function plan(body) {
       else { say("（测试模型：没有提供 tcm_safety_report 工具。）"); out.push({ finish: "stop" }); }
     } else {
       const status = /: (succeeded|failed|refused|cancelled|needs_approval|job_submitted)\b/.exec(toolResult)?.[1] || "unknown";
+      // the answer quotes the envelope: the 十八反 record as the tool returned it, and the number the envelope gave
+      // its citation. An envelope without the record gets an answer without it, never one from memory.
+      const record = /十八反[：:][^"\n]+/.exec(toolResult)?.[0];
+      const cite = /^\[(E\d+)\][^\n]*shibafan/m.exec(toolResult)?.[1];
       reason("工具已返回受治理的结果，按引用作答，并说明限度。");
-      say(`根据工具结果，甘草与甘遂同用在资料中记载为十八反配伍禁忌 [E1]。这是记载，不是临床安全性结论；没有记载也不等于安全。\n\n工具状态：${status}`);
+      say(record
+        ? `根据工具结果，资料记载：${record}${cite ? ` [${cite}]` : ""}。这是记载，不是临床安全性结论；没有记载也不等于安全。\n\n工具状态：${status}`
+        : `工具结果里没有找到这一配伍的记载，我不凭记忆补充；没有记载也不等于安全。\n\n工具状态：${status}`);
       out.push({ finish: "stop" });
     }
   } else if (scenario === "pipeline") {

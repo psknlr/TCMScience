@@ -591,3 +591,44 @@ def test_the_demonstration_data_passes_the_arena_checks():
     code, out = _script("check_arena_data.py", str(ROOT / "arena" / "web" / "data"))
     assert code == 0, out
     assert "row(s)" in out
+
+
+def _trusted_board(tmp_path, *, season_status, cases):
+    """A leaderboard with one fully decomposed trusted row, in a Season of this status."""
+    (tmp_path / "leaderboard.json").write_text(json.dumps({"runs": [{
+        "run_id": "r-1", "system": "x", "board": "trusted", "cases": cases,
+        "aggregate": 0.5, "scores": {d: 0.5 for d in SCORE_DIMENSIONS}}]}))
+    (tmp_path / "tracks.json").write_text(json.dumps({"season_status": season_status}))
+    return _script("check_arena_data.py", str(tmp_path))
+
+
+def test_the_arena_check_refuses_a_trusted_row_from_a_season_not_evaluated(tmp_path):
+    """The demonstration run put its rows on the trusted board, against its own
+    docstring: a visitor read seven one-case examples as benchmark results."""
+    code, out = _trusted_board(tmp_path, season_status="demonstration", cases=20)
+    assert code == 1, out
+    assert "was not evaluated" in out
+
+
+def test_the_arena_check_refuses_a_one_case_trusted_row(tmp_path):
+    code, out = _trusted_board(tmp_path, season_status="evaluated", cases=1)
+    assert code == 1, out
+    assert "one case is an example" in out
+
+
+def test_the_arena_check_admits_a_trusted_row_of_an_evaluated_season(tmp_path):
+    code, out = _trusted_board(tmp_path, season_status="evaluated", cases=20)
+    assert code == 0, out
+
+
+def test_the_demonstration_rows_are_on_the_board_the_site_opens_on():
+    """Off the trusted board, and still the first thing a visitor sees."""
+    doc = json.loads((ROOT / "arena" / "web" / "data" / "leaderboard.json")
+                     .read_text(encoding="utf-8"))
+    rows = doc["runs"]
+    assert rows and {r["board"] for r in rows} == {"demonstration"}
+    assert doc["default_board"] == "demonstration"
+    labels = {b["id"]: b["label"] for b in doc["boards"]}
+    assert labels["demonstration"] == "Demonstration only"
+    app = (ROOT / "arena" / "web" / "assets" / "app.js").read_text(encoding="utf-8")
+    assert "doc.default_board" in app, "the site no longer opens on the document's board"

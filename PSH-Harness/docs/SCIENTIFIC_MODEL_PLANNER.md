@@ -98,7 +98,9 @@ intended to be shared by concurrently running loops.
   requirements. Applications should supply required bindings/constraints and
   review proposed programs before consequential execution.
 - Dynamic branches, loops, fan-out, live amendment, per-event execution replay,
-  hypothesis tournaments and autonomous experimental feedback are not added.
+  hypothesis tournaments and autonomous experimental feedback are not added by
+  this adapter. Hypothesis competition and the choice of the next analysis were
+  added later, in `psh.scientist.inquiry`, which this planner does not call.
 - Tests use deterministic response callbacks and the real broker/loop. They do
   not measure live-model scientific quality or compare against another product.
 
@@ -106,7 +108,7 @@ intended to be shared by concurrently running loops.
 - 科学声明仍然是不可信的提案。证据是否存在、执行是否合规以及科学有效性，都不是解析所能确立的。
 - 该适配器在自己的路径上要求编译器，但 AgentLoopController 的普通 Plan 用户仍然兼容。面向所有入口的、独立且强制的 ScientificRunMode 尚未实现。
 - 修复可以提出一份不同的计划；它不是对已变更的注册方案的批准，不是语义目标等价性的证明，也不是放宽研究要求的授权。应用应当提供所需的绑定/约束，并在后果性执行之前审阅所提出的程序。
-- 动态分支、循环、扇出、实时修正、逐事件执行重放、假设锦标赛与自主实验反馈均未加入。
+- 本适配器没有加入动态分支、循环、扇出、实时修正、逐事件执行重放、假设锦标赛与自主实验反馈。假设竞争与下一项分析的选择后来在 `psh.scientist.inquiry` 中加入，本规划器并不调用它。
 - 测试使用确定性的响应回调与真实的 broker/循环。它们不衡量实时模型的科学质量，也不与另一个产品做比较。
 
 

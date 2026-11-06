@@ -67,7 +67,7 @@ that did not pass, with its reason.
 |---|---|---|
 | `agent_inventory.json` | `tcmstudio validate` | every core tool, catalog entry, job kind, governed skill, hub dataset, source card and execution backend |
 | `tool_validation_report.json` | `tcmstudio validate` | every capability against twelve checks: discovery, schema, invocation, functional correctness, error handling, dependency readiness, data integration, execution isolation, recovery, reproducibility, integration, performance |
-| `agent_regression_report.json` | `tcmstudio validate` | the twelve research scenarios below, step by step |
+| `agent_regression_report.json` | `tcmstudio validate` | the twelve research scenarios below, step by step. It measures tool chains through the dispatcher, not an agent: the steps are written in advance and no model decides one, which the report states as `measures` and `"model": null` |
 | `sandbox_execution_report.json` | `tcmstudio validate [--probe-network]` | the network as real requests found it (never "online" because a switch is on), persistent storage, devices |
 | `dependency_readiness_report.json` | `tcmstudio validate`, `bioagent validate deps` | each optional scientific package imported, versioned against the CI-tested pin, and used for a calculation with a known answer |
 | `database_readiness_report.json` | `tcmstudio validate`, `bioagent validate databases`, `bioagent validate data` | every catalogued source: licence class, acquisition route, integrity method, parser, real-download record, live-connector record, local build and query |
@@ -178,7 +178,8 @@ Each scenario is a task an agent is given, written as the tool calls a correct a
 needs, run in order through the dispatcher, with expected outputs, required data,
 validation criteria checked against references outside the code, and acceptable
 limitations. A step that cannot run ends the scenario with the class the agent must give
-it (`tool_unavailable`, `data_unavailable`, …).
+it (`tool_unavailable`, `data_unavailable`, …). No model is called: a scenario passing says
+the tools a correct answer needs work together, not that an agent would choose them.
 
 | # | Scenario | Offline here | Needs |
 |---|---|---|---|

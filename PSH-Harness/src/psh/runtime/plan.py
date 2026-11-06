@@ -21,7 +21,9 @@ field the validator cannot check.
 
 from __future__ import annotations
 
+import random
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
@@ -29,7 +31,7 @@ from ..contracts import Autonomy, RiskTier, new_id
 from ..labels import Destination, Sensitivity
 
 __all__ = ["Plan", "PlanTask", "TaskKind", "TestSpec", "Criterion", "RetryPolicy",
-           "RetryBudget", "InputBinding"]
+           "RetryBudget", "InputBinding", "RETRY_JITTER", "jittered_sleep"]
 
 
 class TaskKind(str):
@@ -172,9 +174,11 @@ class RetryPolicy:
     def delay_for(self, attempt: int) -> float:
         """Delay before ``attempt`` (1-based). Deterministic: no jitter.
 
-        Jitter exists to decorrelate many clients hitting one service. This runtime is
-        single-threaded and its tests assert on timing, so jitter here would buy nothing and
-        cost reproducibility. It belongs with the parallel scheduler, and is noted there.
+        Jitter exists to decorrelate many clients hitting one service, and with
+        ``LoopLimits.max_parallel`` and ``Supervisor`` this runtime can be several of them.
+        It is applied where the wait happens rather than here, so the delay stays a number a
+        test can assert on: the services sleep through ``jittered_sleep``, and a direct
+        caller of ``AgentLoopController`` passes its own ``sleep``.
         """
         if attempt <= 1 or self.initial_delay_s <= 0:
             return 0.0
@@ -183,6 +187,24 @@ class RetryPolicy:
     def permits(self, exc: BaseException) -> bool:
         names = {type(exc).__name__, *(c.__name__ for c in type(exc).__mro__)}
         return bool(names & set(self.retryable))
+
+
+#: How much of a retry delay ``jittered_sleep`` may take off: up to a tenth. Enough that
+#: branches or sibling children which failed together do not retry in lockstep, and never
+#: more than the policy's delay, so ``max_delay_s`` stays a ceiling.
+RETRY_JITTER = 0.1
+
+
+def jittered_sleep(delay_s: float) -> None:
+    """``time.sleep`` for ``delay_s`` less up to ``RETRY_JITTER`` of it.
+
+    The default sleep of ``ResearchRunService`` and ``ScientificRunService``. Both used to
+    pass ``sleep=lambda s: None`` to the loop, so a task's ``RetryPolicy`` backoff was
+    honoured by a direct ``AgentLoopController`` and by neither door an application uses:
+    retries through them hit a failing service again within milliseconds.
+    """
+    if delay_s > 0:
+        time.sleep(delay_s * (1.0 - RETRY_JITTER * random.random()))
 
 
 @dataclass(frozen=True, slots=True)

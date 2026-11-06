@@ -353,7 +353,8 @@ TCMScience 通过浏览器提供对已登记科学能力的访问（[Studio](stu
 
 ```bash
 tcmstudio validate --out reports/                      # 每项能力都经分发器运行，
-                                                       # 外加十二个研究场景
+                                                       # 外加十二个研究场景：固定的工具链，
+                                                       # 没有模型决定任何一步
 bioagent validate data --out reports/ --live           # 真实的 NPASS、CMAUP、LOTUS、STRING、
                                                        # Reactome 文件：下载、校验、构建
 bioagent validate benchmark --out reports/ --live      # 桂枝汤与心悸，十二个阶段

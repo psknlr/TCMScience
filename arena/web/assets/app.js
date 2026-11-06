@@ -238,11 +238,13 @@
       '</div>';
   }
 
+  var BOARD_LABEL = { trusted: 'Trusted', demonstration: 'Demonstration only', experimental: 'Experimental' };
+
   function boardBadge(board, label) {
     var isTrusted = board === 'trusted';
     return '<span class="badge ' + (isTrusted ? 'badge--ok' : 'badge--warn') + '">' +
       '<span class="badge__glyph" aria-hidden="true">' + (BOARD_GLYPH[board] || BOARD_FALLBACK_GLYPH) + '</span>' +
-      esc(label || (isTrusted ? 'Trusted' : 'Experimental')) + '</span>';
+      esc(label || BOARD_LABEL[board] || 'Experimental') + '</span>';
   }
 
   function typeBadge(type) {
@@ -314,7 +316,8 @@
       var rows = data.leaderboard.runs || [];
       var cases = tracks.reduce(function (sum, t) { return sum + (t.cases || 0); }, 0);
       var trusted = rows.filter(function (r) { return r.board === 'trusted'; }).length;
-      var experimental = rows.length - trusted;
+      var demonstration = rows.filter(function (r) { return r.board === 'demonstration'; }).length;
+      var experimental = rows.length - trusted - demonstration;
       var systems = {};
       rows.forEach(function (r) { systems[r.system_slug || r.system] = true; });
       var season = data.tracks.season_label || data.tracks.season || '—';
@@ -324,7 +327,8 @@
         ['Cases', cases, 'in ' + season + ', frozen'],
         ['Dimensions', dims.length, 'every score is decomposed'],
         ['Systems', Object.keys(systems).length, 'in the example set'],
-        ['Rows', rows.length, trusted + ' trusted · ' + experimental + ' experimental']
+        ['Rows', rows.length, trusted + ' trusted · ' + demonstration + ' demonstration · ' +
+          experimental + ' experimental']
       ].map(function (item) {
         return '<p class="stat"><span class="stat__value">' + esc(item[1]) + '</span>' +
           '<span class="stat__label">' + esc(item[0]) + '</span>' +
@@ -452,6 +456,11 @@
       var allRows = doc.runs || [];
       var trackList = (tracksDoc.tracks || []).map(function (t) { return t.id; });
 
+      /* The board the page opens on is the document's: a demonstration Season
+       * has rows only on the demonstration board, and opening on an empty
+       * trusted board read as "nothing here". A ?board= link still wins. */
+      var defaultBoard = doc.default_board || 'trusted';
+      LEADERBOARD_STATE.board = defaultBoard;
       readLeaderboardState();
       if (LEADERBOARD_STATE.track !== 'all' && trackList.indexOf(LEADERBOARD_STATE.track) === -1) {
         LEADERBOARD_STATE.track = trackList[0] || 'all';
@@ -667,14 +676,14 @@
           LEADERBOARD_STATE.track = 'TCM-Entity';
           LEADERBOARD_STATE.type = 'all';
           LEADERBOARD_STATE.query = '';
-          LEADERBOARD_STATE.board = 'trusted';
+          LEADERBOARD_STATE.board = defaultBoard;
           LEADERBOARD_STATE.sortKey = 'rank';
           LEADERBOARD_STATE.sortDir = 'asc';
           $('#filter-track').value = 'TCM-Entity';
           $('#filter-type').value = 'all';
           $('#filter-query').value = '';
           $$('#filter-board input').forEach(function (input) {
-            input.checked = input.value === 'trusted';
+            input.checked = input.value === defaultBoard;
           });
           syncAndDraw();
         });
