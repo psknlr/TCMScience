@@ -39,7 +39,7 @@ Measured against the executing path, not the README.
 | Tool-use loop integrated with the runtime | ❌ | ✅ | `TaskKind.TOOL` through the broker |
 | Iterative replanning | ❌ | ✅ | bounded by `max_replans` |
 | Loop termination controller | ❌ repeat counter | ✅ | ten named `Termination` reasons |
-| Retry / backoff | ❌ config only | ✅ | `RetryPolicy` per task, charged to the budget. `ResearchRunService` and `ScientificRunService` used to skip the delay (`sleep=lambda s: None`), so backoff held only for a direct `AgentLoopController`; they now wait it out, jittered (`jittered_sleep`) |
+| Retry / backoff | ❌ config only | ✅ | `RetryPolicy` per task, charged to the budget. `ResearchRunService` and `ScientificRunService` used to skip the delay (`sleep=lambda s: None`), so backoff held only for a direct `AgentLoopController`; they now wait it out, jittered (`jittered_sleep`). A delay that would end after the task's deadline is not waited and that retry is not made; a cancellation during the wait stops the retry |
 | Layered evaluator | ❌ | ✅ | structural / execution / evidence / goal |
 | Acceptance tests executed | ❌ declarative | ✅ | `ACCEPTANCE_CHECKS`, unknown kind = plan error |
 | Output-schema validation | ❌ declarative | ✅ | `check_output_schema` |
@@ -70,7 +70,7 @@ Measured against the executing path, not the README.
 | 与运行时集成的工具使用循环 | ❌ | ✅ | `TaskKind.TOOL` 经由执行代理 |
 | 迭代式重规划 | ❌ | ✅ | 由 `max_replans` 约束 |
 | 循环终止控制器 | ❌ 重复计数器 | ✅ | 十种具名的 `Termination` 原因 |
-| 重试 / 退避 | ❌ 仅有配置 | ✅ | 每个任务一个 `RetryPolicy`，计入预算。`ResearchRunService` 与 `ScientificRunService` 过去跳过了等待（`sleep=lambda s: None`），所以退避只对直接使用的 `AgentLoopController` 成立；它们现在会真正等待，并带抖动（`jittered_sleep`） |
+| 重试 / 退避 | ❌ 仅有配置 | ✅ | 每个任务一个 `RetryPolicy`，计入预算。`ResearchRunService` 与 `ScientificRunService` 过去跳过了等待（`sleep=lambda s: None`），所以退避只对直接使用的 `AgentLoopController` 成立；它们现在会真正等待，并带抖动（`jittered_sleep`）。若等待会在任务截止时间之后才结束，则不等待，也不做这次重试；等待期间收到取消，也不再重试 |
 | 分层评估器 | ❌ | ✅ | 结构 / 执行 / 证据 / 目标 |
 | 验收测试被执行 | ❌ 仅声明式 | ✅ | `ACCEPTANCE_CHECKS`，未知类型 = 计划错误 |
 | 输出模式（schema）校验 | ❌ 仅声明式 | ✅ | `check_output_schema` |

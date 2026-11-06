@@ -458,9 +458,13 @@
 
       /* The board the page opens on is the document's: a demonstration Season
        * has rows only on the demonstration board, and opening on an empty
-       * trusted board read as "nothing here". A ?board= link still wins. */
+       * trusted board read as "nothing here". Its few rows are spread over
+       * the tracks, so it opens on all tracks too. A ?board= or ?track= link
+       * still wins. */
       var defaultBoard = doc.default_board || 'trusted';
+      var defaultTrack = defaultBoard === 'demonstration' ? 'all' : 'TCM-Entity';
       LEADERBOARD_STATE.board = defaultBoard;
+      LEADERBOARD_STATE.track = defaultTrack;
       readLeaderboardState();
       if (LEADERBOARD_STATE.track !== 'all' && trackList.indexOf(LEADERBOARD_STATE.track) === -1) {
         LEADERBOARD_STATE.track = trackList[0] || 'all';
@@ -673,13 +677,13 @@
         var button = $('#reset-filters');
         if (!button) return;
         button.addEventListener('click', function () {
-          LEADERBOARD_STATE.track = 'TCM-Entity';
+          LEADERBOARD_STATE.track = defaultTrack;
           LEADERBOARD_STATE.type = 'all';
           LEADERBOARD_STATE.query = '';
           LEADERBOARD_STATE.board = defaultBoard;
           LEADERBOARD_STATE.sortKey = 'rank';
           LEADERBOARD_STATE.sortDir = 'asc';
-          $('#filter-track').value = 'TCM-Entity';
+          $('#filter-track').value = defaultTrack;
           $('#filter-type').value = 'all';
           $('#filter-query').value = '';
           $$('#filter-board input').forEach(function (input) {

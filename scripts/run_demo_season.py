@@ -343,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
             # the module docstring says. The leaderboard names that board as its
             # `default_board`, so the site opens on these rows rather than on an
             # empty trusted board; check_arena_data.py refuses a trusted row
-            # without an evaluated Season and more than one case.
+            # without a frozen Season and more than one case.
             "board": "demonstration",
             "placeholder": False,
             "is_demonstration": True,

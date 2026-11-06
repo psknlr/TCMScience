@@ -602,23 +602,50 @@ def _trusted_board(tmp_path, *, season_status, cases):
     return _script("check_arena_data.py", str(tmp_path))
 
 
-def test_the_arena_check_refuses_a_trusted_row_from_a_season_not_evaluated(tmp_path):
+@pytest.mark.parametrize("season_status", ["demonstration", "designed", "conformance",
+                                           None])
+def test_the_arena_check_refuses_a_trusted_row_from_a_season_not_frozen(
+        tmp_path, season_status):
     """The demonstration run put its rows on the trusted board, against its own
-    docstring: a visitor read seven one-case examples as benchmark results."""
-    code, out = _trusted_board(tmp_path, season_status="demonstration", cases=20)
+    docstring: a visitor read seven one-case examples as benchmark results. A
+    conformance Season's public cases say the machinery works, not how good a
+    system is."""
+    code, out = _trusted_board(tmp_path, season_status=season_status, cases=20)
     assert code == 1, out
-    assert "was not evaluated" in out
+    assert "is not a frozen one" in out
 
 
 def test_the_arena_check_refuses_a_one_case_trusted_row(tmp_path):
-    code, out = _trusted_board(tmp_path, season_status="evaluated", cases=1)
+    code, out = _trusted_board(tmp_path, season_status="frozen", cases=1)
     assert code == 1, out
     assert "one case is an example" in out
 
 
-def test_the_arena_check_admits_a_trusted_row_of_an_evaluated_season(tmp_path):
-    code, out = _trusted_board(tmp_path, season_status="evaluated", cases=20)
+def test_the_arena_check_admits_a_trusted_row_of_a_frozen_season(tmp_path):
+    """``frozen`` is what independent scoring records for a withheld Season whose
+    row it puts on board ``trusted``: the rule must admit exactly that row."""
+    code, out = _trusted_board(tmp_path, season_status="frozen", cases=20)
     assert code == 0, out
+
+
+def test_the_arena_trusted_rule_names_only_statuses_a_season_can_have():
+    """The rule once required ``evaluated``, a status no SeasonManifest accepts, so
+    it would have failed the Pages build for every genuine trusted row."""
+    import importlib.util
+
+    from bioagent.benchmarks.season import SEASON_STATUSES, freeze_season
+
+    spec = importlib.util.spec_from_file_location(
+        "check_arena_data", ROOT / "scripts" / "check_arena_data.py")
+    checker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(checker)
+    admitted = set(checker.TRUSTED_SEASON_STATUSES)
+    assert admitted and admitted <= set(SEASON_STATUSES) - {"conformance"}
+    hidden = [case(id=f"h-{i}", visibility="hidden") for i in range(2)]
+    for status in admitted:
+        manifest = freeze_season("s", hidden, cut_at="t", status=status,
+                                 tracks={"TCM-Entity": "x"})
+        assert manifest.status == status
 
 
 def test_the_demonstration_rows_are_on_the_board_the_site_opens_on():
@@ -632,3 +659,6 @@ def test_the_demonstration_rows_are_on_the_board_the_site_opens_on():
     assert labels["demonstration"] == "Demonstration only"
     app = (ROOT / "arena" / "web" / "assets" / "app.js").read_text(encoding="utf-8")
     assert "doc.default_board" in app, "the site no longer opens on the document's board"
+    # Its rows sit on four tracks; opening on one of them showed 2 of the 7.
+    assert "defaultBoard === 'demonstration' ? 'all'" in app, \
+        "a demonstration board no longer opens on all tracks"

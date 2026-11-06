@@ -45,6 +45,7 @@ from typing import Any, Callable, Mapping, Sequence
 from ..contracts import (
     ApprovalRequired, BudgetExhausted, CapabilityUnavailable, ContractViolation, EgressDenied,
     OperationUnresolved, PolicyDenied, ResultPending, RunEnvelope, ToolTimeout, new_id,
+    utc_now,
 )
 from ..labels import DataLabel, Destination, Labeled, combine, label_of, unwrap
 from .bindings import resolve_bindings
@@ -589,7 +590,24 @@ class AgentLoopController:
         attempt = node.attempts if collecting else node.attempts + 1
         delay = 0.0 if collecting else task.retry.delay_for(attempt)
         if delay:
-            self._sleep(delay)
+            skipped = self._wait_to_retry(envelope, delay)
+            if skipped == "deadline":
+                # The retry could not start before the run is over, so it is not made and
+                # the failure it would have retried is final. Waiting into the deadline
+                # only to report it is what the services did once they began to wait.
+                graph.mark_failed(task.task_id,
+                                  f"{node.error} (not retried: its {delay:g} s backoff "
+                                  "would end after the run's deadline)",
+                                  at=time.time(), retryable=False)
+                self._audit("loop_task_retry_skipped", state, task_id=task.task_id,
+                            attempt=attempt, delay_s=delay, reason="deadline")
+                return
+            if skipped == "cancelled":
+                # Left retryable: the next bounds check ends the run as cancelled and the
+                # cancellation sweep records the task, as it does for any unfinished one.
+                self._audit("loop_task_retry_skipped", state, task_id=task.task_id,
+                            attempt=attempt, delay_s=delay, reason="cancelled")
+                return
 
         outstanding = node.pending                # put back if a run-level bound stops a poll
         graph.mark_running(task.task_id, at=time.time(), collecting=bool(collecting))
@@ -718,6 +736,22 @@ class AgentLoopController:
             self._audit("loop_task_degraded", state, task_id=task.task_id,
                         caveats=len(caveats))
         state.observe(task_id=task.task_id, kind=task.kind, attempt=attempt)
+
+    def _wait_to_retry(self, envelope: RunEnvelope, delay: float) -> str:
+        """Wait out a retry's backoff within the run's bounds: "" when the retry may go.
+
+        ``self._sleep`` cannot be interrupted, so the bounds are applied around it. A delay
+        that would end at or after the task's deadline is not waited at all ("deadline"):
+        the retry after it could not run, and the bounds check would only end the run once
+        the sleep had overrun it by up to ``max_delay_s``. A cancellation that arrives
+        during the wait stops the retry from being made ("cancelled").
+        """
+        if envelope.deadline is not None and delay >= envelope.deadline - utc_now():
+            return "deadline"
+        self._sleep(delay)
+        if self.cancellation is not None and getattr(self.cancellation, "cancelled", False):
+            return "cancelled"
+        return ""
 
     def _collecting(self, state: LoopState, task: PlanTask, ledger: Any, key: str) -> str:
         """The digest of the outstanding work this call collects, or "" for a fresh call.

@@ -6,8 +6,9 @@ left to a template: every leaderboard row must carry all eight dimensions, and a
 row blocked from the trusted board must say why. A row showing only an aggregate
 would be a design failure that looks like a formatting choice.
 
-And a row on the trusted board must have earned it: a Season that was evaluated
-(``season_status`` in ``tracks.json``) and more than one case. The demonstration
+And a row on the trusted board must have earned it: a frozen Season, the status
+``benchmarks/season.py`` gives a withheld case set whose scores go on the board
+(``season_status`` in ``tracks.json``), and more than one case. The demonstration
 run once put its seven one-case rows on the trusted board, against its own
 docstring, so a visitor read them as benchmark results.
 """
@@ -23,10 +24,13 @@ for _entry in (ROOT / "BioScience-Harness" / "src", ROOT / "PSH-Harness" / "src"
     if _entry.is_dir() and str(_entry) not in sys.path:
         sys.path.insert(0, str(_entry))
 
-#: The ``season_status`` of a Season whose frozen cases were run and scored. The
-#: other statuses the Arena's documents carry are not it: ``designed``
-#: (benchmarks.json, nothing run) and ``demonstration`` (run_demo_season.py).
-EVALUATED_SEASON_STATUSES = ("evaluated",)
+#: The ``season_status`` of a Season whose rows may go on the trusted board:
+#: ``frozen``, a withheld case set (``bioagent.benchmarks.season.SEASON_STATUSES``),
+#: which ``benchmarks/independent.py`` records in the score document it puts on
+#: board ``trusted``. The other statuses are not it: ``conformance`` (public cases;
+#: the scores say the machinery works), ``designed`` (benchmarks.json, nothing run)
+#: and ``demonstration`` (run_demo_season.py).
+TRUSTED_SEASON_STATUSES = ("frozen",)
 
 
 def main(argv: list[str]) -> int:
@@ -90,17 +94,17 @@ def main(argv: list[str]) -> int:
             f"tracks.json declares dimensions {sorted(declared)} but the scorer "
             f"produces {sorted(SCORE_DIMENSIONS)}")
 
-    # The trusted board is for benchmark results: an evaluated Season, and more
-    # than one case. Anything else belongs on the demonstration board, where the
-    # site shows it under that name.
+    # The trusted board is for benchmark results: a frozen Season, and more than
+    # one case. Anything else belongs on the demonstration board, where the site
+    # shows it under that name.
     season_status = tracks_doc.get("season_status") or doc.get("season_status")
     for row in rows:
         if row.get("board") != "trusted":
             continue
         rid = row.get("run_id") or row.get("system") or "?"
-        if season_status not in EVALUATED_SEASON_STATUSES:
+        if season_status not in TRUSTED_SEASON_STATUSES:
             problems.append(
-                f"{rid}: on the trusted board, but its Season was not evaluated "
+                f"{rid}: on the trusted board, but its Season is not a frozen one "
                 f"(season_status {season_status!r}); a demonstration row belongs on "
                 "the demonstration board")
         cases = row.get("cases")
