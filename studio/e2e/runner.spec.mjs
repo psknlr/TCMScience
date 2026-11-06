@@ -9,6 +9,8 @@ import { approve, newProject, openPaired, readDb, seedSettings, send, shot, wait
 import { startRunner } from "./lib/servers.mjs";
 
 const QUESTION = "甘草与甘遂同用，有哪些记载？";
+// the seed corpus's record, as the pinned skill's envelope carries it (safety.shibafan_gancao_gansui)
+const SHIBAFAN_RECORD = "十八反：藻戟遂芫俱战草——甘遂反甘草";
 
 let runner;
 let mock;
@@ -47,7 +49,9 @@ test("a governed skill runs on the runner and the thread shows its verdict", asy
   await expect(card).toBeVisible();
   await expect(card).toContainText("tcm_safety_report");
   await expect(card).toContainText(/本机 Runner/);
-  await expect(answer).toContainText("十八反");
+  // the mock quotes the record from the envelope it was sent, so this text reaches the answer only through the
+  // runner's envelope: a run whose envelope lacks the 十八反 record fails here
+  await expect(answer).toContainText(`资料记载：${SHIBAFAN_RECORD}`);
   await expect(answer).toContainText("工具状态：succeeded");
   // the kernel's verdicts: the claim card (kind, verdict, the evidence it rests on) and the artifact with its release
   const claim = answer.locator(".claim").first();
@@ -72,6 +76,7 @@ test("a governed skill runs on the runner and the thread shows its verdict", asy
   expect(toolMsg.role).toBe("tool");
   expect(toolMsg.content).toMatch(/skill\.assess-tcm-safety: succeeded/);
   expect(toolMsg.content).toMatch(/Absence of a record is not evidence of safety/);
+  expect(toolMsg.content).toContain(SHIBAFAN_RECORD);
   // the custom endpoint is on loopback: with the runner connected, model calls go through its proxy
   expect(second.via).toBe("proxy");
 

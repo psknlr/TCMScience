@@ -39,7 +39,7 @@ Measured against the executing path, not the README.
 | Tool-use loop integrated with the runtime | ❌ | ✅ | `TaskKind.TOOL` through the broker |
 | Iterative replanning | ❌ | ✅ | bounded by `max_replans` |
 | Loop termination controller | ❌ repeat counter | ✅ | ten named `Termination` reasons |
-| Retry / backoff | ❌ config only | ✅ | `RetryPolicy` per task, charged to the budget |
+| Retry / backoff | ❌ config only | ✅ | `RetryPolicy` per task, charged to the budget. `ResearchRunService` and `ScientificRunService` used to skip the delay (`sleep=lambda s: None`), so backoff held only for a direct `AgentLoopController`; they now wait it out, jittered (`jittered_sleep`). A delay that would end after the task's deadline is not waited and that retry is not made; a cancellation during the wait stops the retry |
 | Layered evaluator | ❌ | ✅ | structural / execution / evidence / goal |
 | Acceptance tests executed | ❌ declarative | ✅ | `ACCEPTANCE_CHECKS`, unknown kind = plan error |
 | Output-schema validation | ❌ declarative | ✅ | `check_output_schema` |
@@ -47,7 +47,7 @@ Measured against the executing path, not the README.
 | Child authority narrowing | ✅/🟡 | ✅ | gateway now defers to `AuthorityLattice` |
 | Automatic subagent selection | ❌ | ✅ | the planner is told whether delegation is available and for how many children (`LoopState.can_delegate`, the authority brief); a delegate task with nowhere to go is corrected, not crashed |
 | Fan-out / fan-in | ❌ | ✅ | `runtime/supervisor.py`: `WorkerPool`, `Reducer` → `AggregatedObservation` |
-| Supervisor / worker pool | ❌ | ✅ | proposes only; `restrict()` authorises; Σ child fractions ≤ 1 |
+| Supervisor / worker pool | ❌ | ✅ | proposes only; `restrict()` authorises; Σ child fractions ≤ 1, reserved for a whole batch or not at all |
 | Heartbeat / lease | ❌ | ✅ | `WorkerLease` / `LeaseRegistry`; a silent child is `STALLED`, not waited for |
 | Idempotency keys | ❌ | ✅ | `runtime/idempotency.py`; stable across retries and resume |
 | Cancellation propagation | 🟡 interface | ✅ | `WAIT` / `CASCADE` / `DETACH`, cooperative token |
@@ -70,7 +70,7 @@ Measured against the executing path, not the README.
 | 与运行时集成的工具使用循环 | ❌ | ✅ | `TaskKind.TOOL` 经由执行代理 |
 | 迭代式重规划 | ❌ | ✅ | 由 `max_replans` 约束 |
 | 循环终止控制器 | ❌ 重复计数器 | ✅ | 十种具名的 `Termination` 原因 |
-| 重试 / 退避 | ❌ 仅有配置 | ✅ | 每个任务一个 `RetryPolicy`，计入预算 |
+| 重试 / 退避 | ❌ 仅有配置 | ✅ | 每个任务一个 `RetryPolicy`，计入预算。`ResearchRunService` 与 `ScientificRunService` 过去跳过了等待（`sleep=lambda s: None`），所以退避只对直接使用的 `AgentLoopController` 成立；它们现在会真正等待，并带抖动（`jittered_sleep`）。若等待会在任务截止时间之后才结束，则不等待，也不做这次重试；等待期间收到取消，也不再重试 |
 | 分层评估器 | ❌ | ✅ | 结构 / 执行 / 证据 / 目标 |
 | 验收测试被执行 | ❌ 仅声明式 | ✅ | `ACCEPTANCE_CHECKS`，未知类型 = 计划错误 |
 | 输出模式（schema）校验 | ❌ 仅声明式 | ✅ | `check_output_schema` |
@@ -78,7 +78,7 @@ Measured against the executing path, not the README.
 | 子代理权限收窄 | ✅/🟡 | ✅ | 网关现在服从 `AuthorityLattice` |
 | 自动子代理选择 | ❌ | ✅ | 规划器会被告知委派是否可用、可用于多少个子代理（`LoopState.can_delegate`，权限简报）；一个无处可去的委派任务会被纠正，而不是崩溃 |
 | 扇出 / 扇入 | ❌ | ✅ | `runtime/supervisor.py`：`WorkerPool`、`Reducer` → `AggregatedObservation` |
-| Supervisor / 工作池 | ❌ | ✅ | 只做提议；`restrict()` 授权；Σ 子代理份额 ≤ 1 |
+| Supervisor / 工作池 | ❌ | ✅ | 只做提议；`restrict()` 授权；Σ 子代理份额 ≤ 1，一个批次要么整体预留，要么完全不预留 |
 | 心跳 / 租约 | ❌ | ✅ | `WorkerLease` / `LeaseRegistry`；一个沉默的子代理被标记为 `STALLED`，而不是被一直等待 |
 | 幂等键 | ❌ | ✅ | `runtime/idempotency.py`；在重试与恢复之间保持稳定 |
 | 取消传播 | 🟡 接口 | ✅ | `WAIT` / `CASCADE` / `DETACH`，协作式令牌 |
@@ -277,7 +277,9 @@ Three things it surfaced:
 * **`Budget.child()` never bounded siblings.** Its docstring says it "stops a delegation
   tree from multiplying a budget by fanning out". Ten quarter-children are two and a half
   parents, measured. `BudgetLedger` sums fractions per parent run, cumulatively — a finished
-  child spent its slice, so releasing it would allow children forever, one at a time.
+  child spent its slice, so releasing it would allow children forever, one at a time. A
+  batch is reserved in one step after every child's contract is minted, so a refused batch
+  holds nothing.
 * **The kernel was not safe to share between threads.** `BudgetGovernor`'s checks are
   compare-then-increment; forty trials at the tightest GIL switch interval could not race
   them, and a ceiling that holds because of scheduler timing is not a ceiling. Locked, along
@@ -288,7 +290,7 @@ Three things it surfaced:
   being cancelled does not always mean killing the five-hour analysis.
 
 <!-- zh -->
-* **`Budget.child()` 从未约束住兄弟节点。** 它的 docstring 说它"阻止一棵委派树通过扇出把预算成倍放大"。十个四分之一子代理就是两个半父级——这是实测的。`BudgetLedger` 按每个父级运行累计求和份额——一个已完成的子代理已经花掉了它的那一份，所以释放它就会允许子代理永远一个接一个地来。
+* **`Budget.child()` 从未约束住兄弟节点。** 它的 docstring 说它"阻止一棵委派树通过扇出把预算成倍放大"。十个四分之一子代理就是两个半父级——这是实测的。`BudgetLedger` 按每个父级运行累计求和份额——一个已完成的子代理已经花掉了它的那一份，所以释放它就会允许子代理永远一个接一个地来。一个批次在每个子代理的契约都铸造完成之后一步预留，所以被拒绝的批次不占用任何份额。
 * **内核在跨线程共享时并不安全。** `BudgetGovernor` 的检查是先比较后自增；在最紧的 GIL 切换间隔下做四十次试验都没能让它们竞争出问题，而一个因为调度器时序才守住的上限并不是上限。已加锁，执行代理的计数器同样加锁——那些计数器是"没有任何东西绕过执行代理"的证明，而在并发之下，它们恰恰会在最要紧的时候变得一文不值。
 * **取消需要一项策略，而不是一个标志位。** `WAIT` / `CASCADE` / `DETACH`，按子代理设置，作用于一个协作式令牌，循环在检查其他每一个边界时的同一个点上轮询它。父级被取消，并不总是意味着要杀掉那个五小时的分析。
 
@@ -565,6 +567,13 @@ once, on top. Concretely:
   way — `bioagent.psh` imports `psh`, never the reverse, and never `psh.kernel` — and this
   package gained nothing but three data-licence ids in `licensing.py`.
 
+* **The orchestration layer** — **not written.** The top box of the diagram exists in one
+  place: `BioScience-Harness/demo_convergence.py`, a demonstration script that runs
+  `AgentLoopController` over the bridge against live HGNC and UniProt. No product code
+  runs it. BioScience calls the kernel's broker directly (`OperationBroker`,
+  `research/loop.py`), and the Studio agent has a loop of its own
+  (`studio/web/js/core/agent.js`). §8 lists which parts of this package a product calls.
+
 <!-- zh -->
 * **一套策略，用 PSH 的。** BioScience 在那里真正独特的贡献不是它的权限模型，而是它的**许可证与集成溯源**（`MIT`、`Apache-2.0`、`NOASSERTION`、`GPL`、vendor / native / federated）。那应当作为 PSH 策略的一个*新维度*——而 `PolicyLattice` 现在正是添加它的地方，这也正是它存在的主要理由。
 
@@ -579,6 +588,8 @@ once, on top. Concretely:
   **已完成**（`bioagent.evolution.boundary`）。`EvolutionPipeline.submit()` 有一个 `boundary` 阶段，会在一个提案的 smoke 测试运行之前，把入口点、源路径或声明的写入落在可信执行平面（trusted execution plane, TEP）之内的提案隔离掉。
 
 * **桥接本身**——**已完成**（`bioagent.psh`，BioScience v2.4；设计见 `BioScience-Harness/docs/V24_PSH_CONVERGENCE.md`）。一份 BioScience 清单变成一份 PSH 清单，门维度按保守方式推导；一次调用按顺序穿过两个内核；每个领域一个 harness 位于本包两级注册表的顶端；`isolate=True` 在本内核的子进程中运行组件。依赖是单向的——`bioagent.psh` 导入 `psh`，绝不反过来，也绝不导入 `psh.kernel`——而本包除了 `licensing.py` 里的三个数据许可证 id 之外什么也没得到。
+
+* **编排层**——**尚未编写。** 上图最顶上那一层只存在于一个地方：`BioScience-Harness/demo_convergence.py`，一个演示脚本，它在桥接之上运行 `AgentLoopController`，访问在线的 HGNC 与 UniProt。没有任何产品代码运行它。BioScience 直接调用内核的执行代理（`OperationBroker`、`research/loop.py`），而 Studio 的代理有它自己的循环（`studio/web/js/core/agent.js`）。§8 列出了本包哪些部分有产品调用方。
 
 BioScience's test suite was reported as 133 passed / 3 failed / 6 skipped; the
 container-validation ordering bug was closed in its v2.3.1 before convergence started,
@@ -600,8 +611,8 @@ v0.5.1 是：
 <!-- zh -->
 > 一个面向生物医学科学代理的**策略强制的控制平面**，其之上是一个**有界、受治理的单代理循环**。
 
-It is not a multi-agent operating system, and the row in §1 that reads "Supervisor / worker
-pool ❌" is the reason. The target the reviews describe — *typed planner → task graph →
+It was not a multi-agent operating system: the §1 row for the supervisor and worker pool
+then had a ❌, which v0.7 (`runtime/supervisor.py`) turned into a ✅. The target the reviews describe — *typed planner → task graph →
 loop controller → supervisor → delegation contract → worker pool → observation → evaluator
 → retry/replan → fan-in → evidence verification → release* — is reachable from here, and
 §3 is the order to reach it in. What should not happen is the reverse: claiming the
@@ -609,7 +620,7 @@ destination while the middle rows are empty. That is the failure mode both revie
 written to catch, and it has now cost two releases to correct.
 
 <!-- zh -->
-它不是一个多代理操作系统，而 §1 中那一行"Supervisor / worker pool ❌"正是原因。评审所描述的目标——*类型化规划器 → 任务图 → 循环控制器 → supervisor → 委派契约 → 工作池 → 观察 → 评估器 → 重试/重规划 → 扇入 → 证据核验 → 发布*——从这里是可以抵达的，而 §3 就是抵达它的顺序。不应当发生的是相反的情况：中间那些行还是空的，却宣称已经到达终点。那正是两次评审被写出来要抓的失败模式，而它现在已经耗费了两个版本来纠正。
+它当时不是一个多代理操作系统：§1 中 supervisor 与工作池那一行当时是 ❌，v0.7（`runtime/supervisor.py`）才把它变成 ✅。评审所描述的目标——*类型化规划器 → 任务图 → 循环控制器 → supervisor → 委派契约 → 工作池 → 观察 → 评估器 → 重试/重规划 → 扇入 → 证据核验 → 发布*——从这里是可以抵达的，而 §3 就是抵达它的顺序。不应当发生的是相反的情况：中间那些行还是空的，却宣称已经到达终点。那正是两次评审被写出来要抓的失败模式，而它现在已经耗费了两个版本来纠正。
 
 ## 7. v0.5.3 — after the third review · 7. v0.5.3 — 第三次评审之后
 
@@ -637,3 +648,65 @@ they did. It is still not a multi-tenant system and still ships no OS sandbox.
 
 <!-- zh -->
 §6 说过的话仍然成立，只加一句：本运行时是一个受治理的循环，*其交付物由与单次执行相同的策略来评判*，并且它的重启知道自己做过什么。它仍然不是一个多租户系统，也仍然不附带任何 OS 沙箱。
+
+## 8. Which parts a product calls · 8. 哪些部分有产品调用方
+
+§1 says what exists and is tested. It does not say what runs when someone uses the
+product. Counted by call sites in `BioScience-Harness/src` and `studio/` (tests,
+benchmarks and demonstration scripts excluded):
+
+<!-- zh -->
+§1 说的是哪些东西存在并经过测试，并没有说有人使用产品时实际运行的是什么。按 `BioScience-Harness/src` 与 `studio/` 中的调用点统计（不含测试、基准与演示脚本）：
+
+| Part | Product caller |
+| --- | --- |
+| Kernel: `TrustedKernel`, `ExecutionBroker.call_tool`, labels, policy, the event chain | Studio's governed skills (`tcmstudio.dispatch` → `bioagent.governed.run_governed` → BioScience's `OperationBroker` → `kernel.broker.call_tool`); BioScience's research loop (`bioagent/research/loop.py`). Studio also reads `EventStore` and uses `Classifier` |
+| `psh.scientist` (inquiry, ledger) | Studio's `research_inquiry`, through `bioagent.research` (`run_inquiry`) |
+| `psh.workflow` IR and `ScientificCompiler` | BioScience checks a skill's declarations with it (`skills/compiler.py`, `analysis/skill_runner.py`), and compiles a research program only for its fingerprint (`research/loop.py`) |
+| `psh.licensing` | BioScience's skill compiler |
+| `psh.runtime.plan` types (`Plan`, `PlanTask`, `RetryPolicy`) | built as data by BioScience (`skills/compiler.py`, `psh/skill_program.py`); no product code hands one to the loop |
+
+<!-- zh -->
+| 部分 | 产品调用方 |
+| --- | --- |
+| 内核：`TrustedKernel`、`ExecutionBroker.call_tool`、标签、策略、事件链 | Studio 的受治理技能（`tcmstudio.dispatch` → `bioagent.governed.run_governed` → BioScience 的 `OperationBroker` → `kernel.broker.call_tool`）；BioScience 的研究循环（`bioagent/research/loop.py`）。Studio 还读取 `EventStore`、使用 `Classifier` |
+| `psh.scientist`（探究、账本） | Studio 的 `research_inquiry`，经由 `bioagent.research`（`run_inquiry`） |
+| `psh.workflow` 中间表示与 `ScientificCompiler` | BioScience 用它检查技能的声明（`skills/compiler.py`、`analysis/skill_runner.py`），并且只为取指纹而编译研究程序（`research/loop.py`） |
+| `psh.licensing` | BioScience 的技能编译器 |
+| `psh.runtime.plan` 类型（`Plan`、`PlanTask`、`RetryPolicy`） | 由 BioScience 作为数据构建（`skills/compiler.py`、`psh/skill_program.py`）；没有产品代码把它交给循环 |
+
+The rest of the runtime is a library with no product caller. Its call sites are this
+package's tests and benchmarks, BioScience's tests, and `demo_convergence.py`:
+
+<!-- zh -->
+运行时的其余部分是一个没有产品调用方的库。它的调用点只有本包的测试与基准、BioScience 的测试，以及 `demo_convergence.py`：
+
+* `AgentLoopController`, `StaticPlanner`, `ModelPlanner`, `Evaluator`;
+* `ResearchRunService`, `ScientificRunService`, `DynamicResearchRunService`
+  (BioScience's `tests/test_psh_jobs.py` runs the first);
+* `Supervisor`, `WorkerPool`, `Reducer`, `LocalSubagentBackend`, the leases;
+* `CheckpointStore`, `JournalCheckpointStore`, `OperationLedger` (BioScience's job tools
+  read only `OperationState`);
+* `Runner.run`, `ExecutionBroker.call_model` and `ExecutionBroker.delegate`: Studio's model
+  traffic goes through `tcmstudio/llmproxy.py`, not through the model gateway;
+* `ContextCompiler`, `Compactor`, `MemoryRetriever`;
+* `MCPToolAdapter` (through `bioagent.psh.admit_mcp_server`, which only tests call) and
+  `A2AAgentAdapter`.
+
+<!-- zh -->
+* `AgentLoopController`、`StaticPlanner`、`ModelPlanner`、`Evaluator`；
+* `ResearchRunService`、`ScientificRunService`、`DynamicResearchRunService`（BioScience 的 `tests/test_psh_jobs.py` 运行第一个）；
+* `Supervisor`、`WorkerPool`、`Reducer`、`LocalSubagentBackend`、租约；
+* `CheckpointStore`、`JournalCheckpointStore`、`OperationLedger`（BioScience 的作业工具只读取 `OperationState`）；
+* `Runner.run`、`ExecutionBroker.call_model` 与 `ExecutionBroker.delegate`：Studio 的模型流量经由 `tcmstudio/llmproxy.py`，而不是经由模型网关；
+* `ContextCompiler`、`Compactor`、`MemoryRetriever`；
+* `MCPToolAdapter`（经由 `bioagent.psh.admit_mcp_server`，只有测试调用它）与 `A2AAgentAdapter`。
+
+So the guarantees this document gives the loop (label joins across tasks, a budget over a
+plan, retry and replan, bounded fan-out) cover no agent traffic a user generates today.
+The Studio agent (`studio/web/js/core/agent.js`) and BioScience's `BioAgent`
+(`bioagent/agent.py`) are separate loops. Read a ✅ in §1 as a tested library until a
+product calls it.
+
+<!-- zh -->
+所以本文档为循环给出的保证（跨任务的标签合并、覆盖整份计划的预算、重试与重规划、有界扇出）目前不覆盖用户产生的任何代理流量。Studio 的代理（`studio/web/js/core/agent.js`）与 BioScience 的 `BioAgent`（`bioagent/agent.py`）是各自独立的循环。在有产品调用它之前，请把 §1 中的 ✅ 读作"一个经过测试的库"。

@@ -66,16 +66,28 @@ class BudgetLedger:
         self._lock = threading.Lock()
 
     def reserve(self, parent_run_id: str, fraction: float) -> None:
-        if not 0.0 < fraction <= 1.0:
+        self.reserve_batch(parent_run_id, (fraction,))
+
+    def reserve_batch(self, parent_run_id: str, fractions: Sequence[float]) -> None:
+        """Reserve every fraction, or none of them.
+
+        One check of the sum, under one lock, then one commit. Reserving a batch one
+        fraction at a time left the earlier fractions held when a later one was refused:
+        a refused batch then consumed budget for children that never existed.
+        """
+        fractions = tuple(fractions)
+        if any(not 0.0 < f <= 1.0 for f in fractions):
             raise ValueError("a child's budget fraction must be in (0, 1]")
+        total = sum(fractions)
         with self._lock:
             held = self._allocated.get(parent_run_id, 0.0)
-            if held + fraction > 1.0 + 1e-9:
+            if held + total > 1.0 + 1e-9:
                 raise BudgetExhausted(
                     f"run {parent_run_id} has already delegated {held:.0%} of its budget; "
-                    f"a further {fraction:.0%} would make its children worth more than the "
+                    f"a further {total:.0%} would make its children worth more than the "
                     "parent, which is what a per-child fraction alone did not prevent")
-            self._allocated[parent_run_id] = held + fraction
+            if fractions:
+                self._allocated[parent_run_id] = held + total
 
     def allocated(self, parent_run_id: str) -> float:
         with self._lock:
@@ -305,18 +317,21 @@ class Supervisor:
     # -------------------------------------------------------------- dispatch
     def dispatch(self, requests: Iterable[DelegationRequest], parent: RunEnvelope, *,
                  wait: bool = True) -> list[ChildRun]:
-        """Reserve budget, mint, and run every request through the broker.
+        """Mint, reserve budget, and run every request through the broker.
 
-        Reservation happens for the whole batch before anything runs, so a batch that
-        would over-allocate is refused as a batch rather than half-started.
+        Every contract is minted before any budget is reserved: minting only narrows, and
+        a request the lattice refuses must not hold budget it will never spend. The
+        reservation is then one atomic step for the whole batch, so a batch that would
+        over-allocate is refused as a batch rather than half-started, and a refused batch
+        leaves the ledger as it found it.
         """
         requests = list(requests)
-        for request in requests:
-            self.ledger.reserve(parent.run_id, request.budget_fraction)
+        contracts = [self.mint(request, parent) for request in requests]
+        self.ledger.reserve_batch(parent.run_id,
+                                  [request.budget_fraction for request in requests])
 
         children: list[ChildRun] = []
-        for request in requests:
-            contract = self.mint(request, parent)
+        for request, contract in zip(requests, contracts):
             child = ChildRun(contract=contract, policy=request.cancellation,
                              state=ChildState.QUEUED)
             child.lease = self.leases.issue(child.id, self.lease_ttl_s)

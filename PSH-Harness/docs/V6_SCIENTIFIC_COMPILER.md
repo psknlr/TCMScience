@@ -286,9 +286,10 @@ envelope. A programme that survives both has been ruled on by every check either
 1. *A vocabulary item with no counterpart is refused, never approximated.* A `GUIDELINE`
    design and a `RECOMMENDATION` claim have no name on the far side, and mapping either to
    its nearest neighbour would let a guideline license a traditional-use claim — the exact
-   substitution both matrices exist to stop. The two coarsenings that *are* made
-   (`CASE_SERIES` → `case_report`, `COHORT` → `observational`) both go to the name that
-   admits **fewer** claims, so no mapping can make something licensable that was not.
+   substitution both matrices exist to stop. The five coarsenings that *are* made
+   (`CASE_SERIES` → `case_report`; `CROSS_SECTIONAL`, `CASE_CONTROL`, `COHORT` and
+   `NON_RANDOMISED_TRIAL` → `observational`, in `bridge.DESIGN_NAMES`) each go to the name
+   that admits **fewer** claims, so no mapping can make something licensable that was not.
 2. *Where the two disagree, the stricter one decides.* Crossing is a conjunction, not a
    second opinion.
 3. *Nothing is synthesised.* `TaskContract.statistics` needs a `Protocol` and
@@ -320,11 +321,14 @@ claiming the destination while the middle rows are empty.
   Entity/Activity/Agent cleanly; nothing emits it yet.
 * **No OPA policy backend, no secret broker, no network capability beyond the existing
   proxy.**
-* **No hypothesis competition and no experiment selection.** `ExperimentSpec` carries the
-  fields a decision would need — information gain, cost, discrimination — and the compiler
-  refuses an experiment that discriminates nothing. It does not *rank* experiments, and a
-  single utility number combining information gain with wet-lab risk would be false
-  precision.
+* **No experiment ranking in the compiler.** `ExperimentSpec` carries the fields a decision
+  would need — information gain, cost, discrimination — and the compiler refuses an
+  experiment that discriminates nothing. It does not *rank* experiments, and a single
+  utility number combining information gain with wet-lab risk would be false precision.
+  Hypothesis competition and the choice of the next analysis came later and live outside
+  the compiler: `psh.scientist.inquiry` holds competing explanations with a catch-all,
+  seals their predictions, picks the analysis with the highest expected information gain,
+  and accepts a leader only after a severe, replicated test against every live rival.
 * **No benchmark.** The claim this release makes is architectural: a research programme is
   refused before it runs for reasons a reviewer would give. Whether that produces better
   science than a harness without it is a question for a same-model, same-budget evaluation,
@@ -380,7 +384,7 @@ showed up as an unrelated assertion three files away.
 ## 13. Numbers
 
 ```bash
-python -m pytest tests/ -q          # 1084 pass
+python -m pytest tests/ -q          # 1084 passed at this release (2026-09-29); later releases added more
 python -m compileall -q src         # clean
 ```
 
@@ -397,4 +401,3 @@ python -m compileall -q src         # clean
 | Diagnostic codes | 71, each with a remedy, registry checked in both directions |
 | New WorkGraph node kinds | 9 (22 in total) |
 | New WorkGraph edge kinds | 8 (21 in total) |
-| New tests | 110 here, 23 in BioScience-Harness |

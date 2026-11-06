@@ -270,7 +270,7 @@ The repository's existing PSH CI automatically collects these tests.
 | Types, effects, information/evidence flow | Conservative declared-scope checks; runtime sensitivity floors |
 | Workflow amendment | Change impact analysis; no live amendment or automatic cache reuse |
 | Durable execution | Optional [checkpoint journal](DURABLE_CHECKPOINT_JOURNAL.md) and atomic operation admission; no per-event replay engine |
-| Scientific World Model | Typed hypothesis/protocol/observation records and explicit deviations; see [scientific records](SCIENTIFIC_RECORDS.md). Competition remains future work |
+| Scientific World Model | Typed hypothesis/protocol/observation records and explicit deviations; see [scientific records](SCIENTIFIC_RECORDS.md). Competition and the choice of the next analysis were added later, in `psh.scientist.inquiry` |
 | Statistical/causal compiler | Not implemented; resource checks are not statistical validation |
 | Dynamic branches, loops, fan-out | Not implemented by this frontend |
 | OS sandbox, network broker, secrets | Existing controls retained; no stronger isolation claim |
@@ -284,7 +284,7 @@ The repository's existing PSH CI automatically collects these tests.
 | 类型、效果、信息/证据流 | 保守的已声明范围检查；运行时敏感度下限 |
 | 工作流修正 | 变更影响分析；没有实时修正或自动缓存复用 |
 | 持久执行 | 可选的[检查点日志](DURABLE_CHECKPOINT_JOURNAL.md)与原子操作准入；没有逐事件重放引擎 |
-| 科学世界模型（Scientific World Model） | 有类型的假设/方案/观察记录与显式偏离；见[科学记录](SCIENTIFIC_RECORDS.md)。竞争仍是未来工作 |
+| 科学世界模型（Scientific World Model） | 有类型的假设/方案/观察记录与显式偏离；见[科学记录](SCIENTIFIC_RECORDS.md)。竞争与下一项分析的选择后来在 `psh.scientist.inquiry` 中加入 |
 | 统计/因果编译器 | 未实现；资源检查不是统计验证 |
 | 动态分支、循环、扇出 | 此前端未实现 |
 | 操作系统沙箱、网络 broker、机密（secrets） | 保留现有控制；不作更强的隔离声明 |
@@ -294,11 +294,12 @@ The repository's existing PSH CI automatically collects these tests.
 
 Next implementation milestones should add pinned capability/environment manifests
 before automatic reuse, evidence-preserving durable replay with fault injection,
-and hypothesis competition over the typed scientific records.
+and hypothesis competition over the typed scientific records. (The last has since been
+added: `psh.scientist.inquiry`.)
 Each milestone needs its own runtime integration and trajectory tests. This code
 is an original implementation against PSH interfaces; no ZCode source was copied
 or reviewed for this increment.
 
 <!-- zh -->
-接下来的实现里程碑应当在自动复用之前加入钉定的能力/环境清单、带故障注入的保全证据的持久重放，以及在有类型的科学记录之上的假设竞争。每个里程碑都需要各自的运行时集成与轨迹测试。这些代码是针对 PSH 接口的原创实现；本次增量没有复制或审阅任何 ZCode 源码。
+接下来的实现里程碑应当在自动复用之前加入钉定的能力/环境清单、带故障注入的保全证据的持久重放，以及在有类型的科学记录之上的假设竞争。（最后一项此后已经加入：`psh.scientist.inquiry`。）每个里程碑都需要各自的运行时集成与轨迹测试。这些代码是针对 PSH 接口的原创实现；本次增量没有复制或审阅任何 ZCode 源码。
 

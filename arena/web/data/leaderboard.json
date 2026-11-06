@@ -16,12 +16,12 @@
     {
       "id": "trusted",
       "label": "Trusted",
-      "note": "Runs that passed every hard gate. The four P0 skills are here: they were run for real and their artifacts passed the publication gate."
+      "note": "Runs of an evaluated benchmark Season that passed every hard gate. Empty: no Season has been evaluated."
     },
     {
       "id": "demonstration",
       "label": "Demonstration only",
-      "note": "The four P0 skills, run against the compiled corpus. Real artifacts and real verdicts; three of the eight dimensions are measurable without a published gold corpus."
+      "note": "The four P0 skills, one case each, run against the compiled corpus. Real artifacts and real verdicts, and their artifacts passed the publication gate; three of the eight dimensions are measurable without a published gold corpus. Not a benchmark result."
     },
     {
       "id": "experimental",
@@ -34,6 +34,7 @@
       "note": "Every run in this document."
     }
   ],
+  "default_board": "demonstration",
   "runs": [
     {
       "run_id": "demo-entity-01",
@@ -42,7 +43,7 @@
       "type": "Skill",
       "version": "1.0.0",
       "track": "TCM-Entity",
-      "board": "trusted",
+      "board": "demonstration",
       "placeholder": false,
       "is_demonstration": true,
       "cases": 1,
@@ -208,7 +209,7 @@
       "type": "Skill",
       "version": "1.0.0",
       "track": "TCM-Entity",
-      "board": "trusted",
+      "board": "demonstration",
       "placeholder": false,
       "is_demonstration": true,
       "cases": 1,
@@ -475,7 +476,7 @@
       "type": "Skill",
       "version": "1.1.0",
       "track": "TCM-Evidence",
-      "board": "trusted",
+      "board": "demonstration",
       "placeholder": false,
       "is_demonstration": true,
       "cases": 1,
@@ -801,7 +802,7 @@
       "type": "Skill",
       "version": "1.1.0",
       "track": "TCM-NetPharm",
-      "board": "trusted",
+      "board": "demonstration",
       "placeholder": false,
       "is_demonstration": true,
       "cases": 1,
@@ -970,7 +971,7 @@
       "type": "Skill",
       "version": "1.0.0",
       "track": "TCM-Safety",
-      "board": "trusted",
+      "board": "demonstration",
       "placeholder": false,
       "is_demonstration": true,
       "cases": 1,
@@ -1372,7 +1373,7 @@
       "type": "Skill",
       "version": "1.0.0",
       "track": "TCM-Safety",
-      "board": "trusted",
+      "board": "demonstration",
       "placeholder": false,
       "is_demonstration": true,
       "cases": 1,
@@ -1890,7 +1891,7 @@
       "type": "Skill",
       "version": "1.0.0",
       "track": "TCM-Safety",
-      "board": "trusted",
+      "board": "demonstration",
       "placeholder": false,
       "is_demonstration": true,
       "cases": 1,

@@ -32,6 +32,7 @@ from ..labels import Destination, Sensitivity
 from ..sir import SIRProgram
 from .finalize import Finalizer, ReleasedResult
 from .loop import AgentLoopController, LoopLimits, LoopResult, LoopState, StaticPlanner, TaskEvent
+from .plan import jittered_sleep
 from .plan_validator import PlanValidator
 
 __all__ = ["ScientificRunService", "ScientificResult"]
@@ -100,7 +101,8 @@ class ScientificRunService:
                  delegate_backend: Callable[[Any], Any] | None = None,
                  checkpoints: Any = None, memory: Any = None, operations: Any = None,
                  journal: Any = None, world_model: Any = None, policy: Any = None,
-                 options: CompileOptions | None = None) -> None:
+                 options: CompileOptions | None = None,
+                 sleep: Callable[[float], None] = jittered_sleep) -> None:
         self.kernel = kernel
         self.policy = policy if policy is not None else kernel.policy
         if policy is not None and hasattr(kernel, "check_requirements"):
@@ -115,6 +117,9 @@ class ScientificRunService:
         self.checkpoints = checkpoints
         self.memory = memory
         self.operations = operations
+        #: How the loop waits out a task's ``RetryPolicy`` delay, as in
+        #: ``ResearchRunService``: real, jittered time unless a caller passes otherwise.
+        self.sleep = sleep
         #: Optional ``WorkflowJournal``. Without one the run executes identically and an
         #: amendment later has nothing to reuse, which the amend path says rather than
         #: silently recomputing everything.
@@ -245,7 +250,7 @@ class ScientificRunService:
             model=self.model, model_invoke=self.model_invoke, evaluator=self.evaluator,
             validator=self.validator, limits=self.limits,
             delegate_backend=self.delegate_backend, checkpoints=self.checkpoints,
-            memory=self.memory, operations=self.operations, sleep=lambda s: None,
+            memory=self.memory, operations=self.operations, sleep=self.sleep,
             observer=self._journal_observer(envelope, compiled))
         result = loop.run(program.question, envelope, resume_from=state)
         self.last_loop_result = result

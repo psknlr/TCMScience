@@ -23,7 +23,15 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-__all__ = ["SCENARIOS", "Scenario", "outcome_of", "run_scenarios"]
+__all__ = ["REPORT_METADATA", "SCENARIOS", "Scenario", "outcome_of", "run_scenarios"]
+
+#: What ``agent_regression_report.json`` measures, stated in the report itself. The name
+#: reads as a measure of the agent; it is not one. Each scenario's tool calls are written
+#: here and run in order, so no model is asked anything and none chooses a step.
+REPORT_METADATA: Mapping[str, Any] = {
+    "measures": "tool chains through the dispatcher; no model decides",
+    "model": None,
+}
 
 BERBERINE = "inchikey:YBHILYKTIRIUTE-UHFFFAOYSA-N"
 COPTIS = "ncbitaxon:261450"                      # Coptis chinensis, a source species of 黄连

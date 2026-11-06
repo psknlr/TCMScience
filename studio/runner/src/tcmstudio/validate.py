@@ -827,7 +827,7 @@ def run(a: argparse.Namespace) -> int:
             r.add("integration", status, detail)
             chain_records.append(r)
         log(f"validated in {time.perf_counter() - t0:.0f} s")
-        from .scenarios import SCENARIOS, run_scenarios
+        from .scenarios import REPORT_METADATA, SCENARIOS, run_scenarios
         scenarios = run_scenarios(ctx, tier=a.tier, log=log)
         sandbox = sandbox_records(state_root, tcmdb_root,
                                   probe_network=a.probe_network or a.tier == "live")
@@ -856,7 +856,7 @@ def run(a: argparse.Namespace) -> int:
                    "through the dispatcher in order. A step that cannot run here ends the "
                    "scenario with its class (tool_unavailable, data_unavailable) and reason: "
                    "BLOCKED or SKIPPED, never PASS."],
-            extra={"scenarios": [x.as_dict() for x in SCENARIOS]})}
+            extra={**REPORT_METADATA, "scenarios": [x.as_dict() for x in SCENARIOS]})}
     for name, doc in docs.items():
         write_report(out / f"{name}.json", doc)
     summary = {"schema": "tcmscience.validation-summary/1", "tier": a.tier,

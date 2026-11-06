@@ -146,6 +146,7 @@ Every row carries its full decomposition; a row without one is a data error.
     { "id": "trusted", "label": "Trusted board", "note": "…" },
     { "id": "experimental", "label": "Experimental board", "note": "…" }
   ],
+  "default_board": "trusted",              // optional: the board the page opens on
   "dimensions": [ { "key": "task_success", "label": "Task Success", "weight": 0.125 } ],
   "runs": [
     {
@@ -155,7 +156,7 @@ Every row carries its full decomposition; a row without one is a data error.
       "type": "Skill",                     // "Skill" | "OCI Container" | "Remote API"
       "version": "0.1.0-example",
       "track": "TCM-Entity",
-      "board": "trusted",                  // "trusted" | "experimental"
+      "board": "trusted",                  // "trusted" | "demonstration" | "experimental"
       "rank": 1,                           // published rank within track + board
       "cases": 20,
       "aggregate": 0.782,                  // published; never recomputed here
@@ -183,6 +184,12 @@ Rules the checker should enforce:
 - A row with a non-empty `blocking_reasons` has `board == "experimental"`, and
   vice versa. A gated row must never be dropped — it moves boards.
 - `rank` is dense within `(track, board)`.
+- A `trusted` row comes from a frozen Season (`season_status` `frozen` in
+  `tracks.json`, the status `benchmarks/season.py` gives a withheld case set whose
+  scores go on the board) and has more than one case. A `conformance`,
+  `designed` or `demonstration` Season puts no row there: the demonstration
+  run's one-case rows are on the `demonstration` board, which its `default_board`
+  opens on, and the leaderboard then opens on all tracks.
 - A row whose four `versions` values do not all resolve in the published
   registries is not rendered at all (ADR-0002).
 
@@ -190,6 +197,7 @@ Rules the checker should enforce:
 - `scores` 的键与 `dimensions` 的键完全一致，且全部存在。
 - `blocking_reasons` 非空的行，其 `board == "experimental"`，反之亦然。被门槛拦截的行绝不能被丢弃——它只是换一个榜单。
 - `rank` 在 `(track, board)` 内是稠密的。
+- `trusted` 榜上的行来自一个已冻结的赛季（`tracks.json` 中 `season_status` 为 `frozen`，即 `benchmarks/season.py` 给题目保密、成绩上榜的赛季的状态），且不止一道题。`conformance`、`designed` 或 `demonstration` 状态的赛季不会在该榜上放任何行：示范运行每行只有一道题，放在 `demonstration` 榜上，页面通过 `default_board` 默认打开它，排行榜此时默认显示全部赛道。
 - 四个 `versions` 值无法在已发布注册表中全部解析的行，根本不会被渲染（ADR-0002）。
 
 ### `runs.json` · 数据文档

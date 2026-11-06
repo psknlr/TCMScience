@@ -556,12 +556,13 @@ disagreeing is a recorded `Conflict`, not two paragraphs concatenated.
 
 It found one defect worth naming: `Budget.child()` bounded one child and its docstring
 claimed it stopped fan-out multiplying a budget. Ten quarter-children are two and a half
-parents. `BudgetLedger` sums fractions per parent, cumulatively.
+parents. `BudgetLedger` sums fractions per parent, cumulatively. A batch is reserved in one
+step, after every child's contract is minted, so a refused batch holds nothing.
 
 <!-- zh -->
 `Supervisor.mint()` 把一个请求转成 `parent.restrict()` —— 权限格 —— 的参数，自身不持有任何比较；一个结构性测试会解析它，一旦出现比较就失败。子级是契约信封之下的子循环，返回一个 `SubagentResult`，其中没有存放对话记录的字段：主张、证据、产物、一份摘要，以及一个"子级所见一切之并"的标签。`WorkerPool` 在内核之上并发运行它们，内核现在为它加锁 —— `BudgetGovernor` 的检查并自增，以及 broker 的计数器；后者是"没有任何东西绕过 broker"的证明，因此也是必须能在多线程下存活的东西。扇入（fan-in）是一个 `AggregatedObservation`，其中两个子级意见不一致会被记录为一条 `Conflict`，而不是把两段话拼在一起。
 
-它发现了一个值得指名的缺陷：`Budget.child()` 只约束了一个子级，而它的文档字符串声称它阻止了扇出对预算的倍增。十个四分之一子级等于两个半父级。`BudgetLedger` 按父级累计求和。
+它发现了一个值得指名的缺陷：`Budget.child()` 只约束了一个子级，而它的文档字符串声称它阻止了扇出对预算的倍增。十个四分之一子级等于两个半父级。`BudgetLedger` 按父级累计求和。一个批次在每个子级的契约都铸造完成之后一步预留，所以被拒绝的批次不占用任何份额。
 
 
 ### Durability: a child that stops answering is given up on, not waited for · 持久性：一个不再应答的子级会被放弃，而不是被等待

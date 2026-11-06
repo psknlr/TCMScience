@@ -15,6 +15,7 @@ from typing import Any, Callable, Mapping, Sequence
 from ..contracts import RunEnvelope
 from .finalize import Finalizer, ReleasedResult
 from .loop import AgentLoopController, LoopLimits, LoopResult, Planner
+from .plan import jittered_sleep
 
 __all__ = ["ResearchRunService"]
 
@@ -28,7 +29,8 @@ class ResearchRunService:
                  limits: LoopLimits | None = None,
                  delegate_backend: Callable[[Any], Any] | None = None,
                  checkpoints: Any = None, memory: Any = None, operations: Any = None,
-                 policy: Any = None) -> None:
+                 policy: Any = None,
+                 sleep: Callable[[float], None] = jittered_sleep) -> None:
         self.kernel = kernel
         self.policy = policy if policy is not None else kernel.policy
         if policy is not None and hasattr(kernel, "check_requirements"):
@@ -44,6 +46,9 @@ class ResearchRunService:
         self.checkpoints = checkpoints
         self.memory = memory
         self.operations = operations
+        #: How the loop waits out a task's ``RetryPolicy`` delay. Real, jittered time by
+        #: default; a test that wants instant retries passes a no-op.
+        self.sleep = sleep
         self.finalizer = Finalizer(kernel, policy=self.policy)
         #: The last internal result, for diagnostics. Not part of what is released.
         self.last_loop_result: LoopResult | None = None
@@ -54,7 +59,7 @@ class ResearchRunService:
             model_invoke=self.model_invoke, evaluator=self.evaluator,
             validator=self.validator, limits=self.limits,
             delegate_backend=self.delegate_backend, checkpoints=self.checkpoints,
-            memory=self.memory, operations=self.operations, sleep=lambda s: None)
+            memory=self.memory, operations=self.operations, sleep=self.sleep)
         return AgentLoopController(self.kernel, **kw)
 
     def run(self, objective: str, *, envelope: RunEnvelope | None = None,

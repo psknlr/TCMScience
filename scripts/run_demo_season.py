@@ -338,12 +338,13 @@ def main(argv: list[str] | None = None) -> int:
             "type": "Skill",
             "version": artifact.skill_version,
             "track": track,
-            # These runs genuinely passed the publication gate, so they belong
-            # on the trusted board — marking them `demonstration` put them
-            # outside the site's default filter and a visitor saw an empty table
-            # with no explanation. `is_demonstration` distinguishes them for a
-            # reader without hiding them behind a filter.
-            "board": "trusted",
+            # Passing the publication gate does not make a one-case run a
+            # benchmark result, so these rows are on the demonstration board, as
+            # the module docstring says. The leaderboard names that board as its
+            # `default_board`, so the site opens on these rows rather than on an
+            # empty trusted board; check_arena_data.py refuses a trusted row
+            # without a frozen Season and more than one case.
+            "board": "demonstration",
             "placeholder": False,
             "is_demonstration": True,
             "cases": 1,
@@ -461,19 +462,22 @@ def main(argv: list[str] | None = None) -> int:
         # filter. It was an object here and crashed the page.
         "boards": [
             {"id": "trusted", "label": "Trusted",
-             "note": ("Runs that passed every hard gate. The four P0 skills are "
-                      "here: they were run for real and their artifacts passed "
-                      "the publication gate.")},
+             "note": ("Runs of an evaluated benchmark Season that passed every hard "
+                      "gate. Empty: no Season has been evaluated.")},
             {"id": "demonstration", "label": "Demonstration only",
-             "note": ("The four P0 skills, run against the compiled corpus. Real "
-                      "artifacts and real verdicts; three of the eight dimensions "
-                      "are measurable without a published gold corpus.")},
+             "note": ("The four P0 skills, one case each, run against the compiled "
+                      "corpus. Real artifacts and real verdicts, and their artifacts "
+                      "passed the publication gate; three of the eight dimensions "
+                      "are measurable without a published gold corpus. Not a "
+                      "benchmark result.")},
             {"id": "experimental", "label": "Experimental",
              "note": ("Runs blocked from the trusted board. A gated run is shown "
                       "here with its decomposition and the reason, never dropped.")},
             {"id": "all", "label": "All boards",
              "note": "Every run in this document."},
         ],
+        # The board the site opens on: the one that has rows.
+        "default_board": "demonstration",
         "runs": runs,
         "pending": ("The trusted board is empty because no benchmark Season has been "
                     "evaluated. Filling it needs the 120-case corpus and gold labels, "

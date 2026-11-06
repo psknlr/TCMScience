@@ -5,6 +5,12 @@ The plan states it as a requirement, so it is checked mechanically rather than
 left to a template: every leaderboard row must carry all eight dimensions, and a
 row blocked from the trusted board must say why. A row showing only an aggregate
 would be a design failure that looks like a formatting choice.
+
+And a row on the trusted board must have earned it: a frozen Season, the status
+``benchmarks/season.py`` gives a withheld case set whose scores go on the board
+(``season_status`` in ``tracks.json``), and more than one case. The demonstration
+run once put its seven one-case rows on the trusted board, against its own
+docstring, so a visitor read them as benchmark results.
 """
 from __future__ import annotations
 
@@ -17,6 +23,14 @@ ROOT = Path(__file__).resolve().parents[1]
 for _entry in (ROOT / "BioScience-Harness" / "src", ROOT / "PSH-Harness" / "src"):
     if _entry.is_dir() and str(_entry) not in sys.path:
         sys.path.insert(0, str(_entry))
+
+#: The ``season_status`` of a Season whose rows may go on the trusted board:
+#: ``frozen``, a withheld case set (``bioagent.benchmarks.season.SEASON_STATUSES``),
+#: which ``benchmarks/independent.py`` records in the score document it puts on
+#: board ``trusted``. The other statuses are not it: ``conformance`` (public cases;
+#: the scores say the machinery works), ``designed`` (benchmarks.json, nothing run)
+#: and ``demonstration`` (run_demo_season.py).
+TRUSTED_SEASON_STATUSES = ("frozen",)
 
 
 def main(argv: list[str]) -> int:
@@ -72,14 +86,32 @@ def main(argv: list[str]) -> int:
     # The season's dimension list and the code's must agree, or the site would
     # render a column nothing scores.
     tracks = data_dir / "tracks.json"
-    if tracks.is_file():
-        declared = {d["key"] for d in
-                    (json.loads(tracks.read_text(encoding="utf-8"))
-                     .get("dimensions") or [])}
-        if declared and declared != set(SCORE_DIMENSIONS):
+    tracks_doc = (json.loads(tracks.read_text(encoding="utf-8"))
+                  if tracks.is_file() else {})
+    declared = {d["key"] for d in (tracks_doc.get("dimensions") or [])}
+    if declared and declared != set(SCORE_DIMENSIONS):
+        problems.append(
+            f"tracks.json declares dimensions {sorted(declared)} but the scorer "
+            f"produces {sorted(SCORE_DIMENSIONS)}")
+
+    # The trusted board is for benchmark results: a frozen Season, and more than
+    # one case. Anything else belongs on the demonstration board, where the site
+    # shows it under that name.
+    season_status = tracks_doc.get("season_status") or doc.get("season_status")
+    for row in rows:
+        if row.get("board") != "trusted":
+            continue
+        rid = row.get("run_id") or row.get("system") or "?"
+        if season_status not in TRUSTED_SEASON_STATUSES:
             problems.append(
-                f"tracks.json declares dimensions {sorted(declared)} but the scorer "
-                f"produces {sorted(SCORE_DIMENSIONS)}")
+                f"{rid}: on the trusted board, but its Season is not a frozen one "
+                f"(season_status {season_status!r}); a demonstration row belongs on "
+                "the demonstration board")
+        cases = row.get("cases")
+        if not isinstance(cases, int) or cases < 2:
+            problems.append(
+                f"{rid}: on the trusted board with {cases!r} case(s); one case is an "
+                "example, not a benchmark result")
 
     if problems:
         print("ARENA DATA CHECK FAILED:", file=sys.stderr)

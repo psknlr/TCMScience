@@ -262,8 +262,8 @@ def test_every_design_that_crosses_lands_on_a_name_the_far_side_knows():
         set(DESIGN_NAMES.values()) - DESIGNS)
     assert {c.value for c in WorkflowClaimType} >= set(CLAIM_KINDS.values())
 
-    # The two coarsenings are the only ones, and both go to the name that admits fewer
-    # claims rather than more.
+    # These five coarsenings are the only ones, and each goes to the name that admits
+    # fewer claims rather than more; the randomised trial differs in spelling only.
     coarsened = {d: name for d, name in DESIGN_NAMES.items() if d.value != name}
     assert coarsened == {
         StudyDesign.CASE_SERIES: "case_report",
