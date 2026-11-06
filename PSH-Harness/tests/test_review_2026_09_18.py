@@ -496,6 +496,37 @@ def test_a_generated_id_is_not_read_as_a_phone_number(fallback):
         assert "chinese_mobile_number" in verdict.categories, text
 
 
+def test_the_email_rule_reads_a_long_run_in_linear_time(fallback):
+    """Review of 2026-11-06 (Studio's egress gate classifies every argument whole): the email
+    rule started at every \\b, so a long run of [\\w.+-] with a boundary every few characters
+    ('a.a.a.…') took 12 s at 80 KB and did not finish at 2 MB. It starts only where such a run
+    starts now, and finds the same addresses."""
+    import itertools
+    import re
+    import time
+
+    from psh.kernel import classify
+    for text in ("a.b@example.org", "x a.b+c@ex-ample.co.uk y", ".a@b.com", "-x@b.cn",
+                 "a.a.a." * 10 + "q@r.st", "联系邮箱：zhang.san@hospital.cn"):
+        assert "email_address" in fallback.classify_text(text).categories, text
+    for text in ("+@b.com", ".-@b.com", "a@b", "a.a.a.a", "@b.com", "PMID 31415926"):
+        assert "email_address" not in fallback.classify_text(text).categories, text
+    # the same strings match as matched the rule it replaces: every string of up to six
+    # characters from the ones that decide it
+    before = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b")
+    rule = next(p for name, p, _ in classify._FALLBACK_RULES if name == "email_address")
+    for n in range(7):
+        for chars in itertools.product("a.+@ -", repeat=n):
+            text = "".join(chars)
+            assert bool(rule.search(text)) == bool(before.search(text)), text
+    # 80 KB (12 s before, about 0.01 s now), then 2 MB
+    for text, limit in (("a." * 40_000, 2), ("a-" * 40_000, 2), ("a." * 1_000_000, 20),
+                        ("a@" * 1_000_000, 20)):
+        t0 = time.perf_counter()
+        fallback.classify_text(text)
+        assert time.perf_counter() - t0 < limit, (text[:8], len(text))
+
+
 def test_f04_english_cues_still_hold(fallback):
     assert fallback.classify_text(PHI_TEXT).sensitivity is Sensitivity.PHI
 

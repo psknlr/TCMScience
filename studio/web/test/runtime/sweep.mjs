@@ -4,8 +4,9 @@
 // --no-network` makes them (sweep_native.py, one process), and each pair of envelopes held to the runtime check's own
 // comparison (run.mjs compareEnvelopes). The calls are sweep_calls.py's: every browser entry (compatibility classes
 // 1, 2, 3 and 5) and core tool with the input `tcmstudio validate` gives it, every connector with web access off
-// (both sides must refuse it as network_off), and the groups beyond validate's inputs (extra, invalid, reference,
-// direct, kernel, and the workbook sequence on a page of its own); its docstring says what each is.
+// (both sides must refuse it as network_off), an identifier in a networked call's arguments (egress: both sides must
+// refuse it with EGRESS_IDENTIFIER), and the groups beyond validate's inputs (extra, invalid, reference, direct,
+// kernel, and the workbook sequence on a page of its own); its docstring says what each is.
 //
 //   node studio/web/test/runtime/sweep.mjs [--site DIR] [--pyodide-dir DIR | --index URL] [--chromium PATH]
 //        [--groups entry,core,…] [--keys k1,k2] [--timeout MS] [--json FILE] [--keep-envelopes DIR] [--keep]
@@ -17,8 +18,8 @@
 // state root; a page that stops making progress is replaced and the list resumed after the call it was stuck on.
 //
 // The two sides may differ only as KNOWN declares, by entry id and field, with the reason: any other difference, a
-// call that failed on one side only or did not finish, or a connector not refused as network_off on both sides fails
-// the sweep (exit 1). Exit 2 when it could not run.
+// call that failed on one side only or did not finish, a connector not refused as network_off on both sides, or an
+// egress case not refused with EGRESS_IDENTIFIER on both sides fails the sweep (exit 1). Exit 2 when it could not run.
 
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
@@ -243,6 +244,12 @@ export function judge(call, b, n, roots) {
     const off = (e) => e?.status === "failed" && e?.error?.type === "network_off";
     row.network_off = { browser: off(benv), native: off(nenv) };
     if (["same", "declared"].includes(row.result) && !(row.network_off.browser && row.network_off.native)) row.result = "not_network_off";
+  }
+  if (call.group === "egress") {
+    // the egress gate refuses before web access is asked: the same refusal on both sides, never network_off
+    const gated = (e) => e?.status === "refused" && (e?.governance?.refusals || []).some((r) => r?.code === "EGRESS_IDENTIFIER");
+    row.egress_refused = { browser: gated(benv), native: gated(nenv) };
+    if (["same", "declared"].includes(row.result) && !(row.egress_refused.browser && row.egress_refused.native)) row.result = "not_egress_refused";
   }
   row.ok = ["same", "declared"].includes(row.result);
   return row;

@@ -601,3 +601,42 @@ test("a failure a retry cannot change stops the tool at once: a tool that does n
   assert.equal(res.toolMessages[1].envelope.status, "refused");
   assert.match(read.b, /in a way a retry cannot change/);
 });
+
+// the dispatcher's egress gate (tcmstudio.dispatch._egress): a call that would leave the machine with an identifier in
+// its arguments, refused before anything was sent, with the remedy to take it out and call again
+const egressRefused = (tool) => ({
+  ...failed(tool, "refused", `${tool} would send its arguments to a third-party service, and they carry medical_record_number; the call was refused before anything was sent.`),
+  status: "refused",
+  error: { type: "refused", message: "… carry medical_record_number …", hint: "Take the identifier out of the arguments and call again: search by the herb, compound, gene, disease or study." },
+  governance: { ...envelopeFor(tool).governance, refusals: [{ code: "EGRESS_IDENTIFIER", message: "…", remedy: "Take the identifier out of the arguments and call again", categories: ["medical_record_number"], entry: `native.${tool}` }] },
+});
+
+test("review 2026-11-06: an identifier the egress gate refused is an input error the model fixes, not a final refusal", async () => {
+  const [code, advice] = outcomeOf(egressRefused("literature_search"));
+  assert.equal(code, "input_error");
+  assert.match(advice, /nothing was sent/);
+  assert.match(advice, /call again without it/);
+  // any other refusal still needs a person's decision
+  const kernel = { ...egressRefused("x"), governance: { ...envelopeFor("x").governance, refusals: [{ code: "perm.network.denied", message: "…" }] } };
+  assert.equal(outcomeOf(kernel)[0], "not_permitted");
+  assert.equal(outcomeOf(failed("x", "refused", "no refusal code"))[0], "not_permitted");
+  // a refusal for the identifier and for something else is the something else's
+  const both = { ...kernel, governance: { ...kernel.governance, refusals: [...egressRefused("x").governance.refusals, ...kernel.governance.refusals] } };
+  assert.equal(outcomeOf(both)[0], "not_permitted");
+
+  // the turn: refused with the record number, run again without it (the same tool, the same entry)
+  const answer = (tool, args) => (JSON.stringify(args).includes("MRN") ? egressRefused(tool) : envelopeFor(tool, "browser"));
+  const llm = scriptedLLM([
+    openaiStep({ calls: [{ id: "a", name: "tcm_herb", args: { name: "Patient Alice Smith MRN 04851923 黄芪" } }] }),
+    openaiStep({ calls: [{ id: "b", name: "tcm_herb", args: { name: "黄芪" } }] }),
+    openaiStep({ text: "done" }),
+  ]);
+  const { router, runtimes } = makeRouter({ answer });
+  const res = await runTurn({ provider: deepseek, system: "", history: [user("x")], router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {} });
+  const read = readByModel(res);
+  assert.match(read.a, /Outcome: input_error — /);
+  assert.doesNotMatch(read.a, /not_permitted|will not change on a retry|not called again/);
+  assert.deepEqual(runtimes.browser.calls.map((c) => c.args.name), ["Patient Alice Smith MRN 04851923 黄芪", "黄芪"], "the retry without it runs");
+  assert.equal(res.toolMessages[1].envelope.status, "succeeded");
+  assert.doesNotMatch(read.b, /Not run/);
+});

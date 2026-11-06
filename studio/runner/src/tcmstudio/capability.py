@@ -23,7 +23,8 @@ from typing import Any, Callable, Collection, Iterable, Mapping, Sequence
 
 __all__ = ["IMPLEMENTATION", "READINESS", "OUTCOME", "NEEDS", "REASON_NEED", "STATE_OF_NEED",
            "MAX_REQUEST_BYTES", "requirement", "requirements", "readiness", "selected_engines",
-           "runner_only", "FILE_ID", "hosts_for", "datasets_for", "refusal_requirements", "audit"]
+           "runner_only", "FILE_ID", "carried", "hosts_for", "reaches_network",
+           "datasets_for", "refusal_requirements", "audit"]
 
 #: Implementation states. tested ⇔ some committed verification level is PASS; implemented ⇔
 #: the implementation reference resolves; deprecated only from an explicit mark.
@@ -91,16 +92,59 @@ def _remedy(code: str) -> str:
     return remedy_for(code)
 
 
-def hosts_for(entry: Mapping[str, Any], args: Mapping[str, Any] | None = None) -> list[str]:
+#: Entries that run another entry: the prefix of its id, the argument that names it, and the
+#: argument that holds its arguments (job.skill.run runs ``skill.<skill_id>`` with ``arguments``).
+_RUNS_ANOTHER = {"job.skill.run": ("skill.", "skill_id", "arguments")}
+
+EntryOf = Callable[[str], "Mapping[str, Any] | None"]
+
+
+def carried(entry: Mapping[str, Any], args: Mapping[str, Any] | None,
+            entry_of: EntryOf | None = None) -> tuple[Mapping[str, Any], Mapping[str, Any] | None]:
+    """The entry whose reach a call has, and its arguments there: ``entry`` and ``args``, or,
+    for an entry that runs another (job.skill.run), the one the call names with the arguments
+    it passes on, when ``entry_of`` (the catalog's get_entry) knows it. A skill run as a
+    background job sends what the skill called directly sends."""
+    how = _RUNS_ANOTHER.get(str(entry.get("id") or ""))
+    if how is None or args is None or entry_of is None:
+        return entry, args
+    prefix, name, inner = how
+    target = entry_of(f"{prefix}{args[name]}") if isinstance(args.get(name), str) else None
+    if target is None:
+        return entry, args
+    passed = args.get(inner)
+    return target, (passed if isinstance(passed, Mapping) else {})
+
+
+def hosts_for(entry: Mapping[str, Any], args: Mapping[str, Any] | None = None, *,
+              entry_of: EntryOf | None = None) -> list[str]:
     """The hosts a call would reach: ``hosts_by`` for the argument that chooses them (the
     dataset a fetch downloads, the reviewed wrapper a provider call runs), else the
-    entry's static hosts."""
+    entry's static hosts (an entry that runs another: that one's, see :func:`carried`)."""
+    entry, args = carried(entry, args, entry_of)
     if args:
         for param, table in (entry.get("hosts_by") or {}).items():
             value = args.get(param)
             if isinstance(value, str) and isinstance(table, Mapping) and value in table:
                 return list(table[value])
     return list(entry.get("hosts") or (entry.get("skill") or {}).get("network") or ())
+
+
+def reaches_network(entry: Mapping[str, Any], args: Mapping[str, Any] | None = None, *,
+                    entry_of: EntryOf | None = None) -> bool:
+    """Whether a call of ``entry`` with ``args`` (None: the entry as such) reaches its hosts:
+    the flag the page router's web-access gate reads (catalog.js networkByFlag), and an
+    entry with ``network_if`` only when the call sets that argument (allow_remote: a sequence
+    sent out, a structure fetched). With ``entry_of``, job.skill.run reaches what the skill
+    it runs reaches with the arguments it passes on (:func:`carried`)."""
+    entry, args = carried(entry, args, entry_of)
+    if entry.get("network_if"):
+        return bool((args or {}).get(entry["network_if"]))
+    if entry.get("network_unless") and args is not None:
+        # reaches its hosts unless this argument names what it would download (admet.models'
+        # local copy of the archive); the entry as such needs the network
+        return bool(entry.get("network")) and not args.get(entry["network_unless"])
+    return bool(entry.get("network"))
 
 
 def datasets_for(entry: Mapping[str, Any], args: Mapping[str, Any] | None = None) -> list[str]:
@@ -240,7 +284,8 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
                  request_bytes: int | None = None,
                  browser_jobs: bool | None = None,
                  browser_snapshots: bool | None = None,
-                 browser_admet_models: Sequence[str] | None = None
+                 browser_admet_models: Sequence[str] | None = None,
+                 entry_of: EntryOf | None = None
                  ) -> list[tuple[str, dict[str, Any]]]:
     """Every requirement this entry lacks in ``where``, each with its reason code, in the
     order catalog_search has always named them (runtime, install, web access, job service;
@@ -261,7 +306,9 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
     storage (``research.run`` there reads only those); None when the page has not said, which
     is not judged. ``browser_admet_models``: the ADMET endpoints whose models are built in
     this browser (``pipeline.admet`` there reads only those: the ones a call names, or any
-    when it names none); None when the page has not said, which is not judged."""
+    when it names none); None when the page has not said, which is not judged. ``entry_of``:
+    the catalog's get_entry, so that web access is judged for job.skill.run as for the skill
+    it runs (:func:`carried`)."""
     out: list[tuple[str, dict[str, Any]]] = []
     exec_ = entry.get("exec") or ()
     if where not in exec_:
@@ -313,19 +360,9 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
         if lacking:
             out.append(("needs_dataset", _dataset_requirement(lacking, where)))
     out += [("needs_dataset", r) for r in data]
-    if entry.get("network_if"):
-        # reaches its hosts only when this argument is set (allow_remote: a sequence sent out,
-        # a structure fetched); the entry as such needs no network
-        needs_net = bool((args or {}).get(entry["network_if"]))
-    elif entry.get("network_unless") and args is not None:
-        # reaches its hosts unless this argument names what it would download (admet.models'
-        # local copy of the archive); the entry as such needs the network
-        needs_net = bool(entry.get("network")) and not args.get(entry["network_unless"])
-    else:
-        needs_net = bool(entry.get("network"))
-    if needs_net and not network:
+    if reaches_network(entry, args, entry_of=entry_of) and not network:
         out.append(("network_off", requirement("network", _NETWORK, _remedy("NETWORK_OFF"),
-                                               hosts_for(entry, args))))
+                                               hosts_for(entry, args, entry_of=entry_of))))
     out += [("needs_job_service", r) for r in other]
     in_page = where == "browser" and bool((entry.get("execution") or {}).get("browser_job")) and not beyond
     if in_page and entry.get("job") and not browser_jobs and not other:

@@ -389,6 +389,12 @@ export const CODES = {
     en: "an act reserved for a person, never a tool call", zh: "只能由人完成的操作，不是工具调用",
     remedy: { en: "a person does this, not the model: a licensed practitioner signs a clinic draft; the maintainers review a release", zh: "此操作由人完成，不由模型调用：临床草案由执业医师本人签署，发布由维护者审核" },
   },
+
+  // Studio — the egress gate (tcmstudio.governance.egress_check): an identifier in a networked call's arguments
+  EGRESS_IDENTIFIER: {
+    en: "the arguments carry an identifier or a credential; nothing was sent", zh: "参数含身份标识或凭据，未发往外部服务",
+    remedy: { en: "take the identifier out and search by the herb, compound, gene, disease or study; refer to a case by a pseudonymous code", zh: "去掉身份标识，按药材、化合物、基因、疾病或研究检索；病例请用化名编号" },
+  },
 };
 
 /** Code families, for grouping in the UI and a fallback explanation of an unknown code. */

@@ -256,7 +256,8 @@ Every tool call returns this, in both runtimes. A call **never raises**: failure
     "claims": [ CandidateClaim... ],    // when produced
     "evidence": [ EvidenceItem... ],    // when produced
     "refusals": [ {"code":"CLM005","message":"...","remedy":"..."} ],
-    "labels": ["INTERNAL"],             // PSH labels: advisory only
+    "labels": ["INTERNAL"],             // PSH labels: advisory only (the egress gate, EGRESS_IDENTIFIER, enforces
+                                        // a few structured identifiers in a networked call's arguments)
     "licences": [ {"asset":"...","licence":"...","commercial":false,"note":"..."} ],
     "limitations": ["..."],
     "outputs": [ {"path":"safety.json","sha256":"…","bytes":1234,"media_type":"application/json","content": <json|null>} ]
