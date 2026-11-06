@@ -721,15 +721,18 @@ def _validate_and_run(entry: dict[str, Any], args: dict[str, Any], ctx: Context,
     return o
 
 
-def _egress(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) -> Outcome | None:
+def _egress(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context,
+            called: Mapping[str, Any] | None = None) -> Outcome | None:
     """The egress gate. A call whose arguments leave the machine (the entry reaches its
     hosts with these arguments: capability.reaches_network, the flag the page router's
-    web-access gate reads, and allow_remote) is refused when a string in them carries a
-    structured identifier (governance.HARD_IDENTIFIERS: an ID or record number, an email
-    address, a credential), before web access, the runtime or anything else is asked, and
-    the refusal is written to the project's PSH audit chain. The browser worker runs this
-    same code: its connectors' requests go out through the source gateway only after it."""
-    if not capability.reaches_network(entry, args):
+    web-access gate reads, and allow_remote; job.skill.run as the skill it runs) is refused
+    when a string in them carries a structured identifier (governance.HARD_IDENTIFIERS: an
+    ID or record number, an email address, a credential), before web access, the runtime or
+    anything else is asked, and the refusal is written to the project's PSH audit chain. The
+    browser worker runs this same code: its connectors' requests go out through the source
+    gateway only after it. ``called``: the arguments of the call the envelope records, when
+    they are not ``args`` (literature_search's, whose connector arguments it builds itself)."""
+    if not capability.reaches_network(entry, args, entry_of=get_entry):
         return None
     ref = gv.egress_check(entry["id"], args)
     if ref is None:
@@ -741,7 +744,7 @@ def _egress(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) -> 
                             f"({cats}); nothing was sent",
                  refusals=[ref])
     try:
-        _egress_audit(entry, args, ref["categories"], ctx)
+        _egress_audit(entry, args, ref["categories"], ctx, called)
     except Exception as exc:                                    # noqa: BLE001
         # the refusal stands; that it could not be recorded is said, not hidden
         o.notes.append(f"the refusal could not be written to the project's audit chain "
@@ -750,16 +753,19 @@ def _egress(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) -> 
 
 
 def _egress_audit(entry: Mapping[str, Any], args: Mapping[str, Any], categories: list[str],
-                  ctx: Context) -> None:
+                  ctx: Context, called: Mapping[str, Any] | None = None) -> None:
     """One ``egress_refused`` event in the project's PSH chain (``<project>/psh/events.db``,
     the chain system.audit_verify reads): the entry, the hosts it would have reached, the
-    categories and the SHA-256 of the arguments' canonical JSON. Never the arguments: the
-    event store refuses content keys, and a hash is all an auditor needs to match a call."""
+    categories and the SHA-256 of the call's arguments in canonical JSON, the envelope's
+    ``receipt.execution.validation.normalized_sha256``. Never the arguments: the event store
+    refuses content keys, and a hash is all an auditor needs to match a call."""
     from .envelope import sha256_json
+    hosts = capability.hosts_for(entry, args, entry_of=get_entry)
     fields = {"component_id": entry["id"], "status": "refused",
               "detail": {"gate": "tcmstudio.egress", "entry": entry["id"],
-                         "categories": list(categories), "hosts": capability.hosts_for(entry, args),
-                         "input_sha256": sha256_json(args), "where": ctx.where}}
+                         "categories": list(categories), "hosts": hosts,
+                         "input_sha256": sha256_json(args if called is None else called),
+                         "where": ctx.where}}
     path = _project(ctx).psh
     if _AUDIT_DEFERRED is not None:
         _AUDIT_DEFERRED.append((path, "egress_refused", fields))
@@ -882,7 +888,7 @@ def _preflight(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) 
             size = None
     found = [(reason, req) for reason, req in capability.requirements(
                  entry, where=ctx.where, network=ctx.network, jobs=True, args=args,
-                 probe=dependency_present, request_bytes=size)
+                 probe=dependency_present, request_bytes=size, entry_of=get_entry)
              if req["need"] not in ("dataset", "job_service")
              and not (req["need"] == "network" and kind == "connector")]
     if not found:
@@ -2336,7 +2342,8 @@ def _literature_search(args: Mapping[str, Any], ctx: Context) -> tuple[Outcome, 
               "the study itself has been assessed.", gv.LIMIT_LIVE]
     if source == "pubmed":
         via = "connector.ncbi_eutils.esearch"
-        first = _run_connector_entry(via, {"db": "pubmed", "term": query, "retmax": limit}, ctx)
+        first = _run_connector_entry(via, {"db": "pubmed", "term": query, "retmax": limit}, ctx,
+                                     called=args)
         if first.status != "succeeded":
             return first, via
         ids = [str(i) for i in ((first.result or {}).get("esearchresult") or {}).get("idlist") or []]
@@ -2344,7 +2351,8 @@ def _literature_search(args: Mapping[str, Any], ctx: Context) -> tuple[Outcome, 
         hits: list[dict[str, Any]] = []
         if ids:
             second = _run_connector_entry("connector.ncbi_eutils.esummary",
-                                          {"db": "pubmed", "id": ",".join(ids)}, ctx)
+                                          {"db": "pubmed", "id": ",".join(ids)}, ctx,
+                                          called=args)
             if second.status != "succeeded":
                 return second, "connector.ncbi_eutils.esummary"
             docs = (second.result or {}).get("result") or {}
@@ -2359,7 +2367,7 @@ def _literature_search(args: Mapping[str, Any], ctx: Context) -> tuple[Outcome, 
         o = first
     elif source == "crossref":
         via = "connector.crossref.search"
-        o = _run_connector_entry(via, {"query": query, "rows": limit}, ctx)
+        o = _run_connector_entry(via, {"query": query, "rows": limit}, ctx, called=args)
         if o.status != "succeeded":
             return o, via
         msg = (o.result or {}).get("message") or {}
@@ -2376,7 +2384,7 @@ def _literature_search(args: Mapping[str, Any], ctx: Context) -> tuple[Outcome, 
                                               for a in (it.get("author") or [])[:6])})
     elif source == "clinicaltrials":
         via = "connector.clinicaltrials.search"
-        o = _run_connector_entry(via, {"term": query, "page_size": limit}, ctx)
+        o = _run_connector_entry(via, {"term": query, "page_size": limit}, ctx, called=args)
         if o.status != "succeeded":
             return o, via
         total = (o.result or {}).get("totalCount")
@@ -2393,7 +2401,7 @@ def _literature_search(args: Mapping[str, Any], ctx: Context) -> tuple[Outcome, 
                          "its result: no claim is licensed until its results are assessed.")
     else:
         via = "connector.europepmc.search"
-        o = _run_connector_entry(via, {"query": query, "page_size": limit}, ctx)
+        o = _run_connector_entry(via, {"query": query, "page_size": limit}, ctx, called=args)
         if o.status != "succeeded":
             return o, via
         total = (o.result or {}).get("hitCount")
@@ -2419,11 +2427,14 @@ def _literature_search(args: Mapping[str, Any], ctx: Context) -> tuple[Outcome, 
     return out, via
 
 
-def _run_connector_entry(entry_id: str, args: dict[str, Any], ctx: Context) -> Outcome:
+def _run_connector_entry(entry_id: str, args: dict[str, Any], ctx: Context, *,
+                         called: Mapping[str, Any] | None = None) -> Outcome:
+    """A connector entry run for a core tool that builds its arguments (``called``: the
+    core tool's own, which the egress gate's audit event hashes)."""
     entry = get_entry(entry_id)
     if entry is None:
         return _failure("connector", "not_found", f"no connector entry {entry_id!r}")
-    blocked = _egress(entry, args, ctx) or _preflight(entry, args, ctx)
+    blocked = _egress(entry, args, ctx, called) or _preflight(entry, args, ctx)
     return blocked if blocked is not None else _exec_connector(entry, args, ctx)
 
 

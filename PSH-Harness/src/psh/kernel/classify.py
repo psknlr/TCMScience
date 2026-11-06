@@ -61,8 +61,11 @@ _FALLBACK_RULES: tuple[tuple[str, "re.Pattern[str]", Sensitivity], ...] = (
     ("date_of_birth",
      re.compile(r"\b(?:dob|date\s+of\s+birth)\s*[:#]?\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
                 re.I), Sensitivity.PHI),
+    # Read from the start of a run of [\w.+-] only, which needs a word character before the @
+    # as \b[\w.+-]+@ did: the same addresses, in linear time. Started at every \b, a long run
+    # such as 'a.a.a.…' (80 KB) took 12 s, and 2 MB did not finish in five minutes.
     ("email_address",
-     re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b"), Sensitivity.PHI),
+     re.compile(r"(?<![\w.+-])[.+-]*\w[\w.+-]*@[\w-]+\.[\w.]{2,}\b"), Sensitivity.PHI),
     ("name_cued",
      re.compile(r"\b(?i:patient|mr|mrs|ms)\.?\s*[:,]?\s+([A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20})\b"),
      Sensitivity.PHI),

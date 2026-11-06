@@ -102,8 +102,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -283,8 +282,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -464,8 +462,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -645,8 +642,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -826,8 +822,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -1007,8 +1002,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -1188,8 +1182,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -1369,8 +1362,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -1550,8 +1542,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -1739,8 +1730,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -1922,8 +1912,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -2105,8 +2094,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -2295,8 +2283,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -2478,8 +2465,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -2663,8 +2649,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -2846,8 +2831,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -3029,8 +3013,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",
@@ -3212,8 +3195,7 @@
      "host": "www.ebi.ac.uk",
      "key": "europepmc",
      "operation": "search",
-     "ref": "bioagent.providers.public_apis:europepmc.search",
-     "version": "0.2.7"
+     "ref": "bioagent.providers.public_apis:europepmc.search"
     },
     "kernel": null,
     "runtime": "cpython",

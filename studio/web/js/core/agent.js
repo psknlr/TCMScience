@@ -102,6 +102,16 @@ function outcomesIn(result) {
   return seen;
 }
 
+// Refusals the model clears by changing what it sends: the dispatcher's egress gate (an identifier or a credential in
+// the arguments of a call that leaves the machine; its remedy is to take it out and call again). Any other refusal
+// needs a person's decision, so a refusal counts as this only when every code it carries is one of these.
+const ARGUMENT_REFUSALS = new Set(["EGRESS_IDENTIFIER"]);
+
+function argumentRefusal(envelope) {
+  const codes = (Array.isArray(envelope?.governance?.refusals) ? envelope.governance.refusals : []).map((r) => r?.code);
+  return codes.length > 0 && codes.every((c) => ARGUMENT_REFUSALS.has(c));
+}
+
 function emptyResult(result) {
   if (!isPlainObject(result)) return false;
   const lists = LIST_KEYS.filter((k) => Array.isArray(result[k]));
@@ -129,6 +139,8 @@ export function outcomeOf(envelope) {
     if (err.type === "invalid_response") return ["tool_failed", "the source answered, but not with data (an error report, a page or a malformed answer); nothing from it is evidence and it says nothing about the question"];
     if (err.type === "not_found") return ["no_record", OUTCOME_TEXT.no_record];
     if (err.type === "bad_arguments") return ["input_error", OUTCOME_TEXT.input_error];
+    // refused for what the arguments carry, and only for that: the model takes it out and calls again (or asks)
+    if (err.type === "refused" && argumentRefusal(envelope)) return ["input_error", "the arguments carry a personal identifier or a credential, so nothing was sent; call again without it, or ask the user for what to search instead"];
     if (err.type === "refused" || err.type === "declined") return ["not_permitted", OUTCOME_TEXT.not_permitted];
     return ["tool_failed", OUTCOME_TEXT.tool_failed];
   }

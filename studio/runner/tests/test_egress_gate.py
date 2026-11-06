@@ -4,10 +4,15 @@ request, with one audit event that holds no argument text; herb names, database 
 and the advisory categories (name cues, mobile numbers) go out as before.
 
 The HTTP backend is stubbed throughout: a request that reaches it is counted and answered
-with a fixed Europe PMC page, so nothing leaves this machine. egress_golden.json holds the
-envelopes of the queries the gate must let through, recorded on 530031f (before the gate)
-with the volatile fields removed (``normalise``); after a deliberate change to what those
-envelopes say, rewrite it with ``python studio/runner/tests/test_egress_gate.py``.
+with a fixed Europe PMC page, so nothing leaves this machine. Two checks show the gate
+changes nothing it lets through. The same calls with the gate taken out give the same
+envelopes, on any tree (``test_the_gate_changes_nothing_it_lets_through``). And
+egress_golden.json holds the envelopes recorded on 530031f, before the gate, with the
+volatile and version-bound fields removed (``normalise``). After a deliberate change to
+what those envelopes say (another change to the dispatcher's envelopes, say), rewrite the
+file with ``python studio/runner/tests/test_egress_gate.py`` and review the rewrite as a
+diff: the file then no longer shows the envelopes from before the gate, and that diff
+must show only the other change.
 """
 
 from __future__ import annotations
@@ -201,6 +206,67 @@ def test_every_network_entry_is_gated(tmp_path, http, jobs):
         "system.provider_call", "job.pipeline.fold", "connector.europepmc.search"]
 
 
+def test_a_skill_run_as_a_job_is_gated_as_the_skill_it_runs(tmp_path, http, jobs):
+    """Review of 2026-11-06: job.skill.run carries the skill's arguments to the job, and the
+    job sends what the skill sends; the gate read job.skill.run's own flags (no network), so
+    the job was queued where the same skill called directly was refused."""
+    from tcmstudio.envelope import sha256_json
+    ctx = {**online(tmp_path), "jobs": jobs}
+    fasta = ">query from a@b.com\nMKTAYIAKQRQISFVKSHFSRQ"
+    direct = call("skill.predict-protein-structure", {"sequences": fasta, "allow_remote": True},
+                  ctx)
+    args ={"skill_id": "predict-protein-structure",
+            "arguments": {"sequences": fasta, "allow_remote": True}}
+    via_job = call("job.skill.run", args, ctx)
+    for e in (direct, via_job):
+        assert e["status"] == "refused", e["error"]
+        assert e["governance"]["refusals"][0]["code"] == "EGRESS_IDENTIFIER"
+        assert e["governance"]["refusals"][0]["categories"] == ["email_address"]
+    assert jobs.submitted == [] and http == []
+    event = audit_events(ctx)[-1]
+    assert event.component_id == "job.skill.run"
+    assert event.detail["hosts"] == get_entry("skill.predict-protein-structure")["hosts"]
+    assert event.detail["input_sha256"] == sha256_json(args) \
+        == via_job["receipt"]["execution"]["validation"]["normalized_sha256"]
+    # folded on this machine, the same sequence stays here: queued
+    local = call("job.skill.run", {"skill_id": "predict-protein-structure",
+                                   "arguments": {"sequences": fasta}}, ctx)
+    assert local["status"] == "job_submitted" and len(jobs.submitted) == 1, local["error"]
+
+
+def test_a_skill_run_as_a_job_needs_web_access_as_the_skill_does(tmp_path, jobs):
+    """The same reading decides web access (capability.requirements): with it off, a job that
+    would send a sequence out is network_off as the skill called directly is, not queued."""
+    ctx = {**online(tmp_path), "jobs": jobs, "network": False}
+    clean = {"sequences": ">q\nMKTAYIAKQRQISFVKSHFSRQ", "allow_remote": True}
+    direct = call("skill.predict-protein-structure", clean, ctx)
+    via_job = call("job.skill.run", {"skill_id": "predict-protein-structure", "arguments": clean},
+                   ctx)
+    for e in (direct, via_job):
+        assert e["status"] == "failed" and e["error"]["type"] == "network_off", e["error"]
+        assert e["error"]["requires"][0]["names"] == ["api.esmatlas.com", "files.rcsb.org",
+                                                      "alphafold.ebi.ac.uk"]
+    assert jobs.submitted == []
+    # folded on this machine it needs no web access
+    local = call("job.skill.run", {"skill_id": "predict-protein-structure",
+                                   "arguments": {"sequences": ">q\nMKTAYIAKQRQISFVKSHFSRQ"}}, ctx)
+    assert local["status"] == "job_submitted", local["error"]
+
+
+def test_the_audit_hash_is_the_one_the_envelope_records_by_every_route(tmp_path, http):
+    """Review of 2026-11-06: literature_search hashed the connector arguments it builds
+    ({query, page_size}; {db, term, retmax} for PubMed), which match nothing in its envelope."""
+    for route in sorted(ROUTES):
+        ctx = online(tmp_path / route)
+        tool, args = ROUTES[route]("a@b.com")
+        e = call(tool, args, ctx)
+        assert e["status"] == "refused", (route, e["error"])
+        [event] = audit_events(ctx)
+        assert event.detail["input_sha256"] == \
+            e["receipt"]["execution"]["validation"]["normalized_sha256"], route
+    assert http == []
+
+
 def test_what_stays_on_the_machine_is_not_gated(tmp_path, runner_ctx):
     """A local tool's arguments never leave: an identifier in them is that tool's business
     (the clinic's intake carries patient data by design)."""
@@ -240,8 +306,10 @@ def test_the_browser_worker_writes_the_event_inside_a_sync_of_its_own(tmp_path, 
             ["email_address"], ["social_security_number"], ["chinese_resident_id"]]
     finally:
         dispatch.defer_audit(False)
-    # the Worker turns it on and flushes after a call that is not stateful and inside a stateful one
-    worker = (Path(__file__).resolve().parents[2] / "web" / "js" / "runtime"
+    # the Worker turns it on and flushes after a call that is not stateful and inside a stateful
+    # one: read in its source here; what shows it works is the browser sweep, whose
+    # direct:system.audit_verify differs when the Worker does not defer
+    worker =(Path(__file__).resolve().parents[2] / "web" / "js" / "runtime"
               / "pyodide.worker.js").read_text(encoding="utf-8")
     assert "_dispatch.defer_audit(True)" in worker
     assert "if (api.auditPending?.()) return { text, persist: await flushAudit() };" in worker
@@ -275,12 +343,16 @@ def test_advisory_categories_and_research_identifiers_go_out(tmp_path, http, que
 
 def normalise(envelope: dict[str, Any]) -> dict[str, Any]:
     """An envelope without what differs from run to run or host to host: the duration, the
-    times, the interpreter and package versions, and the operation's status record (its
+    times, the interpreter and package versions (the implementation's among them: a
+    BioScience release changes it, not the gate), and the operation's status record (its
     times, and the committed production record it merges)."""
     env = json.loads(json.dumps(envelope, ensure_ascii=False))
     env.pop("duration_ms", None)
     for key in ("runtime", "versions", "started_at", "finished_at", "operational"):
         env["receipt"].pop(key, None)
+    implementation = (env["receipt"].get("execution") or {}).get("implementation")
+    if isinstance(implementation, dict):
+        implementation.pop("version", None)
     return env
 
 
@@ -295,6 +367,15 @@ def golden_envelopes(root: Path) -> dict[str, Any]:
                 tool, args = ROUTES[route](query)
                 out[f"{route} {query}"] = normalise(call(tool, args, ctx))
     return out
+
+
+def test_the_gate_changes_nothing_it_lets_through(tmp_path, monkeypatch):
+    """The envelopes of the passing queries, with the gate and with it taken out, in this
+    tree: unlike the golden copies, this holds whatever else changes the envelopes."""
+    from tcmstudio import dispatch
+    gated = golden_envelopes(tmp_path / "gated")
+    monkeypatch.setattr(dispatch, "_egress", lambda *args, **kwargs: None)
+    assert golden_envelopes(tmp_path / "ungated") == gated
 
 
 def test_golden_envelopes_are_unchanged(tmp_path):
@@ -337,6 +418,18 @@ def test_string_values_are_read_never_keys_or_numbers():
     assert gv.egress_categories("") == gv.egress_categories(None) == []
 
 
+def test_a_long_argument_is_read_in_time():
+    """Review of 2026-11-06: every argument is classified whole, and the classifier's email
+    rule read a long run of [\\w.+-] in quadratic time ('a.a.a.…': 12 s at 80 KB, 2 MB not
+    done in five minutes) before the call started; it is linear now (psh.kernel.classify)."""
+    import time
+    for size, limit in ((40_000, 2), (1_000_000, 20)):
+        t0 = time.perf_counter()
+        assert gv.egress_categories({"x": "a." * size, "y": ["write to a.b@c.org"]}) == \
+            ["email_address"]
+        assert time.perf_counter() - t0 < limit, size
+
+
 def test_the_set_is_configurable_and_the_refusal_names_no_value():
     assert gv.egress_check("connector.x", {"q": "13912345678"}) is None
     r = gv.egress_check("connector.x", {"q": "13912345678"},
@@ -367,6 +460,19 @@ def test_reaches_network_is_the_routers_flag():
     assert not capability.reaches_network(models, {"archive": "f_1"})
     assert capability.reaches_network(get_entry("connector.europepmc.search"), {"query": "x"})
     assert not capability.reaches_network(get_entry("native.tcm_herb"), {"name": "x"})
+    # job.skill.run, given the catalog, reaches what the skill it runs reaches with its arguments
+    run = get_entry("job.skill.run")
+    remote = {"skill_id": "predict-protein-structure",
+              "arguments": {"sequences": "x", "allow_remote": True}}
+    assert not capability.reaches_network(run, remote)
+    assert capability.reaches_network(run, remote, entry_of=get_entry)
+    assert not capability.reaches_network(run, {**remote, "arguments": {"sequences": "x"}},
+                                          entry_of=get_entry)
+    assert not capability.reaches_network(run, None, entry_of=get_entry)
+    assert capability.hosts_for(run, remote, entry_of=get_entry) == \
+        ["api.esmatlas.com", "files.rcsb.org", "alphafold.ebi.ac.uk"]
+    assert capability.carried(run, remote, get_entry) == (
+        get_entry("skill.predict-protein-structure"), remote["arguments"])
 
 
 if __name__ == "__main__":

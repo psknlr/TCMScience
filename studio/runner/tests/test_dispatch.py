@@ -752,7 +752,7 @@ def test_literature_search_reaches_registered_trials(runner_ctx, monkeypatch):
     from tcmstudio.dispatch import Outcome
     seen = {}
 
-    def fake(entry_id, args, ctx):
+    def fake(entry_id, args, ctx, *, called=None):
         seen.update(entry=entry_id, args=args)
         return Outcome(result={"studies": [{"protocolSection": {
             "identificationModule": {"nctId": "NCT01234567", "briefTitle": "Guizhi decoction for palpitations"},

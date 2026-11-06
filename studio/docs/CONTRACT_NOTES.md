@@ -379,12 +379,18 @@ classifier, shareable, permits:{DESTINATION: bool}, advisory:true}`; `labels` is
 `HUMAN_ONLY`, `UNPINNED` (a candidate skill's development run: recorded, never released), `GovernedRunRefused`
 (web-core: zh labels for these in the glossary), and `EGRESS_IDENTIFIER` (the egress gate,
 `governance.egress_check`: a call whose arguments leave the machine, an entry that reaches the network with them by the
-flag the router's web-access gate reads or by `allow_remote`, is `refused` before web access or anything else is asked
+flag the router's web-access gate reads or by `allow_remote` (`job.skill.run` as the skill its `skill_id` names, with
+the `arguments` it passes on: `capability.carried`, which the web-access check of the dispatcher's preflight reads too),
+is `refused` before web access or anything else is asked
 when a string value in them carries one of `governance.HARD_IDENTIFIERS`: a resident ID, a medical record or admission
 number, a social security number, an email address, an API key, a bearer token or a private key; the refusal carries
-`categories` and `entry`, never the text, and one `egress_refused` event (entry, hosts, categories, `input_sha256`) goes
+`categories` and `entry`, never the text, and one `egress_refused` event (entry, hosts, categories, `input_sha256`: the
+envelope's `receipt.execution.validation.normalized_sha256`, `literature_search`'s own arguments for its connector
+calls) goes
 into the project's PSH chain; the browser Worker, which syncs IndexedDB around stateful calls only, holds the event and
-writes it in a sync of its own before it answers (`dispatch.defer_audit`, `flush_audit`). The classifier's name cues
+writes it in a sync of its own before it answers (`dispatch.defer_audit`, `flush_audit`). The agent loop reads this
+refusal as `input_error`, not `not_permitted`: its remedy is to call again without the identifier, so the tool stays
+callable in the turn (`web/js/core/agent.js` `ARGUMENT_REFUSALS`). The classifier's name cues
 and phone rule stay advisory: herb names and eleven-digit
 database ids read as them). `governance.outputs[].content` is parsed JSON (≤ 512 KB) or text for
 `text/*` other than HTML (≤ 64 KB), else null; `missing`/`hash_mismatch` flag problems. `receipt` extras: `profile`,
