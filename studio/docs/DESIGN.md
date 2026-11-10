@@ -512,7 +512,8 @@ Thread:
   `MessageActions` (copy, retry, edit, branch).
 - `ThinkingBlock`: collapsible, shows the duration.
 - `ToolCallCard`: status, where it ran, device, duration, args/result, hashes.
-- `PermissionRequestCard`: once / for project / deny.
+- `PermissionRequestCard`: allow / deny. A project is asked once: "allow" is the project's one approval
+  (`core/router.js PROJECT_GRANT`), and the card says so; nothing in the project asks again until it is revoked.
 - `PlanPreview` (governed mode: steps, refusals before run, approve/edit).
 - `CitationChip` [E#], `CitationHoverCard`.
 - `ClaimCard` (+`LicensingLadder`, `ReasonCodeChip`, `CaveatList`).

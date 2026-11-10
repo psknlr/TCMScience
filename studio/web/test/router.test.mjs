@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { indexedDB } from "fake-indexeddb";
 import { Catalog, entryState, networkByFlag, requirement } from "../js/core/catalog.js";
-import { HUMAN_ONLY, PLACEMENT_REASONS, ToolRouter, hostsDigest, hostsOf, normalizeEnvelope, storeApprovals, synthEnvelope } from "../js/core/router.js";
+import { HUMAN_ONLY, PLACEMENT_REASONS, PROJECT_GRANT, ToolRouter, hostsDigest, hostsOf, normalizeEnvelope, storeApprovals, synthEnvelope } from "../js/core/router.js";
 import { RECEIPT_SCHEMA } from "../js/core/receipt.js";
 import { t } from "../js/core/i18n.js";
 import { openStore } from "../js/core/store.js";
@@ -448,7 +448,7 @@ test("a name that differs from an id only in case and separators runs as that id
   assert.equal((await r.call("tcm_herbs", {})).error.type, "not_found");
 });
 
-test("the first runner call of a project needs approval; 'once' covers this page's life, 'project' is remembered", async () => {
+test("the first runner call of a project needs approval; 'once' covers this page's life, 'project' is the project's one approval, remembered", async () => {
   const approvals = memoryApprovals({ p1: { web: true, approvals: {} }, p2: { web: true, approvals: {} } });
   const { r } = router({ runner: "ready", web: true, approvals });
   const asked = [];
@@ -463,11 +463,16 @@ test("the first runner call of a project needs approval; 'once' covers this page
   assert.deepEqual(approvals.projects.p1.approvals, {}, "'once' is not stored");
   const proj = async () => "project";
   await r.call("call_tool", { tool: "native.scrna_cluster", arguments: {} }, { projectId: "p2", onApproval: proj });
-  assert.equal(approvals.projects.p2.approvals.runner, "project");
+  assert.deepEqual(approvals.projects.p2.approvals, { [PROJECT_GRANT]: "project" }, "one project-wide grant, not one per need");
   const fresh = new ToolRouter({ catalog: catalog(), runtimes: router({ runner: "ready" }).runtimes, settings: {}, approvals });
   let askedAgain = false;
   await fresh.call("call_tool", { tool: "native.scrna_cluster", arguments: {} }, { projectId: "p2", onApproval: async () => { askedAgain = true; return "deny"; } });
   assert.equal(askedAgain, false, "a project approval stands for a new page too");
+  // and for what that first call never needed: a job, the network
+  const job = await fresh.call("run_pipeline", { pipeline: "fold" }, { projectId: "p2", onApproval: async () => { askedAgain = true; return "deny"; } });
+  const net = await fresh.call("literature_search", { query: "x" }, { projectId: "p2", onApproval: async () => { askedAgain = true; return "deny"; } });
+  assert.equal(askedAgain, false, "nothing else in the project asks");
+  assert.deepEqual([job.status, net.status], ["succeeded", "succeeded"], "both ran (the fake runtime answers succeeded)");
 });
 
 test("deny: the call does not run and the model is told plainly", async () => {
@@ -508,11 +513,16 @@ test("network tools need the project's web access, then an approval naming the h
   assert.equal(on.status, "succeeded");
   assert.deepEqual(req.reasons, ["network"]);
   assert.deepEqual(req.hosts, ["www.ebi.ac.uk"]);
-  // the grant is for the hosts the call reaches
+  // "project" is the project's one approval: it is stored as such, not as a grant for these hosts
+  assert.deepEqual(approvals.projects.on.approvals, { runner: "project", [PROJECT_GRANT]: "project" });
+  // a host-scoped grant an earlier page stored still stands for those hosts
   const key = `connector.europepmc.search:network@${await hostsDigest(["www.ebi.ac.uk"])}`;
   assert.match(key, /:network@[0-9a-f]{12}$/);
-  assert.equal(approvals.projects.on.approvals[key], "project");
-  assert.equal(approvals.projects.on.approvals["connector.europepmc.search:network"], undefined);
+  approvals.projects.scoped = { web: true, approvals: { runner: "project", [key]: "project" } };
+  let asked = 0;
+  const scoped = await r.call("literature_search", { query: "葛根素" }, { projectId: "scoped", onApproval: async () => { asked++; return "deny"; } });
+  assert.equal(scoped.status, "succeeded");
+  assert.equal(asked, 0);
 });
 
 test("sending data to a third party (allow_remote) is its own approval", async () => {
@@ -553,6 +563,39 @@ test("parallel calls that need the same approval ask once", async () => {
   assert.equal(asked, 1);
 });
 
+test("a project is asked once: after 'project', no later call of it asks, whatever it needs; other projects still ask", async () => {
+  const approvals = memoryApprovals({ p: { web: true, approvals: {} }, other: { web: true, approvals: {} } });
+  const { r, runtimes } = richRouter({ runner: "ready", approvals });
+  const asked = [];
+  const onApproval = async (q) => { asked.push(q.reasons); await new Promise((res) => setTimeout(res, 5)); return "project"; };
+  // the first calls arrive together while the one card is open: one question for all of them
+  const first = await Promise.all([
+    r.call("tcm_herb", { name: "甘草" }, { projectId: "p", onApproval }),
+    r.call("call_tool", { tool: "job.tcmdb.fetch", arguments: { dataset: "herb2" } }, { projectId: "p", onApproval }),
+    r.call("call_tool", { tool: "connector.europepmc.search", arguments: { query: "x" } }, { projectId: "p", onApproval }),
+  ]);
+  assert.equal(asked.length, 1);
+  assert.deepEqual(first.map((e) => e.status), ["succeeded", "succeeded", "succeeded"]);
+  assert.deepEqual(approvals.projects.p.approvals, { [PROJECT_GRANT]: "project" });
+  // later: a job reaching new hosts, a third-party send, hosts nobody can name in advance, another runner
+  const later = [
+    ["call_tool", { tool: "job.tcmdb.fetch", arguments: { dataset: "npass" } }],
+    ["call_tool", { tool: "native.scrna_cluster", arguments: { allow_remote: true } }],
+    ["call_tool", { tool: "system.provider_call", arguments: { provider: "tooluniverse", tool: "Some_unlisted_tool", arguments: {} } }],
+  ];
+  for (const [name, args] of later) {
+    const env = await r.call(name, args, { projectId: "p", onApproval });
+    assert.equal(env.status, "succeeded", name);
+    assert.ok(env.receipt.execution.approvals.length > 0 && env.receipt.execution.approvals.every((a) => a.scope === "standing"), JSON.stringify(env.receipt.execution.approvals));
+  }
+  runtimes.runner.url = "https://lab.example.org:8765";
+  assert.equal((await r.call("tcm_herb", { name: "甘草" }, { projectId: "p", onApproval })).status, "succeeded");
+  assert.equal(asked.length, 1, "nothing in the project asked again");
+  // another project has its own one question
+  await r.call("tcm_herb", { name: "甘草" }, { projectId: "other", onApproval });
+  assert.equal(asked.length, 2);
+});
+
 test("approvals persist in the Store's project record", async () => {
   const store = await openStore({ indexedDB, name: `router-${Math.random()}` });
   const p = await store.projects.create({ name: "审批", web: true });
@@ -560,10 +603,15 @@ test("approvals persist in the Store's project record", async () => {
   const r = new ToolRouter({ catalog: catalog(), runtimes, settings: {}, store });
   await r.call("literature_search", { query: "x" }, { projectId: p.id, onApproval: async () => "project" });
   const saved = await store.projects.get(p.id);
-  assert.equal(saved.approvals.runner, "project");
-  assert.equal(saved.approvals[`connector.europepmc.search:network@${await hostsDigest(["www.ebi.ac.uk"])}`], "project");
+  assert.deepEqual(saved.approvals, { [PROJECT_GRANT]: "project" });
   const adapter = storeApprovals(store);
   assert.equal((await adapter.get(p.id)).web, true);
+  // revoked on the project page: the next call asks again, in this same page
+  await store.projects.patchApprovals(p.id, { revoke: [PROJECT_GRANT] });
+  let asked = 0;
+  const again = await r.call("literature_search", { query: "x" }, { projectId: p.id, onApproval: async () => { asked++; return "deny"; } });
+  assert.equal(asked, 1);
+  assert.equal(again.status, "refused");
 });
 
 test("catalog_search and capabilities_status are answered in the page when no runtime is ready", async () => {
@@ -877,14 +925,15 @@ test("network approvals are for the hosts a call reaches: hosts_by by argument, 
   const approvals = memoryApprovals({ p: { web: true, approvals: { runner: "project" } } });
   const { r } = richRouter({ runner: "ready", approvals });
   const asked = [];
-  const onApproval = async (q) => { asked.push(q); return "project"; };
+  const onApproval = async (q) => { asked.push(q); return "once"; };
   await r.call("call_tool", { tool: "job.tcmdb.fetch", arguments: { dataset: "herb2" } }, { projectId: "p", onApproval });
   assert.deepEqual(asked[0].reasons, ["job", "network"]);
   assert.deepEqual(asked[0].hosts, ["herb.ac.cn"], "the real hosts, not every dataset's");
   assert.deepEqual(asked[0].needs.find((n) => n.reason === "network").hosts, ["herb.ac.cn"]);
   assert.match(asked[0].text, /herb\.ac\.cn/);
+  // the grants an earlier page stored for an entry and for these hosts (by their digest) still stand
   const herbKey = `job.tcmdb.fetch:network@${await hostsDigest(["herb.ac.cn"])}`;
-  assert.equal(approvals.projects.p.approvals[herbKey], "project");
+  Object.assign(approvals.projects.p.approvals, { "job.tcmdb.fetch": "project", [herbKey]: "project" });
   // another dataset reaches other hosts: the grant does not carry over
   await r.call("call_tool", { tool: "job.tcmdb.fetch", arguments: { dataset: "npass" } }, { projectId: "p", onApproval });
   assert.deepEqual(asked[1].reasons, ["network"], "the job approval (keyed by the entry) stands; the network one is new");
@@ -912,11 +961,11 @@ test("an approval stored before host-scoped keys (<entry>:network) stands only f
   assert.deepEqual(asked[0].hosts, ["herb.ac.cn"]);
 });
 
-test("a call whose hosts are not known in advance (hosts_by does not map its argument) is asked about every time; no grant stands for it", async () => {
+test("a call whose hosts are not known in advance (hosts_by does not map its argument) is asked about every time; only the project's one approval stands for it", async () => {
   const approvals = memoryApprovals({ p: { web: true, approvals: { runner: "project", "system.provider_call:network": "project" } } });
   const { r, runtimes } = richRouter({ runner: "ready", approvals });
   const asked = [];
-  const onApproval = async (q) => { asked.push(q); return "project"; };
+  const onApproval = async (q) => { asked.push(q); return "once"; };
   const unmapped = { tool: "call_tool", arguments: { tool: "system.provider_call", arguments: { provider: "tooluniverse", tool: "Some_unlisted_tool", arguments: {} } } };
   const env = await r.call(unmapped.tool, unmapped.arguments, { projectId: "p", onApproval });
   assert.equal(env.status, "succeeded");
@@ -926,15 +975,22 @@ test("a call whose hosts are not known in advance (hosts_by does not map its arg
   assert.deepEqual(asked[0].needs, [{ reason: "network", hosts: [], per_call: true }]);
   assert.match(asked[0].text, /无法事先确定/);
   assert.doesNotMatch(asked[0].text, /—/);
-  assert.deepEqual(Object.keys(approvals.projects.p.approvals).sort(), ["runner", "system.provider_call:network"], "'project' stored nothing");
+  assert.deepEqual(Object.keys(approvals.projects.p.approvals).sort(), ["runner", "system.provider_call:network"], "'once' stored nothing");
   assert.deepEqual(env.receipt.execution.approvals, [{ reason: "network", scope: "once", hosts: [] }, { reason: "first_runner_call", scope: "standing", hosts: [] }]);
   await r.call(unmapped.tool, unmapped.arguments, { projectId: "p", onApproval });
   assert.equal(asked.length, 2, "and again for the next call");
-  // a tool hosts_by maps: scoped to its hosts as usual, and stored
+  // a tool hosts_by maps: asked for its own hosts
   await r.call("call_tool", { tool: "system.provider_call", arguments: { provider: "tooluniverse", tool: "ChEMBL_search_activities", arguments: {} } }, { projectId: "p", onApproval });
   assert.deepEqual(asked[2].hosts, ["www.ebi.ac.uk"]);
-  assert.equal(approvals.projects.p.approvals[`system.provider_call:network@${await hostsDigest(["www.ebi.ac.uk"])}`], "project");
-  assert.equal(runtimes.runner.calls.length, 3);
+  // "project": the project's one approval, which stands for these calls too from then on
+  const allowed = await r.call(unmapped.tool, unmapped.arguments, { projectId: "p", onApproval: async (q) => { asked.push(q); return "project"; } });
+  assert.equal(asked.length, 4);
+  assert.equal(approvals.projects.p.approvals[PROJECT_GRANT], "project");
+  assert.deepEqual(allowed.receipt.execution.approvals, [{ reason: "network", scope: "project", hosts: [] }, { reason: "first_runner_call", scope: "standing", hosts: [] }]);
+  const after = await r.call(unmapped.tool, unmapped.arguments, { projectId: "p", onApproval });
+  assert.equal(asked.length, 4, "not asked again in this project");
+  assert.deepEqual(after.receipt.execution.approvals, [{ reason: "network", scope: "standing", hosts: [] }, { reason: "first_runner_call", scope: "standing", hosts: [] }]);
+  assert.equal(runtimes.runner.calls.length, 5);
   assert.equal(t("core.approval.network_unknown", { what: "x" }, "en").includes("not known in advance"), true);
 });
 
@@ -942,13 +998,16 @@ test("without Web Crypto (an http page on another address) the router still neve
   const subtle = Object.getOwnPropertyDescriptor(globalThis.crypto, "subtle");
   Object.defineProperty(globalThis.crypto, "subtle", { value: undefined, configurable: true });
   try {
-    const approvals = memoryApprovals({ p: { web: true, approvals: { runner: "project" } } });
+    const approvals = memoryApprovals({ p: { web: true, approvals: { runner: "project" } }, q: { web: true, approvals: { runner: "project", "connector.europepmc.search:network@www.ebi.ac.uk": "project" } } });
     const { r } = router({ runner: "ready", approvals });
-    const env = await r.call("call_tool", { tool: "connector.europepmc.search", arguments: { query: "x" } }, { projectId: "p", onApproval: async () => "project" });
+    const env = await r.call("call_tool", { tool: "connector.europepmc.search", arguments: { query: "x" } }, { projectId: "p", onApproval: async () => "once" });
     assert.equal(env.status, "succeeded");
     assert.equal(env.receipt.execution.approvals[0].reason, "network");
-    // the grant is still for these hosts only: keyed by the hosts themselves
-    assert.equal(approvals.projects.p.approvals["connector.europepmc.search:network@www.ebi.ac.uk"], "project");
+    // a grant for these hosts is keyed by the hosts themselves, and stands
+    let asked = 0;
+    const scoped = await r.call("call_tool", { tool: "connector.europepmc.search", arguments: { query: "x" } }, { projectId: "q", onApproval: async () => { asked++; return "deny"; } });
+    assert.equal(scoped.status, "succeeded");
+    assert.equal(asked, 0);
     const un = await router({ runner: "offline" }).r.call("literature_search", { query: "x" });
     assert.equal(un.error.reason, "needs_runner");
     assert.equal(un.receipt.input_sha256, null);
@@ -978,14 +1037,14 @@ test("a runner on another machine is a remote runner: its own approval (runner@h
   const { r } = router({ runner: "ready", approvals });
   r.runtimes.runner.url = "https://lab.example.org:8765";
   const asked = [];
-  const env = await r.call("tcm_herb", { name: "甘草" }, { projectId: "p", onApproval: async (q) => { asked.push(q); return "project"; } });
+  const env = await r.call("tcm_herb", { name: "甘草" }, { projectId: "p", onApproval: async (q) => { asked.push(q); return "once"; } });
   assert.equal(env.status, "succeeded");
   assert.equal(asked.length, 1, "the loopback runner's standing approval does not cover it");
   assert.deepEqual(asked[0].reasons, ["remote_runner"]);
   assert.deepEqual(asked[0].hosts, ["lab.example.org:8765"]);
   assert.match(asked[0].text, /远程 Runner/);
   assert.doesNotMatch(asked[0].text, /本机/);
-  assert.equal(approvals.projects.p.approvals["runner@lab.example.org:8765"], "project");
+  assert.deepEqual(approvals.projects.p.approvals, { runner: "project" }, "'once' stored nothing");
   assert.deepEqual(env.receipt.execution.placement.runner, { host: "lab.example.org:8765", loopback: false });
   assert.match(t("core.approval.remote_runner", { hosts: "h" }, "en"), /leaves this computer/);
   // a job on it is started there: the prompt names that runner, in both languages, and never says local
@@ -1021,14 +1080,21 @@ test("every envelope records its placement and the approvals it ran under, with 
   assert.deepEqual(first.receipt.execution.approvals, [{ reason: "first_runner_call", scope: "once", hosts: [] }]);
   const second = await r.call("tcm_herb", { name: "甘草" }, { projectId: "p" });
   assert.deepEqual(second.receipt.execution.approvals, [{ reason: "first_runner_call", scope: "page", hosts: [] }]);
-  await r.call("literature_search", { query: "x" }, { projectId: "p", onApproval: async () => "project" });
-  // a new page: the network grant stands in the project record; the first runner call was approved only once
+  // "project": the network approval asked now is the project's one approval; the first runner call stands for this page
+  const allowed = await r.call("literature_search", { query: "x" }, { projectId: "p", onApproval: async () => "project" });
+  assert.deepEqual(allowed.receipt.execution.approvals, [{ reason: "network", scope: "project", hosts: ["www.ebi.ac.uk"] }, { reason: "first_runner_call", scope: "page", hosts: [] }]);
+  // a new page: the project's approval stands in the project record, for every need of the call
   const fresh = new ToolRouter({ catalog: catalog(), runtimes: r.runtimes, settings: {}, approvals });
-  const third = await fresh.call("literature_search", { query: "y" }, { projectId: "p" });
+  const standing = await fresh.call("literature_search", { query: "y" }, { projectId: "p" });
+  assert.equal(standing.status, "succeeded");
+  assert.deepEqual(standing.receipt.execution.approvals.map((a) => [a.reason, a.scope]), [["network", "standing"], ["first_runner_call", "standing"]]);
+  // a project where only a grant for these hosts stands (an earlier page's): only what stands is listed
+  approvals.projects.q = { web: true, approvals: { [`connector.europepmc.search:network@${await hostsDigest(["www.ebi.ac.uk"])}`]: "project" } };
+  const third = await fresh.call("literature_search", { query: "y" }, { projectId: "q" });
   assert.equal(third.status, "needs_approval");
   assert.deepEqual(third.receipt.execution.approvals.map((a) => [a.reason, a.scope]), [["network", "standing"]], "only what stands is listed");
-  approvals.projects.p.approvals.runner = "project";
-  const fourth = await fresh.call("literature_search", { query: "y" }, { projectId: "p" });
+  approvals.projects.q.approvals.runner = "project";
+  const fourth = await fresh.call("literature_search", { query: "y" }, { projectId: "q" });
   assert.equal(fourth.status, "succeeded");
   assert.deepEqual(fourth.receipt.execution.approvals.map((a) => [a.reason, a.scope]), [["network", "standing"], ["first_runner_call", "standing"]]);
   assert.deepEqual(r.runtimes.runner.calls.at(-1).ctx.approvals, ["network", "first_runner_call"], "the runtime gets the reasons, in order");
@@ -1097,7 +1163,7 @@ test("envelopes decided in the page: where 'page', decided_by router, the receip
   assert.equal(outcomes.length, 7);
 });
 
-test("patient data goes to a remote runner only with a yes to that very call; nothing stands for it", async () => {
+test("patient data goes to a remote runner only with a yes: 'once' covers that call alone, the project's one approval every later one", async () => {
   const doc = testCatalogDoc();
   doc.entries.push({ id: "clinic.assess", kind: "clinic", phi: true, title: { zh: "辨证", en: "Assess" }, summary: "Assess.", category: "tcm_knowledge", parameters: { type: "object", properties: {} }, example: null, exec: ["browser", "runner"], network: false, confirm: false, job: false, gpu: false, heavy: [], tags: [] });
   const approvals = memoryApprovals({ p: { web: true, approvals: { "runner@lab.example.org:8765": "project" } } });
@@ -1108,7 +1174,7 @@ test("patient data goes to a remote runner only with a yes to that very call; no
   let asked = [];
   await r.call("tcm_herb", { name: "甘草" }, { projectId: "p", onApproval: async (q) => { asked.push(q); return "project"; } });
   assert.equal(asked.length, 0);
-  const ask = async (q) => { asked.push(q); return "project"; };
+  const ask = async (q) => { asked.push(q); return "once"; };
   const first = await r.call("call_tool", { tool: "clinic.assess", arguments: { intake: { age: 40 } } }, { projectId: "p", onApproval: ask });
   assert.equal(first.status, "succeeded");
   assert.equal(asked.length, 1, "asked although the runner stands approved");
@@ -1117,10 +1183,18 @@ test("patient data goes to a remote runner only with a yes to that very call; no
   assert.deepEqual(first.receipt.execution.approvals, [{ reason: "remote_runner", scope: "once", hosts: ["lab.example.org:8765"] }]);
   assert.doesNotMatch(JSON.stringify(first.receipt), /"age"/, "no argument value goes into the receipt");
   await r.call("call_tool", { tool: "clinic.assess", arguments: { intake: { age: 41 } } }, { projectId: "p", onApproval: ask });
-  assert.equal(asked.length, 2, "and again for the next call, even after 'project'");
+  assert.equal(asked.length, 2, "and again for the next call after 'once'");
   const denied = await r.call("call_tool", { tool: "clinic.assess", arguments: {} }, { projectId: "p", onApproval: async () => "deny" });
   assert.equal(denied.status, "refused");
   assert.equal(runtimes.runner.calls.filter((c) => c.args?.tool === "clinic.assess").length, 2);
+  // "project": the project's one approval, and it stands for patient data too from then on
+  const allowed = await r.call("call_tool", { tool: "clinic.assess", arguments: { intake: { age: 42 } } }, { projectId: "p", onApproval: async (q) => { asked.push(q); return "project"; } });
+  assert.equal(asked.length, 3);
+  assert.deepEqual(allowed.receipt.execution.approvals, [{ reason: "remote_runner", scope: "project", hosts: ["lab.example.org:8765"] }]);
+  const later = await r.call("call_tool", { tool: "clinic.assess", arguments: { intake: { age: 43 } } }, { projectId: "p", onApproval: ask });
+  assert.equal(asked.length, 3, "not asked again in this project");
+  assert.deepEqual(later.receipt.execution.approvals, [{ reason: "remote_runner", scope: "standing", hosts: ["lab.example.org:8765"] }]);
+  assert.equal(runtimes.runner.calls.filter((c) => c.args?.tool === "clinic.assess").length, 4);
 });
 
 test("an entry that takes a clinic intake is patient data (as the dispatcher decides it), and so is job.skill.run of that skill", async () => {

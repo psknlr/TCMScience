@@ -22,8 +22,9 @@
 // Approvals (DESIGN §3.3, ARCHITECTURE decision 5): entries marked confirm (jobs among them), network entries (which
 // also need the project's web access on; the grant is for the hosts the call reaches, and a call whose hosts are not
 // known in advance is asked about every time), sending data to a third party (allow_remote), and the first runner
-// call of each project, or of each remote runner. The answer is "once", "project" (remembered in the project record)
-// or "deny".
+// call of each project, or of each remote runner. The answer is "once", "project" or "deny". A project is asked once:
+// "project" stores one project-wide grant (PROJECT_GRANT) that covers every later call of that project, the ones
+// otherwise asked every time included, until it is revoked on the project page; "once" covers this call only.
 //
 // Every envelope the router returns records how it was placed and approved (receipt.execution.placement / .approvals);
 // one decided here also has the page's receipt (core/receipt.js: where "page", decided_by "router", not executed).
@@ -45,6 +46,12 @@ const BROWSER_JOBS_NEED = {
 
 export const TEXT_LIMIT = 16000;
 const RUNNER_KEY = "runner";
+/**
+ * The project-wide approval key: the single "allow" a project is asked for. While a project record holds it, no call of
+ * that project asks again (the per-call needs included), and sending its files to the local runner does not ask
+ * either (ui/pages/project.js). Revoking it on the project page makes the next call ask again.
+ */
+export const PROJECT_GRANT = "*";
 /**
  * The reasons a placement gives (error.reason of an unavailable envelope; receipt.execution.placement.reason).
  * human_only is provenance only: a HUMAN_ONLY refusal is decided before any placement and is never "unavailable".
@@ -536,9 +543,10 @@ export class ToolRouter {
     const run = async () => {
       const held = await this.#held(projectId, needs);
       const pending = needs.filter((n) => !held.has(n));
-      // in the order the call needs them; scope: how each stands (asked now: the answer)
+      // in the order the call needs them; scope: how each stands (asked now: the answer; a per-call need answered
+      // "once" is this call's alone, answered "project" it is covered by the project-wide grant too)
       const approvals = (decision) => needs.filter((n) => held.has(n) || decision)
-        .map((n) => ({ reason: n.reason, hosts: n.hosts || [], scope: held.get(n)?.scope || (n.perCall ? "once" : decision), legacy: Boolean(held.get(n)?.legacy) }));
+        .map((n) => ({ reason: n.reason, hosts: n.hosts || [], scope: held.get(n)?.scope || (n.perCall && decision === "once" ? "once" : decision), legacy: Boolean(held.get(n)?.legacy) }));
       const standing = approvals(null);
       if (!pending.length) return { approvals: standing };
       const hosts = [...new Set(pending.flatMap((n) => n.hosts || []))];
@@ -581,16 +589,21 @@ export class ToolRouter {
           }),
         };
       }
-      const keep = pending.filter((n) => !n.perCall);
-      let stored = false;
-      if (decision === "project" && projectId && this.approvals && keep.length) {
-        try { await this.approvals.grant(projectId, keep.map((n) => n.key)); stored = true; } catch { /* the call still runs once */ }
-      }
-      // "once" on the first call of a runner: approved for this page's life (that runner's, when it is remote); a
-      // "project" that could not be stored (no project, no store) holds for this page's life too, and says so
       const session = this.#grants(projectId);
-      for (const n of keep) if (n.reason === "first_runner_call" || n.reason === "remote_runner" || decision === "project") session.add(n.key);
-      return { approvals: approvals(decision === "project" && !stored ? "page" : decision) };
+      if (decision === "project") {
+        // the project's one approval: every later call of this project runs without asking. Stored in the project
+        // record, it is read from there on every call, so revoking it on the project page takes effect at once; one
+        // that could not be stored (no project, no store) holds for this page's life, and says so
+        let stored = false;
+        if (projectId && this.approvals) {
+          try { await this.approvals.grant(projectId, [PROJECT_GRANT]); stored = true; } catch { /* held for this page instead */ }
+        }
+        if (!stored) session.add(PROJECT_GRANT);
+        return { approvals: approvals(stored ? "project" : "page") };
+      }
+      // "once" on the first call of a runner: approved for this page's life (that runner's, when it is remote)
+      for (const n of pending) if (!n.perCall && (n.reason === "first_runner_call" || n.reason === "remote_runner")) session.add(n.key);
+      return { approvals: approvals(decision) };
     };
     const p = this.queue.then(run, run);
     this.queue = p.then(() => undefined, () => undefined);
@@ -644,7 +657,10 @@ export class ToolRouter {
     return out;
   }
 
-  /** The needs that already stand: need → {scope: "standing" (the project record) | "page" (this page), legacy?}. */
+  /**
+   * The needs that already stand: need → {scope: "standing" (the project record) | "page" (this page), legacy?}. The
+   * project-wide grant (PROJECT_GRANT) stands for every need, the per-call ones included.
+   */
   async #held(projectId, needs) {
     let standing = {};
     if (projectId && this.approvals) {
@@ -652,8 +668,10 @@ export class ToolRouter {
     }
     const session = this.#grants(projectId);
     const out = new Map();
+    const whole = standing[PROJECT_GRANT] === "project" ? "standing" : session.has(PROJECT_GRANT) ? "page" : null;
     for (const n of needs) {
-      if (n.perCall) continue; // asked every time: no grant stands for it
+      if (whole) { out.set(n, { scope: whole }); continue; }
+      if (n.perCall) continue; // asked every time: no grant but the project-wide one stands for it
       if (standing[n.key] === "project") out.set(n, { scope: "standing" });
       else if (n.legacy && standing[n.legacy] === "project") out.set(n, { scope: "standing", legacy: true });
       else if (session.has(n.key)) out.set(n, { scope: "page" });

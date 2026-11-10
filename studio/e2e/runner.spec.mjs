@@ -38,8 +38,8 @@ test("a governed skill runs on the runner and the thread shows its verdict", asy
   await newProject(page, "E2E 配伍");
 
   await send(page, QUESTION);
-  // the first runner call of a project asks first (ARCHITECTURE decision 5)
-  expect(await approve(page, "once")).toMatch(/第一次在本机 Runner 上运行/);
+  // the first runner call of a project asks first (ARCHITECTURE decision 5): the project's one question
+  expect(await approve(page, "allow")).toMatch(/第一次在本机 Runner 上运行/);
   const answer = await waitForAnswers(page, 1);
 
   // the model asked for the governed skill; the runner ran it
@@ -176,6 +176,8 @@ test("a project file with a Chinese name goes to the runner with its name and ha
   const row = page.locator(".file-row").filter({ hasText: "样本表.csv" });
   await expect(row).toBeVisible();
   await row.getByRole("button", { name: "发送到本机 Runner" }).click();
+  // the project's one question: confirming it is the project-wide approval
+  await expect(page.getByRole("dialog")).toContainText("本项目只问这一次");
   await page.getByRole("dialog").getByRole("button", { name: "发送", exact: true }).click();
   await expect(row).toContainText("浏览器 + 本机 Runner");
   const { createHash } = await import("node:crypto");
@@ -183,7 +185,19 @@ test("a project file with a Chinese name goes to the runner with its name and ha
   const up = uploads.find((u) => u.name === "样本表.csv");
   expect(up, JSON.stringify(uploads)).toBeTruthy();
   expect(up.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
-  const rec = (await readDb(page)).files.find((f) => f.name === "样本表.csv");
+  let db = await readDb(page);
+  const rec = db.files.find((f) => f.name === "样本表.csv");
   expect(rec.runnerUploadId).toBe(up.id);
+  expect(db.projects.find((p) => p.name === "E2E 文件").approvals["*"]).toBe("project");
+
+  // a second file of the project goes without asking again
+  await page.locator("input[type=file]:not([aria-hidden])").first().setInputFiles({ name: "计数.tsv", mimeType: "text/tab-separated-values", buffer: Buffer.from("gene\tS1\nA\t1\n", "utf8") });
+  const second = page.locator(".file-row").filter({ hasText: "计数.tsv" });
+  await expect(second).toBeVisible();
+  await second.getByRole("button", { name: "发送到本机 Runner" }).click();
+  await expect(second).toContainText("浏览器 + 本机 Runner");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  db = await readDb(page);
+  expect(db.files.find((f) => f.name === "计数.tsv").runnerUploadId).toBeTruthy();
   watch.expectClean();
 });

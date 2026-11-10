@@ -74,7 +74,7 @@ does this) and served live by the runner at `GET /api/catalog`. One JSON documen
   "category": "tcm_safety",
   "exec": ["browser", "runner"],               // where it can run. compute "auto": a connected runner first, else the browser
   "network": false,                            // true: reaches the internet (needs the project's web access)
-  "confirm": false,                            // true: the user must approve each call (or for the project)
+  "confirm": false,                            // true: the user must approve (the project's one approval covers it)
   "job": false,                                // true: starts a runner job; result carries job {id,state}
   "maps_to": "skill.assess-tcm-safety"         // the Entry id it dispatches to (informational)
 }
@@ -778,7 +778,8 @@ export class ToolRouter {
     //       which also lists human_only: placement provenance of a HUMAN_ONLY refusal, never an unavailable reason);
     //       what the connected runner lacks may also give needs_dataset | needs_job_service (RUNTIME_REASONS, §6)
   async call(name, args, {projectId, conversationId, signal, onApproval}) → Envelope   // never rejects
-    // enforces confirm/network approvals: if needed, awaits onApproval(request) → "once"|"project"|"deny"
+    // enforces confirm/network approvals: if needed, awaits onApproval(request) → "once"|"project"|"deny";
+    // "project" stores the project-wide approval (PROJECT_GRANT "*"): no later call of the project asks
 }
 export function hostsOf(entry, args?) → [host]; export async function hostsDigest(hosts) → sha12
 
@@ -860,7 +861,14 @@ Router rules (`core/router.js`):
   absent argument counts as its schema default) must not be marked not ready on the runner
   (`engine.readiness.runner`, or `available:false`). If one is, the call is refused before any approval is asked,
   with the missing packages named. A catalog that does not say leaves it to the runner's own refusal.
-- **Approval keys** (`project.approvals`, §7): the entry id (confirm/job); `<entry>:network@<sha12>`, where sha12 is
+- **The project's one approval.** The page offers "allow" (decision `"project"`) and "deny". "project" stores one key,
+  `*` (`PROJECT_GRANT`), in `project.approvals`; while it stands, every need of every call of that project is held
+  (scope `standing`), the per-call ones below included, and sending a project file to the local runner does not ask
+  either. With no project or no store it holds for this page's life (scope `page`). It is read from the project record
+  on every call, so revoking it on the project page makes the next call ask again. `"once"` (for callers other than
+  the card) covers that call only, stores nothing, and keeps the first runner call approved for this page's life.
+- **Approval keys** (`project.approvals`, §7): `*` (above); and, as earlier pages stored them and still honoured: the
+  entry id (confirm/job); `<entry>:network@<sha12>`, where sha12 is
   the first 12 hex digits of sha256 of the canonical JSON array of the call's hosts (sorted, lower-cased, from
   `hosts_by[param][value]` for the argument value, else `hosts`/`skill.network`). So a grant never covers other
   hosts. A key stored before this change, `<entry>:network`, still counts, but only while the call's hosts are among
@@ -868,12 +876,12 @@ Router rules (`core/router.js`):
   `runner@<host>` (reason `remote_runner`, the first call on a runner on another machine, which is never covered by
   `runner` and never called local). A clinic or `phi` entry on a remote runner, or one that takes a clinic `intake`
   (§3; `skill.draft-tcm-prescription`), and `job.skill.run` of such a skill (its `skill_id`), is asked about for every
-  call (`needs[].per_call`), as patient data (`core.approval.remote_runner_phi`). Nothing stands for it, and "project" does not store it. The approval request lists each
+  call (`needs[].per_call`), as patient data (`core.approval.remote_runner_phi`). Only the project's one approval (`*`) stands for it. The approval request lists each
   reason with its own hosts (`request.needs: [{reason, hosts, per_call?}]`). A network call whose hosts are not known
   in advance (an entry with `hosts_by` whose argument value it does not map, such as `system.provider_call` with an
   unlisted `tool`, or a network entry that names no hosts) is asked about for every call too (`per_call`, hosts `[]`,
-  `core.approval.network_unknown`): no grant is stored for it, and no `<entry>:network` key from before stands for
-  it. A page without Web Crypto (an http page opened at another address) keys a network grant
+  `core.approval.network_unknown`): no key of its own is stored for it, no `<entry>:network` key from before stands
+  for it, and only the project's one approval (`*`) does. A page without Web Crypto (an http page opened at another address) keys a network grant
   `<entry>:network@<the sorted hosts, comma-joined>`: still for those hosts only. A job on a remote runner is asked
   as `core.approval.job_remote` (that runner's host named, never 本机).
 - **Receipt additions.** Every envelope the router returns gets `receipt.execution.placement = {requested,
@@ -905,15 +913,15 @@ Router rules (`core/router.js`):
 
 | store | keyPath | indexes | record |
 |---|---|---|---|
-| `projects` | `id` | `updatedAt` | `{id, name, description, instructions, color, icon, archived:false, createdAt, updatedAt, webDefault:2, defaults:{provider?, model?, compute?, web?:true}, approvals:{[toolOrEntryId]: "project"}}` |
+| `projects` | `id` | `updatedAt` | `{id, name, description, instructions, color, icon, archived:false, createdAt, updatedAt, webDefault:2, defaults:{provider?, model?, compute?, web?:true}, approvals:{["*" | toolOrEntryId]: "project"}}` |
 | `conversations` | `id` | `projectId`, `updatedAt` | `{id, projectId, title, createdAt, updatedAt, leafId, model?, pinned?:false}` |
 | `messages` | `id` | `conversationId` | `{id, conversationId, parentId, role:"user"|"assistant"|"tool", createdAt, content, attachments?:[fileId], reasoning?, toolCalls?:[{id,name,args}], toolCallId?, envelope?, provider, model, wire?, usage?, status?:"ok"|"stopped"|"error", error?}` |
 | `files` | `id` | `projectId`, `sha256` | `{id, projectId, name, type, bytes, sha256, blob, source:"upload"|"tool", createdAt, runnerUploadId?}` |
 
 Web access is on by default. A project record without `webDefault: 2` was written while it was off by default: when
 the app starts it is read once as it reads now (`projects.adoptWebDefault`), its `defaults.web` turned from `false` to
-`true` unless it holds a standing `<entry>:network` or `<entry>:remote_upload` approval (its user turned web access off
-after granting it), `updatedAt` kept, and the mark added. A mark per record rather than a new database version: an
+`true` unless it holds a standing `*`, `<entry>:network` or `<entry>:remote_upload` approval (its user turned web
+access off after granting it), `updatedAt` kept, and the mark added. A mark per record rather than a new database version: an
 upgrade would close the database under every tab still running the previous release.
 
 IDs are `crypto.randomUUID()`. Branching: editing a user message creates a sibling with the same `parentId`.

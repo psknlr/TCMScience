@@ -378,14 +378,20 @@ test("tool card: where it ran, status, refusals as results, page-decided calls m
   assert.equal(argsSummary({ herbs: ["甘草", "甘遂"] }), "herbs: 甘草、甘遂");
 });
 
-test("permission card offers once / project / deny and records the answer", () => {
+test("permission card asks once for the project: allow (the project's one approval) or deny, and records the answer", () => {
   let got = null;
   const card = permissionCard(FIX.approvals[0], { onDecide: (d) => { got = d; } });
   assert.match(card.textContent, /www\.ebi\.ac\.uk/);
   assert.match(card.textContent, /第一次在本机 Runner/);
+  assert.match(card.textContent, /本项目只问这一次/, "the card says the one answer covers the project");
   const buttons = [...card.querySelectorAll("button")];
-  assert.deepEqual(buttons.map((b) => b.textContent), ["允许一次", "本项目允许", "拒绝"]);
-  buttons[2].dispatchEvent(new window.Event("click"));
+  assert.deepEqual(buttons.map((b) => b.textContent), ["允许", "拒绝"]);
+  const allowed = permissionCard(FIX.approvals[1], { onDecide: (d) => { got = d; } });
+  allowed.querySelector("button").dispatchEvent(new window.Event("click"));
+  assert.equal(got, "project");
+  assert.match(allowed.textContent, /已在本项目中允许/);
+  assert.doesNotMatch(allowed.textContent, /本项目只问这一次/, "a decided card drops the note");
+  buttons[1].dispatchEvent(new window.Event("click"));
   assert.equal(got, "deny");
   assert.match(card.textContent, /未批准 · 未运行/);
   assert.ok(!/已拒绝/.test(card.textContent), "a person's decline is not worded as a kernel refusal");

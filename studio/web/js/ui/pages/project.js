@@ -4,7 +4,7 @@
 
 import { claimsOf, verdictBadge } from "../../core/governance.js";
 import { t } from "../../core/i18n.js";
-import { hostsDigest, hostsOf } from "../../core/router.js";
+import { hostsDigest, hostsOf, PROJECT_GRANT } from "../../core/router.js";
 import { debounce, download, fill, formatBytes, formatDateTime, formatRelative, h } from "../dom.js";
 import { verdictPill, hashBadge } from "../governance.js";
 import { icon } from "../icons.js";
@@ -178,20 +178,25 @@ function knowledgeSection(app, p) {
 
   async function refresh() {
     const files = await app.store.files.list(p.id);
-    fill(list, files.length ? h("ul.file-list", { role: "list" }, files.map((f) => knowledgeRow(app, f, refresh))) : h("p.muted.small", t("ui.knowledge.none")));
+    fill(list, files.length ? h("ul.file-list", { role: "list" }, files.map((f) => knowledgeRow(app, p, f, refresh))) : h("p.muted.small", t("ui.knowledge.none")));
   }
   refresh();
   return section({ title: t("ui.knowledge.title"), children: [zone, input, list] });
 }
 
-function knowledgeRow(app, f, refresh) {
+function knowledgeRow(app, p, f, refresh) {
   const runnerReady = app.state.runner.status === "ready";
   const big = f.bytes > 200 * 1024 * 1024;
   const progress = h("div.file-row__progress");
   const send = runnerReady && !f.runnerUploadId ? iconButton({
     icon: "upload", label: t("ui.knowledge.send_runner"), size: "sm", onClick: async () => {
-      const ok = await confirmDialog({ title: t("ui.knowledge.send_title"), body: t("ui.knowledge.send_body", { name: f.name }), confirmLabel: t("ui.knowledge.send") });
-      if (!ok) return;
+      // a project is asked once: with its project-wide approval standing (given here or on a tool's approval card),
+      // the file goes at once; without it, this confirmation is that approval
+      if (!(await projectApproved(app, p.id))) {
+        const ok = await confirmDialog({ title: t("ui.knowledge.send_title"), body: `${t("ui.knowledge.send_body", { name: f.name })} ${t("ui.knowledge.send_once")}`, confirmLabel: t("ui.knowledge.send") });
+        if (!ok) return;
+        try { await app.grantApprovals(p.id, [PROJECT_GRANT]); } catch (err) { toast(t("ui.project.save_failed", { message: err?.message || String(err) }), { tone: "warn" }); }
+      }
       const bar = progressBar({ value: 0, label: t("ui.knowledge.uploading") });
       fill(progress, bar);
       try {
@@ -224,6 +229,11 @@ function knowledgeRow(app, f, refresh) {
       } })));
 }
 
+/** Does the project stand approved as a whole (core/router.js PROJECT_GRANT), as its stored record says now? */
+async function projectApproved(app, projectId) {
+  try { return (await app.store.projects.get(projectId))?.approvals?.[PROJECT_GRANT] === "project"; } catch { return false; }
+}
+
 // ------------------------------------------------------------------------------------------------- defaults
 
 function defaultsSection(app, p) {
@@ -253,14 +263,16 @@ function defaultsSection(app, p) {
 }
 
 /**
- * A stored approval key (core/router.js) in words: runner (the local runner) · runner@<host> (a remote runner, never
- * called local) · remote@<host> (a remote compute backend) · <entry> (a job or a confirmed act) · <entry>:network (the
- * older key: the entry's own static hosts) · <entry>:network@<sha12> (these hosts only: the hosts are found by hashing
- * the entry's own host lists, or read from the key when a page without Web Crypto wrote them out) ·
- * <entry>:remote_upload (data sent to a third-party service).
+ * A stored approval key (core/router.js) in words: * (the project-wide approval, the one a project is asked for) ·
+ * and, as earlier pages stored them: runner (the local runner) · runner@<host> (a remote runner, never called local) ·
+ * remote@<host> (a remote compute backend) · <entry> (a job or a confirmed act) · <entry>:network (the older key: the
+ * entry's own static hosts) · <entry>:network@<sha12> (these hosts only: the hosts are found by hashing the entry's own
+ * host lists, or read from the key when a page without Web Crypto wrote them out) · <entry>:remote_upload (data sent
+ * to a third-party service).
  */
 export function approvalLabel(key, catalog) {
   const k = String(key || "");
+  if (k === PROJECT_GRANT) return h("span", t("ui.project.approval.all"));
   if (k === "runner") return h("span", t("ui.project.approval.runner"));
   if (k.startsWith("runner@")) return h("span", t("ui.project.approval.runner_remote"), " ", h("code", k.slice(7)));
   if (k.startsWith("remote@")) return h("span", t("ui.project.approval.remote_compute"), " ", h("code", k.slice(7)));
