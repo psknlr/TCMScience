@@ -32,16 +32,18 @@ const MIGRATIONS = [
 /**
  * A project record from before web access was on by default (no `webDefault` mark), as it reads now, marked so it is
  * read so only once; null when it already carries the mark. Its off was the old default, not a choice, and becomes on,
- * except where the project stands approved to reach the network or to send data to a third party: its user turned
- * web access off after granting those, and on again they would run without asking. Everywhere else nothing new runs
- * unasked, since each network tool still asks before its first call. `updatedAt` is kept (the list order stays).
+ * except where the project stands approved to reach the network or to send data to a third party (by those keys, or
+ * by the project-wide approval): its user turned web access off after granting those, and on again they would run
+ * without asking. Everywhere else nothing new runs unasked, since the project's first network tool still asks before
+ * its first call. `updatedAt` is kept (the list order stays).
  *
  * This is a mark on each record, not a schema version: a new version of the database would close it under every tab
  * still running the previous release, and their conversations could not be saved until they reloaded.
  */
 export function webOnByDefault(project) {
   if (!project || typeof project !== "object" || project.webDefault === WEB_DEFAULT_VERSION) return null;
-  const standing = Object.keys(project.approvals || {}).some((k) => k.endsWith(":network") || k.endsWith(":remote_upload"));
+  // "*" is the project-wide approval (core/router.js PROJECT_GRANT): it covers the network and third-party sends too
+  const standing = Object.keys(project.approvals || {}).some((k) => k === "*" || k.endsWith(":network") || k.endsWith(":remote_upload"));
   const turnOn = project.defaults?.web === false && !standing;
   return { ...project, webDefault: WEB_DEFAULT_VERSION, ...(turnOn ? { defaults: { ...project.defaults, web: true } } : {}) };
 }

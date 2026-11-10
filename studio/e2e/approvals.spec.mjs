@@ -1,6 +1,6 @@
 // (c) Approvals: run_pipeline is a confirm/job tool. The PermissionRequestCard appears before anything runs; "deny"
-// gives a refused envelope that the model reads in its next round; "allow for this project" is stored in the project
-// and holds across later calls and a reload.
+// gives a refused envelope that the model reads in its next round; "allow" is the project's one approval: stored in the
+// project, it holds for every later call of the project, of any kind, and across a reload.
 
 import { expect, test } from "@playwright/test";
 import { startMockLLM } from "./mock-llm.mjs";
@@ -23,7 +23,7 @@ test.afterAll(async () => {
 
 const lastToolResult = (scenario) => mock.requests.filter((r) => r.scenario === scenario).at(-1).body.messages.at(-1);
 
-test("deny is a refusal the model sees; allow for this project persists", async ({ page }) => {
+test("deny is a refusal the model sees; allow is the project's one approval and persists", async ({ page }) => {
   const watch = watchConsole(page);
   await seedSettings(page, {}, { custom: { id: "custom-e2e", base_url: `${mock.url}/v1`, model: "mock-sci-1" } });
   await openPaired(page, runner);
@@ -47,17 +47,15 @@ test("deny is a refusal the model sees; allow for this project persists", async 
   expect(denied.content).toMatch(/refused/);
   await shot(page, "approvals-denied");
 
-  // 2. allow for this project: the call goes to the runner, and the decision is stored in the project record
+  // 2. allow: the call goes to the runner, and the project's one approval is stored in the project record
   await send(page, "那就再运行一次 RNA-seq 流程");
-  await approve(page, "project");
+  expect(await approve(page, "allow")).toMatch(/本项目只问这一次/);
   answer = await waitForAnswers(page, 2);
   const second = lastToolResult("pipeline");
   expect(second.content).not.toMatch(/: refused\b/);
   let db = await readDb(page);
   const project = db.projects.find((p) => p.name === "E2E 批准");
-  expect(Object.values(project.approvals || {})).toContain("project");
-  const keys = Object.keys(project.approvals);
-  expect(keys.some((k) => /pipeline/.test(k)), `approval keys: ${keys.join(", ")}`).toBe(true);
+  expect(project.approvals, `approvals: ${JSON.stringify(project.approvals)}`).toEqual({ "*": "project" });
   const tools = db.messages.filter((m) => m.role === "tool" && m.name === "run_pipeline").sort((a, b) => a.createdAt - b.createdAt);
   expect(tools.at(-1).envelope.receipt.where).toBe("runner");
 
@@ -72,6 +70,12 @@ test("deny is a refusal the model sees; allow for this project persists", async 
   expect(db.messages.filter((m) => m.role === "tool" && m.name === "run_pipeline")).toHaveLength(3);
   expect(lastToolResult("pipeline").content).not.toMatch(/: refused\b/);
 
+  // 4. nor does a call of another kind (a network tool the project never approved by name)
+  await send(page, "检索相关文献");
+  answer = await waitForAnswers(page, 4);
+  await expect(answer).toContainText("文献检索的结果：failed（未联网）");
+  await expect(page.locator(".permission:not(.is-decided)")).toHaveCount(0);
+
   watch.expectClean();
 });
 
@@ -82,7 +86,7 @@ test("a background job: approved, followed on its card until collected, then rea
   await newProject(page, "E2E 任务");
 
   await send(page, "请作为后台任务重新评估甘草与甘遂");
-  expect(await approve(page, "once")).toMatch(/本机 Runner 上启动任务/);
+  expect(await approve(page, "allow")).toMatch(/本机 Runner 上启动任务/);
   // the job card follows the runner's events: pending first, then collected and verified, with its files
   const job = page.locator(".job").first();
   await expect(job).toBeVisible({ timeout: 60000 });
@@ -118,7 +122,7 @@ test("network: on in a new project, the hosts are asked about, then the runner's
   // web access is on by default: the card names the hosts first; this runner's own switch is off (--no-network)
   await expect(page.locator(".composer").getByRole("button", { name: /联网/ })).toHaveAttribute("aria-pressed", "true");
   await send(page, "检索相关文献");
-  const asked = await approve(page, "once");
+  const asked = await approve(page, "allow");
   expect(asked).toMatch(/europepmc|ebi\.ac\.uk|ncbi|crossref/i);
   let answer = await waitForAnswers(page, 1);
   await expect(answer).toContainText("文献检索的结果：failed（未联网）");

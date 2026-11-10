@@ -921,5 +921,6 @@ test("project approvals: network grants name their hosts, a remote runner is nev
   assert.match(text(approvalLabel("runner@10.0.0.5:8765", cat)), /远程 Runner.*10\.0\.0\.5:8765/);
   assert.match(text(approvalLabel("remote@compute.example.org", cat)), /远程计算后端.*compute\.example\.org/);
   assert.match(text(approvalLabel("runner", cat)), /本机 Runner/);
+  assert.match(text(approvalLabel("*", cat)), /本项目的全部操作/, "the project-wide approval");
   assert.match(text(approvalLabel("skill.dock-ligands:remote_upload", cat)), /第三方服务/);
 });

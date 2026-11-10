@@ -426,7 +426,7 @@ export function mountConversation(app, main) {
     if (!liveView || !liveView.isConnected) { renderAll(); return; }
     liveView.update();
     if (stick) scrollToBottom();
-    // an approval arrived while focus was nowhere: move it to the card (not to 允许一次 — Enter must not approve)
+    // an approval arrived while focus was nowhere: move it to the card (not to its 允许 button — Enter must not approve)
     if (approvalFor) {
       const card = thread.querySelector(`.permission[data-perm="${cssEscape(approvalFor)}"]`);
       approvalFor = null;

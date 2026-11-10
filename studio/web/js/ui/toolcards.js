@@ -420,18 +420,19 @@ export function permissionCard(request, { onDecide, decided = null, catalog } = 
       return h("li.permission__reason", icon(ic, { size: 16 }), h("div", text));
     });
     const key = `perm:${request.callId || request.tool}`;
-    // a decline is the person's decision, said in neutral words (not the kernel's vermilion 已拒绝)
+    // a decline is the person's decision, said in neutral words (not the kernel's vermilion 已拒绝). A project is asked
+    // once: "allow" is the project-wide approval (core/router.js PROJECT_GRANT), and nothing in the project asks again
     const actions = decided
       ? h("p", { class: ["permission__decided", `is-${decided}`], tabindex: "-1", "data-focus-key": key }, icon(decided === "deny" ? "user" : "check", { size: 14 }), t(`ui.perm.decided.${decided}`))
       : h("div.permission__actions",
-        button({ label: t("ui.perm.once"), variant: "primary", size: "sm", onClick: () => decide("once"), attrs: { "data-focus-key": `${key}:once` } }),
-        button({ label: t("ui.perm.project"), variant: "secondary", size: "sm", onClick: () => decide("project"), attrs: { "data-focus-key": `${key}:project` } }),
+        button({ label: t("ui.perm.allow"), variant: "primary", size: "sm", onClick: () => decide("project"), attrs: { "data-focus-key": `${key}:project` } }),
         button({ label: t("ui.perm.deny"), variant: "ghost", size: "sm", onClick: () => decide("deny"), attrs: { "data-focus-key": `${key}:deny` } }));
     root.className = ["permission", decided && "is-decided", decided === "deny" && "is-denied"].filter(Boolean).join(" ");
     fill(root, 
       h("header.permission__head", icon("shieldCheck", { size: 16 }), h("p.permission__title", decided ? t("ui.perm.title_decided") : t("ui.perm.title")), h("span.permission__tool", h("span", title), h("code.mono", request.entry || request.tool))),
       h("ul.permission__reasons", { role: "list" }, items),
       request.args ? h("p.permission__args.muted", argsSummary(request.args, 160)) : null,
+      decided ? null : h("p.permission__scope.muted.small", t("ui.perm.allow_note")),
       actions);
   };
   const decide = (d) => {

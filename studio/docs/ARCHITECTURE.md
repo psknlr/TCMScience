@@ -90,9 +90,11 @@ counts.
 4. **The agent loop runs in the browser**, with native tool calling (OpenAI-compatible and
    Anthropic). Long work becomes a **job** that the conversation follows (`job_status`, a job card in
    the thread): the runner's, or, for the kinds the browser runs, a job of the page's job service (ids `bj-…`).
-5. **Confirmation before reaching out.** Jobs, network calls, sending a sequence to a third-party
-   service (`allow_remote`) and the first call to a runner require the user's explicit approval:
-   once, for this project, or never. Signing a clinic draft is a human act and is never a tool.
+5. **Confirmation before reaching out, asked once per project.** Jobs, network calls, sending a sequence to a
+   third-party service (`allow_remote`), the first call to a runner and sending project files to the runner require
+   the user's explicit approval. A project asks once: its first such call (or file send) shows the one question, and
+   "allow" covers every later one of the project until it is revoked on the project page. Signing a clinic draft is a
+   human act and is never a tool.
 6. **No vendor named for Tao-S1.** The relay renames the model in both directions and rewrites
    upstream errors in its own words (the TaoChronos pattern).
 7. **`auto` is runner-first, and nothing falls back to a remote place.** A connected runner takes every

@@ -476,7 +476,7 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         required), and writes nine exports: compound, target, disease-target, enrichment and
         network-edge tables, provenance.json, run_manifest.json, limitations.md, report.html.
         Needs the snapshots built where the job runs, with the formula in their herb layer
-        (job.research.snapshot: formulas ["桂枝汤《伤寒论》"]); the user approves each job.
+        (job.research.snapshot: formulas ["桂枝汤《伤寒论》"]); jobs need one approval per project.
         Returns a job id for job_status. Claims are capped at mechanism_hypothesis; a refuted
         hypothesis, or nothing testable, is a result.""",
           obj({"formula": S("formula name, e.g. 葛根芩连汤"),
@@ -498,10 +498,10 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         with RDKit.js chemistry and the models built in this browser (job.admet.models),
         and say when a call needs the runner (FASTQ, PyDESeq2, Scanpy, scVI, .h5/.h5ad,
         SDF/.mol, fold, dock). arguments follow the job
-        kind's schema (catalog_search kind='job'); files are upload ids or file names. The
-        user approves each job, and allow_remote (sending a sequence to a third-party
-        service) separately. Returns a job id; a pipeline that has not succeeded has no
-        result. A missing engine is refused, never approximated.""",
+        kind's schema (catalog_search kind='job'); files are upload ids or file names. Jobs
+        and allow_remote (sending a sequence to a third-party service) need one approval per
+        project. Returns a job id; a pipeline that has not succeeded has no result. A
+        missing engine is refused, never approximated.""",
           obj({"pipeline": S(enum=list(PIPELINES)),
                "arguments": obj({}, description="the job kind's parameters", additional=True)},
               required=("pipeline", "arguments")), "job.pipeline.*", B_R, confirm=True, job=True),

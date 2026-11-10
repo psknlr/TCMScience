@@ -645,6 +645,7 @@ p.tool-card__k { margin-bottom: 4px; }
 .permission__hosts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .permission__host { font-family: var(--font-mono); font-size: 11.5px; padding: 1px 6px; border-radius: var(--radius-xs); background: var(--sunken); border: 1px solid var(--rule-2); }
 .permission__args { font-size: var(--text-xs); overflow-wrap: anywhere; }
+.permission__scope { margin: 0; line-height: 1.5; }
 .permission__actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .permission__decided { display: flex; align-items: center; gap: 6px; font-size: var(--text-sm); color: var(--ink-2); }
 .permission__decided.is-deny { color: var(--ink-2); }

@@ -6,7 +6,7 @@ TCMScience 的研究工作台，网址 <https://science.impf.ai>。它是一个�
 
 服务器提供网页、默认模型 Tao-S1 中继、受限的数据库网关，以及浏览器研究任务的数据集中转（只转发数据集登记表列出的原始文件，流式传输、不保存）。**计算在你自己的设备上进行**：Python 工具在浏览器里
 （Pyodide，WebAssembly）运行，或在你电脑上的本机 Runner 里运行（CPU 或 GPU，由你选择）。唯一的例外是你在 Runner 上打开
-`allow_remote` 并逐次批准的任务（如把序列发往 ESM Atlas 做结构预测）。没有部署任何远程计算环境：计算目标设为「远程」时，
+`allow_remote` 并经你批准的任务（如把序列发往 ESM Atlas 做结构预测）。没有部署任何远程计算环境：计算目标设为「远程」时，
 调用会失败（`unavailable`，原因 `remote_not_configured`；`catalog_search` 与 `capabilities_status` 仍由页面回答），
 不会改到别处运行（[docs/REMOTE_COMPUTE.md](docs/REMOTE_COMPUTE.md)：已设计，未部署）。对话、项目、文件和密钥都保存在
 你的浏览器里。
@@ -87,7 +87,8 @@ Runner（[docs/BROWSER_JOBS.md §3.3](docs/BROWSER_JOBS.md#33-docking-from-prepa
 
 **2. 加上本机 Runner。** Runner 连接后，工具都在它上面运行（`计算 → 自动`）：本机 CPython，项目各自的持久审计链，你的设备。
 它还能运行需本地 Python/MCP 进程的第三方封装、从 FASTQ 出发的 RNA-seq、Scanpy / scVI 单细胞、结构预测等后台任务和原生 GPU 引擎。
-每个项目第一次在 Runner 上运行工具、每个任务、每次联网，都先请你批准（允许一次 / 本项目允许 / 拒绝）。
+每个项目只问你一次：项目里第一次需要批准的操作（在 Runner 上运行工具、任务、联网、发送数据，或把项目文件发送到 Runner）先请你批准
+（允许 / 拒绝）；允许后，本项目之后的操作都不再询问，直到你在项目页「默认设置」中撤销。
 
 **3. 完全本地。** Runner 自带网页：打开 `http://127.0.0.1:8765/`，在「设置 → 模型」里选本地模型，模型调用经 Runner 转发到
 本机的模型服务，工具在 Runner 上运行，什么都不离开你的电脑。（Tao-S1 需要联网；离线时用本地模型。）
@@ -242,7 +243,7 @@ cd studio && npm install && npm run test:e2e
 | `runner.spec.mjs` | 真实 Runner 提供网页并配对，「设置 → 计算」显示 Runner 报告的 CPU 与联网开关；自定义模型（脚本化的模拟模型 `e2e/mock-llm.mjs`）调用 `tcm_safety_report`，Runner 执行受治理 Skill；工具卡片（本机 Runner）、主张与产物卡片、发布状态、引用、检查器五页、英文界面；刷新后对话仍在；编辑问题产生分支；中途停止；中文文件名的文件发送到 Runner，名称与哈希不变 |
 | `browser.spec.mjs` | 无 Runner：Pyodide 从 jsDelivr 启动，同一问题在浏览器中运行，Skill 内容哈希与输出文件哈希与本机 Python 相同（CDN 不可达时：在本地跳过并说明原因；在 CI 中失败） |
 | `browser-access.spec.mjs` | 浏览器中的 Python 读取完整方剂表；联网关闭时数据库调用被拒绝且不发出请求，开启后经同源网关（真实的网关代码，上游为模拟）调用 `connector.mygene.gene`；距离矩阵在 `auto` 加速（WebGPU 或 WebAssembly SIMD，由运行时选择；CI 的无头 Chromium 至多有软件适配器，运行时会拒绝它，因此在 CPU 上算）、CPU 内核与参考 Python 三者结果一致（CDN 不可达时同上） |
-| `approvals.spec.mjs` | `run_pipeline` 的批准卡片：拒绝 → 模型读到 refused；「本项目允许」写入项目并在刷新后仍然有效；后台任务的卡片跟随 Runner 事件直到收集完成，任务文件从 Runner 取来预览，模型用 `job_status` 跟进；联网：项目未开启时不调用也不询问，开启后批准卡片列出主机，再由 Runner 自己的联网开关决定 |
+| `approvals.spec.mjs` | `run_pipeline` 的批准卡片：拒绝 → 模型读到 refused；「允许」作为本项目唯一一次批准写入项目，刷新后仍然有效，其他种类的调用也不再询问；后台任务的卡片跟随 Runner 事件直到收集完成，任务文件从 Runner 取来预览，模型用 `job_status` 跟进；联网：项目未开启时不调用也不询问，开启后批准卡片列出主机，再由 Runner 自己的联网开关决定 |
 | `relay.spec.mjs` | `wrangler dev` 运行 `studio/edge`，上游指向模拟服务：默认模型 Tao-S1 流式回答，思考格式往返改名，身份问题关闭思考，页面、存储和中继回复都不出现上游名称；Tao-S1 调用工具并在浏览器中运行（CDN 不可达时：在本地跳过这一部分并说明原因；在 CI 中失败）。Worker 启动失败就是失败；只有在 CI 之外、npm 源不可达（取不到 wrangler）时才跳过 |
 | `mobile.spec.mjs` | 手机（390×844、触控、CPU 降速 4 倍）、无 Runner：受治理 Skill 在手机浏览器的 Pyodide 中运行，内容哈希与本机 Python 相同，页面无横向滚动（CDN 不可达时同上） |
 | `pages.spec.mjs` | 首次引导、设置（经表单添加并测试自定义模型）、工具目录、关于；手机视口 390×844；深色主题；无障碍基本检查（可访问名称、地标、焦点、未翻译的键） |
@@ -279,7 +280,7 @@ kernel authorized the release. Refusals are shown as results.
 The server serves the page, relays Tao-S1, forwards approved database queries and relays the raw files the dataset
 registry lists for the browser's research jobs (streamed, not stored). **Computation runs on your machine**: in the
 browser (Pyodide) or on the local runner (`tcmstudio serve`, CPU or GPU). The one exception is a runner job you allow to call
-a third-party service (`allow_remote`, approved per call, for example structure prediction on ESM Atlas). No remote compute
+a third-party service (`allow_remote`, with your approval, for example structure prediction on ESM Atlas). No remote compute
 environment is deployed: under compute set to Remote every call fails (`unavailable`, reason `remote_not_configured`; `catalog_search` and
 `capabilities_status` are still answered by the page) and is never run elsewhere
 ([docs/REMOTE_COMPUTE.md](docs/REMOTE_COMPUTE.md): designed, not deployed). Conversations, projects, files and keys stay in

@@ -663,6 +663,16 @@ export class App {
     }
   }
 
+  /** Grant standing approvals to a project (store.projects.patchApprovals: a revocation landing meanwhile is kept). */
+  async grantApprovals(id, keys) {
+    const p = await this.store.projects.patchApprovals(id, { grant: keys });
+    this.#adoptProject(p);
+    this.emit("project", p);
+    this.#tellPeers(p.id);
+    await this.refreshProjects().catch(() => {});
+    return p;
+  }
+
   /** Revoke standing approvals of a project (store.projects.patchApprovals: a grant landing meanwhile is kept). */
   async revokeApprovals(id, keys) {
     const p = await this.store.projects.patchApprovals(id, { revoke: keys });

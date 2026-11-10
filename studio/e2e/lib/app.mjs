@@ -128,11 +128,13 @@ export async function openPaired(page, runner) {
 }
 
 /** Answer the permission card that is waiting: "once" | "project" | "deny". Returns the card's text as asked. */
+/** Answer the open approval card: "allow" (the project's one approval: nothing in the project asks again) or "deny". */
 export async function approve(page, decision) {
   const card = page.locator(".permission:not(.is-decided)").last();
   await expect(card).toBeVisible({ timeout: 60000 });
   const text = await card.innerText();
-  const cls = { once: ".btn--primary", project: ".btn--secondary", deny: ".btn--ghost" }[decision];
+  const cls = { allow: ".btn--primary", deny: ".btn--ghost" }[decision];
+  if (!cls) throw new Error(`approve: no answer "${decision}" on the card (allow or deny)`);
   await card.locator(`.permission__actions ${cls}`).click();
   return text;
 }
