@@ -426,6 +426,19 @@ export class Store {
       async remove(id) {
         await b.bulk([{ store: "files", delete: id }]);
       },
+      /**
+       * Put a removed file back as it was (the undo of a delete): the same id, hash and date, so the messages and
+       * job inputs that name it by id find it again. A record that is not a whole file record, or whose id is taken
+       * again, is refused. Returns the record.
+       */
+      async restore(rec) {
+        if (!rec || typeof rec !== "object" || !rec.id || !rec.projectId || !rec.blob || typeof rec.blob.arrayBuffer !== "function") {
+          throw new TypeError("files.restore needs the removed file's record");
+        }
+        if (await b.get("files", rec.id)) throw new Error(`file ${rec.id} is already there`);
+        await b.bulk([{ store: "files", put: rec }]);
+        return rec;
+      },
     };
   }
 
