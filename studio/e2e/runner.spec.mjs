@@ -166,6 +166,37 @@ test("editing a question makes a branch; stop ends a streaming answer", async ({
   watch.expectClean();
 });
 
+test("a result is handed to the next call by reference: the runner gets the data, the thread keeps the reference", async ({ page }) => {
+  const watch = watchConsole(page);
+  await seedSettings(page, {}, { custom: { id: "custom-e2e", base_url: `${mock.url}/v1`, model: "mock-sci-1" } });
+  await openPaired(page, runner);
+  await newProject(page, "E2E 引用");
+  await send(page, "请按引用把方剂的药味交给交集工具");
+  await approve(page, "allow");
+  const answer = await waitForAnswers(page, 1);
+  // the four herbs of 葛根芩连汤 were never typed by the model: the overlap with the control set is 甘草
+  await expect(answer).toContainText("引用调用的结果：succeeded；共同 1 项：甘草");
+  await expect(answer).toContainText(/R\d+ repository_records\.records\[0\]\.components · name: 4 items/);
+  const db = await readDb(page);
+  const tools = db.messages.filter((m) => m.role === "tool").sort((a, b) => a.createdAt - b.createdAt);
+  expect(tools.map((m) => m.name)).toEqual(["tcm_formula", "call_tool"]);
+  expect(tools[0].ref).toMatch(/^R\d+$/);
+  // the stored call keeps the reference as the model wrote it, and what it gave; the tool ran on the data
+  expect(tools[1].args.arguments.sets["方剂"]).toEqual({ $ref: tools[0].ref, path: "repository_records.records[0].components", field: "name" });
+  expect(tools[1].refs).toEqual([{ ref: tools[0].ref, path: "repository_records.records[0].components", field: "name", items: 4 }]);
+  expect(tools[1].envelope.result.sizes).toEqual({ "方剂": 4, "对照": 3 });
+  expect(tools[1].envelope.result.common_to_all).toEqual({ count: 1, items: ["甘草"] });
+  expect(tools[1].envelope.receipt.where).toBe("runner");
+  // opened, the card shows the reference as what it points to, not as a closed object
+  const card = answer.locator(".tool-card").nth(1);
+  await card.locator(".tool-card__head").click();
+  await expect(card).toContainText(`方剂: →${tools[0].ref} repository_records.records[0].components · name`);
+  // what the model was sent: the status line first, the label under it
+  const sent = mock.requests.filter((r) => r.scenario === "reference").at(-1).body.messages.filter((m) => m.role === "tool");
+  expect(sent[0].content.split("\n").slice(0, 2)).toEqual(["tcm_formula → native.tcm_formula: succeeded", `Ref: ${tools[0].ref}`]);
+  watch.expectClean();
+});
+
 test("a project file with a Chinese name goes to the runner with its name and hash intact", async ({ page }) => {
   const watch = watchConsole(page);
   await seedSettings(page, {}, { custom: { id: "custom-e2e", base_url: `${mock.url}/v1`, model: "mock-sci-1" } });
@@ -198,6 +229,19 @@ test("a project file with a Chinese name goes to the runner with its name and ha
   await expect(second).toContainText("浏览器 + 本机 Runner");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   db = await readDb(page);
-  expect(db.files.find((f) => f.name === "计数.tsv").runnerUploadId).toBeTruthy();
+  const kept = db.files.find((f) => f.name === "计数.tsv");
+  expect(kept.runnerUploadId).toBeTruthy();
+
+  // deleting a file asks nothing: it goes at once, and Undo puts it back as it was (same id and hash)
+  await second.getByRole("button", { name: "删除" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(".file-row").filter({ hasText: "计数.tsv" })).toHaveCount(0);
+  expect((await readDb(page)).files.some((f) => f.name === "计数.tsv")).toBe(false);
+  const toast = page.locator(".toast").filter({ hasText: "已从本浏览器删除「计数.tsv」" });
+  await expect(toast).toBeVisible();
+  await toast.getByRole("button", { name: "撤销" }).click();
+  await expect(page.locator(".file-row").filter({ hasText: "计数.tsv" })).toBeVisible();
+  const back = (await readDb(page)).files.find((f) => f.name === "计数.tsv");
+  expect([back.id, back.sha256, back.runnerUploadId, back.createdAt]).toEqual([kept.id, kept.sha256, kept.runnerUploadId, kept.createdAt]);
   watch.expectClean();
 });

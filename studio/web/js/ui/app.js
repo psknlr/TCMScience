@@ -18,6 +18,7 @@ import { ownerHash } from "../core/consent.js";
 import { activeProvider, relayBaseUrl, relayHealth } from "../core/providers.js";
 import { Telemetry, STALE_TURN_MS } from "../core/telemetry.js";
 import { STICKY_EXCLUSIONS, buildRecord, callName, exclusionOf, jobWorkflow, turnEndEvent, turnStatus } from "../core/turnrecord.js";
+import { refData } from "../core/refs.js";
 import { ToolRouter } from "../core/router.js";
 import { loadSettings, onSettingsChange, updateSettings } from "../core/settings.js";
 import { latestLeaf, openStore, siblingsOf, threadPath } from "../core/store.js";
@@ -1104,12 +1105,15 @@ export class App {
     const early = exclusionOf({ path: threadPath(this.state.messages, user.id), projectFiles: turn.projectFiles });
     if (STICKY_EXCLUSIONS.includes(early)) await this.#keepOut(conv.id, early);
     const system = buildSystemPrompt({ lang: lang(), provider, project, knowledge, env: this.#env() });
-    const history = threadPath(await this.store.messages.list(conv.id), user.id);
+    const stored = await this.store.messages.list(conv.id);
+    const history = threadPath(stored, user.id);
+    // the conversation's earlier results that hold data, by their reference: a call of this turn can be handed one
+    const priorResults = stored.filter((m) => m.role === "tool" && m.ref).map((m) => [m.ref, refData(m.envelope)]).filter((p) => p[1] !== undefined);
     let result = null;
     try {
       result = await runTurn({
         provider, system, history, router: this.toolRouter, catalog: this.catalog, settings: this.state.settings, signal: abort.signal, llm: this.llm,
-        projectId: project.id, conversationId: conv.id,
+        projectId: project.id, conversationId: conv.id, priorResults,
         onApproval: (request) => new Promise((resolve) => {
           const tool = live.tools.get(request.callId);
           if (tool) {

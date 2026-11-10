@@ -14,6 +14,9 @@
 //   文献 / literature    calls literature_search; round 2 echoes the status (and "（未联网）" for network_off)
 //   后台任务             round 1 submits job.skill.run through call_tool; then job_status until the job is done;
 //                        then "任务状态：<state>"
+//   按引用 / by reference round 1 calls tcm_formula; round 2 hands that result's herbs to native.set_overlap by
+//                        reference ({"$ref": <the Ref line of round 1>, path, field}), never retyping them; round 3
+//                        says "引用调用的结果：<status>；共同 <n> 项：<items>"
 //   慢速 / slow          a long answer, 400 pieces 30 ms apart (for the stop button)
 //   你是谁 / who are you an identity answer, no reasoning
 //   (a ping tool offered) the connection test of Settings → Models: one call of ping {echo:"ok"}
@@ -32,6 +35,7 @@ export const UPSTREAM_MODEL = "MiniMax-M3";
 
 // first match wins
 export const SCENARIOS = {
+  reference: { match: (s) => /按引用|by reference/i.test(s) },
   job: { match: (s) => /后台任务|background job/i.test(s) },
   safety: { match: (s) => /甘草/.test(s) && /甘遂/.test(s) },
   pipeline: { match: (s) => /RNA-?seq|流程/i.test(s) },
@@ -104,6 +108,22 @@ export function plan(body) {
       call("call_job_2", "job_status", { job_id: job[1], wait_s: 30 });
     } else {
       say(`任务状态：${job ? job[2] : head ? head[3] : "unknown"}。`);
+      out.push({ finish: "stop" });
+    }
+  } else if (scenario === "reference") {
+    const results = messages.filter((m) => m.role === "tool").length;
+    if (toolResult === null) {
+      call("call_ref_1", "tcm_formula", { name: "葛根芩连汤" });
+    } else if (results === 1) {
+      // the label is read off the result, as a model reads it; the herbs are never written out
+      const ref = /^Ref: (R\d+)$/m.exec(toolResult)?.[1] || "R0";
+      call("call_ref_2", "call_tool", { tool: "native.set_overlap", arguments: { sets: {
+        "方剂": { $ref: ref, path: "repository_records.records[0].components", field: "name" }, "对照": ["甘草", "大枣", "生姜"] } } });
+    } else {
+      const status = /^\S+ → \S+: (\w+)/.exec(toolResult)?.[1] || "unknown";
+      const common = /"common_to_all":\{"count":(\d+),"items":\[([^\]]*)\]/.exec(toolResult);
+      const resolved = /References resolved: ([^\n]+)/.exec(toolResult)?.[1] || "";
+      say(`引用调用的结果：${status}；共同 ${common ? common[1] : "?"} 项：${common ? common[2].replace(/"/g, "") : ""}。${resolved}`);
       out.push({ finish: "stop" });
     }
   } else if (scenario === "literature") {

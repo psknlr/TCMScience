@@ -301,7 +301,7 @@ def test_the_committed_record_is_well_formed():
     res = subprocess.run([sys.executable, str(ROOT / "studio" / "scripts" / "operational_status.py"),
                           "--check"], capture_output=True, text=True, timeout=300)
     assert res.returncode == 0, res.stdout + res.stderr
-    assert "444 operations" in res.stdout
+    assert "446 operations" in res.stdout
 
 
 def test_the_browser_catalog_states_the_plain_case_once():
@@ -313,5 +313,13 @@ def test_the_browser_catalog_states_the_plain_case_once():
     entries = {e["id"]: e for e in doc["entries"]}
     assert "operational" not in entries["connector.mygene.gene"]
     carried = [e["id"] for e in doc["entries"] if "operational" in e]
-    assert len(carried) == 40 and "connector.signor.relations_among" in carried
-    assert {entries[i]["operational"]["state"] for i in carried} == {"failing", "recovered"}
+    # the two operations added on 2026-11-10 answered a direct call and have not been called through the
+    # production gateway yet: they carry their view, which says so (route direct_upstream)
+    added = ["connector.opentargets.disease_search", "connector.opentargets.disease_targets"]
+    assert len(carried) == 42 and "connector.signor.relations_among" in carried
+    assert {entries[i]["operational"]["state"] for i in carried if i not in added} == {"failing", "recovered"}
+    for i in added:
+        view = entries[i]["operational"]
+        assert (view["state"], view["latest"]["route"], view["latest"]["outcome"]) == (
+            "operational", "direct_upstream", "succeeded")
+        assert "latest_production" not in view

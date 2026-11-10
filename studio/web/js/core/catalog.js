@@ -38,6 +38,11 @@ export class Catalog {
     this.verificationRecords = isPlainObject(doc.verification_records) ? { ...doc.verification_records } : {};
     // what a connector entry without its own "operational" view means (tcmstudio.opstatus): stated once (CONTRACTS §2)
     this.operational = isPlainObject(doc.operational) ? { ...doc.operational } : null;
+    // what a question asks for → the entries that answer it ([{words, entries}], tcmstudio.catalog.CONCEPTS): a search
+    // by intent (核心靶点, survival analysis) shares no word with the tool that does it
+    this.concepts = (Array.isArray(doc.concepts) ? doc.concepts : [])
+      .filter((c) => isPlainObject(c) && Array.isArray(c.words) && Array.isArray(c.entries))
+      .map((c) => ({ words: c.words.map((w) => norm(w)).filter(Boolean), entries: c.entries.map(String) }));
     this._index = null;
   }
 
@@ -64,6 +69,7 @@ export class Catalog {
   search(q = "", { category, kind, runnableNow = false, isRunnable, limit = 25, where, readiness, needsDataset, verified, backend, context = {} } = {}) {
     const index = this._index || (this._index = this.entries.map((e) => [e, indexEntry(e, this)]));
     const words = queryWords(q);
+    const boosts = conceptBoosts(this.concepts, q);
     const states = readiness === undefined || readiness === null || readiness === "" ? null : new Set([readiness].flat().map(String));
     const out = [];
     for (const [e, idx] of index) {
@@ -79,7 +85,7 @@ export class Catalog {
       if (needsDataset !== undefined && needsDataset !== null && !matchesDataset(e, needsDataset)) continue;
       if (verified !== undefined && verified !== null && verified !== "" && !matchesVerified(e, verified)) continue;
       if (backend && !matchesBackend(e, backend)) continue;
-      const score = words.length ? scoreEntry(idx, words) : 1;
+      const score = (words.length ? scoreEntry(idx, words) : 1) + (boosts.get(e.id) || 0);
       if (score > 0) out.push([score, e]);
     }
     out.sort((a, b) => b[0] - a[0] || a[1].id.localeCompare(b[1].id));
@@ -207,6 +213,9 @@ export function mergeCatalogs(built, runner) {
       ? { verification_records: { ...(runner.verification_records || {}), ...(built.verification_records || {}) } } : {}),
     ...(isPlainObject(built.operational) || isPlainObject(runner.operational)
       ? { operational: { ...(runner.operational || {}), ...(built.operational || {}) } } : {}),
+    // the search concepts: the runner's when it sends them (its entries are the ones merged in), else the built ones
+    ...(Array.isArray(runner.concepts) && runner.concepts.length ? { concepts: runner.concepts }
+      : Array.isArray(built.concepts) ? { concepts: built.concepts } : {}),
     sources: ["built", "runner"],
   };
 }
@@ -273,6 +282,39 @@ function bigrams(run) {
   if (chars.length < 2) return chars;
   const out = [];
   for (let i = 0; i < chars.length - 1; i++) out.push(chars[i] + chars[i + 1]);
+  return out;
+}
+
+const CONCEPT_BOOST = 60; // above any match by words; a concept's first entry highest (tcmstudio.catalog._concept_boosts)
+const CONCEPT_STEP = 3;
+
+/**
+ * Map(entry id → boost) for the concepts a query names. A Chinese phrase counts where the query contains it; a Latin
+ * one where its words stand together as whole words (a plural s ignored), so "ora" is not found in "oral".
+ */
+export function conceptBoosts(concepts, q) {
+  const out = new Map();
+  const text = norm(q);
+  if (!text.trim() || !concepts?.length) return out;
+  const latin = (s) => s.replace(/[-_]/g, " ").match(/[a-z0-9]+/g) || [];
+  const have = latin(text);
+  const singular = have.map((w) => (w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w));
+  const named = (phrase) => {
+    if (CJK.test(phrase)) return text.includes(phrase);
+    const want = latin(phrase);
+    if (!want.length) return false;
+    for (let i = 0; i + want.length <= have.length; i++) {
+      if (want.every((w, k) => have[i + k] === w) || want.every((w, k) => singular[i + k] === w)) return true;
+    }
+    return false;
+  };
+  for (const c of concepts) {
+    if (!c.words.some(named)) continue;
+    c.entries.forEach((id, rank) => {
+      const boost = CONCEPT_BOOST - CONCEPT_STEP * rank;
+      if (boost > (out.get(id) || 0)) out.set(id, boost);
+    });
+  }
   return out;
 }
 

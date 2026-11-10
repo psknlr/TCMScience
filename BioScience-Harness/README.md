@@ -677,7 +677,7 @@ record (`bioagent/data/live_download_verification.json`) is still the one from 2
                            schema with two evidence axes, quality gate, verified loads; parsers
                            for NPASS, CMAUP, LOTUS, BindingDB; herb -> species -> compound
                            composition (scripts/build_source_snapshots.py)
-      tools/               150 native bioinformatics, clinical and TCM tools (no dependencies)
+      tools/               152 native bioinformatics, clinical and TCM tools (no dependencies)
       tcm/                 typed TCM knowledge: herbs, processing, formulas, syndromes, classics,
                            evidence tiers, scope, 十八反
       doctor.py            readiness report with a remedy per problem (bioagent doctor)

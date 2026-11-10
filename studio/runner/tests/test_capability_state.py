@@ -27,8 +27,10 @@ CSV = REPO / "BioScience-Harness" / "data" / "connector_live_verification.csv"
 LEVELS = {"offline_invocation", "reference_output", "kernel_parity", "pyodide_parity", "lock_pin",
           "gateway_mock", "live_upstream", "live_gateway"}
 STATUSES = {"PASS", "FAIL", "BLOCKED", "UNVERIFIED", "SKIPPED", "NOT_APPLICABLE"}
-#: the size the browser catalog may reach (it was 775,364 bytes before the capability fields, 953,181 after)
-CATALOG_BUDGET = 1_000_000
+#: the size the browser catalog may reach (it was 775,364 bytes before the capability fields, 953,181 after,
+#: 997 thousand by November 2026; the search concepts (10 kB), network_topology, set_overlap, Open Targets'
+#: disease_search and disease_targets, and the notes on arguments that take several values made it 1,016 thousand)
+CATALOG_BUDGET = 1_050_000
 
 
 @pytest.fixture(scope="module")

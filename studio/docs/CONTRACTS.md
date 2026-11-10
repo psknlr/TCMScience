@@ -53,7 +53,9 @@ does this) and served live by the runner at `GET /api/catalog`. One JSON documen
   "categories": [ {"id": "tcm_knowledge", "zh": "中医知识", "en": "TCM Knowledge", "count": 9}, ... ],   // 13 ids, see below
   "core": [ CoreTool, ... ],        // offered to the model directly every turn
   "entries": [ Entry, ... ],         // everything reachable through call_tool; searched by catalog_search
-  "never_offered": {"clinic.sign": "…", ...}   // acts reserved for a person {name: message}: never entries; refused by name
+  "never_offered": {"clinic.sign": "…", ...},  // acts reserved for a person {name: message}: never entries; refused by name
+  "concepts": [{"words": ["核心靶点", "hub", …], "entries": ["native.network_topology", …]}, ...]
+                                     // what a question asks for → the entries that do it, the most direct first
 }
 ```
 
@@ -70,7 +72,9 @@ does this) and served live by the runner at `GET /api/catalog`. One JSON documen
   "name": "tcm_safety_report",                // [a-z0-9_]{1,64}; never dots
   "title": {"zh": "安全性与配伍禁忌", "en": "Safety & contraindications"},
   "description": "...",                        // English, for the model; ≤ 1000 chars; states limits ("no record ≠ safe")
-  "parameters": { JSON Schema object },        // arrays have items, objects have properties
+  "parameters": { JSON Schema object },        // arrays have items, objects have properties. A connector argument
+                                               // that takes several values says so in its description, and takes
+                                               // them separated by spaces, commas or line breaks (sent the service's way)
   "category": "tcm_safety",
   "exec": ["browser", "runner"],               // where it can run. compute "auto": a connected runner first, else the browser
   "network": false,                            // true: reaches the internet (needs the project's web access)
@@ -223,7 +227,7 @@ read, shows their `live_upstream` PASS ([BROWSER_COMPUTE.md §10](BROWSER_COMPUT
 | `run_pipeline` {pipeline: rnaseq·scrna·fold·dock·admet, arguments} | job.pipeline.* | B R ★ | job; GPU-capable kinds honour the device setting. In the browser `rnaseq` with `counts` and `scrna` on count tables are jobs of the page's job service ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)), and so is `admet` on a CSV/TSV/`.smi` file or one SMILES once its models are built here ([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)), and `dock` with prepared inputs (a `.pdbqt` receptor and `.pdbqt` ligands, the site as `center`+`size` or a `.pdbqt` `reference_ligand`; [BROWSER_JOBS.md §3.3](BROWSER_JOBS.md#33-docking-from-prepared-structures)); the router places the call by the kind its `pipeline` names and by its arguments (the kind's `runner_only` rules), and one the browser cannot run (`fold`; `dock` with a receptor or ligands that are not `.pdbqt`, with `site_ligand` or with `allow_remote`; FASTQ, PyDESeq2, Scanpy, scVI, `.h5`, `.h5ad`, an ADMET SDF/`.mol` file, or ADMET models not built here) goes to a connected runner, or is refused with reason `needs_runner` and why (models not built here: `needs_dataset`; under compute Browser with the runner connected, `compute_browser` and why); a `pipeline.admet` call the page's job service refuses before queueing carries its need's reason: `needs_runner` (an SDF/`.mol` file named by its id), `needs_dataset` (models not built here) or `too_large_for_browser` (more than 20,000 molecules, counted in the file). `arguments` is an object, or the JSON text of one (read as that object, as the dispatcher reads it); a call without a `pipeline` of the catalog, with `arguments` that are not an object, or with the kind's parameters beside `arguments` is `bad_arguments` before it is placed or approved, the pipelines listed |
 | `job_status` {job_id, wait_s≤60} | runner jobs; browser jobs (ids `bj-…`) | B R | a browser job's status is the page's to answer, whatever the placement |
 | `capabilities_status` {} | system.capabilities | B R | what can run where, now; `remote_compute: {configured:false, reason}` (no remote backend exists; the page's answer says the same, §6) |
-| `catalog_search` {query?, category?, kind?, runnable_now?, limit≤25} | the catalog | B R | |
+| `catalog_search` {query?, category?, kind?, runnable_now?, limit≤25} | the catalog | B R | ranked by words (ids, titles, tags, summaries; a word many entries share counts less) and, above those, by what the query asks for: the catalog's `concepts` (`tcmstudio.catalog.CONCEPTS`: `[{words, entries}]`, Chinese and English) lift the entries that do it ("核心靶点" → `native.network_topology`, "survival analysis" → `native.kaplan_meier`, "disease genes" → `connector.opentargets.disease_targets`). The page's own search (`Catalog.search`) uses the same table |
 | `call_tool` {tool, arguments} | any Entry id | per entry | the entry's own `confirm`/`network` apply; `arguments` that are not an object (JSON text that does not parse, or parses to something else) is `bad_arguments` in the dispatcher's words, before placement or approval |
 
 Never offered to the model: `clinic.sign` (the practitioner's act), `tcmdb.fetch --confirm` above its size gate, registry
@@ -309,6 +313,9 @@ Every tool call returns this, in both runtimes. A call **never raises**: failure
     }
   },
   "job": null | {"id":"j_…","kind":"pipeline.rnaseq","state":"queued"},
+  "view"?: {…},                         // the model's view in full, only on a success whose view is not the result
+                                        // itself (a digest: g:Profiler's terms, Open Targets' flat rows; a selection).
+                                        // `text` shows as much of it as fits; a reference (§6) reads all of it
   "approval": null | {"reason":"network|job|confirm|remote_upload|first_runner_call|remote_runner","what":"…","hosts":["…"],"decision"?:"deny"},
   "error": null | {"type":"bad_arguments|unavailable|not_found|refused|declined|runtime_error|timeout|network_off|invalid_response|dataset_not_built","message":"…","hint":"…",
                    "requires"?: [Requirement], "reason"?: "needs_runner|no_runtime|missing_deps|missing_engine|too_large_for_browser|network_off|needs_dataset|needs_job_service|remote_upload_off"}
@@ -484,7 +491,7 @@ governed runs), and `data/` (`BIOAGENT_DATA_LAKE`, `BIOAGENT_TCMDB` point here u
 | GET | `/api/info` | `{name, version, versions:{tcmstudio,bioagent,psh,python}, home, platform, cpu:{cores, model}, memory_gb, devices:[Device], engines:[Engine], settings:Settings, network:{enabled, profile}, purpose, counts:{core, entries}}` |
 | GET | `/api/catalog` | the catalog (§2), with `exec` reflecting this runner (heavy deps probed: `available:false` + `missing:[…]` per entry) and each entry's `state.readiness.runner` and engines' `readiness.runner`, brought up to date on every read (this runner's network switch; its job service and what each kind lacks, and the datasets built in its data hub, re-read every few seconds). A change makes a new document; one already being sent is never changed |
 | GET | `/api/capabilities/audit` | `?state=&kind=&category=&limit=` (≤ 1000) → `{where:"runner", network:{enabled}, jobs, datasets_built, counts:{entries, by_readiness, by_implementation, by_verification}, filters, matched, entries:[{id, kind, category, implementation, readiness, requires:[Requirement], verification:{status, at}}], note, versions}`: the same function as `system.capability_audit` (§2), over this runner's catalog. Filters narrow `entries`, never `counts`. No request is made to any host: `ready` for an entry that reaches one means web access is on. `400` for an unknown `state` or a bad `limit` |
-| POST | `/api/call` | `{tool, arguments, context:{project_id?, conversation_id?, approvals?:[…]}}` → envelope (§3) |
+| POST | `/api/call` | `{tool, arguments, context:{project_id?, conversation_id?, approvals?:[…], text_limit?:int}}` → envelope (§3). `text_limit` (2,000–16,000, default 16,000) is the characters the envelope's `text` may have: the model's view is fitted to it; `result` is always whole |
 | GET | `/api/devices` | `{devices:[Device], selected:"auto"}` where `Device = {id:"cpu"|"cuda:0"|"mps"|"rocm:0", kind, name, memory_gb?, driver?, available:bool, note?, evidence:"reported", reported_by}`: `evidence` is the rung of the evidence ladder (§3) the runner reaches for a device, `reported` at most (nothing in the runner runs a kernel on it), and `reported_by` what reported it (`operating system`, `nvidia-smi`, `rocm-smi`, `platform (Apple Silicon)`, `PyTorch <version>`) |
 | GET | `/api/settings` / PUT | `Settings = {device:"auto"|id, threads:int, max_jobs:int, network:{enabled:bool, profile:"offline-analysis"|"biomedical-research"}, purpose:"academic"|"commercial", allow_remote:bool}` |
 | GET | `/api/kinds` | `[{kind, title:{zh,en}, parameters:JSONSchema, available, missing:[…], gpu, duration:"seconds"|"minutes"|"hours"}]` |
@@ -777,22 +784,37 @@ export class ToolRouter {
     //       | unknown_compute | remote_not_configured | too_large_for_browser | missing_engine   (PLACEMENT_REASONS,
     //       which also lists human_only: placement provenance of a HUMAN_ONLY refusal, never an unavailable reason);
     //       what the connected runner lacks may also give needs_dataset | needs_job_service (RUNTIME_REASONS, §6)
-  async call(name, args, {projectId, conversationId, signal, onApproval}) → Envelope   // never rejects
+  async call(name, args, {projectId, conversationId, signal, onApproval, textLimit}) → Envelope   // never rejects
     // enforces confirm/network approvals: if needed, awaits onApproval(request) → "once"|"project"|"deny";
     // "project" stores the project-wide approval (PROJECT_GRANT "*"): no later call of the project asks
+    // textLimit: the characters the result's text may have (sent to the runtime as context.text_limit)
 }
 export function hostsOf(entry, args?) → [host]; export async function hostsDigest(hosts) → sha12
 
 // core/agent.js
-export async function runTurn({provider, system, history, router, catalog, settings, signal, onEvent, projectId, conversationId}) → TurnResult
+export async function runTurn({provider, system, history, router, catalog, settings, signal, onEvent, projectId, conversationId, priorResults}) → TurnResult
   // onEvent({type, ...}):
   //   "model.start" {step}            "text" {delta}            "reasoning" {delta}
   //   "tool.start" {callId, name, args, where}                  "tool.approval" {callId, request} (UI may show card)
   //   "tool.end" {callId, envelope}   "usage" {input, output}  "model.end" {step, finish_reason}
   //   "error" {message, kind:"model"|"network"|"runtime"|"aborted"}   "done" {status:"ok"|"stopped"|"error"|"max_steps"}
   // TurnResult = {assistant: Message, toolMessages: [...], usage, status}
-  // max steps (model calls) default 16; tool results truncated to 2 500 chars in replayed history;
+  // max steps (model calls) default 32 (at most 64); three calls before the last the model is told so under a result;
+  // tool results truncated to 2 500 chars in replayed history;
   // <think> stripped from replayed history; transient errors retried twice (1.5 s, 4 s).
+  // Result text: one result has at most 16 000 chars; the calls of one step share 48 000 (never under 4 000 each),
+  // and after 240 000 in a turn each later result gets 4 000 (resultShare). The share goes to the runtime as
+  // textLimit, so a smaller text is a table with fewer rows, never a record cut in half.
+  // References (core/refs.js): every result that holds data is labelled R1, R2 … across the conversation (its text
+  // carries the line "Ref: R<n>" under its first line, the tool message keeps `ref`), and an argument value may be {"$ref":"R3", "path"?, "field"? |
+  // "fields"?, "unique"?, "limit"?, "join"?}. It is replaced, before the call is placed, by that result's data
+  // (envelope.view when present, else envelope.result): the whole of it, a path into it (dots, /a/b, [0]), one
+  // field of each record of a list (or several, as rows), de-duplicated, the first n, or joined into one string. A
+  // list written as a header row and rows of values is read by its column names too ("field": "Gene symbol").
+  // A reference that does not resolve is a failed call (bad_arguments, not executed) that says what the result
+  // holds. The stored call (`args`) keeps the reference as written, `refs` what each gave ({ref, path?, field?,
+  // items?, without_value?}); the receipt's input_sha256 is of the resolved arguments. priorResults: [[ref, data]]
+  // of the conversation's earlier results, so a later turn can still be handed one.
   // Also (CONTRACT_NOTES "web-core"): onApproval(request) → decision; events "tool.pending" {index, name, step},
   // "model.retry" {step, …} (drop that step's partial text), "tool.update" {callId, envelope} (citations renumbered);
   // the last allowed model call is made with toolChoice "none".
@@ -939,7 +961,8 @@ debounced during streaming.
   "models": {}, "baseUrls": {}, "keys": {}, "rememberKeys": true,
   "customProviders": [],                           // {id,label,format,base_url,model,headers,extra_body,max_tokens_param}
   "route": "auto",                                 // auto | direct | runner (for model calls)
-  "thinking": true, "temperature": null, "maxTokens": 8192, "maxSteps": 16,
+  "thinking": true, "temperature": null, "maxTokens": 8192, "maxSteps": 32,
+  "stepsDefault": 2,                               // read without it, a saved "maxSteps": 16 is the old default: 32
   "compute": "auto",                               // auto | browser | runner | remote (no backend: every call
                                                    //   unavailable); another text value is kept and reported
                                                    //   (unknown_compute), never read as auto
@@ -966,8 +989,10 @@ The language is also mirrored in `localStorage["tcmscience.lang"]`, matching the
    licensed practitioner. Cite tool evidence as `[E1]` using the envelope citations. Say what was refused, and why.
 3. Tool guidance: prefer the core tools. Use `catalog_search` then `call_tool` for the rest. For a question that
    needs several sources, `research_routes` first; calls that do not depend on each other in one response (they
-   run together). Long work → a job (`job_status`). Never fabricate tool output. If a tool is unavailable, say what
-   would be needed.
+   run together). Data goes from one call to the next by reference (`{"$ref": "R3", …}`), never retyped; a long
+   result's records are a table whose `n` is the true count; an argument that takes several values takes them in
+   one call; counting, intersecting and ranking are a tool's work. Long work → a job (`job_status`, a few calls at
+   most). Never fabricate tool output. If a tool is unavailable, say what would be needed.
    Research questions: past the curated corpus, and a method: frame the question (exact entities, population,
    outcome, claim kind), gather every runnable source of each step of its route (a source that cannot run is
    covered and named, never switched silently), name rival explanations with an artefact among them, tell them

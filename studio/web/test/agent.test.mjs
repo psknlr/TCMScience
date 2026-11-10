@@ -1,7 +1,7 @@
 import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DANGLING_TEXT, FAILURE_BUDGET, MAX_RETRY_AFTER_S, answerDangling, buildWireHistory, citationsUsed, outcomeOf, prepareWire, renumberCitations, reusePolicy, runTurn } from "../js/core/agent.js";
+import { DANGLING_TEXT, FAILURE_BUDGET, LATE_RESULT_CHARS, MAX_RETRY_AFTER_S, MAX_STEPS, MIN_RESULT_CHARS, RESULT_CHARS, STEPS_LEFT_NOTICE, STEP_RESULT_CHARS, TURN_RESULT_CHARS, answerDangling, buildWireHistory, citationsUsed, outcomeOf, prepareWire, renumberCitations, resultShare, reusePolicy, runTurn } from "../js/core/agent.js";
 import { Catalog } from "../js/core/catalog.js";
 import { ProviderError } from "../js/core/llm/sse.js";
 import { activeProvider } from "../js/core/providers.js";
@@ -121,11 +121,23 @@ test("a repeat is run again when the first did not settle (a runtime error), and
   assert.ok(reusePolicy(router, { name: "literature_search", arguments: { query: "x" } }).key);
 });
 
-test("default limit is 16 model calls", async () => {
-  const llm = scriptedLLM([() => openaiStep({ calls: [{ id: Math.random().toString(36), name: "tcm_herb", args: { name: "x" } }] })]);
+test("default limit is 32 model calls, and the model is told when three are left", async () => {
+  let n = 0;
+  const llm = scriptedLLM([() => openaiStep({ calls: [{ id: `c${++n}`, name: "tcm_herb", args: { name: `x${n}` } }] })]);
   const res = await runTurn({ provider: deepseek, system: "", history: [user("x")], router: makeRouter().router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {} });
-  assert.equal(llm.calls.length, 16);
+  assert.equal(MAX_STEPS, 32);
+  assert.equal(llm.calls.length, 32);
   assert.equal(res.status, "max_steps");
+  // the result of the step that leaves three calls says so, once; no other result does
+  const toolTexts = llm.calls.at(-1).messages.filter((m) => m.role === "tool").map((m) => m.content);
+  const told = toolTexts.map((t, i) => (/model calls left/.test(t) ? i + 1 : 0)).filter(Boolean);
+  assert.deepEqual(told, [MAX_STEPS - STEPS_LEFT_NOTICE]);
+  assert.match(toolTexts[told[0] - 1], /This turn has 3 model calls left, and the last of them must be the answer/);
+  // a short limit set by hand gets no countdown it could not act on
+  const short = scriptedLLM([() => openaiStep({ calls: [{ id: `s${++n}`, name: "tcm_herb", args: { name: `y${n}` } }] })]);
+  await runTurn({ provider: deepseek, system: "", history: [user("x")], router: makeRouter().router, catalog, settings: { maxSteps: 3 }, llm: { openai: short }, onEvent: () => {} });
+  assert.equal(short.calls.length, 3);
+  assert.ok(!short.calls.at(-1).messages.some((m) => m.role === "tool" && /model calls left/.test(m.content)));
 });
 
 test("abort mid-stream: what was said is kept, the turn is stopped, the history stays valid", async () => {
@@ -428,7 +440,9 @@ test("Anthropic thinking blocks are replayed within their turn, never in a later
   const t1 = await runTurn({ provider: p, system: "SYS browser runtime idle", history: [u1], router: makeRouter({ answer }).router, catalog, settings: {}, onEvent: () => {} });
   assert.equal(t1.status, "ok");
   assert.deepEqual(sigs(f.calls[1].body), ["SIG0"], "within the turn the block goes back with its tool result");
-  assert.equal(f.calls[1].body.messages[2].content[0].content.length, 6000, "and that turn's result is sent whole");
+  // whole, under its reference line (the fake's result holds data)
+  assert.equal(f.calls[1].body.messages[2].content[0].content.length, 6000 + "Ref: R1\n".length, "and that turn's result is sent whole");
+  assert.ok(f.calls[1].body.messages[2].content[0].content.startsWith("Ref: R1\n"));
   const u2 = { ...user("再说说", "u2"), parentId: t1.assistant.id };
   const t2 = await runTurn({ provider: p, system: "SYS browser runtime ready", history: [u1, t1.assistant, u2], router: makeRouter({ answer }).router, catalog, settings: {}, onEvent: () => {} });
   assert.equal(t2.status, "ok");
@@ -600,4 +614,109 @@ test("a failure a retry cannot change stops the tool at once: a tool that does n
   assert.match(read.a, /will not change on a retry/);
   assert.equal(res.toolMessages[1].envelope.status, "refused");
   assert.match(read.b, /in a way a retry cannot change/);
+});
+
+// ------------------------------------------------------------------------------------------------- references, budgets
+
+const dataAnswer = (tool, args) => {
+  if (tool === "tcm_herb") return envelopeFor(tool, "browser", { result: { raw: true }, view: { targets: [{ symbol: "TNF", score: 0.9 }, { symbol: "IL6", score: 0.8 }, { symbol: "TNF", score: 0.1 }] } });
+  if (tool === "tcm_compatibility") return envelopeFor(tool, "browser", { result: { edges: [{ a: "TNF", b: "IL6" }] } });
+  return envelopeFor(tool, "browser", { result: { got: args } });
+};
+
+test("a result that holds data is labelled, and a later call is handed it by reference: the runtime gets the data, the record keeps the reference", async () => {
+  const llm = scriptedLLM([
+    openaiStep({ calls: [{ id: "c1", name: "tcm_herb", args: { name: "葛根" } }, { id: "c2", name: "tcm_compatibility", args: { herbs: ["甘草", "甘遂"] } }] }),
+    openaiStep({ calls: [{ id: "c3", name: "call_tool", args: { tool: "native.reverse_complement", arguments: { subject: { $ref: "R1", path: "targets", field: "symbol", unique: true, join: " " }, edges: { $ref: "R2", path: "edges" } } } }] }),
+    openaiStep({ text: "完成。" }),
+  ]);
+  const { router, runtimes } = makeRouter({ answer: dataAnswer });
+  const c = collector();
+  const res = await runTurn({ provider: deepseek, system: "", history: [user("x")], router, catalog, settings: {}, llm: { openai: llm }, onEvent: c.onEvent, projectId: "p" });
+  assert.equal(res.status, "ok");
+  // the labels follow the order of the calls, and each result's text begins with its own
+  const tools = llm.calls[1].messages.filter((m) => m.role === "tool");
+  assert.deepEqual(tools.map((m) => m.content.split("\n")[0]), ["Ref: R1", "Ref: R2"]);
+  assert.deepEqual(res.toolMessages.map((m) => m.ref), ["R1", "R2", "R3"]);
+  // the reference reads the model's view when the envelope carries one (not the raw result), in full
+  const third = runtimes.browser.calls.find((x) => x.tool === "call_tool");
+  assert.deepEqual(third.args.arguments, { subject: "TNF IL6", edges: [{ a: "TNF", b: "IL6" }] });
+  // the stored call and the event keep what the model wrote; the record says what the references gave
+  const stored = res.toolMessages[2];
+  assert.deepEqual(stored.args.arguments.subject, { $ref: "R1", path: "targets", field: "symbol", unique: true, join: " " });
+  assert.deepEqual(stored.refs, [{ ref: "R1", path: "targets", field: "symbol", items: 2 }, { ref: "R2", path: "edges", items: 1 }]);
+  assert.deepEqual(c.events.find((e) => e.type === "tool.start" && e.callId === "c3").args.arguments.edges, { $ref: "R2", path: "edges" });
+  const told = llm.calls[2].messages.filter((m) => m.role === "tool").at(-1).content;
+  assert.match(told, /^Ref: R3\n/);
+  assert.match(told, /References resolved: R1 targets · symbol: 2 items; R2 edges: 1 item\./);
+});
+
+test("a reference that does not resolve is refused before anything runs, with what the result holds; the next call can correct it", async () => {
+  const llm = scriptedLLM([
+    openaiStep({ calls: [{ id: "c1", name: "tcm_herb", args: { name: "葛根" } }] }),
+    openaiStep({ calls: [{ id: "c2", name: "call_tool", args: { tool: "native.reverse_complement", arguments: { subject: { $ref: "R1", path: "genes" } } } }, { id: "c3", name: "call_tool", args: { tool: "native.reverse_complement", arguments: { subject: { $ref: "R8" } } } }] }),
+    openaiStep({ calls: [{ id: "c4", name: "call_tool", args: { tool: "native.reverse_complement", arguments: { subject: { $ref: "R1", path: "targets", field: "symbol", limit: 1, join: "" } } } }] }),
+    openaiStep({ text: "完成。" }),
+  ]);
+  const { router, runtimes } = makeRouter({ answer: dataAnswer });
+  const res = await runTurn({ provider: deepseek, system: "", history: [user("x")], router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {} });
+  const [, bad, unknown, good] = res.toolMessages;
+  assert.deepEqual([bad.status, bad.envelope.error.type], ["failed", "bad_arguments"]);
+  assert.match(bad.envelope.text, /Not run: R1: no 'genes' at '\(top\)', which is an object with the keys targets/);
+  assert.match(unknown.envelope.text, /R8 is not a result of this conversation \(the results that hold data: R1\)/);
+  assert.equal(bad.ref, undefined, "a refused call holds no data to refer to");
+  assert.equal(runtimes.browser.calls.filter((x) => x.tool === "call_tool").length, 1, "only the corrected call ran");
+  assert.deepEqual(runtimes.browser.calls.at(-1).args.arguments, { subject: "TNF" });
+  assert.equal(good.ref, "R2", "the numbering goes on from the results that hold data");
+});
+
+test("an earlier turn's result is still reachable by its reference, and this turn's numbering goes on after it", async () => {
+  const llm = scriptedLLM([
+    openaiStep({ calls: [{ id: "c1", name: "call_tool", args: { tool: "native.reverse_complement", arguments: { subject: { $ref: "R4", field: "symbol", join: "," } } } }] }),
+    openaiStep({ text: "完成。" }),
+  ]);
+  const { router, runtimes } = makeRouter({ answer: dataAnswer });
+  const priorResults = [["R4", [{ symbol: "AKT1" }, { symbol: "INSR" }]], ["R2", { x: 1 }], ["not-a-ref", { y: 1 }], ["R6", undefined]];
+  const res = await runTurn({ provider: deepseek, system: "", history: [user("x")], router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {}, priorResults });
+  assert.deepEqual(runtimes.browser.calls[0].args.arguments, { subject: "AKT1,INSR" });
+  assert.equal(res.toolMessages[0].ref, "R5");
+});
+
+test("the calls of a step share the text the model reads: each runtime is told its share, and the page holds to it", async () => {
+  assert.equal(resultShare(1), RESULT_CHARS);
+  assert.equal(resultShare(3), RESULT_CHARS);
+  assert.equal(resultShare(8), STEP_RESULT_CHARS / 8);
+  assert.equal(resultShare(40), MIN_RESULT_CHARS, "never under the least a result needs");
+  assert.equal(resultShare(1, TURN_RESULT_CHARS), LATE_RESULT_CHARS, "once the turn has read its fill");
+  const seen = [];
+  const big = (tool, args, ctx) => {
+    seen.push(ctx.text_limit);
+    return envelopeFor(tool, "browser", { text: "x".repeat(20000), result: { rows: [1, 2, 3] } });
+  };
+  const eight = Array.from({ length: 8 }, (_, i) => ({ id: `c${i}`, name: "tcm_herb", args: { name: `h${i}` } }));
+  const llm = scriptedLLM([openaiStep({ calls: eight }), openaiStep({ calls: [{ id: "one", name: "tcm_herb", args: { name: "solo" } }] }), openaiStep({ text: "完成。" })]);
+  const { router } = makeRouter({ answer: big });
+  await runTurn({ provider: deepseek, system: "", history: [user("x")], router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {} });
+  assert.deepEqual(seen, [...Array(8).fill(6000), RESULT_CHARS]);
+  const tools = llm.calls[2].messages.filter((m) => m.role === "tool").map((m) => m.content);
+  for (const text of tools.slice(0, 8)) {
+    assert.ok(text.length <= 6000 + 120, `a shared result stays near its share (${text.length})`);
+    assert.match(text, /cut to this turn's text budget; \d+ characters in full; the data is whole behind \{"\$ref": "R\d"\}/);
+  }
+  assert.ok(tools[8].length > 15000 && tools[8].length <= RESULT_CHARS + 120, "a call made alone has the whole of it");
+});
+
+test("the reference line goes under a result's own first line, which stays first; a failure has none", async () => {
+  const real = (tool, args) => (args.name === "missing"
+    ? envelopeFor(tool, "browser", { ok: false, status: "failed", text: "tcm_herb → native.tcm_herb: failed\nError (not_found): no record", result: null, error: { type: "not_found", message: "no record", hint: "" } })
+    : envelopeFor(tool, "browser", { text: "tcm_herb → native.tcm_herb: succeeded\nSummary: 葛根\nResult: {\"herb\":{\"name\":\"葛根\"}}", result: { herb: { name: "葛根" } } }));
+  const llm = scriptedLLM([
+    openaiStep({ calls: [{ id: "a", name: "tcm_herb", args: { name: "葛根" } }, { id: "b", name: "tcm_herb", args: { name: "missing" } }] }),
+    openaiStep({ text: "完成。" }),
+  ]);
+  const res = await runTurn({ provider: deepseek, system: "", history: [user("x")], router: makeRouter({ answer: real }).router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {} });
+  const [ok, failed] = llm.calls[1].messages.filter((m) => m.role === "tool").map((m) => m.content);
+  assert.deepEqual(ok.split("\n").slice(0, 3), ["tcm_herb → native.tcm_herb: succeeded", "Ref: R1", "Summary: 葛根"]);
+  assert.ok(failed.startsWith("tcm_herb → native.tcm_herb: failed\n") && !/Ref: R/.test(failed));
+  assert.deepEqual(res.toolMessages.map((m) => m.ref), ["R1", undefined]);
 });

@@ -20,17 +20,40 @@ import { toProviderTools } from "./catalog.js";
 import { t } from "./i18n.js";
 import { isIdentityQuestion } from "./prompt.js";
 import { scrubProjectRefs } from "./publiclinks.js";
+import { hasRef, REF_ID, refData, refNote, resolveRefs } from "./refs.js";
 import { synthEnvelope } from "./router.js";
 import { canonicalJson, clip, isAbort, isPlainObject, sleep as defaultSleep, uuid } from "./util.js";
 
-export const MAX_STEPS = 16;
+// A research turn (a route, the ids, the data of each step, the analyses, an inquiry, the answer) takes more model
+// calls than a lookup does: 32 by default (settings.maxSteps, at most 64). What keeps a long turn readable is the text
+// budget below, not a low count of calls.
+export const MAX_STEPS = 32;
 export const OLD_RESULT_CHARS = 2500;
 export const RESULT_CHARS = 16000;
+// The text of the results the model reads. One result has at most RESULT_CHARS; the calls of one step share
+// STEP_RESULT_CHARS (eight calls made together get 6 000 each, never under MIN_RESULT_CHARS), and once a turn has read
+// TURN_RESULT_CHARS every later result gets LATE_RESULT_CHARS. The runtime is told its share and fits the result to it
+// (a table with fewer rows, the count of all of them kept), so less text is never a cut in the middle of a record;
+// the data itself stays whole behind the result's reference (refs.js). A whole network-pharmacology pass over live
+// sources read about 100 000 characters (16 calls); the turn's allowance leaves room for two and keeps the request
+// well inside a model's context and the relay's body limit.
+export const STEP_RESULT_CHARS = 48000;
+export const MIN_RESULT_CHARS = 4000;
+export const TURN_RESULT_CHARS = 240000;
+export const LATE_RESULT_CHARS = 4000;
+/** How many model calls before the last one the model is told the turn is ending. */
+export const STEPS_LEFT_NOTICE = 3;
 export const RETRY_DELAYS = [1500, 4000];
 /** A Retry-After longer than this is not waited out inside a turn: the error, which says when to retry, is shown. */
 export const MAX_RETRY_AFTER_S = 20;
 export const DANGLING_TEXT = "(this call was stopped before it finished; there is no result)";
 export const LIMIT_TEXT = "Not run: the limit of model calls for this turn was reached. Answer from the results you have.";
+
+/** The text a result of a step with `calls` calls may have, in a turn that has read `read` characters of results. */
+export function resultShare(calls, read = 0) {
+  if (read >= TURN_RESULT_CHARS) return LATE_RESULT_CHARS;
+  return Math.max(MIN_RESULT_CHARS, Math.min(RESULT_CHARS, Math.floor(STEP_RESULT_CHARS / Math.max(1, calls))));
+}
 
 export const formatOf = (provider) => (provider?.format === "anthropic" ? "anthropic" : "openai");
 
@@ -182,11 +205,13 @@ const libFor = (format, llm) => (llm?.[format]) || (format === "anthropic" ? ant
  * when no onApproval is given) · tool.end {callId, envelope, step} · usage {input, output, step, round} ·
  * model.retry {step, attempt, delay_ms, message} (drop that step's partial text) · model.end {step, finish_reason} ·
  * error {message, kind} · done {status}.
+ * priorResults: [[ref, data]] of the conversation's earlier results that hold data (a tool message's `ref` and its
+ * envelope's view or result, refs.js refData), so a call of this turn can be handed one by reference.
  * Returns {assistant, toolMessages, usage, status, steps}.
  */
 export async function runTurn({
   provider, system, history = [], router, catalog, settings = {}, signal, onEvent, projectId = null, conversationId = null,
-  onApproval, tools, llm, retryDelays = RETRY_DELAYS, sleep = defaultSleep,
+  onApproval, tools, llm, retryDelays = RETRY_DELAYS, sleep = defaultSleep, priorResults = [],
 }) {
   const format = formatOf(provider);
   const lib = libFor(format, llm);
@@ -205,6 +230,13 @@ export async function runTurn({
   const seen = new Map(); // a call's key (reusePolicy) → {step, callId, envelope: Promise}
   const failures = new Map(); // a tool's key (failureKey) → [{step, callId, type, message, final}]
   const notes = new Map(); // callId → a line added under its result (the failure budget)
+  // the results that hold data, by reference (R1, R2 … across the conversation): this turn's are added as they arrive
+  const results = new Map();
+  for (const pair of priorResults || []) {
+    if (Array.isArray(pair) && REF_ID.test(String(pair[0])) && pair[1] !== undefined && pair[1] !== null) results.set(String(pair[0]), pair[1]);
+  }
+  let refNext = 1 + Math.max(0, ...[...results.keys()].map((r) => Number(r.slice(1))));
+  let readChars = 0; // the text of this turn's results so far (resultShare)
   const emit = (ev) => {
     try { onEvent?.(ev); } catch (err) { (globalThis.reportError || console.error)(err); }
   };
@@ -324,15 +356,30 @@ export async function runTurn({
       }
 
       // run in parallel, record in call order
-      const outcomes = await Promise.all(calls.map((c) => executeTool(c, step)));
+      const share = resultShare(calls.length, readChars);
+      const outcomes = await Promise.all(calls.map((c) => executeTool(c, step, share)));
       // in call order, so the numbering does not depend on which call finished first
       for (const o of outcomes) {
         const before = citeNext;
         citeNext = renumberCitations(o.envelope, citeNext);
         if (before > 1 && citeNext > before) emit({ type: "tool.update", callId: o.c.id, envelope: o.envelope, step: o.s });
+        // a result that holds data gets its reference (a repeat answered from the first call keeps the first's)
+        const data = o.envelope.reused || o.envelope.budget ? undefined : refData(o.envelope);
+        if (data !== undefined) {
+          o.ref = `R${refNext++}`;
+          results.set(o.ref, data);
+        }
       }
-      for (const o of outcomes) toolMessages.push(toolMessage(o.c, o.envelope, assistant, o.s));
-      turnWire.push(...lib.toolResultMessages(outcomes.map(resultOf)));
+      // the turn is about to run out of model calls: said under the last result while there is still time to conclude
+      const left = maxSteps - step;
+      if (left === STEPS_LEFT_NOTICE && maxSteps > STEPS_LEFT_NOTICE + 1 && outcomes.length) {
+        const last = outcomes[outcomes.length - 1].c.id;
+        notes.set(last, [notes.get(last), `This turn has ${left} model calls left, and the last of them must be the answer: finish what the answer needs, then write it.`].filter(Boolean).join("\n"));
+      }
+      for (const o of outcomes) toolMessages.push(toolMessage(o.c, o.envelope, assistant, o.s, o.ref, o.refs));
+      const read = outcomes.map((o) => resultOf(o, share));
+      for (const r of read) readChars += r.text.length;
+      turnWire.push(...lib.toolResultMessages(read));
       if (signal?.aborted) { status = "stopped"; break; }
     }
   } catch (err) {
@@ -369,8 +416,28 @@ export async function runTurn({
   emit({ type: "done", status });
   return { assistant, toolMessages, usage: { ...usage }, status, steps: step };
 
-  async function executeTool(c, s) {
+  async function executeTool(c, s, textLimit = RESULT_CHARS) {
     let envelope;
+    let args = c.arguments;
+    let refs = null;
+    // a reference to an earlier result is replaced by its data before the call is placed (refs.js); one that does
+    // not resolve is refused here, with what the result does hold
+    if (!c.error && hasRef(c.arguments)) {
+      const r = resolveRefs(c.arguments, (ref) => results.get(ref), () => [...results.keys()]);
+      if (r.error) {
+        emit({ type: "tool.start", callId: c.id, name: c.name, args: c.arguments, where: null, step: s });
+        envelope = await synthEnvelope({
+          tool: c.name, args: c.arguments, status: "failed", summary: t("core.agent.bad_reference"),
+          text: `Not run: ${r.error}. A reference is {"$ref": "R<n>"} with an optional path, field or fields, unique, limit and join; correct it and call again.`,
+          error: { type: "bad_arguments", message: r.error, hint: "correct the reference" },
+        });
+        emit({ type: "tool.end", callId: c.id, envelope, step: s });
+        return { c, s, envelope };
+      }
+      args = r.args;
+      refs = r.used;
+    }
+    const call = args === c.arguments ? c : { ...c, arguments: args };
     if (c.error) {
       emit({ type: "tool.start", callId: c.id, name: c.name, args: {}, raw: c.raw, where: null, step: s });
       envelope = await synthEnvelope({
@@ -380,16 +447,16 @@ export async function runTurn({
       });
     } else {
       let where = null;
-      try { where = router?.whereCall ? router.whereCall(c.name, c.arguments) : router?.where?.(c.name) ?? null; } catch { where = null; }
+      try { where = router?.whereCall ? router.whereCall(c.name, args) : router?.where?.(c.name) ?? null; } catch { where = null; }
       emit({ type: "tool.start", callId: c.id, name: c.name, args: c.arguments, where, step: s });
-      const fkey = failureKey(router, c);
+      const fkey = failureKey(router, call);
       const past = failures.get(fkey) || [];
       if (past.length >= FAILURE_BUDGET || past.some((p) => p.final)) {
         envelope = await budgetEnvelope(c, fkey, past);
         emit({ type: "tool.end", callId: c.id, envelope, step: s });
         return { c, s, envelope };
       }
-      const reuse = reusePolicy(router, c);
+      const reuse = reusePolicy(router, call);
       if (reuse.stateful) seen.clear();
       const prior = reuse.key ? seen.get(reuse.key) : null;
       if (prior) {
@@ -400,7 +467,7 @@ export async function runTurn({
         const run = (async () => {
           try {
             return router
-              ? await router.call(c.name, c.arguments, { projectId, conversationId, signal, callId: c.id, onApproval: approvalHandler(c.id) })
+              ? await router.call(c.name, args, { projectId, conversationId, signal, callId: c.id, onApproval: approvalHandler(c.id), textLimit })
               : await synthEnvelope({ tool: c.name, args: c.arguments, status: "failed", summary: "no router", text: "No tool runtime is available.", error: { type: "unavailable", message: "no router", hint: "" } });
           } catch (err) {
             return synthEnvelope({
@@ -415,7 +482,7 @@ export async function runTurn({
       if (!envelope.reused) noteFailure(fkey, c, s, envelope);
     }
     emit({ type: "tool.end", callId: c.id, envelope, step: s });
-    return { c, s, envelope };
+    return { c, s, envelope, refs };
   }
 
   function noteFailure(key, c, s, envelope) {
@@ -434,13 +501,19 @@ export async function runTurn({
     else if (list.length >= FAILURE_BUDGET) notes.set(c.id, `${who} has failed ${list.length} times in this turn and is not called again in it. Change approach.`);
   }
 
-  function resultOf({ c, envelope }) {
+  function resultOf({ c, envelope, ref, refs }, limit = RESULT_CHARS) {
     const outcome = envelope.reused || envelope.budget ? null : outcomeOf(envelope);
-    const lines = [outcome ? `Outcome: ${outcome[0]} — ${outcome[1]}.` : "", notes.get(c.id) || ""].filter(Boolean);
+    const lines = [refNote(refs), outcome ? `Outcome: ${outcome[0]} — ${outcome[1]}.` : "", notes.get(c.id) || ""].filter(Boolean);
     // the project's own repository and pages are not shown in Studio (publiclinks.js): the model is not given them to repeat
     const body = scrubProjectRefs(envelope.text || (envelope.ok ? envelope.summary || "{}" : `Failed: ${envelope.error?.message || envelope.summary || "no result"}`));
     const tail = lines.length ? `\n${lines.join("\n")}` : "";
-    const text = clip(body, RESULT_CHARS - tail.length) + tail;
+    const mark = ref ? `Ref: ${ref}\n` : "";
+    const room = Math.max(1000, limit - tail.length - mark.length);
+    const cut = clip(body, room, (n) => `… [cut to this turn's text budget; ${n} characters in full${ref ? `; the data is whole behind {"$ref": "${ref}"}` : ""}]`);
+    // the reference goes under the result's own first line ("tool → entry: status"), which stays first; a text
+    // without that line is given the reference above it
+    const first = /^\S+ → \S+: \w+[^\n]*\n/.exec(cut);
+    const text = (ref && first ? first[0] + mark + cut.slice(first[0].length) : mark + cut) + tail;
     return { id: c.id, text, isError: envelope.status === "failed" || envelope.status === "cancelled" };
   }
 
@@ -519,11 +592,13 @@ export function renumberCitations(envelope, next = 1) {
   return next + top;
 }
 
-function toolMessage(c, envelope, assistant, step) {
+function toolMessage(c, envelope, assistant, step, ref, refs) {
   return {
     id: uuid(), conversationId: assistant.conversationId, parentId: assistant.id, role: "tool", createdAt: Date.now(),
     toolCallId: c.id, name: c.name, args: c.arguments, content: envelope.text || "", envelope, step,
     where: envelope.receipt?.where || null, status: envelope.status,
+    // the reference a later call can be handed this result by, and the references this call was handed (refs.js)
+    ...(ref ? { ref } : {}), ...(refs?.length ? { refs } : {}),
   };
 }
 

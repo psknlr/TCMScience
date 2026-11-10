@@ -120,3 +120,54 @@ def test_every_shipped_example_still_sends_the_request_that_was_verified_live():
             example = dict(op.example)
             assert op.render(**example)["path"] == pasted(op.path, example), \
                 f"{source.key}.{op.name}"
+
+
+# ------------------------------------------------------- arguments that take several values
+
+@pytest.mark.parametrize("given", ["TNF IL6 AKT1", "TNF,IL6,AKT1", "TNF, IL6 ;AKT1", "TNF\nIL6\r\nAKT1",
+                                  "TNF%0dIL6%0DAKT1", "TNF|IL6|AKT1", " TNF  IL6 TNF AKT1 ",
+                                  ["TNF", " IL6", "AKT1", "", "TNF"]])
+def test_a_list_of_values_is_sent_with_the_separator_each_service_reads(given):
+    """STRING reads a carriage return, g:Profiler a space, OmniPath a comma. A gene list
+    written another way was answered with a 404 by STRING, and by g:Profiler and OmniPath
+    with an empty result, which reads as a negative finding."""
+    from bioagent.providers.public_apis import join_values
+    assert join_values(given, ",") == "TNF,IL6,AKT1"
+    assert BY_KEY["string"].op("network").render(identifiers=given, species=9606, score=400)[
+        "params"]["identifiers"] == "TNF\rIL6\rAKT1"
+    assert BY_KEY["gprofiler"].op("gost").render(query=given, organism="hsapiens")[
+        "json_body"]["query"] == "TNF IL6 AKT1"
+    assert BY_KEY["omnipath"].op("interactions").render(partners=given, limit=5)[
+        "params"]["partners"] == "TNF,IL6,AKT1"
+    assert BY_KEY["panther"].op("enrich").render(genes=given, organism=9606, annot="GO:0008150")[
+        "params"]["geneInputList"] == "TNF,IL6,AKT1"
+
+
+def test_list_arguments_are_declared_on_real_arguments_and_leave_single_values_alone():
+    from bioagent.providers.public_apis import join_values
+    declared = 0
+    for source in SOURCES:
+        for op in source.operations:
+            for name in (*op.lists, *op.hints):
+                assert name in op.example or name in op.args, f"{source.key}.{op.name}: {name}"
+            for name in op.lists:
+                declared += 1
+                # the shipped example is sent as it was verified
+                assert join_values(op.example[name], op.lists[name]) == op.example[name], (
+                    f"{source.key}.{op.name}: {name}")
+    assert declared >= 14
+    assert join_values("TP53", "\r") == "TP53" and join_values(7157, ",") == 7157
+    assert join_values(None, ",") is None and join_values("", ",") == ""
+    # an argument that is one value keeps its spaces and commas
+    assert BY_KEY["europepmc"].op("search").render(query="TP53 AND cancer, 2020", size=1)[
+        "params"]["query"] == "TP53 AND cancer, 2020"
+
+
+def test_a_disease_is_found_by_name_and_its_targets_are_asked_for_by_its_id():
+    ot = BY_KEY["opentargets"]
+    search = ot.op("disease_search").render(query="type 2 diabetes", n=5)
+    assert search["variables"] == {"q": "type 2 diabetes", "n": 5}
+    assert 'entityNames:["disease"]' in search["graphql"]
+    targets = ot.op("disease_targets").render(disease_id="MONDO_0005148", n=100, page=0)
+    assert targets["variables"] == {"id": "MONDO_0005148", "n": 100, "page": 0}
+    assert "associatedTargets" in targets["graphql"] and "datatypeScores" in targets["graphql"]

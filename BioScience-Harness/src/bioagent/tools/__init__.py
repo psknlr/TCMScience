@@ -23,8 +23,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Mapping
 
-from . import (align, clinical, formats, pharmacology, phylo, popgen, protein, sequence,
-               stats, survival, tcm, tcmdb, variants)
+from . import (align, clinical, formats, network, pharmacology, phylo, popgen, protein,
+               sequence, stats, survival, tcm, tcmdb, variants)
 
 __all__ = ["NativeTool", "TOOLS", "BY_NAME", "NativeToolProvider", "run_smoke", "tool",
            "native_smoke_runner", "DOMAINS"]
@@ -356,6 +356,15 @@ TOOLS: tuple[NativeTool, ...] = (
        {"difference": 5, "sd": 10}, "study-design", "power"),
     _t("incidence_rate", stats.incidence_rate, "statistics",
        {"event_count": 12, "person_time": 4800, "per": 1000}, "epidemiology"),
+    # ------------------------------------------------------ networks and sets
+    _t("network_topology", network.network_topology, "statistics",
+       {"edges": [["TNF", "IL6"], ["TNF", "AKT1"], ["IL6", "AKT1"], ["AKT1", "INSR"],
+                  ["INSR", "PPARG"]], "top": 5},
+       "network", "ppi", "hub", "degree", "betweenness", "centrality"),
+    _t("set_overlap", network.set_overlap, "statistics",
+       {"sets": {"formula targets": ["TNF", "IL6", "AKT1", "PPARG"],
+                 "disease genes": ["INSR", "AKT1", "PPARG", "TCF7L2"]}, "background": 20000},
+       "overlap", "venn", "intersection", "jaccard"),
     # ---------------------------------------------------- population genetics
     _t("linkage_disequilibrium", popgen.linkage_disequilibrium, "population-genetics",
        {"haplotype_counts": {"AB": 50, "Ab": 10, "aB": 10, "ab": 30}}, "ld", "haplotypes"),

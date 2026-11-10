@@ -1,7 +1,7 @@
 import { resetStorage } from "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { COMPUTE_TARGETS, DEFAULTS, LANG_KEY, SESSION_KEYS_KEY, SETTINGS_KEY, WEB_DEFAULT_VERSION, clearKeys, loadSettings, onSettingsChange, saveSettings, updateSettings } from "../js/core/settings.js";
+import { COMPUTE_TARGETS, DEFAULTS, LANG_KEY, SESSION_KEYS_KEY, SETTINGS_KEY, STEPS_DEFAULT_VERSION, WEB_DEFAULT_VERSION, clearKeys, loadSettings, onSettingsChange, saveSettings, updateSettings } from "../js/core/settings.js";
 
 beforeEach(() => resetStorage());
 
@@ -9,7 +9,7 @@ test("defaults are the contract's", () => {
   const s = loadSettings();
   assert.deepEqual(s, JSON.parse(JSON.stringify(DEFAULTS)));
   assert.equal(s.provider, "tao");
-  assert.equal(s.maxSteps, 16);
+  assert.equal(s.maxSteps, 32);
   assert.equal(s.maxTokens, 8192);
   assert.deepEqual(s.runner, { url: "http://127.0.0.1:8765", token: "" });
   assert.equal(s.web, true, "web access is on by default");
@@ -30,13 +30,28 @@ test("an off saved before web access was on by default was that default, not a c
   assert.equal(loadSettings().web, false, "and stays off through later saves");
 });
 
+test("a 16 saved before the default became 32 model calls was that default; a number set by hand, or 16 saved since, stays", () => {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ lang: "en", maxSteps: 16, webDefault: WEB_DEFAULT_VERSION, web: false }));   // an older version
+  let s = loadSettings();
+  assert.equal(s.maxSteps, 32);
+  assert.equal(s.stepsDefault, STEPS_DEFAULT_VERSION);
+  assert.deepEqual([s.lang, s.web], ["en", false], "nothing else changes");
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ maxSteps: 8, webDefault: WEB_DEFAULT_VERSION }));
+  assert.equal(loadSettings().maxSteps, 8, "a number set by hand is kept");
+  updateSettings({ maxSteps: 16 });                                                               // the user's own, now
+  assert.equal(JSON.parse(localStorage.getItem(SETTINGS_KEY)).stepsDefault, STEPS_DEFAULT_VERSION);
+  assert.equal(loadSettings().maxSteps, 16);
+  saveSettings({ ...loadSettings(), theme: "light" });
+  assert.equal(loadSettings().maxSteps, 16, "and stays through later saves");
+});
+
 test("save, load, update; invalid values fall back; the language is mirrored", () => {
   saveSettings({ ...loadSettings(), lang: "en", theme: "neon", compute: 7, maxSteps: "abc", temperature: "0.7", models: { deepseek: "deepseek-chat" } });
   const s = loadSettings();
   assert.equal(s.lang, "en");
   assert.equal(s.theme, "system");
   assert.equal(s.compute, "auto", "a compute value that is not text is the default");
-  assert.equal(s.maxSteps, 16);
+  assert.equal(s.maxSteps, 32);
   assert.equal(s.temperature, 0.7);
   assert.equal(globalThis.localStorage.getItem(LANG_KEY), "en");
   updateSettings({ models: { qwen: "qwen-plus" }, runner: { token: "tok" } });

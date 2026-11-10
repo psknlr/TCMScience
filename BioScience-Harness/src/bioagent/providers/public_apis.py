@@ -45,11 +45,23 @@ class Operation:
     #: What the answer must look like (``table_contract``): the HTTP backend refuses one
     #: that does not fit — malformed, misaligned, empty — before it can become evidence.
     contract: Mapping[str, Any] | None = None
+    #: Arguments that take several values in one string: {argument: the separator this
+    #: service reads}. Services disagree (STRING reads a carriage return, g:Profiler a
+    #: space, OmniPath a comma) and answer a list written another way with an error, or
+    #: with nothing, which reads as a negative result. A caller's values separated by
+    #: spaces, commas, semicolons, bars or line breaks, or given as a list, are sent with
+    #: the service's separator.
+    lists: Mapping[str, str] = field(default_factory=dict)
+    #: What an argument is, where its name and example do not say: {argument: text}.
+    hints: Mapping[str, str] = field(default_factory=dict)
 
     def render(self, **kwargs: Any) -> dict[str, Any]:
         missing = [a for a in self.args if a not in kwargs]
         if missing:
             raise ValueError(f"operation {self.name!r} requires {missing}")
+        for name, separator in self.lists.items():
+            if name in kwargs:
+                kwargs[name] = join_values(kwargs[name], separator)
 
         def sub(v: Any) -> Any:
             if isinstance(v, str):
@@ -79,6 +91,26 @@ class Operation:
         if self.contract:
             out["contract"] = dict(self.contract)
         return out
+
+
+_VALUE_SPLIT = re.compile(r"(?:%0[dDaA]|[\s,;|])+")
+
+
+def join_values(value: Any, separator: str) -> Any:
+    """Several values as one string in a service's own separator: a list, or a string whose
+    values are separated by spaces, commas, semicolons, bars, line breaks or a literal
+    %0d. Empty values are dropped and a repeated value is sent once. Anything else (a
+    number, None) is returned as it is."""
+    if isinstance(value, (list, tuple)):
+        parts = [str(v).strip() for v in value]
+    elif isinstance(value, str):
+        parts = _VALUE_SPLIT.split(value.strip())
+    else:
+        return value
+    return separator.join(dict.fromkeys(p for p in parts if p))
+
+
+LIST_HINT = "one or more, separated by spaces, commas or line breaks"
 
 
 def table_contract(columns: tuple[str, ...], *, required: tuple[str, ...],
@@ -233,11 +265,13 @@ SOURCES: tuple[PublicSource, ...] = (
                       params={"db": "{db}", "term": "{term}", "retmode": "json", "retmax": "{retmax}"},
                       args=("db", "term"), example={"db": "pubmed", "term": "TP53 AND cancer", "retmax": 5}),
             Operation("esummary", "Summaries for ids", "esummary.fcgi",
-                      params={"db": "{db}", "id": "{id}", "retmode": "json"}, args=("db", "id"),
+                      params={"db": "{db}", "id": "{id}", "retmode": "json"},
+                      lists={"id": ","},
+                      args=("db", "id"),
                       example={"db": "gene", "id": "7157"}),
             Operation("efetch", "Fetch full records", "efetch.fcgi",
                       params={"db": "{db}", "id": "{id}", "retmode": "{retmode}", "rettype": "{rettype}"},
-                      accept="*/*", args=("db", "id"),
+                      accept="*/*", lists={"id": ","}, args=("db", "id"),
                       example={"db": "pubmed", "id": "31452104", "retmode": "xml", "rettype": "abstract"}),
             Operation("einfo", "Database list", "einfo.fcgi", params={"retmode": "json"}),
         ), smoke="esummary", docs="https://www.ncbi.nlm.nih.gov/books/NBK25501/",
@@ -300,12 +334,19 @@ SOURCES: tuple[PublicSource, ...] = (
         "CC-BY-4.0", "Protein–protein interaction networks.", "proteomics", (
             Operation("map_ids", "Map identifiers to STRING ids", "tsv/get_string_ids",
                       params={"identifiers": "{identifiers}", "species": "{species}", "limit": 1},
-                      accept="text/tab-separated-values", args=("identifiers",),
+                      accept="text/tab-separated-values",
+                      lists={"identifiers": "\r"},
+                      args=("identifiers",),
                       example={"identifiers": "TP53", "species": 9606}),
             Operation("network", "Interaction partners", "tsv/network",
                       params={"identifiers": "{identifiers}", "species": "{species}",
                               "required_score": "{score}"},
-                      accept="text/tab-separated-values", args=("identifiers",),
+                      accept="text/tab-separated-values", lists={"identifiers": "\r"},
+                      hints={"identifiers": "the proteins whose interactions among themselves are "
+                                            "returned (one alone: its partners)",
+                             "score": "the least combined score x1000: 400 medium, 700 high, "
+                                      "900 highest confidence"},
+                      args=("identifiers",),
                       example={"identifiers": "TP53", "species": 9606, "score": 900}),
         ), smoke="map_ids", docs="https://string-db.org/help/api/", rate_note="1 req/s"),
 
@@ -353,6 +394,27 @@ SOURCES: tuple[PublicSource, ...] = (
                               "datatypeScores{id score} disease{id name}}}}}",
                       variables={"id": "{ensembl_id}", "n": "{n}"}, args=("ensembl_id",),
                       example={"ensembl_id": "ENSG00000141510", "n": 5}),
+            # The other direction: a disease's targets. The platform's ids are ontology
+            # ids written with an underscore (MONDO_0005148, EFO_0000685), found by name.
+            Operation("disease_search", "Diseases by name, with the platform's id of each "
+                      "(the id disease_targets takes)", "graphql", method="POST",
+                      graphql="query($q:String!,$n:Int!){search(queryString:$q,"
+                              "entityNames:[\"disease\"],page:{index:0,size:$n}){total "
+                              "hits{id name description}}}",
+                      variables={"q": "{query}", "n": "{n}"}, args=("query",),
+                      example={"query": "type 2 diabetes", "n": 5}),
+            Operation("disease_targets", "Targets associated with a disease, best overall "
+                      "score first, with the score of each evidence datatype; n a page "
+                      "(page 0 the first)", "graphql", method="POST",
+                      graphql="query($id:String!,$n:Int!,$page:Int!){disease(efoId:$id){id name "
+                              "associatedTargets(page:{index:$page,size:$n}){count rows{score "
+                              "datatypeScores{id score} target{id approvedSymbol}}}}}",
+                      variables={"id": "{disease_id}", "n": "{n}", "page": "{page}"},
+                      args=("disease_id",),
+                      hints={"disease_id": "the platform's disease id, e.g. MONDO_0005148 "
+                                           "(disease_search finds it by name)",
+                             "n": "how many targets a page holds (at most 500)"},
+                      example={"disease_id": "MONDO_0005148", "n": 100, "page": 0}),
         ), smoke="target", docs="https://platform-docs.opentargets.org/data-access/graphql-api"),
 
     PublicSource(

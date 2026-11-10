@@ -79,7 +79,7 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
 
 ## 数据库网关
 
-构建生成 `runtime/source-gateway.json`，覆盖连接器注册表中的全部 117 个数据库、444 个操作。
+构建生成 `runtime/source-gateway.json`，覆盖连接器注册表中的全部 117 个数据库、446 个操作。
 Worker 从 `ASSETS` 读取并验证该文件，部署实例内缓存；清单缺失或格式不正确时返回 503，避免仅部署旧网页后误用网关。
 新增连接器后重新构建、部署即可更新，无需维护第二份手写 URL 名单。
 

@@ -10,6 +10,13 @@ export const SETTINGS_KEY = "tcmstudio.settings";
  * read without this mark, they come back on (loadSettings). Saved with it, an "off" is the user's own and stays.
  */
 export const WEB_DEFAULT_VERSION = 2;
+/**
+ * A turn may call the model 32 times by default (version 2; it was 16). Settings saved before that hold 16, which
+ * was the default and almost never a choice: read without this mark, a stored 16 becomes 32 (any other number was set
+ * by hand and stays). Saved with it, the number is the user's own.
+ */
+export const STEPS_DEFAULT_VERSION = 2;
+const OLD_MAX_STEPS = 16;
 export const SESSION_KEYS_KEY = "tcmstudio.keys";
 export const LANG_KEY = "tcmscience.lang";
 
@@ -26,7 +33,8 @@ export const DEFAULTS = Object.freeze({
   thinking: true,
   temperature: null,
   maxTokens: 8192,
-  maxSteps: 16,
+  maxSteps: 32,
+  stepsDefault: STEPS_DEFAULT_VERSION,
   compute: "auto",
   browserAcceleration: "auto",
   runner: { url: "http://127.0.0.1:8765", token: "" },
@@ -109,8 +117,13 @@ export function clearKeys() {
 
 /** Settings as saved by an older version, read as this one means them (see WEB_DEFAULT_VERSION). */
 function migrate(saved) {
-  if (!saved || typeof saved !== "object" || saved.webDefault === WEB_DEFAULT_VERSION) return saved;
-  return { ...saved, web: true, webDefault: WEB_DEFAULT_VERSION };
+  if (!saved || typeof saved !== "object") return saved;
+  let next = saved;
+  if (next.webDefault !== WEB_DEFAULT_VERSION) next = { ...next, web: true, webDefault: WEB_DEFAULT_VERSION };
+  if (next.stepsDefault !== STEPS_DEFAULT_VERSION) {
+    next = { ...next, stepsDefault: STEPS_DEFAULT_VERSION, ...(Number(next.maxSteps) === OLD_MAX_STEPS ? { maxSteps: DEFAULTS.maxSteps } : {}) };
+  }
+  return next;
 }
 
 function normalize(raw) {
@@ -130,6 +143,7 @@ function normalize(raw) {
     ? null : Number(s.temperature);
   for (const k of ["rememberKeys", "thinking", "web", "onboarded", "sidebarCollapsed"]) s[k] = Boolean(s[k]);
   s.webDefault = WEB_DEFAULT_VERSION;
+  s.stepsDefault = STEPS_DEFAULT_VERSION;
   if (typeof s.provider !== "string" || !s.provider) s.provider = DEFAULTS.provider;
   return s;
 }

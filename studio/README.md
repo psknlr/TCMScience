@@ -33,7 +33,7 @@ TCMScience 通过浏览器提供对已登记科学能力的访问。轻量工具
 | **3. 完全本地** | Runner 提供网页 `http://127.0.0.1:8765/`，模型选本地模型 | 本机的 Ollama / LM Studio / vLLM / llama.cpp | 本机 Runner | Python + 本地模型服务 |
 
 **1. 直接打开。** 第一次运行工具时，浏览器下载 Python 运行环境（Pyodide 314.0.7，来自 jsDelivr，约 9 MB，之后从缓存读取）
-和 TCMScience 的代码包（约 1.9 MB，按 SHA-256 核对）。150 个原生工具、4 个固定版本的受治理 Skill、临床辨证都能在浏览器里
+和 TCMScience 的代码包（约 1.9 MB，按 SHA-256 核对）。152 个原生工具、4 个固定版本的受治理 Skill、临床辨证都能在浏览器里
 运行，运行的是与本机相同的 Python 代码（3 个香港数据查询工具需先导入其本地数据，临床辨证按需加载 numpy/scipy）。与本机
 Python 逐字节对比过的只是其中一部分：7 个内核工具、`benjamini_hochberg`、`fisher_exact`、中医药查询工具、
 排序的方剂检索，以及 4 个固定 Skill 中的 3 个（安全、名称规范化、证据检索）。这些对比由手动运行的运行时核对完成；CI 的端到端
@@ -151,7 +151,7 @@ tcmstudio serve
 手机浏览器打开 <https://science.impf.ai> 即可，界面按手机布局显示（侧栏、检查器都改为从边缘滑出的面板）。
 
 - **用手机自己的算力。** 没有本机 Runner 时，工具在手机浏览器里运行：Pyodide（WebAssembly）用手机的 CPU 执行真实的
-  TCMScience Python 代码。150 个原生工具、4 个固定版本的受治理 Skill 和临床辨证都可以运行，代码与电脑上相同。自动测试
+  TCMScience Python 代码。152 个原生工具、4 个固定版本的受治理 Skill 和临床辨证都可以运行，代码与电脑上相同。自动测试
   （`e2e/mobile.spec.mjs`，Chromium 的手机模拟，CPU 降速 4 倍）核对的是一个受治理 Skill 的内容哈希与本机 Python 相同；
   它记录冷启动后第一次调用的耗时，但只作注释，不作断言，也没有提交任何测量记录。第一次运行要下载约 11 MB（之后从缓存读取）。
 - **本机加速，结果不变。** 序列比对（全局、局部、蛋白）和编辑距离由 JavaScript 内核计算；序列距离矩阵、汉明距离和
@@ -175,6 +175,29 @@ tcmstudio serve
   Runner。
 - **测试范围。** 自动测试用的是 Chromium 的手机模拟（Android 视口、触控、降速 CPU），还没有在真机上测过 iOS Safari；
   iPhone 上的 Safari 也支持 WebAssembly，内存较小的机型首次加载可能较慢。
+
+## 在对话里做完整的分析
+
+一个网络药理学或组学问题要走很多步：方剂组成、每味药在各数据库里的编号、成分、靶点、富集、互作网络、疾病基因、交集。
+智能体按「研究路线」（`research_routes`）走完这些步骤，下面几项是为此准备的：
+
+- **结果按引用传递。** 每个带数据的工具结果有一个编号（`Ref: R3`）。下一步调用把它当参数用：
+  `{"$ref": "R3", "path": "targets", "field": "symbol"}`，页面在调用前换成那份结果的完整数据（包括文字里没有显示的行）。
+  模型不再把几百个基因名重新打一遍，也就不会漏掉或写错；记录里保留引用本身和它取到了多少项。
+- **长结果显示为表格。** 一列记录只写一次列名，再逐行给值，并给出总数 `n`；同样的篇幅里能看到原来 3–10 倍的行
+  （g:Profiler 的 325 个富集条目，以前模型只看到十几条）。富集结果另有摘要视图：按校正后 p 值排序，带命中的基因、
+  校正方法、阈值、背景和数据版本，不再把 GO 术语定义里的文献当作这次结果的引文。
+- **一次调用传多个值。** STRING、g:Profiler、OmniPath 等接口各用各的分隔符；以前用空格或逗号写的基因列表会得到 404，
+  或者得到一个空结果（看起来像阴性结论）。现在空格、逗号、换行都可以，按各接口的写法发出，参数说明里也写明了。
+- **按意图找工具。** `catalog_search` 认识「核心靶点」「疾病靶点」「交集」「survival analysis」这类说法，把真正做这件事的
+  工具排在前面（`native.network_topology`、`connector.opentargets.disease_targets`、`native.set_overlap`、`native.kaplan_meier`）。
+- **补上缺的步骤。** `native.network_topology`（度、介数、接近中心性、聚类系数、连通分量；与 NetworkX 3.7 对照过）、
+  `native.set_overlap`（交集、Jaccard、Venn 各区域；给出背景时做超几何检验和 BH 校正）、Open Targets 的
+  `disease_search` 与 `disease_targets`（由疾病找相关靶点，2026-11-10 直连核验）。拓扑只作描述：数据库里的「枢纽」首先是被研究得多的蛋白。
+- **每轮最多 32 次模型调用**（原为 16，可在「设置 → 模型」里改，最多 64），一步里同时发出的调用共用读取篇幅，
+  剩 3 次时会提醒模型收尾。
+
+这些只改变智能体拿到和传递数据的方式；证据类型、主张许可和发布判定仍由内核决定。
 
 ## 隐私：什么会、什么不会到达服务器
 
@@ -240,7 +263,7 @@ cd studio && npm install && npm run test:e2e
 
 | 用例 | 内容 |
 |---|---|
-| `runner.spec.mjs` | 真实 Runner 提供网页并配对，「设置 → 计算」显示 Runner 报告的 CPU 与联网开关；自定义模型（脚本化的模拟模型 `e2e/mock-llm.mjs`）调用 `tcm_safety_report`，Runner 执行受治理 Skill；工具卡片（本机 Runner）、主张与产物卡片、发布状态、引用、检查器五页、英文界面；刷新后对话仍在；编辑问题产生分支；中途停止；中文文件名的文件发送到 Runner，名称与哈希不变 |
+| `runner.spec.mjs` | 真实 Runner 提供网页并配对，「设置 → 计算」显示 Runner 报告的 CPU 与联网开关；自定义模型（脚本化的模拟模型 `e2e/mock-llm.mjs`）调用 `tcm_safety_report`，Runner 执行受治理 Skill；工具卡片（本机 Runner）、主张与产物卡片、发布状态、引用、检查器五页、英文界面；刷新后对话仍在；编辑问题产生分支；中途停止；中文文件名的文件发送到 Runner，名称与哈希不变；一次结果按引用（`{"$ref": "R1", …}`）交给下一次调用：Runner 收到完整数据，记录里保留引用和取到的项数；项目文件发送到 Runner 只确认一次，删除不再确认、可撤销并原样恢复 |
 | `browser.spec.mjs` | 无 Runner：Pyodide 从 jsDelivr 启动，同一问题在浏览器中运行，Skill 内容哈希与输出文件哈希与本机 Python 相同（CDN 不可达时：在本地跳过并说明原因；在 CI 中失败） |
 | `browser-access.spec.mjs` | 浏览器中的 Python 读取完整方剂表；联网关闭时数据库调用被拒绝且不发出请求，开启后经同源网关（真实的网关代码，上游为模拟）调用 `connector.mygene.gene`；距离矩阵在 `auto` 加速（WebGPU 或 WebAssembly SIMD，由运行时选择；CI 的无头 Chromium 至多有软件适配器，运行时会拒绝它，因此在 CPU 上算）、CPU 内核与参考 Python 三者结果一致（CDN 不可达时同上） |
 | `approvals.spec.mjs` | `run_pipeline` 的批准卡片：拒绝 → 模型读到 refused；「允许」作为本项目唯一一次批准写入项目，刷新后仍然有效，其他种类的调用也不再询问；后台任务的卡片跟随 Runner 事件直到收集完成，任务文件从 Runner 取来预览，模型用 `job_status` 跟进；联网：项目未开启时不调用也不询问，开启后批准卡片列出主机，再由 Runner 自己的联网开关决定 |
@@ -349,6 +372,18 @@ clinical tool or identifying details), and counts anonymous usage you can switch
   314.0.7) and in Studio's CI. Nothing in docking uses the GPU. Raw PDB/SMILES receptor and ligand preparation (Meeko,
   RDKit), interaction analysis and SDF poses stay on the runner as the next cycle (Milestone B, not done), and the
   governed `dock-ligands` skill needs the runner ([docs/BROWSER_JOBS.md §3.3](docs/BROWSER_JOBS.md#33-docking-from-prepared-structures)).
+- **A whole analysis in the chat.** A network-pharmacology or omics question takes many steps (composition, each
+  herb's database id, constituents, targets, enrichment, the interaction network, the disease's genes, the overlap).
+  The agent follows the research route through them, and: every result that holds data has a reference
+  (`Ref: R3`) a later call takes as an argument (`{"$ref": "R3", "path": "targets", "field": "symbol"}`), which the
+  page replaces with that result's full data, so a gene list is never retyped; a long result's records are shown as
+  a table with the count of them all (several times the rows in the same text), and an enrichment as its terms with
+  the correction, threshold, background and release; an argument that takes several values accepts spaces, commas
+  or line breaks (a gene list written the wrong way was a 404 from STRING and an empty answer, read as a negative,
+  from g:Profiler and OmniPath); `catalog_search` ranks by what is asked for ("core targets", "disease genes",
+  "survival analysis"); `native.network_topology` (checked against NetworkX 3.7), `native.set_overlap` and Open
+  Targets' `disease_search` and `disease_targets` fill the steps that had no tool; and a turn may call the model 32
+  times (it was 16). Evidence types, claim licensing and release are the kernel's, unchanged.
 - **NPU.** WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified
   execution provider and hardware-backed execution evidence; no workload has either today.
 - **Offline.** After a first visit the page, the Python runtime and the fonts are kept by a service worker against a

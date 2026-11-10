@@ -241,6 +241,12 @@ export function argsSummary(args, max = 120) {
   const show = (v) => {
     if (v === null || v === undefined) return "—";
     if (Array.isArray(v)) return v.map(show).join("、");
+    // a reference to an earlier result (core/refs.js), as what it points to
+    if (typeof v.$ref === "string") return `→${v.$ref}${v.path ? ` ${v.path}` : ""}${v.field ? ` · ${v.field}` : Array.isArray(v.fields) ? ` · ${v.fields.join(", ")}` : ""}`;
+    // an object that holds references (named sets, each from a result) is opened one level, so they can be seen
+    if (typeof v === "object" && Object.values(v).some((x) => x && typeof x === "object" && typeof x.$ref === "string")) {
+      return `{${Object.entries(v).map(([k, x]) => `${k}: ${x && typeof x === "object" && typeof x.$ref === "string" ? show(x) : "…"}`).join("，")}}`;
+    }
     if (typeof v === "object") return "{…}";
     const s = String(v);
     return s.length > 40 ? `${s.slice(0, 39)}…` : s;

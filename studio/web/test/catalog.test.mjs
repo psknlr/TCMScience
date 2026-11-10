@@ -1,7 +1,7 @@
 import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Catalog, FILE_ID, READINESS, cleanSchema, entryState, loadCatalog, localCall, mergeCatalogs, requirement, runnerOnly, toProviderTools } from "../js/core/catalog.js";
+import { Catalog, cleanSchema, conceptBoosts, entryState, FILE_ID, loadCatalog, localCall, mergeCatalogs, READINESS, requirement, runnerOnly, toProviderTools } from "../js/core/catalog.js";
 import { fakeFetch, testCatalogDoc } from "./fixtures/fakes.mjs";
 
 const cat = () => new Catalog(testCatalogDoc());
@@ -313,4 +313,34 @@ test("runner_only rule types, as tcmstudio.capability.runner_only reads them: ab
   assert.ok(!FILE_ID.test("u_0123") && !FILE_ID.test("f-1") && !FILE_ID.test("ligands.pdbqt"));
   // several rules met: every reason, in the rules' order
   assert.deepEqual(runnerOnly(entry, { site_ligand: "BEN", allow_remote: true, receptor: "PDB:3PTB" }), ["absent", "present", "is", "not_suffix"]);
+});
+
+test("the page's search ranks by what is asked for, with the catalog's concepts (the same table the runtime's search uses)", () => {
+  const doc = testCatalogDoc();
+  doc.concepts = [
+    { words: ["molecular docking", "对接", "分子对接"], entries: ["native.dock", "native.tcm_herb"] },
+    { words: ["ora", "富集"], entries: ["native.reverse_complement"] },
+    { words: 7, entries: ["x"] }, // malformed: ignored
+  ];
+  const c = new Catalog(doc);
+  assert.equal(c.concepts.length, 2);
+  // no word of the query is in the entry: the concept finds it, the most direct first
+  assert.deepEqual(c.search("分子对接怎么做").slice(0, 2).map((e) => e.id), ["native.dock", "native.tcm_herb"]);
+  assert.deepEqual(c.search("Molecular-Docking of a ligand").slice(0, 1).map((e) => e.id), ["native.dock"]);
+  // a concept's word is a whole word (a plural s aside): "ora" is not in "oral"
+  assert.deepEqual([...conceptBoosts(c.concepts, "oral dose").keys()], []);
+  assert.deepEqual([...conceptBoosts(c.concepts, "ORA of the targets").keys()], ["native.reverse_complement"]);
+  assert.equal(conceptBoosts(c.concepts, "molecular dockings").get("native.dock"), 60);
+  assert.equal(conceptBoosts(c.concepts, "对接").get("native.tcm_herb"), 57, "later entries of a concept a little lower");
+  assert.equal(conceptBoosts(c.concepts, "").size, 0);
+  // the filters still hold, and a catalog without concepts searches by words as before
+  assert.deepEqual(c.search("分子对接", { kind: "connector" }).map((e) => e.id), []);
+  // merging with a runner's catalog keeps the table: the runner's when it sends one, else the built one
+  const runnerDoc = { ...testCatalogDoc(), concepts: [{ words: ["对接"], entries: ["native.scrna_cluster"] }] };
+  assert.deepEqual(mergeCatalogs(doc, runnerDoc).concepts, runnerDoc.concepts);
+  assert.deepEqual(mergeCatalogs(doc, testCatalogDoc()).concepts, doc.concepts);
+  assert.equal(mergeCatalogs(testCatalogDoc(), testCatalogDoc()).concepts, undefined);
+  const plain = new Catalog(testCatalogDoc());
+  assert.deepEqual(plain.concepts, []);
+  assert.equal(plain.search("reverse complement")[0].id, "native.reverse_complement");
 });

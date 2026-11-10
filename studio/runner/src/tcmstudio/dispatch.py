@@ -41,7 +41,7 @@ from .catalog import (NEVER_OFFERED, canonical_name, dependency_present,
                       entries as catalog_entries,
                       catalog_search, get_entry, skill_specs, suggest)
 from .core_tools import CORE_BY_NAME, INQUIRY_ACTIONS, route
-from .envelope import jsonable, shape, utc_now
+from .envelope import TEXT_LIMIT, jsonable, shape, utc_now
 
 __all__ = ["Context", "call", "call_json", "validate", "ValidationResult"]
 
@@ -93,6 +93,10 @@ class Context:
     browser_snapshots: bool | None = None
     #: in the browser: the ADMET endpoints whose models are built in its private storage (None: not said)
     browser_admet_models: tuple[str, ...] | None = None
+    #: the characters the envelope's text may have (None: envelope.TEXT_LIMIT). The page gives
+    #: each call of a step its share of the text the model reads; the model's view is fitted
+    #: to it (fewer rows of a table, their count kept), and the result itself is whole
+    text_limit: int | None = None
 
     @property
     def profile(self) -> str:
@@ -148,6 +152,9 @@ class Context:
         models = value.get("browser_admet_models")
         if isinstance(models, (list, tuple)) and all(isinstance(m, str) for m in models):
             ctx.browser_admet_models = tuple(models)
+        limit = value.get("text_limit")
+        if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0:
+            ctx.text_limit = max(2000, min(TEXT_LIMIT, limit))
         return ctx, notes
 
 
@@ -421,6 +428,9 @@ class Outcome:
     composite_version: str | None = None
     notes: list[str] = field(default_factory=list)
     receipt: dict[str, Any] = field(default_factory=dict)
+    #: what is read for identifiers to cite, when it is not the whole result (envelope.shape
+    #: ``cite_from``): an enrichment's terms carry the papers of their definitions
+    cite: Any = ...
     # receipt/1 (CONTRACTS §3), filled in by _finish from these and the catalog entry:
     #: execution.validation (the arguments' check; hashes and paths only, never phi values)
     validation: dict[str, Any] | None = None
@@ -883,7 +893,7 @@ def _finish(called: str, via: str, kind: str, titles: tuple[str, str], o: Outcom
     summary = o.summary or (_failure_summary(o, title_zh) if o.error else f"{title_zh}：完成")
     summary_en = o.summary_en or (_failure_summary_en(o, title_en) if o.error
                                   else f"{title_en}: done")
-    citations = _citations(o.result, gov, o.citations)
+    citations = _citations(o.result if o.cite is ... else o.cite, gov, o.citations)
     receipt: dict[str, Any] = {"profile": ctx.profile, "purpose": ctx.purpose}
     if ctx.project_id:
         receipt["project_id"] = ctx.project_id
@@ -902,6 +912,7 @@ def _finish(called: str, via: str, kind: str, titles: tuple[str, str], o: Outcom
                  citations=citations, error=o.error, job=o.job, arguments=args,
                  started_at=started, duration_ms=(time.perf_counter() - t0) * 1000,
                  where=ctx.where, device=device, content_hash=o.content_hash,
+                 cite_from=o.cite, text_limit=ctx.text_limit or TEXT_LIMIT,
                  audit_head=o.audit_head, composite_version=o.composite_version,
                  receipt_extra=receipt, notes=[*notes, *o.notes])
 
@@ -2206,6 +2217,15 @@ def _exec_connector(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -
         o.notes.append(f"recovered: this call succeeded; the earlier failure "
                        f"({(before.get('last_failure') or {}).get('at')}) is kept in the record")
     if o.status == "succeeded":
+        digest = _MODEL_VIEWS.get(f"{key}.{op}")
+        if digest is not None:
+            try:
+                view = digest(o.result)
+            except Exception:                                   # noqa: BLE001
+                view = None                 # an answer shaped otherwise is read as it came
+            if view is not None:
+                o.model_view = view
+                o.cite = view
         n = _count_records(o.result)
         http = o.receipt.get("request", {}).get("http_status")
         o.summary = (f"{info.get('name')} · {op}：已返回" + (f" {n} 条记录" if n is not None else "")
@@ -2214,6 +2234,127 @@ def _exec_connector(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -
                         + (f" {n} record(s)" if n is not None else "")
                         + (f" (HTTP {http})" if http else ""))
     return o
+
+
+def _gost_view(result: Any) -> dict[str, Any] | None:
+    """g:Profiler's enrichment as the model reads it: every term with its statistics and the
+    query genes in it, the most significant first, and the settings a report has to state
+    (the correction, the threshold, the background, the release). Left out: each term's
+    definition and parent ids, and the evidence codes of each annotation; the full answer is
+    in the result the user sees. None when the answer is not g:Profiler's usual one."""
+    if not isinstance(result, Mapping) or not isinstance(result.get("result"), list):
+        return None
+    meta = result.get("meta") if isinstance(result.get("meta"), Mapping) else {}
+    settings = meta.get("query_metadata") if isinstance(meta.get("query_metadata"), Mapping) else {}
+    genes_meta = meta.get("genes_metadata") if isinstance(meta.get("genes_metadata"), Mapping) else {}
+    queries = genes_meta.get("query") if isinstance(genes_meta.get("query"), Mapping) else {}
+    # each term's intersections follow the order of its query's genes (ensgs)
+    names: dict[str, list[str]] = {}
+    for q, info in queries.items():
+        if not isinstance(info, Mapping):
+            continue
+        by_id: dict[str, str] = {}
+        for symbol, ids in (info.get("mapping") or {}).items():
+            for i in ids if isinstance(ids, list) else ():
+                by_id.setdefault(str(i), str(symbol))
+        names[str(q)] = [by_id.get(str(i), str(i)) for i in info.get("ensgs") or ()]
+    terms = []
+    for t in result["result"]:
+        if not isinstance(t, Mapping):
+            return None
+        order = names.get(str(t.get("query")), [])
+        hits = t.get("intersections") if isinstance(t.get("intersections"), list) else []
+        genes = [order[i] for i, codes in enumerate(hits) if codes and i < len(order)]
+        terms.append({"source": t.get("source"), "id": t.get("native"), "name": t.get("name"),
+                      "p_value": t.get("p_value"), "term_size": t.get("term_size"),
+                      "query_size": t.get("query_size"),
+                      "intersection_size": t.get("intersection_size"),
+                      "effective_domain_size": t.get("effective_domain_size"),
+                      "genes": genes})
+    terms.sort(key=lambda r: (r["p_value"] if isinstance(r["p_value"], (int, float)) else 1.0,
+                              str(r["id"])))
+    by_source: dict[str, int] = {}
+    for r in terms:
+        by_source[str(r["source"])] = by_source.get(str(r["source"]), 0) + 1
+    method = settings.get("significance_threshold_method")
+    view: dict[str, Any] = {
+        "terms": terms, "terms_by_source": by_source,
+        "p_value": (f"adjusted for multiple testing ({method}); only terms below the "
+                    f"threshold are returned" if method else "as g:Profiler returned it"),
+        "threshold": settings.get("user_threshold"),
+        "background": {"scope": settings.get("domain_scope"),
+                       "note": "effective_domain_size is the background size of each "
+                               "term's source"},
+        "organism": settings.get("organism"), "sources_asked": settings.get("sources"),
+        "release": meta.get("version"),
+        "genes": {q: {"mapped": len(order)} for q, order in names.items()}}
+    failed = genes_meta.get("failed")
+    if failed:
+        view["genes_not_recognised"] = failed
+    if genes_meta.get("ambiguous"):
+        view["genes_ambiguous"] = genes_meta["ambiguous"]
+    return view
+
+
+_OT_SCORES = ("Open Targets association scores combine several sources (aggregated "
+              "evidence): they rank what to read and are not findings; the columns after "
+              "score are the scores of each evidence datatype, empty where there is none")
+
+
+def _ot_rows(rows: Any, entity: str) -> list[dict[str, Any]] | None:
+    """Open Targets association rows, one flat record each: the entity's id and name, the
+    overall score, and one column per evidence datatype."""
+    if not isinstance(rows, list):
+        return None
+    out = []
+    for r in rows:
+        if not isinstance(r, Mapping) or not isinstance(r.get(entity), Mapping):
+            return None
+        e = r[entity]
+        row: dict[str, Any] = ({"symbol": e.get("approvedSymbol"), "ensembl_id": e.get("id")}
+                               if entity == "target"
+                               else {"disease": e.get("name"), "disease_id": e.get("id")})
+        row["score"] = r.get("score")
+        for d in r.get("datatypeScores") or ():
+            if isinstance(d, Mapping) and d.get("id"):
+                row[str(d["id"])] = d.get("score")
+        out.append(row)
+    return out
+
+
+def _ot_disease_targets_view(result: Any) -> dict[str, Any] | None:
+    disease = ((result or {}).get("data") or {}).get("disease") if isinstance(result, Mapping) else None
+    if not isinstance(disease, Mapping) or not isinstance(disease.get("associatedTargets"), Mapping):
+        return None
+    assoc = disease["associatedTargets"]
+    rows = _ot_rows(assoc.get("rows"), "target")
+    if rows is None:
+        return None
+    return {"disease": {"id": disease.get("id"), "name": disease.get("name")},
+            "targets_in_all": assoc.get("count"), "targets": rows, "scores": _OT_SCORES,
+            "more": "the next page: the same call with page + 1"}
+
+
+def _ot_associated_diseases_view(result: Any) -> dict[str, Any] | None:
+    target = ((result or {}).get("data") or {}).get("target") if isinstance(result, Mapping) else None
+    if not isinstance(target, Mapping) or not isinstance(target.get("associatedDiseases"), Mapping):
+        return None
+    assoc = target["associatedDiseases"]
+    rows = _ot_rows(assoc.get("rows"), "disease")
+    if rows is None:
+        return None
+    return {"target": target.get("approvedSymbol"), "diseases_in_all": assoc.get("count"),
+            "diseases": rows, "scores": _OT_SCORES}
+
+
+#: The model's view of a connector operation whose raw answer hides its result in bulk:
+#: {"<source>.<operation>": result → view, or None to read the answer as it came}. The
+#: envelope's ``result`` is always the whole answer.
+_MODEL_VIEWS: dict[str, Callable[[Any], Any]] = {
+    "gprofiler.gost": _gost_view,
+    "opentargets.disease_targets": _ot_disease_targets_view,
+    "opentargets.associated_diseases": _ot_associated_diseases_view,
+}
 
 
 def _count_records(value: Any) -> int | None:
@@ -4456,6 +4597,25 @@ def _routes(args: Mapping[str, Any], ctx: Context, g: dict[str, Any]) -> Outcome
                                    "listed" if question else f"Research routes: {n}"))
     route = rt.ROUTE_BY_ID[name] if name else matches[0][0]
     result = rt.view(route, judge, built=built, where=ctx.where)
+    # A live source that failed at its latest check says so on the route (tcmstudio.opstatus,
+    # as catalog_search says it): the agent takes the step's other sources first instead of
+    # waiting out a timeout, and a failing source is never read as an empty answer.
+    from . import opstatus
+    failing = []
+    for step in result.get("steps") or ():
+        for src in step.get("sources") or ():
+            sid = str(src.get("source") or "")
+            if sid.startswith("connector.") and sid in items:
+                status = opstatus.view(sid, ctx.state_root)
+                if status["state"] == "failing":
+                    src["operational"] = opstatus.brief(status)
+                    failing.append(sid)
+    if failing:
+        result["operational_note"] = (
+            f"{', '.join(dict.fromkeys(failing))} failed at the latest check (operational says "
+            "where and when): take the step's other sources first, and if you call one and it "
+            "fails, say it is unavailable now. A failing source says nothing about the "
+            "question.")
     if matches:
         result = {"question": question,
                   "matched": [{"route": r.id, "title": {"zh": r.title[0], "en": r.title[1]},

@@ -88,7 +88,7 @@ def test_gateway_manifest_covers_every_registered_operation():
     assert len(manifest["sources"]) == len(SOURCES) == 117
     pairs = {(s["key"], op["name"]) for s in manifest["sources"] for op in s["operations"]}
     assert pairs == {(s.key, op.name) for s in SOURCES for op in s.operations}
-    assert len(pairs) == 444
+    assert len(pairs) == 446
     assert next(s for s in manifest["sources"] if s["key"] == "herb_api")["transport"] == "http"
     assert all(s["rate_rps"] > 0 for s in manifest["sources"])
 

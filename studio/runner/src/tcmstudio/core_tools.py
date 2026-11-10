@@ -410,7 +410,7 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
                "limit": I("items returned", minimum=1, maximum=500, default=50)},
               required=("kind",)), "tcmdb.consensus", B_R),
     _core("connector_call", "在线数据源调用", "Call a live connector", "live_sources", """
-        Call one operation of a public biomedical API (117 sources, 444 operations: UniProt,
+        Call one operation of a public biomedical API (117 sources, 446 operations: UniProt,
         Ensembl, ChEMBL, PubChem, Open Targets, STRING, ClinicalTrials.gov, openFDA herbal
         events, DCABM-TCM, TCMBank, ITCM, SymMap, HERB, COCONUT …) in this runtime,
         under the project's network permission profile and each host's rate limit. Find
@@ -520,7 +520,7 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         explain why something is unavailable and what would make it available.""",
           obj({}), "system.capabilities", B_R),
     _core("catalog_search", "能力检索", "Search capabilities", "system", """
-        Search every TCMScience capability beyond these core tools (about 650: 150 native
+        Search every TCMScience capability beyond these core tools (about 650: 152 native
         tools — clinical calculators, statistics, sequences, phylogenetics …; 444 API
         operations; governed skills; TCM data hub, clinic, study-design and job operations)
         with Chinese or English keywords (十八反, eGFR, 生存分析). Returns ids with their full
