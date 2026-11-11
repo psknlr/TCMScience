@@ -516,7 +516,14 @@ Next: [Structures, binding sites and docking](#structure_binding), [Pathways, en
 | `connector.string.network` | aggregated | `identifiers: <genes>` |  |
 | `connector.pharos.target_interactions` | aggregated | `symbol: <gene symbol>` |  |
 
-Reconcile: State the background, the gene-set library and the multiple-testing correction of every enrichment. STRING scores and Pharos partners are aggregated: keep them apart from curated interactions.
+**Which proteins the network turns on, as a description** (`topology`)
+
+| Source | Evidence | Arguments | Note |
+| --- | --- | --- | --- |
+| `native.network_topology` | analysis | `edges: [["<protein>", "<protein>"]]` | degree, betweenness, closeness, clustering and components of the edges given (STRING's rows as they are) |
+| `native.set_overlap` | analysis | `sets: {"<set>": ["<gene>"]}; background: <background size>` | the overlap of gene sets, with a chance test against a stated background |
+
+Reconcile: State the background, the gene-set library and the multiple-testing correction of every enrichment. STRING scores and Pharos partners are aggregated: keep them apart from curated interactions. A hub of a network built from a database is a much-studied protein: report topology as description, never as a finding.
 
 Deciding between explanations: research_inquiry scaffold `pathway_signal`.
 
@@ -604,6 +611,8 @@ Next: [Pathways, enrichment and interaction networks](#pathways_networks), [A ta
 | `tcmdb.relations target_disease` | per_row | `kind: target_disease; subject: <gene symbol>` |  |
 | `connector.opentargets.associated_diseases` | aggregated | `ensembl_id: <Ensembl gene id>` |  |
 | `connector.opentargets.target` | curated | `ensembl_id: <Ensembl gene id>` |  |
+| `connector.opentargets.disease_search` | reference | `query: <disease>` | the platform's id of a disease, by name |
+| `connector.opentargets.disease_targets` | aggregated | `disease_id: <Open Targets disease id, e.g. MONDO_0005148>` | the other direction: the targets associated with a disease, best score first |
 | `connector.pharos.target_diseases` | aggregated | `symbol: <gene symbol>` |  |
 | `connector.monarch.associations` | curated | `subject: <gene or disease CURIE>` |  |
 | `connector.monarch.search` | reference | `q: <gene or disease>` |  |
@@ -1546,12 +1555,21 @@ Next: [How a formula might work (network pharmacology)](#formula_mechanism), [Sa
 | `native.tcm_formula` | recorded | `name: <formula>` |  |
 | `tcmdb.consensus formula_herb` | per_row | `kind: formula_herb; subject: <formula>` |  |
 
+**Each herb's id in the TCM databases that are asked next** (`herb_ids`)
+
+| Source | Evidence | Arguments | Note |
+| --- | --- | --- | --- |
+| `connector.tcmbank.herb_search` | reference | `name: <herb>` |  |
+| `connector.herb_api.search` | reference | `keyword: <herb>; label: Herb` |  |
+
 **Each herb's constituents, those detected in blood first** (`constituents`)
 
 | Source | Evidence | Arguments | Note |
 | --- | --- | --- | --- |
 | `connector.dcabm_tcm.prescription_blood` | measured | `names: ["<pinyin, upper case, e.g. HUANG QI>"]` |  |
 | `tcmdb.consensus herb_ingredient` | per_row | `kind: herb_ingredient; subject: <herb>` |  |
+| `connector.tcmbank.herb_ingredients` | curated | `tcmbank_id: <TCMBank herb id>` |  |
+| `connector.herb_api.detail` | curated | `entity_id: <HERB herb id>; label: Herb` | the herb's record: its ingredients, and the targets and diseases the database links to it |
 
 **The constituents' targets, measured apart from predicted** (`targets`)
 
@@ -1560,6 +1578,9 @@ Next: [How a formula might work (network pharmacology)](#formula_mechanism), [Sa
 | `tcmdb.consensus compound_target` | per_row | `kind: compound_target; subject: <compound>` |  |
 | `tcmdb.consensus ingredient_target` | per_row | `kind: ingredient_target; subject: <compound>` |  |
 | `tcmdb.relations herb_target` | per_row | `kind: herb_target; subject: <herb>` |  |
+| `connector.herb_api.detail` | curated | `entity_id: <HERB ingredient id HBIN…>; label: Ingredient` | one ingredient's record with the targets the database lists for it |
+| `connector.tcmbank.detail ingredient` | curated | `kind: ingredient; tcmbank_id: <TCMBank ingredient id>` |  |
+| `connector.itcm.ingredient_targets` | curated | `ingredient_id: <ITCM ingredient id>` | each pair with its source database |
 
 **Pathway enrichment against a stated background** (`pathways`)
 
@@ -1568,12 +1589,22 @@ Next: [How a formula might work (network pharmacology)](#formula_mechanism), [Sa
 | `connector.gprofiler.gost` | analysis | `query: <gene symbols, space-separated>` |  |
 | `native.enrichment_analysis` | analysis | `genes: ["<gene>"]; gene_sets: {"<set>": ["<gene>"]}; background: <background size>` |  |
 
+**How the targets connect, and which the network turns on** (`network`)
+
+| Source | Evidence | Arguments | Note |
+| --- | --- | --- | --- |
+| `connector.string.network` | aggregated | `identifiers: <genes>` |  |
+| `native.network_topology` | analysis | `edges: [["<protein>", "<protein>"]]` | degree, betweenness and components of the edges given: a description, not a test |
+
 **The disease's genes, and the overlap** (`disease`)
 
 | Source | Evidence | Arguments | Note |
 | --- | --- | --- | --- |
 | `tcmdb.relations target_disease` | per_row | `kind: target_disease; object: <disease>` |  |
+| `connector.opentargets.disease_search` | reference | `query: <disease>` |  |
+| `connector.opentargets.disease_targets` | aggregated | `disease_id: <Open Targets disease id, e.g. MONDO_0005148>` |  |
 | `connector.opentargets.associated_diseases` | aggregated | `ensembl_id: <Ensembl gene id>` |  |
+| `native.set_overlap` | analysis | `sets: {"<set>": ["<gene>"]}; background: <background size>` | the targets that are also disease genes, with the chance of an overlap that large against a stated background |
 
 **The whole loop as one recorded run (a job), or the governed seed-corpus analysis** (`recorded_run`)
 
@@ -1582,7 +1613,7 @@ Next: [How a formula might work (network pharmacology)](#formula_mechanism), [Sa
 | `job.research.run` | analysis | `question: <question>; formula: <formula>; disease: <disease>` |  |
 | `skill.analyze-tcm-network-pharmacology` | predicted | `formula_name: <formula>` |  |
 
-Reconcile: Carry each target's evidence kind into the pathway step: an enrichment of predicted targets is a hypothesis about the predictions.
+Reconcile: Carry each target's evidence kind into the pathway step: an enrichment of predicted targets is a hypothesis about the predictions. Hand a step's result to the next by reference ({"$ref": …}) rather than retyping it, so no gene is lost or added.
 
 Deciding between explanations: research_inquiry scaffold `pathway_signal`.
 

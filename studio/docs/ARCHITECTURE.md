@@ -1,7 +1,7 @@
 # TCMScience Studio — architecture
 
 **TCMScience Studio** is the web workbench for TCMScience, served at **https://science.impf.ai**.
-It gives every TCMScience capability (150 native tools, the governed skills, the clinic, the TCM
+It gives every TCMScience capability (152 native tools, the governed skills, the clinic, the TCM
 data hub, 117 public connectors, the pipelines and structure engines, and the research loop) to a
 conversational agent. The agent's every claim stays inside what its evidence licenses.
 
@@ -26,7 +26,7 @@ have to meet is in [REMOTE_COMPUTE.md](REMOTE_COMPUTE.md) (designed, not deploye
  │  files           │
  │                  │      tools
  │ ToolRouter ──────┼──▶ BrowserRuntime: Pyodide in a Web Worker — the real bioagent + psh + tcmstudio code,
- │                  │      pinned and hash-checked; 150 native tools, the 4 pinned governed skills, the clinic (CPU);
+ │                  │      pinned and hash-checked; 152 native tools, the 4 pinned governed skills, the clinic (CPU);
  │                  │      connectors through /api/sources; the data hub over packaged or imported stores;
  │                  │      the page's job service: browser jobs in Pyodide job workers (research, RNA-seq counts,
  │                  │      single-cell count tables, ADMET, docking from prepared inputs), their files in OPFS
@@ -80,7 +80,7 @@ counts.
    and returns one **envelope** shape (`CONTRACTS.md §3`). The runner and the Pyodide worker import the same
    two modules, so a tool behaves the same in both, and so do its governance fields.
 2. **Core tools + catalog/call.** The model is offered 27 core tools, `catalog_search` and `call_tool`
-   among them, which reach every other entry (653). The full set (~58k tokens) is never sent
+   among them, which reach every other entry (657). The full set (~58k tokens) is never sent
    every turn. `research_routes` maps each kind of research question to the entries that answer
    it, step by step, with the evidence kind each gives and what covers one that cannot run here
    ([ROUTES.md](ROUTES.md)).
@@ -90,6 +90,11 @@ counts.
 4. **The agent loop runs in the browser**, with native tool calling (OpenAI-compatible and
    Anthropic). Long work becomes a **job** that the conversation follows (`job_status`, a job card in
    the thread): the runner's, or, for the kinds the browser runs, a job of the page's job service (ids `bj-…`).
+   **Data moves between calls by reference, not through the model.** Every result that holds data is labelled
+   (`R1`, `R2` …), and a later call's argument may be `{"$ref": "R3", "path": …, "field": …}`; the page replaces it
+   with that result's full data before the call is placed (`core/refs.js`, CONTRACTS §6). The model reads a text
+   of each result fitted to a budget (record lists as tables, with their true count) and never retypes a gene
+   list, so a multi-step analysis neither loses nor invents items, and its cost does not grow with the data.
 5. **Confirmation before reaching out, asked once per project.** Jobs, network calls, sending a sequence to a
    third-party service (`allow_remote`), the first call to a runner and sending project files to the runner require
    the user's explicit approval. A project asks once: its first such call (or file send) shows the one question, and

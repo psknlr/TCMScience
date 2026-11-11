@@ -357,7 +357,8 @@ export class ToolRouter {
   }
 
   /**
-   * Run a call. ctx: {projectId, conversationId, signal, onApproval(request) → "once"|"project"|"deny", callId}.
+   * Run a call. ctx: {projectId, conversationId, signal, onApproval(request) → "once"|"project"|"deny", callId,
+   * textLimit (the characters the result's text may have: the runtime fits the model's view to it)}.
    * Always resolves to an envelope: a fault in the page itself (not in a runtime, whose faults #call turns into
    * envelopes) gives a failed one that says so, never a rejection.
    */
@@ -378,6 +379,7 @@ export class ToolRouter {
 
   async #call(name, args, ctx = {}) {
     const { projectId = null, conversationId = null, signal, onApproval, callId = null } = ctx;
+    const textLimit = Number.isInteger(ctx.textLimit) && ctx.textLimit > 0 ? Math.min(TEXT_LIMIT, Math.max(2000, ctx.textLimit)) : null;
     const input = this.#input(name, args);
     const r = this.resolve(name, input);
     if (r.renamed && !r.error) {
@@ -486,6 +488,7 @@ export class ToolRouter {
     try {
       const env = await raceAbort(rt.call(name, input, {
         project_id: projectId, conversation_id: conversationId, approvals: granted.map((g) => g.reason), signal,
+        ...(textLimit ? { text_limit: textLimit } : {}),
         network: await this.#webOn(projectId), acceleration: this.settings.browserAcceleration || "auto",
         browser_jobs: this.runtimes.jobs?.status === "ready",
         browser_snapshots: typeof this.runtimes.jobs?.snapshots === "boolean" ? this.runtimes.jobs.snapshots : null,

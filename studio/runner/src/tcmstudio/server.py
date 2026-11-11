@@ -371,6 +371,8 @@ class RunnerServer(ThreadingHTTPServer):
                 ctx[key] = value.strip()[:200]
         if isinstance(context.get("approvals"), list):
             ctx["approvals"] = [str(a)[:100] for a in context["approvals"][:50]]
+        if isinstance(context.get("text_limit"), int) and not isinstance(context["text_limit"], bool):
+            ctx["text_limit"] = context["text_limit"]
         def run() -> tuple[dict[str, Any], Any]:
             self.hook.take_refusal()
             return call(tool, arguments, ctx), self.hook.take_refusal()

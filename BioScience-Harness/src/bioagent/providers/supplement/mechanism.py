@@ -126,7 +126,7 @@ SOURCES: tuple[PublicSource, ...] = (
                       "2026-11-04 this example answered a PHP fatal error with HTTP 200; "
                       "such an answer is now a failed call", "getData.php",
                       params={"type": "connect", "proteins": "{proteins}"},
-                      accept="text/plain", args=("proteins",),
+                      accept="text/plain", lists={"proteins": ","}, args=("proteins",),
                       example={"proteins": "P29317,Q06124,P04049,P15056"},
                       contract=_SIGNOR_RELATIONS),
             Operation("pathway_relations", "The causal relations of one SIGNOR pathway, "

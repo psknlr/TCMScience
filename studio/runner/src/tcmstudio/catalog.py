@@ -19,6 +19,7 @@ import copy
 import difflib
 import importlib.util
 import inspect
+import math
 import re
 import shutil
 import types
@@ -99,7 +100,7 @@ _DOMAIN_TAGS: dict[str, tuple[str, ...]] = {
     "tcm-knowledge": ("中医", "中药", "中医药", "TCM"),
 }
 
-#: zh / en titles of the 150 native tools, for the UI and for Chinese search.
+#: zh / en titles of the 152 native tools, for the UI and for Chinese search.
 _NATIVE_TITLES: dict[str, tuple[str, str]] = {
     "reverse_complement": ("反向互补序列", "Reverse complement"),
     "transcribe": ("转录（DNA→RNA）", "Transcribe DNA to RNA"),
@@ -201,6 +202,8 @@ _NATIVE_TITLES: dict[str, tuple[str, str]] = {
     "sample_size_two_proportions": ("样本量（两组率）", "Sample size (two proportions)"),
     "sample_size_two_means": ("样本量（两组均数）", "Sample size (two means)"),
     "incidence_rate": ("发病率与置信区间", "Incidence rate"),
+    "network_topology": ("网络拓扑分析", "Network topology"),
+    "set_overlap": ("集合交集与重叠检验", "Set overlap"),
     "linkage_disequilibrium": ("连锁不平衡", "Linkage disequilibrium"),
     "nucleotide_diversity": ("核苷酸多样性", "Nucleotide diversity"),
     "fst": ("群体分化 Fst", "Fst"),
@@ -263,6 +266,8 @@ _NATIVE_EXTRA_TAGS: dict[str, tuple[str, ...]] = {
     "sample_size_two_proportions": ("样本量计算", "试验设计"),
     "sample_size_two_means": ("样本量计算", "试验设计"),
     "enrichment_analysis": ("通路富集", "基因集"),
+    "network_topology": ("蛋白互作网络", "核心靶点", "拓扑", "度值", "中心性", "枢纽"),
+    "set_overlap": ("交集", "韦恩图", "共同靶点", "重叠"),
     "tcm_compatibility": ("配伍", "禁忌", "同用"),
     "tcm_applicability": ("证据适用", "能否说有效"),
     "morphine_milligram_equivalents": ("阿片类", "镇痛"),
@@ -894,6 +899,11 @@ def _schema_of_value(value: Any) -> dict[str, Any]:
     return {"type": "string"}
 
 
+def _list_hint() -> str:
+    from bioagent.providers.public_apis import LIST_HINT
+    return LIST_HINT
+
+
 def op_schema(op: Any) -> dict[str, Any]:
     names = _placeholders(op.path, set())
     for part in (op.params, op.variables, op.json_body, op.form):
@@ -908,6 +918,13 @@ def op_schema(op: Any) -> dict[str, Any]:
                 schema["default"] = op.example[n]
         else:
             schema = {"type": "string"}
+        # what the argument is, where the template says: several values in one string
+        # (any usual separator is accepted and sent the service's way), a unit, a scale
+        hint = "; ".join(x for x in (
+            str((getattr(op, "hints", None) or {}).get(n) or ""),
+            _list_hint() if n in (getattr(op, "lists", None) or {}) else "") if x)
+        if hint:
+            schema["description"] = hint
         props[n] = schema
     out: dict[str, Any] = {"type": "object", "properties": props, "additionalProperties": False}
     if op.args:
@@ -1906,7 +1923,10 @@ def build_catalog(where: str = "runner", probe: bool = True, *, network: bool | 
         "counts": {"core": len(CORE_TOOLS), "entries": len(items),
                    "by_kind": {k: sum(1 for e in items if e["kind"] == k) for k in ENTRY_KINDS}},
         # acts reserved for a person ({name: message}): never entries; the page refuses them by name
-        "never_offered": dict(NEVER_OFFERED)}
+        "never_offered": dict(NEVER_OFFERED),
+        # what a question asks for → the entries that answer it (CONCEPTS): the page's own
+        # search ranks by them too, so both searches agree
+        "concepts": [{"words": list(words), "entries": list(ids)} for words, ids in CONCEPTS]}
     # what a connector entry without "operational" means (tcmstudio.opstatus): stated once
     default = _operational_default()
     if default is not None:
@@ -1952,7 +1972,201 @@ def _search_fields(e: Mapping[str, Any]) -> dict[str, Any]:
     return cached
 
 
-def _score(e: Mapping[str, Any], tokens: list[str], full: str) -> float:
+#: What a question asks for, in the words people use (Chinese and English), and the entries
+#: that answer it, the most direct first. A search by intent ("核心靶点", "survival analysis",
+#: "disease genes") shares no word with the tool that does it (network_topology,
+#: kaplan_meier, opentargets.disease_targets), so words alone rank a tool that merely has
+#: "analysis" or "gene" in its name above it. An entry a concept lists is lifted above every
+#: match by words; tests/test_catalog.py holds every id here to the catalog.
+CONCEPTS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("network pharmacology", "systems pharmacology", "网络药理", "网药", "多靶点"),
+     ("system.routes", "job.research.run", "job.research.snapshot",
+      "skill.analyze-tcm-network-pharmacology")),
+    (("ppi", "protein interaction", "protein-protein", "interaction network", "interactome",
+      "蛋白互作", "蛋白相互作用", "互作网络", "蛋白网络", "相互作用网络", "互作"),
+     ("connector.string.network", "native.network_topology", "connector.string.map_ids",
+      "connector.intact.interactions", "connector.omnipath.interactions",
+      "connector.signor.relations_among")),
+    (("hub", "topology", "degree", "centrality", "betweenness", "core target", "key target",
+      "核心靶点", "关键靶点", "枢纽", "拓扑", "度值", "中心性"),
+     ("native.network_topology", "connector.string.network")),
+    (("enrichment", "over-representation", "overrepresentation", "ora", "go analysis",
+      "kegg analysis", "pathway analysis", "functional annotation", "富集", "通路分析",
+      "功能注释", "go分析", "kegg分析"),
+     ("connector.gprofiler.gost", "native.enrichment_analysis", "connector.panther.enrich",
+      "connector.reactome.pathways_for_entity", "connector.kegg.link")),
+    (("disease gene", "disease target", "disease-associated", "genes of a disease",
+      "targets of a disease", "疾病靶点", "疾病基因", "疾病相关基因", "疾病相关靶点", "致病基因"),
+     ("connector.opentargets.disease_targets", "connector.opentargets.disease_search",
+      "connector.monarch.associations", "tcmdb.relations")),
+    (("compound target", "targets of a compound", "ingredient target", "target prediction",
+      "predicted target", "靶点预测", "成分靶点", "化合物靶点", "作用靶点", "潜在靶点", "靶点"),
+     ("tcmdb.consensus", "connector.herb_api.detail", "connector.tcmbank.detail",
+      "connector.itcm.ingredient_targets", "connector.symmap.related", "connector.pharos.ligand",
+      "connector.drugcentral.activities", "connector.dgidb.drug_interactions",
+      "connector.chembl.activities", "tcmdb.relations")),
+    (("ingredient", "constituent", "phytochemical", "成分", "活性成分", "有效成分", "化学成分",
+      "入血成分"),
+     ("connector.tcmbank.herb_ingredients", "connector.herb_api.detail",
+      "connector.itcm.herb_ingredients", "connector.dcabm_tcm.herb_blood", "tcmdb.consensus",
+      "connector.knapsack.organism_metabolites", "connector.coconut.organism_molecules",
+      "connector.wikidata_sparql.compounds_in_taxon")),
+    (("herb id", "herb search", "药材编号", "药材检索"),
+     ("connector.tcmbank.herb_search", "connector.herb_api.search", "native.tcm_herb")),
+    (("overlap", "venn", "intersection", "intersect", "common targets", "shared targets",
+      "交集", "韦恩", "共同靶点", "共有靶点", "重叠"),
+     ("native.set_overlap", "native.hypergeometric_test", "native.fisher_exact")),
+    (("docking", "dock", "binding energy", "vina", "对接", "分子对接", "结合能"),
+     ("job.pipeline.dock", "skill.dock-ligands", "connector.pdbe.best_structures",
+      "connector.rcsb.entry", "connector.alphafold.prediction")),
+    (("admet", "drug-likeness", "druglikeness", "oral bioavailability", "成药性", "类药性",
+      "口服生物利用度", "毒性预测"),
+     ("job.pipeline.admet", "skill.predict-admet", "job.admet.models")),
+    (("differential expression", "differentially expressed", "deg", "rna-seq", "rnaseq",
+      "transcriptome", "transcriptomics", "差异表达", "差异基因", "转录组"),
+     ("job.pipeline.rnaseq", "skill.rnaseq-differential-expression", "native.log2_fold_change",
+      "native.welch_t_test", "native.benjamini_hochberg")),
+    (("single-cell", "single cell", "scrna", "scrna-seq", "单细胞"),
+     ("job.pipeline.scrna", "skill.scrna-cell-atlas", "connector.cellxgene.collection",
+      "connector.hca_azul.project")),
+    (("geo", "gse", "expression dataset", "public dataset", "omics dataset", "数据集", "表达谱",
+      "公共数据"),
+     ("connector.ncbi_eutils.esearch", "connector.ebi_search.search",
+      "connector.biostudies.search", "connector.ena.search", "connector.pride.search",
+      "connector.metabolights.studies")),
+    (("survival", "kaplan", "kaplan-meier", "log-rank", "logrank", "prognosis", "生存", "预后"),
+     ("native.kaplan_meier", "native.log_rank_test")),
+    (("fdr", "multiple testing", "multiple-testing", "q-value", "多重检验", "多重校正"),
+     ("native.benjamini_hochberg",)),
+    (("meta-analysis", "meta analysis", "pooled effect", "荟萃", "meta分析", "合并效应"),
+     ("native.meta_analysis",)),
+    (("literature", "pubmed", "paper", "publication", "文献", "论文"),
+     ("connector.europepmc.search", "connector.ncbi_eutils.esearch", "connector.crossref.search",
+      "skill.retrieve-literature-evidence", "connector.pubtator.search")),
+    (("clinical trial", "rct", "registered trial", "临床试验", "随机对照"),
+     ("connector.clinicaltrials.search", "connector.clinicaltrials.study")),
+    (("id conversion", "convert id", "gene id", "id mapping", "symbol to ensembl",
+      "ensembl id", "uniprot id", "entrez", "id转换", "基因名转换", "基因id"),
+     ("connector.gprofiler.convert", "connector.mygene.query", "connector.hgnc.symbol",
+      "connector.string.map_ids", "connector.uniprot.search", "connector.ensembl.xrefs")),
+    (("smiles", "inchikey", "pubchem cid", "compound structure", "chemical structure",
+      "结构式", "化合物结构"),
+     ("connector.pubchem.cid_by_name", "connector.pubchem.properties_by_cid",
+      "connector.chebi.search", "connector.chembl.molecule")),
+    (("tissue expression", "expressed in", "protein expression", "组织表达", "表达分布"),
+     ("connector.gtex.median_expression", "connector.proteinatlas.gene",
+      "connector.proteomicsdb.expression")),
+    (("variant", "snp", "mutation", "polymorphism", "变异", "突变", "多态性"),
+     ("connector.myvariant.variant", "connector.gnomad.variant", "connector.ensembl.vep_hgvs",
+      "connector.gwas_catalog.associations_by_rsid", "native.annotate_coding_variant")),
+    (("herb-drug", "herb drug interaction", "drug interaction", "pharmacogenomics", "cyp",
+      "药物相互作用", "中西药", "联用", "药物基因组"),
+     ("system.routes", "connector.cpic.pairs_for_gene",
+      "connector.openfda.herbal_event_coreported_drugs", "connector.drugcentral.drug_by_name")),
+    (("toxicity", "adverse", "side effect", "safety", "contraindication", "毒性", "不良反应",
+      "安全性", "禁忌", "十八反", "十九畏"),
+     ("skill.assess-tcm-safety", "native.tcm_compatibility",
+      "connector.openfda.herbal_event_reactions", "connector.aopwiki.aop",
+      "connector.drugcentral.faers")),
+    (("formula composition", "composition", "方剂组成", "组成", "配方"),
+     ("native.tcm_formula", "tcmdb.formulas", "native.hkbu_formula_lookup")),
+    (("protein structure", "pdb", "alphafold", "structure prediction", "fold", "蛋白结构",
+      "结构预测", "晶体结构"),
+     ("connector.pdbe.best_structures", "connector.rcsb.entry",
+      "connector.alphafold.prediction", "job.pipeline.fold",
+      "skill.predict-protein-structure")),
+    (("alignment", "align", "pairwise alignment", "序列比对", "比对"),
+     ("native.global_alignment", "native.local_alignment", "native.protein_alignment")),
+    (("metabolomics", "metabolome", "mass spectrum", "spectra", "代谢组", "质谱", "谱图"),
+     ("connector.metabolomics_workbench.study_summary", "connector.metabolights.studies",
+      "connector.massbank.records_search", "connector.gnps.libraries")),
+    (("microbiome", "microbiota", "gut flora", "肠道菌群", "菌群", "微生物组"),
+     ("connector.gutmgene.microbe_metabolite", "connector.gutmgene.microbe_gene",
+      "connector.mgnify.studies_by_biome")),
+    (("pharmacokinetics", "exposure", "absorbed", "plasma concentration", "药代动力学", "药代",
+      "入血", "血药浓度"),
+     ("connector.dcabm_tcm.prescription_blood", "connector.dcabm_tcm.herb_blood",
+      "native.pk_one_compartment", "connector.sabio_rk.kinlaw_search")),
+    (("data hub", "tcm database", "tcm databases", "tcmsp", "etcm", "batman", "数据中心",
+      "中药数据库", "数据源"),
+     ("tcmdb.catalog", "tcmdb.datasets", "tcmdb.status", "job.tcmdb.fetch", "job.tcmdb.build")),
+    (("druggability", "tractability", "target profile", "drug target", "成药靶点", "靶点信息",
+      "可成药"),
+     ("connector.opentargets.target", "connector.pharos.target", "connector.uniprot.entry",
+      "connector.ttd.target")),
+    (("cell line", "drug sensitivity", "细胞系", "药敏"),
+     ("connector.cellosaurus.search", "connector.pharmacodb.experiments",
+      "connector.pharmacodb.cell_line")),
+    (("transcription factor", "tf binding", "mirna", "microrna", "regulator", "转录因子",
+      "调控", "微小rna"),
+     ("connector.jaspar.search", "connector.chip_atlas.target_genes_index",
+      "connector.remap.datasets_by_target", "connector.rnacentral.protein_targets")),
+    (("t-test", "t test", "ttest", "t检验"), ("native.welch_t_test",)),
+    (("anova", "方差分析"), ("native.one_way_anova", "native.kruskal_wallis")),
+    (("correlation", "pearson", "spearman", "相关性", "相关分析"), ("native.correlation",)),
+    (("regression", "回归"), ("native.linear_regression",)),
+    (("roc", "auc", "diagnostic accuracy", "诊断效能"),
+     ("native.roc_auc", "native.diagnostic_metrics")),
+    (("chi-square", "chi square", "卡方"), ("native.chi_square_test", "native.fisher_exact")),
+    (("sample size", "power calculation", "样本量"),
+     ("native.sample_size_two_means", "native.sample_size_two_proportions")),
+    (("syndrome", "pattern differentiation", "证候", "辨证", "证型"),
+     ("native.tcm_syndrome", "clinic.assess", "connector.symmap.related")),
+    (("classical text", "classics", "古籍", "经典", "条文", "原文"),
+     ("native.tcm_classical_search", "skill.retrieve-tcm-evidence")),
+)
+_CONCEPT_BOOST = 60.0           # above any match by words; the first id of a concept highest
+_CONCEPT_STEP = 3.0
+_LATIN_WORD = re.compile(r"[a-z0-9]+")
+
+
+def _concept_boosts(query: str) -> dict[str, float]:
+    """{entry id: boost} for the concepts a query names. A Chinese phrase counts where the
+    query contains it; a Latin one where its words stand together as whole words (a plural
+    s is ignored), so 'ora' is not found in 'oral'."""
+    text = query.lower()
+    words = _LATIN_WORD.findall(text.replace("-", " ").replace("_", " "))
+    singular = [w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+                for w in words]
+
+    def named(phrase: str) -> bool:
+        if _CJK.search(phrase):
+            return phrase in text
+        want = _LATIN_WORD.findall(phrase.replace("-", " "))
+        n = len(want)
+        return any(words[i:i + n] == want or singular[i:i + n] == want
+                   for i in range(len(words) - n + 1))
+
+    out: dict[str, float] = {}
+    for phrases, ids in CONCEPTS:
+        if any(named(p) for p in phrases):
+            for rank, entry_id in enumerate(ids):
+                boost = _CONCEPT_BOOST - _CONCEPT_STEP * rank
+                if boost > out.get(entry_id, 0.0):
+                    out[entry_id] = boost
+    return out
+
+
+def _token_weights(tokens: list[str], pool: Sequence[Mapping[str, Any]]) -> dict[str, float]:
+    """How much each word of a query tells entries apart: 1 for a word few entries have, down
+    to 0.2 for one a third of them have ("gene", "search", "analysis"). Without it an entry
+    whose operation is named by a common word outranks the one the rarer word names."""
+    n = len(pool)
+    if n < 20:
+        return {t: 1.0 for t in tokens}
+    out = {}
+    for tok in dict.fromkeys(tokens):
+        df = 0
+        for e in pool:
+            f = _search_fields(e)
+            if tok in f["id"] or tok in f["zh"] or tok in f["en"] or any(tok in t for t in f["tags"]):
+                df += 1
+        out[tok] = max(0.2, min(1.0, math.log((n + 1) / (df + 1)) / math.log(n + 1) * 1.35))
+    return out
+
+
+def _score(e: Mapping[str, Any], tokens: list[str], full: str,
+           weights: Mapping[str, float] | None = None) -> float:
     f = _search_fields(e)
     score = 0.0
     matched = 0
@@ -1978,7 +2192,7 @@ def _score(e: Mapping[str, Any], tokens: list[str], full: str) -> float:
             s += 1
         if s:
             matched += 1
-        score += s
+        score += s * (weights.get(tok, 1.0) if weights else 1.0)
     # A query written without spaces (常见于中文): credit tags and titles it contains.
     for tag in f["tags"]:
         if len(tag) >= 2 and _CJK.search(tag) and tag in full:
@@ -2041,6 +2255,8 @@ def catalog_search(query: str = "", category: str | None = None, kind: str | Non
     built = list(built) if built is not None else None
     tokens = _tokens(query)
     full = query.lower()
+    weights = _token_weights(tokens, pool) if len(tokens) > 1 else None
+    concepts = _concept_boosts(query) if query else {}
     scored = []
     for e in pool:
         if category and e["category"] != category:
@@ -2053,7 +2269,8 @@ def catalog_search(query: str = "", category: str | None = None, kind: str | Non
                                               browser_snapshots=browser_snapshots,
                                               browser_admet_models=browser_admet_models):
             continue
-        s = _score(e, tokens, full) if tokens else 1.0
+        s = _score(e, tokens, full, weights) if tokens else 1.0
+        s += concepts.get(e["id"], 0.0)
         # A lone shared character pair (a bigram such as 分析) is noise, not a match.
         if s >= (3.0 if tokens else 0.5):
             scored.append((s, e))

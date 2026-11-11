@@ -223,9 +223,14 @@ function knowledgeRow(app, p, f, refresh) {
     h("div.file-row__actions",
       iconButton({ icon: "eye", label: t("ui.files.preview"), size: "sm", onClick: () => openDialog({ title: f.name, size: "lg", body: filePreview({ blob: f.blob }, { name: f.name, media_type: f.type }) }) }),
       send,
+      // no confirmation: the file is removed at once, and the toast puts it back as it was (same id and hash)
       iconButton({ icon: "trash", label: t("ui.action.delete"), size: "sm", onClick: async () => {
-        const ok = await confirmDialog({ title: t("ui.knowledge.delete_title"), body: t("ui.knowledge.delete_body", { name: f.name }), confirmLabel: t("ui.action.delete"), danger: true });
-        if (ok) { await app.store.files.remove(f.id); refresh(); }
+        try { await app.store.files.remove(f.id); } catch (err) { toast(err?.message || String(err), { tone: "warn" }); return; }
+        refresh();
+        toast(t("ui.knowledge.deleted", { name: f.name }), { action: { label: t("ui.action.undo"), onClick: async () => {
+          try { await app.store.files.restore(f); } catch (err) { toast(err?.message || String(err), { tone: "warn" }); }
+          refresh();
+        } } });
       } })));
 }
 

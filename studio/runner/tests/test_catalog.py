@@ -113,15 +113,18 @@ def test_thirteen_categories_in_order_with_counts(runner_catalog):
 
 def test_counts(runner_catalog):
     kinds = runner_catalog["counts"]["by_kind"]
-    assert kinds["native"] == 150
+    # network_topology and set_overlap made the native tools 152
+    assert kinds["native"] == 152
     assert kinds["connector"] >= 400
     assert kinds["skill"] >= 11
     assert kinds["clinic"] >= 4 and kinds["tcmdb"] >= 8 and kinds["study"] >= 4
     # system.capability_audit made the system entries ten (and the catalog 650), job.admet.models the
     # jobs twelve (651), study.inquiry the study entries five (652), system.routes the system
-    # entries eleven (653): counted on purpose
+    # entries eleven (653); network_topology, set_overlap and Open Targets' disease_search and
+    # disease_targets made the catalog 657: counted on purpose
     assert kinds["job"] == 12 and kinds["system"] == 11 and kinds["study"] == 5
-    assert runner_catalog["counts"]["entries"] == len(runner_catalog["entries"]) == 653
+    assert kinds["connector"] == 446
+    assert runner_catalog["counts"]["entries"] == len(runner_catalog["entries"]) == 657
 
 
 def test_the_capability_audit_entry(runner_catalog):
@@ -620,3 +623,72 @@ def test_catalog_cli_writes_the_document(tmp_path):
     assert "clinic.sign" in doc["never_offered"] and "system.shell" in doc["never_offered"]
     ids = {e["id"] for e in doc["entries"]} | {t["name"] for t in doc["core"]}
     assert not ids & set(doc["never_offered"])
+
+
+# ------------------------------------------------------- search by what a question asks
+
+from tcmstudio import catalog  # noqa: E402
+
+#: query → the entries that must be among the first `within` (the tools that do what is asked)
+_INTENTS = [
+    ("PPI network topology hub genes", ["native.network_topology", "connector.string.network"], 3),
+    ("蛋白互作网络 核心靶点", ["native.network_topology", "connector.string.network"], 3),
+    ("KEGG 富集分析", ["connector.gprofiler.gost", "native.enrichment_analysis"], 4),
+    ("disease genes type 2 diabetes", ["connector.opentargets.disease_targets"], 3),
+    ("疾病靶点", ["connector.opentargets.disease_targets"], 3),
+    ("survival analysis", ["native.kaplan_meier", "native.log_rank_test"], 3),
+    ("venn intersection gene sets", ["native.set_overlap"], 2),
+    ("共同靶点 交集", ["native.set_overlap"], 2),
+    ("molecular docking", ["job.pipeline.dock"], 2),
+    ("差异表达分析", ["job.pipeline.rnaseq"], 2),
+    ("葛根的活性成分", ["connector.tcmbank.herb_ingredients"], 3),
+    ("靶点预测", ["tcmdb.consensus", "connector.herb_api.detail"], 4),
+    ("convert gene symbols to ensembl id", ["connector.gprofiler.convert"], 3),
+    ("网络药理学", ["job.research.run", "system.routes"], 4),
+    ("单细胞", ["job.pipeline.scrna"], 2),
+    ("文献检索", ["connector.europepmc.search"], 3),
+    ("oral bioavailability", ["job.pipeline.admet"], 2),
+]
+
+
+@pytest.mark.parametrize("query,expected,within", _INTENTS, ids=[q for q, _, _ in _INTENTS])
+def test_a_search_by_intent_finds_the_tool_that_does_it(query, expected, within):
+    got = [m["id"] for m in catalog.catalog_search(query, limit=8)["matched"]]
+    for entry in expected:
+        assert entry in got[:within], f"{query!r}: {entry} is not among the first {within} of {got}"
+
+
+def test_every_concept_names_entries_of_the_catalog_and_words_still_find_tools_by_name():
+    ids = set(catalog.entry_ids())
+    for words, entries in catalog.CONCEPTS:
+        assert words and entries
+        assert not [e for e in entries if e not in ids], (words[0], entries)
+        assert len(set(entries)) == len(entries)
+    # the catalog document carries the same table for the page's own search
+    doc = catalog.build_catalog("runner", probe=False)
+    assert doc["concepts"] == [{"words": list(w), "entries": list(e)} for w, e in catalog.CONCEPTS]
+    # a tool asked for by its name or id is still first
+    for query, first in (("egfr", "native.egfr_ckd_epi_2021"), ("reverse complement", "native.reverse_complement"),
+                         ("string network", "connector.string.network"),
+                         ("connector.chembl.activities", "connector.chembl.activities"),
+                         ("十八反", "skill.assess-tcm-safety")):
+        assert catalog.catalog_search(query, limit=3)["matched"][0]["id"] == first, query
+    # a concept's word is a whole word: 'ora' (over-representation) is not found in 'oral'
+    assert "connector.gprofiler.gost" not in catalog._concept_boosts("oral dose")
+    assert "connector.gprofiler.gost" in catalog._concept_boosts("ORA of the targets")
+    assert "job.pipeline.rnaseq" in catalog._concept_boosts("find DEGs")      # a plural
+    # a common word alone no longer lifts an operation that is merely named by it
+    survival = [m["id"] for m in catalog.catalog_search("survival analysis", limit=3)["matched"]]
+    assert "connector.mgnify.analysis" not in survival[:2]
+
+
+def test_arguments_that_take_several_values_say_so_in_their_schema():
+    by = {e["id"]: e for e in catalog.build_catalog("runner", probe=False)["entries"]}
+    ids = by["connector.string.network"]["parameters"]["properties"]["identifiers"]
+    assert "separated by spaces, commas or line breaks" in ids["description"]
+    assert "400 medium" in by["connector.string.network"]["parameters"]["properties"]["score"]["description"]
+    for entry, arg in (("connector.gprofiler.gost", "query"), ("connector.omnipath.interactions", "partners"),
+                       ("connector.panther.enrich", "genes"), ("connector.signor.relations_among", "proteins")):
+        assert "one or more" in by[entry]["parameters"]["properties"][arg]["description"], entry
+    # an argument that takes one value says nothing of the kind
+    assert "description" not in by["connector.chembl.molecule"]["parameters"]["properties"]["chembl_id"]

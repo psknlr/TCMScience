@@ -189,6 +189,15 @@ _PLACEBO_T = [1, 1, 2, 2, 3, 4, 4, 5, 5, 8, 8, 8, 8, 11, 11, 12, 12, 15, 17, 22,
 _SAMPLER = sum(_MONO[a] for a in "SAMPLER") + 18.010565
 _DUBOIS = 0.007184 * 70 ** 0.425 * 175 ** 0.725
 _HEIGHT_IN = 175 / 2.54
+#: Zachary's karate club (J. Anthropol. Res. 33:452, 1977): 34 members, 78 ties.
+_KARATE = [pair.split("-") for pair in (
+    "0-1 0-2 0-3 0-4 0-5 0-6 0-7 0-8 0-10 0-11 0-12 0-13 0-17 0-19 0-21 0-31 1-2 1-3 1-7 1-13 "
+    "1-17 1-19 1-21 1-30 2-3 2-7 2-8 2-9 2-13 2-27 2-28 2-32 3-7 3-12 3-13 4-6 4-10 5-6 5-10 "
+    "5-16 6-16 8-30 8-32 8-33 9-33 13-33 14-32 14-33 15-32 15-33 18-32 18-33 19-33 20-32 "
+    "20-33 22-32 22-33 23-25 23-27 23-29 23-32 23-33 24-25 24-27 24-31 25-31 26-29 26-33 "
+    "27-33 28-31 28-33 29-32 29-33 30-32 30-33 31-32 31-33 32-33").split()]
+#: P(overlap ≥ 2) for sets of 4 and 3 drawn from 20 000, from the binomial coefficients
+_OVERLAP_P = (math.comb(3, 2) * math.comb(19997, 2) + math.comb(19997, 1)) / math.comb(20000, 4)
 
 REFERENCES: tuple[Reference, ...] = (
     # ---------------------------------------------------------------- sequences
@@ -377,6 +386,26 @@ REFERENCES: tuple[Reference, ...] = (
     Reference("weight_based_dose", {"dose_mg_per_kg": 15, "weight_kg": 20, "max_dose_mg": 1000,
                                     "doses_per_day": 4},
               (("dose_mg", 300.0, 1e-9), ("daily_total_mg", 1200.0, 1e-9)), "mg/kg × kg"),
+    # ------------------------------------------------------------ networks and sets
+    Reference("network_topology", {"edges": _KARATE, "top": 0},
+              (("nodes", 34, 0), ("edges", 78, 0), ("density", 78 / (34 * 33 / 2), 1e-6),
+               ("mean_clustering", 0.570638, 1e-6), ("components.count", 1, 0),
+               ("ranking.0.node", "33", 0), ("ranking.0.degree", 17, 0),
+               ("ranking.0.betweenness", 0.304075, 1e-6), ("ranking.0.closeness", 0.55, 1e-6),
+               ("ranking.0.clustering", 0.110294, 1e-6),
+               ("ranking.1.node", "0", 0), ("ranking.1.degree", 16, 0),
+               ("ranking.1.betweenness", 0.437635, 1e-6),
+               ("ranking.1.closeness", 0.568966, 1e-6), ("ranking.1.clustering", 0.15, 1e-6)),
+              "Zachary's karate club (1977): degree, betweenness, closeness (Wasserman–Faust) "
+              "and clustering of members 34 and 1 as NetworkX 3.7, an independent "
+              "implementation, computes them"),
+    Reference("set_overlap", {"sets": {"a": ["TNF", "IL6", "AKT1", "PPARG"],
+                                       "b": ["INSR", "AKT1", "PPARG"]}, "background": 20000},
+              (("union", 5, 0), ("pairwise.0.intersection", 2, 0),
+               ("pairwise.0.jaccard", 2 / 5, 1e-9), ("pairwise.0.p_value", _OVERLAP_P, 1e-12),
+               ("pairwise.0.fold_enrichment", 2 / (4 * 3 / 20000), 1e-6)),
+              "counted by hand; the chance of an overlap of two or more from the binomial "
+              "coefficients, [C(3,2)·C(19997,2) + C(19997,1)] / C(20000,4)"),
 )
 
 

@@ -28,6 +28,7 @@ __all__ = ["TEXT_LIMIT", "STATUSES", "ERROR_TYPES", "KINDS", "RECEIPT_SCHEMA", "
            "OUTCOMES", "ASSURANCE", "EVIDENCE", "canonical_json", "jsonable",
            "sha256_json", "sha256_bytes", "utc_now", "runtime_string", "versions",
            "package_version", "extract_citations", "identifier_url", "shape", "compose_text",
+           "fit_view", "TABLE_NOTE",
            "fit_json"]
 
 TEXT_LIMIT = 16_000
@@ -453,6 +454,152 @@ def _shrink(value: Any, items: int, chars: int, depth: int = 0) -> Any:
     return value
 
 
+# The model's view of a result too large to give whole. A list of records is most of what a
+# database or an analysis returns, and cutting it to its first ten rows hides the result: a
+# pathway enrichment's 300 terms, a herb's 60 constituents, a network's edges. Such a list is
+# written as a table instead (the keys once, then one short row per record), so several times
+# as many rows fit the same text, and the count of all of them is always given.
+
+_TABLE_MIN = 4            # records before a list reads as a table
+_TABLE_COLUMNS = 24       # columns shown; the others are named
+#: (rows, characters of a cell's text, items of a list inside a cell), tried in order
+_VIEW_STEPS = ((100_000, 400, 12), (600, 240, 8), (300, 160, 6), (200, 120, 5), (120, 100, 4),
+               (80, 80, 4), (50, 64, 3), (30, 48, 3), (20, 40, 2), (12, 32, 2), (6, 24, 2))
+_PLAIN_MAX = 3_000        # a result this short is always given as it is
+_ALL = 10 ** 9
+#: Said once in the text of a result that holds a table.
+TABLE_NOTE = ("lists of records are shown as tables: columns, then rows in column order; n is "
+              "the number of records, shown how many are listed when not all are, same the "
+              "values every record shares; decimals are given to six significant digits. "
+              "The full result is shown to the user.")
+
+
+def _empty(value: Any) -> bool:
+    return value is None or value == "" or value == [] or value == {}
+
+
+def _is_records(value: Any) -> bool:
+    return (isinstance(value, list) and len(value) >= _TABLE_MIN
+            and all(isinstance(v, dict) for v in value))
+
+
+def _cell(value: Any, chars: int, items: int) -> Any:
+    """One cell of a table: text and nested values kept short, a float to six significant
+    digits (the result the user sees keeps every digit), anything else as it is."""
+    if isinstance(value, str):
+        return value if len(value) <= chars else value[:chars] + "…"
+    if type(value) is float:
+        return float(f"{value:.6g}") if value == value and abs(value) != _INF else value
+    if isinstance(value, list):
+        head = [_cell(v, chars, max(2, items // 2)) for v in value[:items]]
+        if len(value) > items:
+            head.append(f"…(+{len(value) - items} more)")
+        return head
+    if isinstance(value, dict):
+        keys = list(value)[:max(items, 4)]
+        out = {k: _cell(value[k], chars, max(2, items // 2)) for k in keys}
+        if len(value) > len(keys):
+            out["…"] = f"+{len(value) - len(keys)} more keys"
+        return out
+    return value
+
+
+def _table(records: list[dict[str, Any]], rows: int, chars: int, items: int) -> dict[str, Any] | None:
+    """``records`` as {columns, rows, n, shown?, same?, omitted_columns?}; None when they do
+    not read as one table (records that share few keys)."""
+    columns: list[str] = []
+    seen: set[str] = set()
+    filled: dict[str, int] = {}
+    for rec in records[:2000]:
+        for k, v in rec.items():
+            k = str(k)
+            if k not in seen:
+                seen.add(k)
+                columns.append(k)
+            if not _empty(v):
+                filled[k] = filled.get(k, 0) + 1
+    columns = [c for c in columns if filled.get(c)]            # a column nobody fills says nothing
+    if not columns:
+        return None
+    scanned = min(len(records), 2000)
+    if sum(filled[c] for c in columns) < 0.5 * scanned * len(columns):
+        return None                                            # too sparse: not one table
+    same: dict[str, Any] = {}
+    if len(records) == scanned:
+        for c in columns:
+            first = records[0].get(c)
+            if filled[c] == scanned and not isinstance(first, (list, dict)) and all(
+                    type(r.get(c)) is type(first) and r.get(c) == first for r in records):
+                same[c] = _cell(first, chars, items)
+    columns = [c for c in columns if c not in same]
+    omitted = columns[_TABLE_COLUMNS:]
+    columns = columns[:_TABLE_COLUMNS]
+    out: dict[str, Any] = {"columns": columns,
+                           "rows": [[_cell(r.get(c), chars, items) for c in columns]
+                                    for r in records[:rows]],
+                           "n": len(records)}
+    if len(records) > rows:
+        out["shown"] = rows
+    if same:
+        out["same"] = same
+    if omitted:
+        out["omitted_columns"] = omitted
+    return out
+
+
+def _view(value: Any, rows: int, chars: int, items: int, used: list[bool]) -> Any:
+    if isinstance(value, str):
+        return value if len(value) <= chars * 5 else value[:chars * 5] + f"…(+{len(value) - chars * 5} chars)"
+    if isinstance(value, list):
+        if _is_records(value):
+            table = _table(value, rows, chars, items)
+            if table is not None:
+                used[0] = True
+                return table
+        head = [_view(v, rows, chars, items, used) for v in value[:rows]]
+        if len(value) > rows:
+            head.append(f"…(+{len(value) - rows} more)")
+        return head
+    if isinstance(value, dict):
+        keys = list(value)
+        limit = max(min(rows, 400), 12)
+        out = {k: _view(value[k], rows, chars, items, used) for k in keys[:limit]}
+        if len(keys) > limit:
+            out["…"] = f"+{len(keys) - limit} more keys"
+        return out
+    return value
+
+
+def fit_view(value: Any, budget: int) -> tuple[str, bool]:
+    """The model's view of ``value`` within ``budget`` characters → (compact JSON, whether
+    it holds a table). A short value is given as it is. A longer one that fits is given
+    whole, its lists of records as tables when that saves a quarter of the text or more.
+    One that does not fit has them written as tables with as many rows as fit; when even
+    that does not fit, it is shortened as :func:`fit_json` shortens it."""
+    value = jsonable(value)
+    if budget <= 0:
+        return "", False
+    plain = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if len(plain) <= budget:
+        if len(plain) <= _PLAIN_MAX:
+            return plain, False
+        # it fits, but its record lists repeat every key on every row: as tables (every
+        # row and every character kept) the same result often reads in a third of the text
+        used = [False]
+        text = json.dumps(_view(value, _ALL, _ALL, _ALL, used), ensure_ascii=False,
+                          separators=(",", ":"))
+        return (text, True) if used[0] and len(text) <= 0.75 * len(plain) else (plain, False)
+    for rows, chars, items in _VIEW_STEPS:
+        used = [False]
+        text = json.dumps(_view(value, rows, chars, items, used), ensure_ascii=False,
+                          separators=(",", ":"))
+        if not used[0]:
+            break                                              # no table in it: nothing gained
+        if len(text) <= budget:
+            return text, True
+    return fit_json(value, budget), False
+
+
 def _clip(text: str, n: int) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= n else text[: n - 1] + "…"
@@ -532,8 +679,12 @@ def compose_text(*, tool: str, via: str, status: str, summary: str,
         head = head[: limit - 260] + "\n…[header truncated]"
     if model_view is None:
         return head[:limit]
+    note = f"\nNote: {TABLE_NOTE}"
     budget = limit - len(head) - len("\nResult: ")
-    return (head + "\nResult: " + fit_json(model_view, budget))[:limit]
+    body, tabled = fit_view(model_view, budget - len(note))
+    if not tabled:
+        return (head + "\nResult: " + fit_json(model_view, budget))[:limit]
+    return (head + note + "\nResult: " + body)[:limit]
 
 
 # ------------------------------------------------------------------------ shape
@@ -578,11 +729,14 @@ def shape(tool: str, *, via: str | None = None, kind: str = "system",
           where: str = "runner", device: str | None = "cpu", content_hash: str | None = None,
           audit_head: str | None = None, composite_version: str | None = None,
           receipt_extra: Mapping[str, Any] | None = None, notes: Iterable[str] = (),
-          text_limit: int = TEXT_LIMIT) -> dict[str, Any]:
+          text_limit: int = TEXT_LIMIT, cite_from: Any = ...) -> dict[str, Any]:
     """The §3 envelope. Never raises.
 
     ``summary`` is the one-line result in Chinese; ``summary_en`` says the same in English
-    for a page shown in English (names from the corpus stay as they are)."""
+    for a page shown in English (names from the corpus stay as they are). ``cite_from``:
+    what is read for identifiers to cite instead of the whole result, for a result whose
+    text names papers that are not its evidence (the definitions of the ontology terms an
+    enrichment lists)."""
     try:
         status = status if status in STATUSES else "failed"
         result_j = jsonable(result)
@@ -595,7 +749,8 @@ def shape(tool: str, *, via: str | None = None, kind: str = "system",
             if err["type"] not in ERROR_TYPES:
                 err["type"] = "runtime_error"
             err.update(_error_extras(error))
-        cites = extract_citations(result_j, gov, given=citations or ())
+        cites = extract_citations(result_j if cite_from is ... else jsonable(cite_from), gov,
+                                  given=citations or ())
         job_j = jsonable(job) if job else None
         if not summary:
             summary = _STATUS_ZH.get(status, status)
@@ -622,13 +777,19 @@ def shape(tool: str, *, via: str | None = None, kind: str = "system",
         for key, value in dict(receipt_extra or {}).items():
             receipt[key] = jsonable(value)
         _receipt_v1(receipt, status, device or "cpu")
-        return {"ok": status in ("succeeded", "job_submitted"), "tool": str(tool),
-                "via": via or str(tool), "status": status,
-                "duration_ms": int(duration_ms) if duration_ms is not None else 0,
-                "summary": summary, "summary_en": str(summary_en), "text": text,
-                "result": result_j, "citations": cites,
-                "governance": gov, "receipt": receipt, "job": job_j,
-                "approval": jsonable(approval) if approval else None, "error": err}
+        out = {"ok": status in ("succeeded", "job_submitted"), "tool": str(tool),
+               "via": via or str(tool), "status": status,
+               "duration_ms": int(duration_ms) if duration_ms is not None else 0,
+               "summary": summary, "summary_en": str(summary_en), "text": text,
+               "result": result_j, "citations": cites,
+               "governance": gov, "receipt": receipt, "job": job_j,
+               "approval": jsonable(approval) if approval else None, "error": err}
+        # The model's view in full, when it is not the result itself (a digest, a selection):
+        # ``text`` shows as much of it as fits, and a later call that is handed this result
+        # by reference ({"$ref": …}, CONTRACTS §6) reads the keys the model saw, all of them.
+        if status == "succeeded" and view is not None and view != result_j:
+            out["view"] = view
+        return out
     except BaseException as exc:                                # noqa: BLE001
         if isinstance(exc, KeyboardInterrupt):
             raise

@@ -38,7 +38,7 @@ def test_every_tool_is_deterministic(native):
 
 def test_the_provider_yields_valid_offline_python_components():
     manifests = list(NativeToolProvider().discover())
-    assert len(manifests) == len(TOOLS) == 150
+    assert len(manifests) == len(TOOLS) == 152
     for m in manifests:
         assert m.validate() == []
         assert m.runtime.backend == "python" and m.runtime.deterministic
@@ -571,3 +571,108 @@ def test_risk_scores_and_indices():
     assert clinical.fib4(60, 40, 40, 150)["fib4"] == pytest.approx(2.53, abs=0.01)
     assert clinical.apri(80, 40, 100)["apri"] == 2.0
     assert clinical.homa_ir(100, 10)["homa_ir"] == 2.47
+
+
+# ------------------------------------------------------------------ networks and sets
+
+#: Zachary's karate club (J. Anthropol. Res. 33:452, 1977): 34 members, 78 ties.
+_KARATE = ("0-1 0-2 0-3 0-4 0-5 0-6 0-7 0-8 0-10 0-11 0-12 0-13 0-17 0-19 0-21 0-31 1-2 1-3 1-7 "
+           "1-13 1-17 1-19 1-21 1-30 2-3 2-7 2-8 2-9 2-13 2-27 2-28 2-32 3-7 3-12 3-13 4-6 4-10 "
+           "5-6 5-10 5-16 6-16 8-30 8-32 8-33 9-33 13-33 14-32 14-33 15-32 15-33 18-32 18-33 "
+           "19-33 20-32 20-33 22-32 22-33 23-25 23-27 23-29 23-32 23-33 24-25 24-27 24-31 25-31 "
+           "26-29 26-33 27-33 28-31 28-33 29-32 29-33 30-32 30-33 31-32 31-33 32-33")
+#: node: (degree, betweenness, closeness, clustering), from networkx 3.7
+#: (betweenness_centrality, closeness_centrality wf_improved, clustering), to six places.
+_KARATE_REFERENCE = {"0": (16, 0.437635, 0.568966, 0.15), "33": (17, 0.304075, 0.55, 0.110294),
+                     "32": (12, 0.145247, 0.515625, 0.19697),
+                     "2": (10, 0.143657, 0.559322, 0.244444), "11": (1, 0.0, 0.366667, 0.0),
+                     "16": (2, 0.0, 0.284483, 1.0)}
+
+
+def test_network_topology_agrees_with_an_independent_reference():
+    from bioagent.tools import network
+    edges = [pair.split("-") for pair in _KARATE.split()]
+    r = network.network_topology(edges, top=0)
+    assert (r["nodes"], r["edges"], r["density"]) == (34, 78, 0.139037)
+    assert r["components"] == {"count": 1, "sizes": [34], "largest": 34}
+    assert r["mean_clustering"] == 0.570638                     # networkx: 0.5706384782
+    assert r["degree"] == {"mean": round(2 * 78 / 34, 6), "median": 3.0, "max": 17}
+    rows = {x["node"]: x for x in r["ranking"]}
+    assert len(rows) == 34
+    for node, (degree, betweenness, closeness, clustering) in _KARATE_REFERENCE.items():
+        got = rows[node]
+        assert got["degree"] == degree
+        assert got["betweenness"] == pytest.approx(betweenness, abs=1e-6)
+        assert got["closeness"] == pytest.approx(closeness, abs=1e-6)
+        assert got["clustering"] == pytest.approx(clustering, abs=1e-6)
+    # ranked by degree, then betweenness, then name; top cuts the list, never the counts
+    assert [x["node"] for x in r["ranking"][:3]] == ["33", "0", "32"]
+    top = network.network_topology(edges, top=3)
+    assert top["shown"] == 3 and top["nodes"] == 34 and len(top["ranking"]) == 3
+
+
+def test_network_topology_reads_edges_as_databases_give_them_and_says_what_it_dropped():
+    from bioagent.tools import network
+    string_rows = [{"preferredName_A": "TNF", "preferredName_B": "IL6", "score": "0.99"},
+                   {"preferredName_A": "IL6", "preferredName_B": "TNF", "score": "0.99"},
+                   {"preferredName_A": "TNF", "preferredName_B": "AKT1", "score": 0.95},
+                   {"preferredName_A": "AKT1", "preferredName_B": "INSR", "score": "0.45"},
+                   {"source": "AKT1", "target": "AKT1"}, ["PPARG", "INSR"], ["TNF", "PPARG", 0.2]]
+    r = network.network_topology(string_rows, nodes=["LONE", " "], min_score=0.7)
+    assert (r["nodes"], r["edges"]) == (6, 3)
+    assert r["dropped"] == {"self_loops": 1, "duplicates": 1, "below_min_score": 2}
+    assert r["edges_without_score"] == 2 and r["min_score"] == 0.7
+    assert r["isolated"] == {"count": 1, "nodes": ["LONE"]}
+    assert r["components"]["sizes"] == [3, 2, 1]
+    assert [x["component"] for x in r["ranking"] if x["node"] in ("PPARG", "INSR")] == [2, 2]
+    assert "no significance is claimed" in r["interpretation"]
+    # two components: closeness stays comparable between them (Wasserman–Faust), never 1.0
+    by = {x["node"]: x for x in r["ranking"]}
+    assert by["TNF"]["closeness"] == pytest.approx((2 / 5) * (2 / 2), abs=1e-6)
+    assert by["PPARG"]["closeness"] == pytest.approx((1 / 5) * (1 / 1), abs=1e-6)
+    assert by["LONE"]["closeness"] == 0.0 and by["LONE"]["degree"] == 0
+    for bad, message in (([["A"]], "pair"), ([{"x": "A", "y": "B"}], "key pairs"),
+                         ("A-B", "list"), ([["A", ""]], "empty end"), ([], "no node")):
+        with pytest.raises(ValueError, match=message):
+            network.network_topology(bad)
+    with pytest.raises(ValueError, match="top"):
+        network.network_topology([["A", "B"]], top=-1)
+
+
+def test_set_overlap_counts_exactly_and_tests_against_a_stated_background():
+    from bioagent.tools import network
+    from bioagent.tools import stats as st
+    sets = {"formula": ["TNF", "IL6", "akt1", "PPARG", " TNF "], "disease": ["INSR", "AKT1", "PPARG"],
+            "third": ["PPARG", "X"]}
+    r = network.set_overlap(sets, background=20000)
+    assert r["sizes"] == {"formula": 4, "disease": 3, "third": 2} and r["union"] == 6
+    assert r["common_to_all"] == {"count": 1, "items": ["PPARG"]}
+    pair = r["pairwise"][0]
+    assert (pair["a"], pair["b"], pair["intersection"]) == ("formula", "disease", 2)
+    assert pair["items"] == ["akt1", "PPARG"], "the first spelling seen, case ignored"
+    assert pair["jaccard"] == round(2 / 5, 6)
+    # the chance of an overlap at least this large: the hypergeometric upper tail
+    assert pair["p_value"] == st.hypergeometric_test(2, 4, 3, 20000)["p_value"]
+    # exactly: [C(3,2)·C(19997,2) + C(3,3)·C(19997,1)] / C(20000,4)
+    exact = (math.comb(3, 2) * math.comb(19997, 2) + math.comb(19997, 1)) / math.comb(20000, 4)
+    assert pair["p_value"] == pytest.approx(exact, rel=1e-9) and exact == pytest.approx(8.99985e-08, rel=1e-5)
+    assert all(0 <= p["p_value"] <= p["q_value"] <= 1 for p in r["pairwise"])
+    assert r["exclusive"]["formula"] == {"count": 2, "items": ["IL6", "TNF"]}
+    # the regions are the exact cells of the Venn diagram: they partition the union
+    assert sum(cell["count"] for cell in r["regions"]) == r["union"]
+    assert {"in": ["formula", "disease", "third"], "count": 1, "items": ["PPARG"]} in r["regions"]
+    assert "holds only if both sets were drawn from this background" in r["caution"]
+    plain = network.set_overlap({"a": ["x", "y"], "b": ["Y", "z"]})
+    assert "p_value" not in plain["pairwise"][0] and "background" not in plain
+    assert plain["pairwise"][0]["intersection"] == 1
+    assert network.set_overlap({"a": ["x", "y"], "b": ["Y", "z"]},
+                               case_sensitive=True)["pairwise"][0]["intersection"] == 0
+    cut = network.set_overlap({"a": [f"g{i}" for i in range(50)],
+                               "b": [f"g{i}" for i in range(50)]}, max_items=5)
+    assert cut["pairwise"][0]["intersection"] == 50 and len(cut["pairwise"][0]["items"]) == 5
+    for bad, message in (({"a": ["x"]}, "two to eight"), ({"a": ["x"], "b": []}, "empty"),
+                         ({"a": ["x"], "b": "xy"}, "list of items")):
+        with pytest.raises(ValueError, match=message):
+            network.set_overlap(bad)
+    with pytest.raises(ValueError, match="smaller than the union"):
+        network.set_overlap({"a": ["x", "y"], "b": ["z"]}, background=2)

@@ -312,7 +312,7 @@ def test_the_command_writes_every_report(tmp_path):
     assert inv["counts"]["entries"] == len(entries("runner", probe=False))
     report = json.loads((out / "tool_validation_report.json").read_text())
     assert report["summary"]["status"][FAIL] == 0
-    assert report["summary"]["records"] == len(CORE_TOOLS) + 150 + len(validate.CHAINS)
+    assert report["summary"]["records"] == len(CORE_TOOLS) + 152 + len(validate.CHAINS)
     summary = json.loads((out / "validation_summary.json").read_text())
     assert summary["reports"]["tool_validation_report"]["PASS"] >= 74
     regression = json.loads((out / "agent_regression_report.json").read_text())

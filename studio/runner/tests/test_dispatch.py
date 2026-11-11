@@ -68,9 +68,12 @@ def core_cases(intake, visits):
 
 
 def check_envelope(e):
-    assert set(e) == {"ok", "tool", "via", "status", "duration_ms", "summary", "summary_en",
-                      "text", "result", "citations", "governance", "receipt", "job", "approval",
-                      "error"}
+    # "view": the model's view in full, only on a success whose view is not the result itself
+    assert set(e) - {"view"} == {"ok", "tool", "via", "status", "duration_ms", "summary",
+                                 "summary_en", "text", "result", "citations", "governance",
+                                 "receipt", "job", "approval", "error"}
+    if "view" in e:
+        assert e["status"] == "succeeded" and e["view"] is not None and e["view"] != e["result"]
     assert e["status"] in ("succeeded", "failed", "refused", "needs_approval", "job_submitted",
                            "cancelled")
     assert e["ok"] is (e["status"] in ("succeeded", "job_submitted"))
@@ -1105,3 +1108,104 @@ def test_receipt_code_never_touches_the_result(runner_ctx, monkeypatch):
     assert with_receipt[1]["receipt"]["output_sha256"] == without[1]["receipt"]["output_sha256"]
     assert with_receipt[1]["text"] == without[1]["text"]
     assert with_receipt[1]["governance"] == without[1]["governance"]
+
+
+# ------------------------------------------------- the model's view of bulky live answers
+
+def _gost_answer():
+    """g:Profiler's answer for a two-gene query, in its own shape (trimmed to two terms)."""
+    return {
+        "result": [
+            {"description": '"A definition." [GOC:x, PMID:17564681]', "effective_domain_size": 20972,
+             "goshv": 1, "intersection_size": 1, "intersections": [[], ["IDA"]],
+             "name": "later term", "native": "GO:0000002", "p_value": 0.01, "parents": ["GO:1"],
+             "precision": 0.5, "query": "query_1", "query_size": 2, "recall": 0.1,
+             "significant": True, "source": "GO:BP", "term_size": 10, "source_order": 2, "group_id": 1},
+            {"description": "Insulin resistance", "effective_domain_size": 8716, "goshv": 2,
+             "intersection_size": 2, "intersections": [["KEGG"], ["KEGG"]], "name": "Insulin resistance",
+             "native": "KEGG:04931", "p_value": 5.6e-06, "parents": ["KEGG:00000"], "precision": 1.0,
+             "query": "query_1", "query_size": 2, "recall": 0.02, "significant": True,
+             "source": "KEGG", "term_size": 109, "source_order": 1, "group_id": 2}],
+        "meta": {"query_metadata": {"organism": "hsapiens", "sources": ["GO:BP", "KEGG", "REAC"],
+                                    "significance_threshold_method": "g_SCS", "user_threshold": 0.05,
+                                    "domain_scope": "annotated"},
+                 "genes_metadata": {"failed": ["NOTAGENE"], "ambiguous": {},
+                                    "query": {"query_1": {"mapping": {"TNF": ["ENSG1"], "INSR": ["ENSG2"]},
+                                                          "ensgs": ["ENSG1", "ENSG2"]}}},
+                 "version": "e114_eg62_p19"}}
+
+
+def test_an_enrichment_is_read_as_its_terms_and_settings_not_as_definitions():
+    from tcmstudio import envelope
+    from tcmstudio.dispatch import _MODEL_VIEWS
+    view = _MODEL_VIEWS["gprofiler.gost"](_gost_answer())
+    # the most significant first, each with the query genes in it by symbol
+    assert [t["id"] for t in view["terms"]] == ["KEGG:04931", "GO:0000002"]
+    assert view["terms"][0] == {"source": "KEGG", "id": "KEGG:04931", "name": "Insulin resistance",
+                                "p_value": 5.6e-06, "term_size": 109, "query_size": 2,
+                                "intersection_size": 2, "effective_domain_size": 8716,
+                                "genes": ["TNF", "INSR"]}
+    assert view["terms"][1]["genes"] == ["INSR"]
+    # what a report has to state, and what the service could not test
+    assert "adjusted for multiple testing (g_SCS)" in view["p_value"]
+    assert (view["threshold"], view["organism"], view["release"]) == (0.05, "hsapiens", "e114_eg62_p19")
+    assert view["terms_by_source"] == {"KEGG": 1, "GO:BP": 1}
+    assert view["genes_not_recognised"] == ["NOTAGENE"]
+    assert "description" not in view["terms"][0] and "parents" not in view["terms"][0]
+    # an answer shaped otherwise is read as it came
+    assert _MODEL_VIEWS["gprofiler.gost"]({"error": "x"}) is None
+    assert _MODEL_VIEWS["gprofiler.gost"]({"result": ["not a term"]}) is None
+    # in the envelope: the view is what the model reads and what is cited from; the result is whole
+    env = envelope.shape("connector_call", result=_gost_answer(), model_view=view, cite_from=view)
+    assert env["view"] == view and env["result"] == _gost_answer()
+    assert env["citations"] == [], "the paper of a term's definition is not this result's evidence"
+    assert "PMID" not in env["text"]
+
+
+def test_open_targets_associations_are_read_as_flat_rows_with_a_column_per_datatype():
+    from tcmstudio.dispatch import _MODEL_VIEWS
+    answer = {"data": {"disease": {"id": "MONDO_0005148", "name": "type 2 diabetes mellitus", "associatedTargets": {
+        "count": 10206, "rows": [
+            {"score": 0.877, "datatypeScores": [{"id": "clinical", "score": 0.99}, {"id": "genetic_association", "score": 0.92}],
+             "target": {"id": "ENSG00000187486", "approvedSymbol": "KCNJ11"}},
+            {"score": 0.5, "datatypeScores": [{"id": "literature", "score": 0.4}],
+             "target": {"id": "ENSG00000132170", "approvedSymbol": "PPARG"}}]}}}}
+    view = _MODEL_VIEWS["opentargets.disease_targets"](answer)
+    assert view["disease"] == {"id": "MONDO_0005148", "name": "type 2 diabetes mellitus"}
+    assert view["targets_in_all"] == 10206
+    assert view["targets"] == [
+        {"symbol": "KCNJ11", "ensembl_id": "ENSG00000187486", "score": 0.877, "clinical": 0.99, "genetic_association": 0.92},
+        {"symbol": "PPARG", "ensembl_id": "ENSG00000132170", "score": 0.5, "literature": 0.4}]
+    assert "aggregated" in view["scores"] and "not findings" in view["scores"]
+    assert _MODEL_VIEWS["opentargets.disease_targets"]({"data": {"disease": None}}) is None
+    other = {"data": {"target": {"approvedSymbol": "TP53", "associatedDiseases": {"count": 2, "rows": [
+        {"score": 0.8, "datatypeScores": [{"id": "somatic_mutation", "score": 0.9}],
+         "disease": {"id": "EFO_0000311", "name": "cancer"}}]}}}}
+    assert _MODEL_VIEWS["opentargets.associated_diseases"](other)["diseases"] == [
+        {"disease": "cancer", "disease_id": "EFO_0000311", "score": 0.8, "somatic_mutation": 0.9}]
+
+
+def test_a_call_fits_its_text_to_the_room_the_page_gives_it():
+    base = call("tcm_formula", {"name": "桂枝汤"}, {"where": "runner", "network": False})
+    assert base["status"] == "succeeded" and len(base["text"]) > 2500
+    small = call("tcm_formula", {"name": "桂枝汤"}, {"where": "runner", "network": False, "text_limit": 2500})
+    assert small["status"] == "succeeded" and len(small["text"]) <= 2500
+    assert small["result"] == base["result"], "only the text is shorter"
+    # a share below what any result needs, a word, or a flag is not taken as given
+    for odd in (10, "8000", True, -5):
+        e = call("tcm_formula", {"name": "桂枝汤"}, {"where": "runner", "network": False, "text_limit": odd})
+        assert len(e["text"]) <= 16_000 and e["status"] == "succeeded"
+    assert len(call("tcm_formula", {"name": "桂枝汤"}, {"where": "runner", "network": False, "text_limit": 10})["text"]) <= 2000
+
+
+def test_the_new_analysis_tools_run_through_the_dispatcher():
+    net = call("call_tool", {"tool": "native.network_topology", "arguments": {
+        "edges": [{"preferredName_A": "TNF", "preferredName_B": "IL6", "score": "0.9"}, ["TNF", "AKT1"], ["IL6", "AKT1"]],
+        "top": 2}}, {"where": "runner", "network": False})
+    assert net["status"] == "succeeded" and net["via"] == "native.network_topology"
+    assert (net["result"]["nodes"], net["result"]["edges"], net["result"]["shown"]) == (3, 3, 2)
+    over = call("call_tool", {"tool": "native.set_overlap", "arguments": {
+        "sets": {"a": ["TNF", "IL6"], "b": ["IL6", "AKT1"]}, "background": 20000}}, {"where": "runner", "network": False})
+    assert over["status"] == "succeeded" and over["result"]["pairwise"][0]["items"] == ["IL6"]
+    bad = call("call_tool", {"tool": "native.set_overlap", "arguments": {"sets": {"a": ["x"]}}}, {"where": "runner", "network": False})
+    assert bad["status"] == "failed"

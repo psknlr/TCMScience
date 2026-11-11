@@ -144,6 +144,22 @@ test("files: stored with their sha256, listed per project", async () => {
   await assert.rejects(s.files.add(p.id, "not a blob"), TypeError);
 });
 
+test("files: a removed file is put back as it was (the undo of a delete), and never over another record", async () => {
+  const s = await fresh();
+  const p = await s.projects.create({ name: "P" });
+  const f = await s.files.add(p.id, new Blob(["a,b\n1,2\n"], { type: "text/csv" }), { name: "t.csv" });
+  await s.files.update(f.id, { runnerUploadId: "u_9" });
+  const kept = await s.files.get(f.id);
+  await s.files.remove(f.id);
+  assert.equal((await s.files.list(p.id)).length, 0);
+  const back = await s.files.restore(kept);
+  assert.deepEqual([back.id, back.sha256, back.createdAt, back.runnerUploadId], [f.id, f.sha256, f.createdAt, "u_9"]);
+  assert.equal(await (await s.files.get(f.id)).blob.text(), "a,b\n1,2\n");
+  assert.equal((await s.files.list(p.id)).length, 1);
+  await assert.rejects(s.files.restore(kept), /already there/, "undone twice: the record that is there stays");
+  await assert.rejects(s.files.restore({ id: "x", projectId: p.id }), TypeError);
+});
+
 test("removing a project removes its conversations, messages and files", async () => {
   const s = await fresh();
   const keep = await s.projects.create({ name: "keep" });

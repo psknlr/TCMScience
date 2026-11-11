@@ -588,10 +588,18 @@ ROUTES: tuple[Route, ...] = (
                 "comma-separated>"),
              _c("omnipath", "interactions", "curated", partners="<UniProt accessions or symbols>"),
              _c("string", "network", "aggregated", identifiers="<genes>"),
-             _c("pharos", "target_interactions", "aggregated", symbol="<gene symbol>")))),
+             _c("pharos", "target_interactions", "aggregated", symbol="<gene symbol>"))),
+         Step("topology", "which proteins the network turns on, as a description", (
+             _e("native.network_topology", "analysis", "degree, betweenness, closeness, "
+                "clustering and components of the edges given (STRING's rows as they are)",
+                edges=[["<protein>", "<protein>"]]),
+             _e("native.set_overlap", "analysis", "the overlap of gene sets, with a chance "
+                "test against a stated background",
+                sets={"<set>": ["<gene>"]}, background="<background size>")))),
         "State the background, the gene-set library and the multiple-testing correction of "
         "every enrichment. STRING scores and Pharos partners are aggregated: keep them apart "
-        "from curated interactions.",
+        "from curated interactions. A hub of a network built from a database is a much-studied "
+        "protein: report topology as description, never as a finding.",
         scaffold="pathway_signal",
         then=("disease_links", "gene_regulation"),
         cautions=("Enrichment of a predicted target list says which pathways the predictions "
@@ -664,6 +672,11 @@ ROUTES: tuple[Route, ...] = (
             _hub("target_disease", subject="<gene symbol>"),
             _c("opentargets", "associated_diseases", "aggregated", ensembl_id="<Ensembl gene id>"),
             _c("opentargets", "target", "curated", ensembl_id="<Ensembl gene id>"),
+            _c("opentargets", "disease_search", "reference", "the platform's id of a disease, "
+               "by name", query="<disease>"),
+            _c("opentargets", "disease_targets", "aggregated", "the other direction: the "
+               "targets associated with a disease, best score first",
+               disease_id="<Open Targets disease id, e.g. MONDO_0005148>"),
             _c("pharos", "target_diseases", "aggregated", symbol="<gene symbol>"),
             _c("monarch", "associations", "curated", subject="<gene or disease CURIE>"),
             _c("monarch", "search", "reference", q="<gene or disease>"))),
@@ -1477,28 +1490,54 @@ ROUTES: tuple[Route, ...] = (
         (Step("composition", "the formula's herbs, in its stated version", (
             _e("native.tcm_formula", "recorded", name="<formula>"),
             _e("tcmdb.consensus", "per_row", kind="formula_herb", subject="<formula>"))),
+         Step("herb_ids", "each herb's id in the TCM databases that are asked next", (
+             _c("tcmbank", "herb_search", "reference", name="<herb>"),
+             _c("herb_api", "search", "reference", keyword="<herb>", label="Herb"))),
          Step("constituents", "each herb's constituents, those detected in blood first", (
              _c("dcabm_tcm", "prescription_blood", "measured", names=[_PINYIN]),
-             _e("tcmdb.consensus", "per_row", kind="herb_ingredient", subject="<herb>"))),
+             _e("tcmdb.consensus", "per_row", kind="herb_ingredient", subject="<herb>"),
+             _c("tcmbank", "herb_ingredients", "curated", tcmbank_id="<TCMBank herb id>"),
+             _c("herb_api", "detail", "curated", "the herb's record: its ingredients, and the "
+                "targets and diseases the database links to it", entity_id="<HERB herb id>",
+                label="Herb"))),
          Step("targets", "the constituents' targets, measured apart from predicted", (
              _e("tcmdb.consensus", "per_row", kind="compound_target", subject="<compound>"),
              _e("tcmdb.consensus", "per_row", kind="ingredient_target", subject="<compound>"),
-             _hub("herb_target", subject="<herb>"))),
+             _hub("herb_target", subject="<herb>"),
+             _c("herb_api", "detail", "curated", "one ingredient's record with the targets "
+                "the database lists for it", entity_id="<HERB ingredient id HBIN…>",
+                label="Ingredient"),
+             _c("tcmbank", "detail", "curated", kind="ingredient",
+                tcmbank_id="<TCMBank ingredient id>"),
+             _c("itcm", "ingredient_targets", "curated", "each pair with its source database",
+                ingredient_id="<ITCM ingredient id>"))),
          Step("pathways", "pathway enrichment against a stated background", (
              _c("gprofiler", "gost", "analysis", query=_GENES),
              _e("native.enrichment_analysis", "analysis", genes=["<gene>"],
                 gene_sets={"<set>": ["<gene>"]}, background="<background size>"))),
+         Step("network", "how the targets connect, and which the network turns on", (
+             _c("string", "network", "aggregated", identifiers="<genes>"),
+             _e("native.network_topology", "analysis", "degree, betweenness and components of "
+                "the edges given: a description, not a test",
+                edges=[["<protein>", "<protein>"]]))),
          Step("disease", "the disease's genes, and the overlap", (
              _hub("target_disease", object="<disease>"),
+             _c("opentargets", "disease_search", "reference", query="<disease>"),
+             _c("opentargets", "disease_targets", "aggregated",
+                disease_id="<Open Targets disease id, e.g. MONDO_0005148>"),
              _c("opentargets", "associated_diseases", "aggregated",
-                ensembl_id="<Ensembl gene id>"))),
+                ensembl_id="<Ensembl gene id>"),
+             _e("native.set_overlap", "analysis", "the targets that are also disease genes, "
+                "with the chance of an overlap that large against a stated background",
+                sets={"<set>": ["<gene>"]}, background="<background size>"))),
          Step("recorded_run", "the whole loop as one recorded run (a job), or the governed "
                               "seed-corpus analysis", (
              _e("job.research.run", "analysis", question="<question>", formula="<formula>",
                 disease="<disease>"),
              _e("skill.analyze-tcm-network-pharmacology", "predicted", formula_name="<formula>")))),
         "Carry each target's evidence kind into the pathway step: an enrichment of predicted "
-        "targets is a hypothesis about the predictions.",
+        "targets is a hypothesis about the predictions. Hand a step's result to the next by "
+        "reference ({\"$ref\": …}) rather than retyping it, so no gene is lost or added.",
         scaffold="pathway_signal",
         then=("compound_targets", "exposure_metabolism", "efficacy_evidence"),
         cautions=("A network generates hypotheses: it predicts, it does not show a mechanism "

@@ -139,10 +139,12 @@ SOURCES: tuple[PublicSource, ...] = (
             Operation("ligands", "Co-crystallised ligands of kinases (comma-separated KLIFS "
                       "kinase ids): ligand id, PDB code, name, SMILES, InChIKey",
                       "api/ligands_list", params={"kinase_ID": "{kinase_ids}"},
+                      lists={"kinase_ids": ","},
                       args=("kinase_ids",), example={"kinase_ids": "406"}),
             Operation("structures", "Structures of kinases (comma-separated KLIFS kinase "
                       "ids) with ligand, resolution, quality and conformation",
                       "api/structures_list", params={"kinase_ID": "{kinase_ids}"},
+                      lists={"kinase_ids": ","},
                       args=("kinase_ids",), example={"kinase_ids": "406"}),
             Operation("ligand_bioactivities", "ChEMBL bioactivities of a KLIFS ligand "
                       "(standard type, relation, value, units, pChEMBL); not limited to "

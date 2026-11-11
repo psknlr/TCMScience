@@ -50,7 +50,9 @@ SOURCES: tuple[PublicSource, ...] = (
                       example={"chebi_id": "CHEBI:28499"}),
             Operation("compounds", "Several compounds by ChEBI id (comma-separated); "
                       "secondary ids resolve to their primary entry", "compounds/",
-                      params={"chebi_ids": "{chebi_ids}"}, args=("chebi_ids",),
+                      params={"chebi_ids": "{chebi_ids}"},
+                      lists={"chebi_ids": ","},
+                      args=("chebi_ids",),
                       example={"chebi_ids": "CHEBI:28499,CHEBI:2979"}),
             Operation("search", "Text search over names and synonyms, best match first",
                       "es_search/", params={"term": "{term}", "page": "{page}",

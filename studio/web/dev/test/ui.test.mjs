@@ -376,6 +376,10 @@ test("tool card: where it ran, status, refusals as results, page-decided calls m
   running.update(null, FIX.envelope_compatibility);
   assert.match(running.textContent, /配伍冲突|配伍禁忌/);
   assert.equal(argsSummary({ herbs: ["甘草", "甘遂"] }), "herbs: 甘草、甘遂");
+  // a reference to an earlier result reads as what it points to; any other object stays closed
+  assert.equal(argsSummary({ tool: "native.set_overlap", arguments: { query: { $ref: "R3", path: "targets", field: "symbol", join: " " }, opts: { a: 1 } } }), "query: →R3 targets · symbol · opts: {…}");
+  assert.equal(argsSummary({ edges: { $ref: "R15", fields: ["a", "b"] } }), "edges: →R15 · a, b");
+  assert.equal(argsSummary({ sets: { 方剂: { $ref: "R1", path: "herbs", field: "name" }, 对照: ["甘草"] } }), "sets: {方剂: →R1 herbs · name，对照: …}");
 });
 
 test("permission card asks once for the project: allow (the project's one approval) or deny, and records the answer", () => {

@@ -97,12 +97,12 @@ failure and not a pass. The compatibility matrix's `validation` column
 | Level | What it shows | What produces it | Entries with it |
 |---|---|---|---:|
 | `offline_invocation` | the entry's own example ran through the dispatcher, offline | `tcmstudio validate` records it per run (tier 2); no committed record feeds the catalog yet | 0 |
-| `reference_output` | the tool's output equals an expected value established independently of its code | `bioagent/validation/references.py`, held by `tcmstudio validate` | 74 |
+| `reference_output` | the tool's output equals an expected value established independently of its code | `bioagent/validation/references.py`, held by `tcmstudio validate` | 76 |
 | `kernel_parity` | a browser kernel returns exactly what the Python implementation returns | `studio/web/test/fixtures/kernel_cases.json`, run by the web and runner tests | 7 |
 | `pyodide_parity` | the browser runtime's envelope equals native CPython's | the runtime check (`npm run test:runtime`, run by hand) and the browser sweep (`web/test/runtime/sweep.mjs`, which Studio's CI build job runs since 2026-10-28); neither commits a record, so the catalog has none | 0 |
 | `lock_pin` | a pinned governed skill's code matches its reviewed content hash | `BioScience-Harness/registry/skills.lock.yaml`, checked on every governed run | 4 |
 | `gateway_mock` | the edge gateway (`studio/edge/src/sources.js` `handleSources`) accepted the operation's request and forwarded it to a mocked upstream | reserved for a per-operation run of the gateway's own code; no committed record exists. The connector coverage report's `mock_transport` level (below) does not exercise the gateway, is a separate, lower level, and is reported only in `connectors.md`, never here | 0 |
-| `live_upstream` | the real upstream answered the operation's example | `BioScience-Harness/data/connector_live_verification.csv` (`scripts/verify_connectors.py`), with its date | 444 |
+| `live_upstream` | the real upstream answered the operation's example | `BioScience-Harness/data/connector_live_verification.csv` (`scripts/verify_connectors.py`), with its date | 446 |
 | `live_gateway` | a browser call through the deployed gateway reached the real upstream | nothing yet: no committed record exists | 0 |
 
 `state.implementation` is `tested` exactly when some level is `PASS`; the runner adds

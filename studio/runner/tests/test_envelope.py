@@ -260,3 +260,95 @@ def test_citations_are_deduplicated_and_capped():
     cites = extract_citations(result)
     assert len(cites) == 40
     assert len({c["evidence_ref"] for c in cites}) == 40
+
+
+# ------------------------------------------------------------ the model's view: tables
+
+def _terms(n):
+    return [{"source": "GO:BP" if i % 3 else "KEGG", "id": f"GO:{i:07d}", "name": f"term {i}",
+             "p_value": 1.23456789e-08 * (i + 1), "term_size": 100 + i, "query_size": 5,
+             "description": f"definition {i} " + "long text " * 40, "empty": None}
+            for i in range(n)]
+
+
+def test_a_short_result_is_given_as_it_is_and_a_long_list_of_records_as_a_table():
+    from tcmstudio.envelope import TABLE_NOTE, fit_view
+    small = {"rows": [{"a": 1, "b": "x"}, {"a": 2, "b": "y"}], "n": 2}
+    assert fit_view(small, 16_000) == (json.dumps(small, separators=(",", ":")), False)
+    # 300 records that do not fit: the keys once, a short row each, and the count of them all
+    value = {"terms": _terms(300), "release": "e114"}
+    text, tabled = fit_view(value, 12_000)
+    assert tabled and len(text) <= 12_000
+    table = json.loads(text)["terms"]
+    assert table["columns"] == ["source", "id", "name", "p_value", "term_size", "description"]
+    assert table["n"] == 300 and table["shown"] == len(table["rows"]) < 300
+    assert table["same"] == {"query_size": 5}, "a value every record shares is said once"
+    assert "empty" not in table["columns"], "a column nobody fills says nothing"
+    # the plain shortening shows a fraction of what the table shows in the same room
+    plain_rows = len(json.loads(fit_json(value, 12_000))["terms"]) - 1
+    assert table["shown"] >= 3 * plain_rows
+    assert table["rows"][0][:3] == ["KEGG", "GO:0000000", "term 0"]
+    assert table["rows"][0][3] == 1.23457e-08, "a decimal to six significant digits"
+    assert json.loads(text)["release"] == "e114", "what is not a list of records is kept as it is"
+    e = shape("t", result=value, text_limit=12_000)
+    assert f"Note: {TABLE_NOTE}" in e["text"] and len(e["text"]) <= 12_000
+    assert e["result"] == value, "the result itself is whole"
+
+
+def test_a_result_that_fits_is_tabled_only_when_that_saves_a_quarter_and_loses_no_row_or_text():
+    from tcmstudio.envelope import fit_view
+    rows = [{"symbol": f"GENE{i}", "ensembl_id": f"ENSG{i:011d}", "score": 0.5,
+             "genetic_association": i / 7, "note": f"{i} " + "y" * 30} for i in range(120)]
+    text, tabled = fit_view({"targets": rows}, 100_000)
+    assert tabled
+    table = json.loads(text)["targets"]
+    assert table["n"] == 120 and "shown" not in table and len(table["rows"]) == 120
+    assert table["rows"][0][-1] == "0 " + "y" * 30, "nothing is cut from a result that fits"
+    assert table["same"] == {"score": 0.5}
+    # records that are mostly long text gain little from a table: they are given as they are
+    wordy = {"targets": [{"symbol": f"GENE{i}", "note": f"{i} " + "y" * 900} for i in range(40)]}
+    assert fit_view(wordy, 100_000) == (json.dumps(wordy, separators=(",", ":")), False)
+    assert len(text) <= 0.75 * len(json.dumps({"targets": rows}, separators=(",", ":")))
+    # nothing to gain: records that share no keys are not one table, and a list of values is no table
+    mixed = {"items": [{f"k{i}": i, f"j{i}": "v" * 300} for i in range(30)]}
+    assert fit_view(mixed, 100_000) == (json.dumps(mixed, separators=(",", ":")), False)
+    values = {"genes": [f"GENE{i}" for i in range(2000)]}
+    assert fit_view(values, 100_000) == (json.dumps(values, separators=(",", ":")), False)
+    # and a list of values too long for its room is shortened as before, with its count
+    text, tabled = fit_view(values, 2_000)
+    assert not tabled and len(text) <= 2_000 and "more" in json.loads(text)["genes"][-1]
+
+
+def test_a_table_names_the_columns_it_leaves_out_and_keeps_nested_values_short():
+    from tcmstudio.envelope import fit_view
+    rows = [{**{f"c{i:02d}": i + r for i in range(30)}, "genes": [f"G{j}" for j in range(40)],
+             "target": {"id": f"ENSG{r}", "name": "n" * 900}} for r in range(200)]
+    text, tabled = fit_view(rows, 9_000)
+    assert tabled and len(text) <= 9_000
+    table = json.loads(text)
+    assert len(table["columns"]) == 24 and len(table["omitted_columns"]) > 0
+    assert table["n"] == 200 and table["shown"] < 200
+    assert table["columns"][:2] == ["c00", "c01"] and table["omitted_columns"][-2:] == ["genes", "target"]
+
+
+def test_the_envelope_carries_the_models_view_only_when_it_is_not_the_result():
+    plain = shape("t", result={"a": 1})
+    assert "view" not in plain
+    same = shape("t", result={"a": 1}, model_view={"a": 1})
+    assert "view" not in same
+    digest = shape("t", result={"raw": [1, 2, 3]}, model_view={"terms": [{"id": "x"}]})
+    assert digest["view"] == {"terms": [{"id": "x"}]} and digest["result"] == {"raw": [1, 2, 3]}
+    failed = shape("t", status="failed", result={"raw": 1}, model_view={"v": 1},
+                   error={"type": "runtime_error", "message": "x"})
+    assert "view" not in failed
+
+
+def test_citations_are_read_from_what_a_call_says_its_evidence_is():
+    # an enrichment's terms carry the papers of their definitions: not its evidence
+    result = {"result": [{"name": "term", "description": "a definition [PMID:17564681]"}],
+              "meta": {"paper": {"pmid": "31066453"}}}
+    assert [c["evidence_ref"] for c in shape("t", result=result)["citations"]] == [
+        "pmid:17564681", "pmid:31066453"]
+    scoped = shape("t", result=result, cite_from={"paper": {"pmid": "31066453"}})
+    assert [c["evidence_ref"] for c in scoped["citations"]] == ["pmid:31066453"]
+    assert shape("t", result=result, cite_from={})["citations"] == []

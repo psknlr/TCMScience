@@ -209,6 +209,7 @@ export class RunnerRuntime {
     if (ctx.project_id ?? ctx.projectId) context.project_id = ctx.project_id ?? ctx.projectId;
     if (ctx.conversation_id ?? ctx.conversationId) context.conversation_id = ctx.conversation_id ?? ctx.conversationId;
     if (ctx.approvals?.length) context.approvals = ctx.approvals;
+    if (Number.isInteger(ctx.text_limit)) context.text_limit = ctx.text_limit;
     const started = Date.now();
     try {
       const env = await this.#json("/api/call", { method: "POST", body: { tool, arguments: args, context }, signal: ctx.signal, timeout: this.callTimeoutMs });

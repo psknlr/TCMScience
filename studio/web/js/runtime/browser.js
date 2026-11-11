@@ -273,6 +273,7 @@ export class BrowserRuntime {
     }
     const context = { project_id: ctx.project_id ?? null, conversation_id: ctx.conversation_id ?? null, approvals: Array.isArray(ctx.approvals) ? ctx.approvals : [], device: "cpu", network: ctx.network !== false };
     // the page's job service runs the job kinds marked execution.browser_job; Python's readiness answers need to know
+    if (Number.isInteger(ctx.text_limit)) context.text_limit = ctx.text_limit;
     if (ctx.browser_jobs) context.browser_jobs = true;
     if (typeof ctx.browser_snapshots === "boolean") context.browser_snapshots = ctx.browser_snapshots;
     if (Array.isArray(ctx.browser_admet_models) && ctx.browser_admet_models.every((e) => typeof e === "string")) context.browser_admet_models = [...ctx.browser_admet_models];
