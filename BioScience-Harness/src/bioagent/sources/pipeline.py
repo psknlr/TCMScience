@@ -337,7 +337,7 @@ def _snapshot_summary(snap: Any) -> dict[str, Any]:
 
 
 def _command(raw: Path, out: Path, ledger: Path, sources: Sequence[str], network: bool,
-             formulas: Sequence[str], formula_table: str | None) -> str:
+             formulas: Sequence[str], formula_table: str | None, supplemental: Mapping[str, str]) -> str:
     argv = ["bioagent", "snapshots", "build", "--raw", str(raw), "--out", str(out),
             "--ledger", str(ledger), "--sources", *sources]
     if not network:
@@ -346,6 +346,8 @@ def _command(raw: Path, out: Path, ledger: Path, sources: Sequence[str], network
         argv += ["--formula", f]
     if formula_table:
         argv += ["--formula-table", formula_table]
+    for key, path in supplemental.items():
+        argv += ["--" + key.replace("_", "-"), str(path)]
     return " ".join(shlex.quote(a) for a in argv)
 
 
@@ -353,6 +355,7 @@ def build_research_snapshots(raw_dir: str | Path, snapshot_root: str | Path,
                              ledger_path: str | Path, *,
                              sources: Sequence[str] = RESEARCH_SOURCES, network: bool = True,
                              formulas: Sequence[str] = (), formula_table: str | None = None,
+                             pubchem_bioassay: str | None = None, opentargets: str | None = None,
                              confirm: bool = False, offline: bool = False,
                              report_path: str | Path | None = None,
                              mirrors: Sequence[str | Path] = (),
@@ -362,7 +365,7 @@ def build_research_snapshots(raw_dir: str | Path, snapshot_root: str | Path,
     ``mirrors`` are directories that may already hold some of the same raw files (the data
     hub's ``raw/npass``, ``raw/cmaup``, ``raw/lotus``): a file there that hashes to its
     reviewed checksum is adopted as a hard link instead of being downloaded again."""
-    from .build import build_gold
+    from .build import build_gold, build_source
     from .ledger import LedgerError, SnapshotLedger
     from .snapshot import SnapshotError
 
@@ -370,13 +373,15 @@ def build_research_snapshots(raw_dir: str | Path, snapshot_root: str | Path,
     raw.mkdir(parents=True, exist_ok=True)
     started = utc_now()
     sources = list(sources)
+    supplemental = {key: path for key, path in (("pubchem_bioassay", pubchem_bioassay),
+                                                 ("opentargets", opentargets)) if path}
     doc: dict[str, Any] = {
         "schema": SCHEMA, "started_at": started,
         "parameters": {"raw_dir": str(raw), "snapshot_root": str(out),
                        "ledger": str(ledger_file), "sources": sources, "network": network,
                        "formulas": list(formulas), "formula_table": formula_table,
-                       "offline": offline},
-        "reproduce": _command(raw, out, ledger_file, sources, network, formulas, formula_table),
+                       "offline": offline, "supplemental": supplemental},
+        "reproduce": _command(raw, out, ledger_file, sources, network, formulas, formula_table, supplemental),
         "stages": []}
     stages: list[dict[str, Any]] = doc["stages"]
 
@@ -391,10 +396,15 @@ def build_research_snapshots(raw_dir: str | Path, snapshot_root: str | Path,
         return doc
 
     try:
+        for key, path in supplemental.items():
+            if not Path(path).is_file():
+                raise ValueError(f"{key} response file does not exist: {path}")
+        if pubchem_bioassay and not network:
+            raise ValueError("PubChem import requires the verified STRING aliases and human primary accession file")
         specs = required_files(sources, network=network)
     except ValueError as exc:
         stages.append(_stage("discovery", FAIL, str(exc)))
-        return finish("name research sources among " + ", ".join(RESEARCH_SOURCES))
+        return finish(str(exc))
     found = plan(raw, sources, network=network)
     stages.append(_stage("discovery", PASS,
                          f"{len(specs)} files needed, {len(found['missing'])} not here"
@@ -447,6 +457,8 @@ def build_research_snapshots(raw_dir: str | Path, snapshot_root: str | Path,
         t0 = time.perf_counter()
         build = build_gold(raw, out, ledger=ledger, network=network, sources=sources,
                            formulas=layer or None)
+        for key, path in supplemental.items():
+            build.snapshots[key] = build_source(key, raw, out, path=path, ledger=ledger)
     except (SnapshotError, LedgerError, ValueError, KeyError, OSError) as exc:
         stages.append(_stage("build", FAIL, f"{type(exc).__name__}: {exc}"))
         return finish("the parse or quality gate refused the files; the message says which "

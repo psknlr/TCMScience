@@ -128,14 +128,15 @@ def test_the_cards_point_at_the_datasets_and_lotus_has_one():
 
 def test_npass_gives_occurrences_and_measured_activities_as_its_parser_reads_them(hub):
     occ = _by(hub.relations("organism_compound", sources=["npass"]), "subject_id", "object_id")
-    found = occ[("ncbitaxon:74649", f"inchikey:{GLYCYRRHIZIN}")]
-    assert found["evidence"] == "known" and found["reference"] == "doi:10.1/abc | pmid:123"
-    assert json.loads(found["context"]) == {"part": "rhizome | root"}
+    found = hub.relations("organism_compound", sources=["npass"], object=f"inchikey:{GLYCYRRHIZIN}")
+    assert {(r["reference"], json.loads(r["context"])["part"]) for r in found} == {
+        ("pmid:123", "root"), ("doi:10.1/abc", "rhizome")}
+    assert all(r["evidence"] == "known" for r in found)
     relayed = occ[("ncbitaxon:74649", f"inchikey:{LIQUIRITIN}")]
     assert relayed["evidence"] == "aggregated" and relayed["note"] == "via TCM-ID"
     assert relayed["object_name"] == LIQUIRITIN, "the key stands in for a missing name"
     unplaced = occ[("npass:NPO2", "npass:NPC3")]
-    assert unplaced["evidence"] == "known" and unplaced["reference"] is None
+    assert unplaced["evidence"] == "listed" and unplaced["reference"] is None
     assert len(occ) == 3
 
     act = hub.relations("compound_target", sources=["npass"])
@@ -162,9 +163,9 @@ def test_cmaup_pairs_carry_no_reference_and_its_activities_meet_npass_on_the_inc
 
 def test_lotus_pairs_are_known_when_validated_and_reported_otherwise(hub):
     occ = _by(hub.relations("organism_compound", sources=["lotus"]), "subject_id", "object_id")
-    validated = occ[("ncbitaxon:74649", f"inchikey:{GLYCYRRHIZIN}")]
-    assert validated["evidence"] == "known"
-    assert validated["reference"] == "doi:10.4/one | doi:10.4/two", "one pair, both references"
+    records = hub.relations("organism_compound", sources=["lotus"], object=f"inchikey:{GLYCYRRHIZIN}")
+    assert {(r["reference"], r["evidence"]) for r in records} == {
+        ("doi:10.4/one", "known"), ("doi:10.4/two", "reported")}
     unplaced = occ[("lotus:Q257106", f"inchikey:{LIQUIRITIN}")]
     assert unplaced["evidence"] == "reported" and unplaced["object_name"] == "liquiritin"
     assert len(occ) == 2, "a row without an InChIKey yields nothing"
@@ -173,3 +174,26 @@ def test_lotus_pairs_are_known_when_validated_and_reported_otherwise(hub):
 def test_a_raw_file_that_differs_from_the_reviewed_one_is_a_problem(hub):
     report = hub.check("npass")
     assert any("sha256 differs from the reviewed file's" in p for p in report["problems"])
+
+
+def test_zero_and_unknown_activity_cannot_support_positive_replication(tmp_path):
+    h = TCMDataHub(tmp_path / "hub")
+    raw = h.raw_dir("npass")
+    raw.mkdir(parents=True)
+    _npass(raw)
+    activity = next(raw.glob("*_activities.txt"))
+    header = activity.read_text().splitlines()[0].split("\t")
+    _tsv(activity, header, [
+        ["NPC1", "NPT1", "Inhibition", "=", value, "%", "", "", "", ref, "PMID"]
+        for ref, value in (("1333", "0"), ("1444", "0"), ("1555", "unknown"))])
+    h.build("npass", log=lambda m: None)
+    item, = h.consensus("compound_target", subject=f"inchikey:{GLYCYRRHIZIN}")["items"]
+    assert item["support"] == "tested_negative"
+    assert item["outcomes"] == {"negative": ["npass"], "inconclusive": ["npass"]}
+    assert item["independent"]["observed"] == 0
+
+    import sqlite3
+    with sqlite3.connect(h.db_path("npass")) as conn:
+        conn.execute("DELETE FROM _tcmdb_build WHERE key='relation_semantics'")
+        conn.execute("UPDATE relations SET outcome='positive' WHERE kind='compound_target'")
+    assert h.consensus("compound_target", subject=f"inchikey:{GLYCYRRHIZIN}")["items"][0] == item

@@ -374,3 +374,23 @@ def test_the_reference_manifest_names_this_fixture(run):
     assert run.validation["top_pose_rmsd"] < want["redock_top_pose_rmsd_below"]
     assert run.complete is want["complete"]
     assert all(r["pose_checks"]["best"]["passed"] for r in run.manifest["results"])
+
+
+def test_crystal_ligand_comes_from_the_selected_receptor_chain():
+    from bioagent.docking.pipeline import _site
+    need_module("rdkit")
+    atoms = [s for s in POCKET.read_text().splitlines()
+             if s.startswith("HETATM") and s[17:20] == "BEN"]
+    second = [s[:21] + "B" + s[22:30] + f"{float(s[30:38]) + 40:8.3f}" + s[38:]
+              for s in atoms]
+    first = [s[:21] + "A" + s[22:] for s in atoms]
+    text = "\n".join(first + second)
+    config = DockConfig(site_ligand="BEN", site_ligand_smiles=BENZAMIDINE)
+    with pytest.raises(prep.DockingError, match="select one"):
+        _site(text, config)
+    abox, _ = _site(text, config, chains=("A",))
+    bbox, mol = _site(text, config, chains=("B",))
+    assert np.allclose(np.subtract(bbox.center, abox.center), [40, 0, 0])
+    from dataclasses import replace
+    chosen, _ = _site(text, replace(config, site_ligand_instance=mol.GetProp("pdb_ligand_instance")))
+    assert chosen.center == bbox.center

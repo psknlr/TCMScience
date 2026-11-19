@@ -150,6 +150,7 @@ def _identity(card: Mapping[str, Any]) -> dict[str, Any]:
                 "iterations": card.get("iterations"), "features": card.get("features"),
                 "domain_sha256": card.get("domain_sha256"),
                 "domain_threshold": card.get("domain_threshold", M.DOMAIN_THRESHOLD),
+                "heldout_by_domain": card.get("heldout_by_domain"),
                 "sklearn": card.get("sklearn"), "rdkit": card.get("rdkit"),
                 "seed": card.get("seed"), "chemistry": card.get("chemistry"),
                 "dropped_unstandardisable": card.get("dropped_unstandardisable")})

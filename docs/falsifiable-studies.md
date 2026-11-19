@@ -32,15 +32,16 @@ developed with:
 2. **The earlier one no longer exists.** Snapshots are stored by version, so the second
    build overwrote the first on disk. A lock naming `#5f9b…` is now refused ("loaded
    #d147…, but the run pins #5f9b…"), where the old runner would have used different data
-   under the same name. The snapshot builder should refuse to reuse a version label for
-   different content; that is the next fix.
+   under the same name. The builder now rejects this collision by default. A changed
+   Reactome download gets a version derived from its raw-file hash.
 
-The lock reproduces the run exactly: the baseline below gives the same result digest
+In the historical environment the baseline below gave the same result digest
 (`sha256:6568c7be…`) unlocked with `--latest` and again from its lock.
 
 ## Route A on real data: what the 葛根芩连汤 mechanism signals rest on
 
-The baseline is screening hits (PubChem actives weighed against inactives) against the
+The following numbers describe the archived analysis, before the assay-level matching and
+coverage corrections. Its baseline is screening hits (PubChem actives weighed against inactives) against the
 background of proteins the compounds were actually tested on: 10,000 permutations, seed
 20261001. It tests 58 pathways and releases 3 mechanism hypotheses, all at q = 0.033:
 - synthesis of epoxy (EET) and dihydroxyeicosatrienoic acids (DHET);
@@ -59,12 +60,10 @@ of evidence held out:
 | one assay campaign at a time (12 largest AIDs) | survives all | survives all | lost without AID2284394 (q 0.093) or AID2283485 (q 0.086) |
 | the whole CYP-panel family (4,161 edges) | not testable | not testable | 0.299 |
 
-Every released hypothesis is carried by the CYP screening panels. Without them, two of
-the pathways are not even testable, because their proteins enter the background only
-through those panels. The signal shows that the formula's constituents were screened
-against drug-metabolising enzymes and some inhibited them. That is a pharmacokinetic and
-herb–drug-interaction signal (routes B and H), not evidence of an eicosanoid or
-lipid-mediator mechanism of action.
+Removing the CYP panels left two pathways without enough measured proteins for a test.
+For the third pathway the historical adjusted p was 0.299. The panels provide in vitro
+reporter evidence motivating an interaction hypothesis. Assessing its pharmacokinetic
+relevance requires independent assays and exposure data.
 
 Within the evidence available, the conclusion the data allow is: *"no pathway signal of
 葛根芩连汤 is supported independently of CYP-inhibition screening panels."* The claims
@@ -94,7 +93,9 @@ with the Loewe reference held fixed, flagged "exceeds the reference" in 9–20% 
 data that had no excess, against a nominal 2.5%. The interval is now a t interval on
 excess = observed − reference. Its variance adds the propagated variance of the reference:
 a delta method for Bliss and HSA, and refitting both Hill curves to replicate-resampled
-data for Loewe. Degrees of freedom are conservative.
+data for Loewe. The table below describes the historical pointwise interval. The current
+implementation uses Bonferroni simultaneous intervals across the measured combination
+cells. Selectivity requires a cytotoxicity readout for each well.
 
 | Data with no excess | Before (exceeds / below) | After (exceeds / below) | Nominal |
 | --- | --- | --- | --- |
@@ -114,7 +115,7 @@ synergy claim. The other four defects:
 | Route | Status in this branch | What it needs next |
 | --- | --- | --- |
 | A. Mechanism robustness | **Run** on 葛根芩连汤 (above) | Matching by assay type and compound properties; leave-one-study-out through the tcmdb lineage (`consensus`) for curated, non-screening evidence |
-| B. Exposure-constrained mechanism | **Run** on berberine from published summaries ([studies/gqd_berberine.md](studies/gqd_berberine.md)): no ToxCast activity plausible at plasma Cmax | Measured concentration–time and free-fraction data for the marker compounds, mapped to the formula and batch (e.g. the 2018 whole-formula / no-licorice / single-herb pharmacokinetic study); availability not yet checked |
+| B. Exposure-constrained mechanism | **Run** on berberine from published summaries ([studies/gqd_berberine.md](studies/gqd_berberine.md)): zero AC50s reached across the entire assumed free-fraction range; one full-formula readout reaches AC50 at the upper bound | Measured concentration–time and free-fraction data for the marker compounds, mapped to the formula and batch (e.g. the 2018 whole-formula / no-licorice / single-herb pharmacokinetic study); availability not yet checked |
 | C. Cell context and direction | Not started | Disease pseudobulk per individual × cell type; real perturbation signatures (LINCS metadata is in `tcmdb`); baselines (no change, mean, linear) before any model |
 | D. Formula vs monomer | **Run** at the exposure level: the formula doubles berberine AUC (甘草-dependent) but lowers Cmax; the efficacy contrast is inconclusive without per-animal data | The individual-level data of the 葛根芩连汤 vs berberine study; availability to be checked before any analysis |
 | E. Combination | Analysis implemented and tested | Same-experiment single-agent and combination dose matrices (DrugComb's summary is kept in `tcmdb`; berberine–glycyrrhizin needs pharmacodynamic data) |

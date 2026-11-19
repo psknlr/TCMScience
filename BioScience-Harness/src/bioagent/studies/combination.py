@@ -105,6 +105,17 @@ def _loewe(da: float, db: float, fa: dict, fb: dict) -> float:
 def analyse_combination(cells: Sequence[Cell], *, primary: str, seed: int = 0,
                         boot: int = 200, cytotoxic_above: float = 0.5,
                         level: float = 0.95) -> dict:
+    if not 0 < level < 1 or not 0 <= cytotoxic_above <= 1:
+        raise ValueError("invalid interval level or cytotoxicity cutoff")
+    coordinates = [(c.dose_a, c.dose_b) for c in cells]
+    if len(set(coordinates)) != len(coordinates):
+        raise ValueError("pool replicates at each dose pair into one cell")
+    for cell in cells:
+        if cell.cytotoxicity and (len(cell.cytotoxicity) != len(cell.effect) or
+                not all(math.isfinite(x) and 0 <= x <= 1 for x in cell.cytotoxicity)):
+            raise ValueError("cytotoxicity needs a fractional readout for each measured well")
+        if not all(math.isfinite(x) for x in (*cell.effect, cell.dose_a, cell.dose_b)):
+            raise ValueError("doses and effects must be finite")
     if primary not in REFERENCE_MODELS:
         raise ValueError(f"primary reference model {primary!r} is not one of {REFERENCE_MODELS}")
     single_a = {c.dose_a: np.asarray(c.effect, float) for c in cells
@@ -166,7 +177,8 @@ def analyse_combination(cells: Sequence[Cell], *, primary: str, seed: int = 0,
         se = math.sqrt(var_obs + var_ref)
         # conservative degrees of freedom: the smallest group drives them
         df = max(1, min(len(obs), len(a), len(b)) - 1)
-        q = t_ppf(1 - (1 - level) / 2, df)
+        # Simultaneous Bonferroni intervals remain valid with shared single-agent wells.
+        q = t_ppf(1 - (1 - level) / (2 * len(combos)), df)
         est = float(obs.mean() - expected[primary])
         lo, hi = est - q * se, est + q * se
         cyto = float(np.mean(c.cytotoxicity)) if c.cytotoxicity else None
@@ -177,13 +189,17 @@ def analyse_combination(cells: Sequence[Cell], *, primary: str, seed: int = 0,
             "primary_excess_ci": [float(lo), float(hi)], "df": df,
             "exceeds_primary": bool(lo > 0), "below_primary": bool(hi < 0),
             "cytotoxicity": cyto,
-            "near_general_cytotoxicity": cyto is not None and cyto >= cytotoxic_above})
+            "near_general_cytotoxicity": None if cyto is None else bool(cyto >= cytotoxic_above)})
     exceed = [r for r in rows if r["exceeds_primary"]]
-    selective = [r for r in exceed if not r["near_general_cytotoxicity"]]
+    selective = [r for r in exceed if r["near_general_cytotoxicity"] is False]
     sensitivity = {m: sum(1 for r in rows if m in r["excess"] and r["excess"][m] > 0)
                    for m in REFERENCE_MODELS}
     return {
         "primary_model": primary, "cells": rows, "single_agent_fits": fits,
+        "intervals": {"method": "Bonferroni simultaneous t intervals",
+                      "family_size": len(combos), "family_confidence": level},
+        "excess_with_unmeasured_cytotoxicity": sum(
+            r["near_general_cytotoxicity"] is None for r in exceed),
         "effective": {"max_observed": max(r["observed"] for r in rows)},
         "exceeds_reference": {"cells": len(exceed), "of": len(rows),
                               "selective": len(selective)},

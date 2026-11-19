@@ -414,6 +414,7 @@ class TCMDataHub:
                     "SELECT DISTINCT source FROM relations WHERE outcome != 'positive'"))
                 conn.executemany("INSERT INTO _tcmdb_build VALUES (?, ?)", [
                     ("relations_digest", report["relations_digest"]),
+                    ("relation_semantics", "2"),
                     ("sources_with_negatives", json.dumps(negatives)),
                     ("built_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))])
                 conn.commit()
@@ -584,6 +585,46 @@ class TCMDataHub:
             return [dict(r) for r in conn.execute(sql, params)]
 
     # ---------------------------------------------------------------- relations
+    def _current_relations(self, key: str) -> None:
+        """Upgrade the derived index atomically using the retained original tables."""
+        required = {"drugcentral": {"dti"}, "npass": {"general", "species", "pairs"},
+                    "cmaup": {"plants", "ingredients", "pairs"}, "lotus": {"pairs"}}
+        if key not in required:
+            return
+
+        def current(conn):
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "relations" not in tables:
+                return True
+            if "_tcmdb_build" in tables and conn.execute(
+                    "SELECT 1 FROM _tcmdb_build WHERE key='relation_semantics' AND value='2'").fetchone():
+                return True
+            if not required[key] <= tables:
+                raise HubError(f"{key}: the old relation index lacks its original source tables; "
+                               f"rebuild {key} before using its evidence")
+            return False
+
+        with closing(self._conn(key)) as conn:
+            if current(conn):
+                return
+        try:
+            with closing(connect(self.db_path(key), readonly=False)) as conn, conn:
+                conn.execute("BEGIN IMMEDIATE")
+                if current(conn):  # another process already completed the upgrade
+                    return
+                build_relations(conn, key, commit=False)
+                conn.execute("CREATE TABLE IF NOT EXISTS _tcmdb_build (key TEXT, value TEXT)")
+                conn.execute("DELETE FROM _tcmdb_build WHERE key IN "
+                             "('relations_digest','sources_with_negatives','relation_semantics')")
+                negatives = sorted(row[0] for row in conn.execute(
+                    "SELECT DISTINCT source FROM relations WHERE outcome != 'positive'"))
+                conn.executemany("INSERT INTO _tcmdb_build VALUES (?, ?)", [
+                    ("relations_digest", relations_digest(conn)), ("relation_semantics", "2"),
+                    ("sources_with_negatives", json.dumps(negatives))])
+        except sqlite3.OperationalError as exc:
+            raise HubError(f"{key}: could not upgrade historical relation index; rebuild a writable "
+                           f"copy of the store: {exc}") from exc
+
     def _has_relations(self, key: str) -> bool:
         with closing(self._conn(key)) as conn:
             return bool(conn.execute("SELECT 1 FROM sqlite_master WHERE name='relations'")
@@ -711,6 +752,7 @@ class TCMDataHub:
         keys = self.require(sources)["searched"] if sources else self.built()
         out: list[dict[str, Any]] = []
         for key in keys:
+            self._current_relations(key)
             clauses, params = [], []
             if kind:
                 clauses.append("kind = ?")

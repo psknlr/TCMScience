@@ -35,6 +35,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     d.add_argument("--site-ligand", default="",
                    help="residue name of a co-crystal ligand: the box is built around it and "
                         "it is redocked to validate the setup")
+    d.add_argument("--site-ligand-instance", default="",
+                   help="PDB chain:residue, including insertion code, e.g. A:401B")
     d.add_argument("--site-ligand-smiles", default="",
                    help="its SMILES (default: the RCSB Chemical Component Dictionary's)")
     d.add_argument("--center", type=_triple, default=None, help="box centre x,y,z")
@@ -80,6 +82,7 @@ def dispatch(a: argparse.Namespace) -> int | None:
               file=sys.stderr)
         return 2
     config = DockConfig(site_ligand=a.site_ligand or None,
+                        site_ligand_instance=a.site_ligand_instance or None,
                         site_ligand_smiles=a.site_ligand_smiles or None,
                         box_center=a.center, box_size=a.size,
                         site_residues=tuple(a.site_residue), chains=tuple(a.chains),
@@ -130,6 +133,7 @@ def _dock_prepared(a: argparse.Namespace) -> int:
 
     given = [flag for flag, value in (("--site-ligand", a.site_ligand),
                                       ("--site-ligand-smiles", a.site_ligand_smiles),
+                                      ("--site-ligand-instance", a.site_ligand_instance),
                                       ("--site-residue", a.site_residue),
                                       ("--chains", a.chains), ("--cofactor", a.cofactor),
                                       ("--allow-remote", a.allow_remote)) if value]

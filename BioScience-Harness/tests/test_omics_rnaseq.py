@@ -353,3 +353,75 @@ def test_the_cli_exits_1_for_an_incomplete_run(world, tmp_path, monkeypatch, cap
            "mismatch" in err
     manifest = json.loads((tmp_path / "run.json").read_text())
     assert manifest["complete"] is False and not R.verify_run(tmp_path)[0]
+
+
+def test_transcript_de_requires_length_corrected_counts(world, tmp_path):
+    config = R.RNASeqConfig(engine="builtin", transcripts=world.transcripts,
+                            annotation=world.gtf, counts_from_abundance="no")
+    with pytest.raises(R.RNASeqError, match="effective-length offsets"):
+        R.run_rnaseq(world.sheet, config, tmp_path / "results")
+    assert not (tmp_path / "results").exists()
+
+
+@pytest.mark.parametrize("protocol,why", [("auto", "cannot infer"),
+                                         ("reverse", "cannot apply"),
+                                         ("invalid", "unknown strandedness")])
+def test_unsupported_library_protocol_fails_before_quantification(world, tmp_path,
+                                                                  protocol, why):
+    r1 = world.root / "ctrl1_R1.fastq.gz"
+    sheet = tmp_path / "sheet.csv"
+    sheet.write_text("sample,fastq_1,strandedness,condition\n"
+                     f"s1,{r1},{protocol},A\ns2,{r1},{protocol},B\n")
+    with pytest.raises(R.RNASeqError, match=why):
+        R.run_rnaseq(sheet, R.RNASeqConfig(engine="builtin", transcripts=world.transcripts),
+                     tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_conflicting_library_protocols_cannot_be_merged_as_lanes(world, tmp_path):
+    r1 = world.root / "ctrl1_R1.fastq.gz"
+    sheet = tmp_path / "sheet.csv"
+    sheet.write_text("sample,fastq_1,strandedness\n"
+                     f"s,{r1},forward\ns,{r1},reverse\n")
+    with pytest.raises(R.RNASeqError, match="lanes disagree on strandedness"):
+        R.read_sample_sheet(sheet)
+
+
+@pytest.mark.parametrize("paired", [False, True])
+@pytest.mark.parametrize("engine,tools", [("salmon", ["salmon"]),
+                                         ("kallisto", ["kallisto"]),
+                                         ("hisat2", ["hisat2", "hisat2-build", "samtools",
+                                                     "featureCounts"])])
+def test_external_engines_apply_mixed_sample_protocols(world, tmp_path, engine, tools, paired):
+    import csv
+
+    need_tools(*tools)
+    sheet = tmp_path / "samples.csv"
+    with world.sheet.open() as src, sheet.open("w") as dst:
+        rows = list(csv.DictReader(src))
+        writer = csv.DictWriter(dst, fieldnames=[*rows[0], "strandedness"])
+        writer.writeheader()
+        for i, row in enumerate(rows):
+            row["strandedness"] = "forward" if i % 2 == 0 else "reverse"
+            row["fastq_1"] = str(world.root / row["fastq_1"])
+            row["fastq_2"] = str(world.root / row["fastq_2"]) if paired else ""
+            writer.writerow(row)
+    config = R.RNASeqConfig(engine=engine, transcripts=world.transcripts, genome=world.genome,
+                            annotation=world.gtf, trimmer="none")
+    run = R.run_rnaseq(sheet, config, tmp_path / "out")
+    assert run.complete
+    expected = [s["strandedness"] for s in rows]
+    assert [s["strandedness"] for s in run.manifest["samples"]] == expected
+    steps = run.manifest["steps"]
+    commands = [s["command"] for s in steps if s["tool"] == engine]
+    if engine == "salmon":
+        protocols = ["ISF", "ISR"] if paired else ["SF", "SR"]
+        assert [c[c.index("-l") + 1] for c in commands if c[1] == "quant"] == protocols * 3
+    elif engine == "kallisto":
+        assert [next(a for a in c if a.endswith("-stranded"))
+                for c in commands if c[1] == "quant"] == ["--fr-stranded", "--rf-stranded"] * 3
+    else:
+        protocols = ["FR", "RF"] if paired else ["F", "R"]
+        assert [c[c.index("--rna-strandness") + 1] for c in commands] == protocols * 3
+        count = next(s["command"] for s in steps if s["tool"] == "featureCounts")
+        assert count[count.index("-s") + 1] == "1,2,1,2,1,2"

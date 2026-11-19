@@ -135,6 +135,41 @@ def _metric(name: str, y: np.ndarray, pred: np.ndarray) -> float:
     raise ValueError(name)
 
 
+def _heldout_by_domain(spec: Endpoint, y: np.ndarray, predicted: np.ndarray,
+                       test_bits: np.ndarray, training_bits: np.ndarray) -> dict[str, Any]:
+    """Assess the endpoint on held-out compounds, using training chemistry for domain assignment."""
+    _, intersection, union = tanimoto_best(test_bits, training_bits)
+    similarity = _similarity(intersection, union)
+    groups = {}
+    for name, mask in (("inside", similarity >= DOMAIN_THRESHOLD),
+                       ("outside", similarity < DOMAIN_THRESHOLD)):
+        labels, values = y[mask], predicted[mask]
+        row = {"n": int(mask.sum()), "metric": spec.metric, "score": None}
+        if spec.metric == "mae":
+            estimable = len(labels) > 0
+        elif spec.metric == "spearman":
+            estimable = len(np.unique(labels)) > 1 and len(np.unique(values)) > 1
+        else:
+            estimable = len(np.unique(labels)) > 1
+        if estimable:
+            row["score"] = round(_metric(spec.metric, labels, values), 4)
+        if spec.task == "classification" and len(labels):
+            row["brier_score"] = round(float(np.mean((values - labels) ** 2)), 6)
+            bins = []
+            # Count calibration cases once; exact probabilities of one enter the final bin.
+            for lower in range(0, 100, 20):
+                chosen = (values >= lower / 100) & ((values < (lower + 20) / 100)
+                                                      if lower < 80 else (values <= 1))
+                if chosen.any():
+                    bins.append({"from": lower / 100, "to": (lower + 20) / 100,
+                                 "n": int(chosen.sum()),
+                                 "mean_prediction": round(float(values[chosen].mean()), 6),
+                                 "observed_fraction": round(float(labels[chosen].mean()), 6)})
+            row["reliability_bins"] = bins
+        groups[name] = row
+    return groups
+
+
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -277,7 +312,8 @@ def _kept(card: Mapping[str, Any] | None, out: Path, settings: Mapping[str, Any]
           chemistry: Mapping[str, Any]) -> bool:
     """Whether a finished model can stand: same archive, settings, libraries and
     chemistry, and files that still match the card's digests."""
-    if (not card or any(card.get(k) != v for k, v in settings.items())
+    if (not card or "heldout_by_domain" not in card
+            or any(card.get(k) != v for k, v in settings.items())
             or not _same_chemistry(card, chemistry)):
         return False
     model, domain = out / card["model_file"], out / card["domain_file"]
@@ -360,6 +396,8 @@ def _train(z: zipfile.ZipFile, name: str, out: Path, *, archive_sha: str, seed: 
         "dropped_unreadable": int((~prepared.ok).sum()) - refused,
         "dropped_unstandardisable": refused,
         "metric": spec.metric, "test_score": round(score, 4),
+        "heldout_by_domain": _heldout_by_domain(spec, y_test, pred, prepared.bits[n_train:],
+                                               prepared.bits[:n_train]),
         "model": type(model).__name__, "iterations": int(model.n_iter_),
         "features": "Morgan count FP r2 2048 + 25 RDKit descriptors",
         "sklearn": sklearn.__version__, "rdkit": engine.version,
@@ -516,7 +554,7 @@ def verify_models(models_dir: str | Path, endpoints: Sequence[str] | None = None
                             "model_sha256", "domain_sha256", "archive_sha256",
                             "archive_is_pinned", "chemistry", "train", "test",
                             "dropped_unreadable", "dropped_unstandardisable", "metric",
-                            "test_score", "sklearn", "seed", "max_iter")}}
+                            "test_score", "heldout_by_domain", "sklearn", "seed", "max_iter")}}
     if len(archives) > 1:
         problems.append(f"the cards record {len(archives)} different archives: "
                         + ", ".join(sorted(a[:12] for a in archives)))

@@ -43,7 +43,7 @@ def parse_cmaup(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
     edges: list[dict[str, Any]] = []
 
     plants: dict[str, str] = {}
-    for row in read_rows(paths["plants"], report=report):
+    for row in read_rows(paths["plants"], report=report, required=('Plant_ID', 'Species_Tax_ID')):
         report.read["plants"] += 1
         pid, tax = row.get("Plant_ID"), row.get("Species_Tax_ID")
         if not pid or (taxa is not None and taxa.by_id(tax) is None):
@@ -61,7 +61,7 @@ def parse_cmaup(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
     wanted = {np for _, np in pairs}
 
     compounds: dict[str, str] = {}
-    for row in read_rows(paths["ingredients"], report=report):
+    for row in read_rows(paths["ingredients"], report=report, required=('np_id', 'InChIKey')):
         report.read["ingredients"] += 1
         np = row.get("np_id")
         if not np or (taxa is not None and np not in wanted):
@@ -92,7 +92,7 @@ def parse_cmaup(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
         })
 
     proteins: dict[str, dict[str, Any]] = {}
-    for row in read_rows(paths["targets"], report=report):
+    for row in read_rows(paths["targets"], report=report, required=('Target_ID', 'Uniprot_ID')):
         report.read["targets"] += 1
         if row.get("Target_ID") and is_uniprot(row.get("Uniprot_ID")):
             proteins[row["Target_ID"]] = row
@@ -109,7 +109,7 @@ def parse_cmaup(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
         return targets[tid]
 
     recorded: set[str] = set()
-    for row in read_rows(paths["activities"], report=report):
+    for row in read_rows(paths["activities"], report=report, required=('Ingredient_ID', 'Target_ID', 'Activity_Type', 'Activity_Value')):
         report.read["activities"] += 1
         np, tid = row.get("Ingredient_ID"), row.get("Target_ID")
         if np not in compounds:

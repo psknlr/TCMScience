@@ -237,10 +237,15 @@ def kallisto_index(transcripts: str | Path, index_path: str | Path, *, k: int = 
 
 def kallisto_quant(index_path: str | Path, read1: str | Path, out_dir: str | Path, *,
                    read2: str | Path | None = None, fragment_mean: float = 200.0,
-                   fragment_sd: float = 30.0, threads: int = 2) -> tuple[QuantResult, Step]:
+                   fragment_sd: float = 30.0, threads: int = 2,
+                   strandedness: str = "unstranded") -> tuple[QuantResult, Step]:
     tool = _require("kallisto")
     out = Path(out_dir)
     args = ["quant", "-i", index_path, "-o", out, "-t", threads]
+    if strandedness not in ("unstranded", "forward", "reverse"):
+        raise BackendError(f"unsupported kallisto strandedness {strandedness!r}")
+    if strandedness != "unstranded":
+        args.append("--fr-stranded" if strandedness == "forward" else "--rf-stranded")
     if read2 is None:
         args += ["--single", "-l", fragment_mean, "-s", fragment_sd, read1]
     else:
@@ -273,7 +278,8 @@ def hisat2_index(genome: str | Path, prefix: str | Path, *, threads: int = 2) ->
 
 
 def hisat2_align(prefix: str | Path, read1: str | Path, bam: str | Path, *,
-                 read2: str | Path | None = None, threads: int = 2) -> tuple[dict, list[Step]]:
+                 read2: str | Path | None = None, threads: int = 2,
+                 strandedness: str = "unstranded") -> tuple[dict, list[Step]]:
     """Align, then sort and index: (alignment summary, steps)."""
     hisat2 = _require("hisat2")
     samtools = _require("samtools")
@@ -282,6 +288,11 @@ def hisat2_align(prefix: str | Path, read1: str | Path, bam: str | Path, *,
     sam = bam.with_suffix(".sam")
     summary_file = bam.with_suffix(".hisat2.txt")
     args = ["-x", prefix, "-p", threads, "--summary-file", summary_file, "-S", sam]
+    if strandedness not in ("unstranded", "forward", "reverse"):
+        raise BackendError(f"unsupported HISAT2 strandedness {strandedness!r}")
+    if strandedness != "unstranded":
+        orientation = "FR" if strandedness == "forward" else "RF"
+        args += ["--rna-strandness", orientation if read2 is not None else orientation[0]]
     args += ["-1", read1, "-2", read2] if read2 is not None else ["-U", read1]
     steps = [_run(hisat2, args, log=bam.with_suffix(".hisat2.log"),
                   inputs=[read1] + ([read2] if read2 else []), outputs=[summary_file])]
@@ -306,14 +317,21 @@ class CountMatrix:
 
 
 def featurecounts(bams: Sequence[str | Path], samples: Sequence[str], annotation: str | Path,
-                  out: str | Path, *, paired: bool = False, strand: int = 0,
+                  out: str | Path, *, paired: bool = False, strand: int | Sequence[int] = 0,
                   threads: int = 2) -> tuple[CountMatrix, Step]:
     """Gene counts (``-t exon -g gene_id``); ``strand`` 0 unstranded, 1 stranded, 2
-    reversely stranded, as featureCounts' ``-s``."""
+    reversely stranded, as featureCounts' ``-s``. A sequence specifies one code per BAM."""
     tool = _require("featureCounts")
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    args = ["-a", annotation, "-o", out, "-t", "exon", "-g", "gene_id", "-s", strand,
+    if isinstance(strand, int):
+        codes = [strand] * len(bams)
+    else:
+        codes = list(strand)
+    if not codes or len(codes) != len(bams) or any(code not in (0, 1, 2) for code in codes):
+        raise BackendError("featureCounts needs a strand code 0, 1 or 2 for each BAM")
+    strand_arg = str(codes[0]) if len(set(codes)) == 1 else ",".join(map(str, codes))
+    args = ["-a", annotation, "-o", out, "-t", "exon", "-g", "gene_id", "-s", strand_arg,
             "-T", threads]
     if paired:
         args += ["-p", "--countReadPairs"]

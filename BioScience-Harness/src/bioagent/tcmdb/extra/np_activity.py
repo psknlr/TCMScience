@@ -128,6 +128,24 @@ def _value(measure: dict | None) -> str | None:
     return number if rel_ == "=" else f"{rel_}{number}"
 
 
+def activity_outcome(measure: dict | None) -> str:
+    """What this single measurement establishes without a user-selected hit cut-off."""
+    if not measure:
+        return "inconclusive"
+    value, unit = measure["value"], (measure["unit"] or "").casefold()
+    relation, endpoint = measure["relation"], measure["type"].strip().casefold()
+    if endpoint in {"inhibition", "% inhibition", "inhibition (%)", "percent inhibition"}:
+        if unit in {"%", "percent"} and value == 0 and relation == "=":
+            return "negative"
+        return "inconclusive"  # nonzero responses need a validated assay-specific hit call
+    units = {"m", "mm", "μm", "um", "nm", "pm", "fm", "mg/ml", "μg/ml", "ug/ml", "ng/ml",
+             "g/l", "mg/l", "μg/l", "ug/l", "ng/l"}
+    if endpoint in {"ic50", "ec50", "kd", "ki"} and value > 0 and unit in units:
+        if relation in {"=", "~", "<", "<=", "≤"}:
+            return "positive"  # a quantified potency, not an assertion of therapeutic potency
+    return "inconclusive"
+
+
 def _activities(conn: sqlite3.Connection, key: str, compounds: dict[str, tuple[str, str | None]],
                 proteins: dict[str, tuple[str, str | None]], *, table: str, np: str, tid: str,
                 ref: str, ref_type: str, kind: str, value: str, unit: str, relation: str,
@@ -141,7 +159,7 @@ def _activities(conn: sqlite3.Connection, key: str, compounds: dict[str, tuple[s
         measure = parse_measure(r.get(kind), r.get(value), r.get(unit), r.get(relation))
         species, cell, tissue = (r.get(a) for a in assay) if assay else (None, None, None)
         yield rel("compound_target", key, compound[0], compound[1], target[0], target[1],
-                  "known", reference=reference,
+                  "known", reference=reference, outcome=activity_outcome(measure),
                   context=ctx(measure=(measure or {}).get("type") or v(r.get(kind)),
                               value=_value(measure), unit=(measure or {}).get("unit"),
                               species=v(species), cell=v(cell), tissue=v(tissue)))
@@ -166,27 +184,19 @@ def _npass(conn: sqlite3.Connection) -> Iterator[Row | None]:
         if np:
             ik = inchikeys.get(np)
             compounds[np] = (compound_id("npass", np, ik), _shown(v(r.get("pref_name")), ik, np))
-    pairs: dict[tuple[str, str], dict] = {}
-    for r in _distinct(conn, "pairs", ("org_id", "np_id", "ref_id", "ref_id_type", "ref_type",
-                                       "org_isolation_part")):
-        org, np = v(r.get("org_id")), v(r.get("np_id"))
+    for row in _distinct(conn, "pairs", ("org_id", "np_id", "ref_id", "ref_id_type",
+                                         "ref_type", "org_isolation_part")):
+        org, np = v(row.get("org_id")), v(row.get("np_id"))
         if org not in organisms or np not in compounds:
             continue
-        pair = pairs.setdefault((org, np), {"refs": set(), "dbs": set(), "parts": set()})
-        reference = publication(r.get("ref_id"), r.get("ref_id_type"))
-        if reference:
-            pair["refs"].add(reference)
-        elif (v(r.get("ref_type")) or "").lower() == "database" and v(r.get("ref_id")):
-            pair["dbs"].add(v(r.get("ref_id")))
-        if v(r.get("org_isolation_part")):
-            pair["parts"].add(v(r.get("org_isolation_part")))
-    for (org, np), pair in sorted(pairs.items()):
-        relayed = not pair["refs"] and pair["dbs"]
+        reference = publication(row.get("ref_id"), row.get("ref_id_type"))
+        upstream = (v(row.get("ref_id")) if
+                    (v(row.get("ref_type")) or "").lower() == "database" else None)
+        evidence = "known" if reference else "aggregated" if upstream else "listed"
         yield rel("organism_compound", "npass", organisms[org][0], organisms[org][1],
-                  compounds[np][0], compounds[np][1], "aggregated" if relayed else "known",
-                  reference=" | ".join(sorted(pair["refs"])) or None,
-                  note=f"via {sorted(pair['dbs'])[0]}" if relayed else None,
-                  context=ctx(part=" | ".join(sorted(pair["parts"])) or None))
+                  compounds[np][0], compounds[np][1], evidence, reference=reference,
+                  note=f"via {upstream}" if upstream else None,
+                  context=ctx(part=v(row.get("org_isolation_part"))))
     if has(conn, "targets", "activities"):
         proteins = {v(r.get("target_id")): (target_id("npass", v(r.get("target_id")),
                                                       v(r.get("uniprot_id"))),
@@ -239,7 +249,6 @@ def _cmaup(conn: sqlite3.Connection) -> Iterator[Row | None]:
 def _lotus(conn: sqlite3.Connection) -> Iterator[Row | None]:
     if not has(conn, "pairs"):
         return
-    pairs: dict[tuple[str, str], dict] = {}
     for r in _distinct(conn, "pairs", ("structure_inchikey", "organism_name",
                                        "organism_taxonomy_ncbiid", "organism_wikidata",
                                        "structure_nameTraditional", "reference_doi",
@@ -250,18 +259,13 @@ def _lotus(conn: sqlite3.Connection) -> Iterator[Row | None]:
         tax = v(r.get("organism_taxonomy_ncbiid"))
         qid = (v(r.get("organism_wikidata")) or "").rsplit("/", 1)[-1] or None
         organism = f"ncbitaxon:{tax}" if tax and tax.isdigit() else f"lotus:{qid or org_name}"
-        pair = pairs.setdefault((organism, f"inchikey:{ik}"), {
-            "organism": org_name, "compound": v(r.get("structure_nameTraditional")) or ik,
-            "refs": set(), "validated": False})
         doi = publication(r.get("reference_doi"), "doi")
-        if doi:
-            pair["refs"].add(doi)
-        if (v(r.get("manual_validation")) or "").lower() in _TRUE:
-            pair["validated"] = True
-    for (organism, compound), p in sorted(pairs.items()):
-        yield rel("organism_compound", "lotus", organism, p["organism"], compound, p["compound"],
-                  "known" if p["validated"] else "reported",
-                  reference=" | ".join(sorted(p["refs"])) or None)
+        validated = (v(r.get("manual_validation")) or "").lower() in _TRUE
+        yield rel("organism_compound", "lotus", organism, org_name, f"inchikey:{ik}",
+                  v(r.get("structure_nameTraditional")) or ik,
+                  "known" if validated and doi else "reported" if doi else "listed",
+                  reference=doi)
+
 
 
 EXTRACTORS = {"npass": _npass, "cmaup": _cmaup, "lotus": _lotus}

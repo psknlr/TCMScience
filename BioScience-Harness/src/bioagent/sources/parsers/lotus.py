@@ -36,7 +36,7 @@ def parse_lotus(path: str | Path, *, taxa: TaxonFilter | None = None) -> ParseRe
     book = NodeBook(KEY)
     pairs: dict[tuple[str, str], dict[str, Any]] = {}
 
-    for row in read_rows(path, delimiter=",", report=report):
+    for row in read_rows(path, delimiter=",", report=report, required=("structure_inchikey", "organism_name")):
         report.read["rows"] += 1
         ik = row.get("structure_inchikey")
         org_name = row.get("organism_name")

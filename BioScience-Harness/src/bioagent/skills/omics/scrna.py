@@ -40,7 +40,8 @@ def _now() -> str:
 
 def scrna_cell_atlas(source: str, *, experiment_design: str = "in_vitro",
                      root: str = "", doublets: str = "remove", resolution: float = 1.0,
-                     markers: str = "", contrast: str = "",
+                     markers: str = "", contrast: str = "", replicate_key: str = "auto",
+                     design: str = "", covariates: list[str] | None = None,
                      analysis_backend: str = "builtin", integration_method: str = "harmony",
                      de_backend: str = "builtin", out_dir: str = "",
                      run_id: str = "") -> Any:
@@ -63,6 +64,8 @@ def scrna_cell_atlas(source: str, *, experiment_design: str = "in_vitro",
     run = run_scrna(source, ScConfig(root=root or None, doublets=doublets,
                                      resolution=float(resolution), markers=markers or None,
                                      contrast=parsed, analysis_backend=analysis_backend,
+                                     replicate_key=replicate_key, design=design or None,
+                                     covariates=tuple(covariates or ()),
                                      integration_method=integration_method,
                                      de_backend=de_backend), out)
     manifest = run.manifest

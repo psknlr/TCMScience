@@ -639,7 +639,7 @@ def test_copies_found_by_overlap_count_once(many):
 def test_a_saved_survey_supplies_the_copy_clusters(many):
     path = many.root / "consensus" / "ingredient_target.json"
     path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"clusters": [["itcm", "tmmc2"]], "subjects_sampled": 300}))
+    path.write_text(json.dumps({"metric": "subject_object_jaccard", "clusters": [["itcm", "tmmc2"]], "subjects_sampled": 300}))
     out = many.consensus("ingredient_target", subject="pubchem:5280343")
     assert out["redundancy"]["survey_clusters"] == [["itcm", "tmmc2"]]
     akt1 = _by_object(out)["symbol:AKT1"]
@@ -676,3 +676,28 @@ def test_formula_versions_are_compared_not_pooled(tmp_path):
     assert out["sources"] == {"batman2:formula.1": 3, "batman2:formula.2": 2,
                               "herb2:HBFO403": 3}
     assert out["jaccard"]["batman2:formula.1|herb2:HBFO403"] == 1.0
+
+
+def test_copy_estimate_preserves_each_compound_target_pair():
+    from bioagent.tcmdb.consensus import redundancy
+    rows = [{"source": db, "evidence": "aggregated", "_s": compound, "_o": f"{group}{i}"}
+            for db, groups in (("a", ("x", "y")), ("b", ("y", "x")))
+            for compound, group in zip(("herb1", "herb2"), groups) for i in range(20)]
+    assert redundancy(rows)["jaccard"]["a|b"] == 0
+    assert redundancy(rows)["clusters"] == []
+
+
+def test_processing_is_preserved_across_notations():
+    from bioagent.tcmdb.consensus import herb_key
+    assert herb_key("甘草（炙）", "a") == herb_key("炙甘草", "b")
+    assert herb_key("大黄炭", "a") != herb_key("大黄", "b")
+    assert herb_key("附子（炮）", "a") == herb_key("炮附子", "b")
+    assert herb_key("生附子", "a") != herb_key("附子", "b")
+    assert herb_key("甘草（炙）", "a", merge_processed=True) == "materia:gancao"
+
+
+def test_consensus_keeps_multiple_historical_citations_separate():
+    from bioagent.tcmdb.consensus import Assertion
+    a = Assertion("organism_compound", "s", "o", rows=[
+        {"source": "npass", "evidence": "known", "reference": "pmid:1333 | pmid:1444"}])
+    assert a.as_dict()["references"] == ["pmid:1333", "pmid:1444"]

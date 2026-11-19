@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field, replace
+import math
+from dataclasses import dataclass, field, fields, is_dataclass, replace
+from types import MappingProxyType
 from typing import Any, Mapping
 
 __all__ = ["InterventionSpec", "PreparationBatch", "Measurement", "QUALIFIERS",
@@ -33,8 +35,7 @@ __all__ = ["InterventionSpec", "PreparationBatch", "Measurement", "QUALIFIERS",
 
 
 def fingerprint(obj: Any) -> str:
-    blob = json.dumps(obj if isinstance(obj, (dict, list)) else asdict(obj),
-                      ensure_ascii=False, sort_keys=True, default=str)
+    blob = json.dumps(_serializable(obj), ensure_ascii=False, sort_keys=True, default=str)
     return "sha256:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
@@ -185,6 +186,28 @@ class ProtocolError(RuntimeError):
     """An analysis that does not match its locked protocol."""
 
 
+def _immutable(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({k: _immutable(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_immutable(v) for v in value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    raise ProtocolError("protocol values must be JSON data")
+
+
+def _serializable(value: Any) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return {f.name: _serializable(getattr(value, f.name)) for f in fields(value)}
+    if isinstance(value, Mapping):
+        return {k: _serializable(v) for k, v in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_serializable(v) for v in value]
+    return value
+
+
 @dataclass(frozen=True)
 class StudyProtocol:
     title: str
@@ -199,13 +222,20 @@ class StudyProtocol:
     locked: str = ""                     # hash once locked
     amendments: tuple[Mapping[str, Any], ...] = ()
 
+    def __post_init__(self) -> None:
+        for name in ("analysis", "decision_rules", "competing", "data", "interventions",
+                     "amendments"):
+            object.__setattr__(self, name, _immutable(getattr(self, name)))
+
     def _content(self) -> dict:
-        d = asdict(self)
-        d.pop("locked")
-        d.pop("amendments")
-        return d
+        return {k: _serializable(v) for k, v in vars(self).items()
+                if k not in ("locked", "amendments")}
 
     def lock(self) -> "StudyProtocol":
+        if self.locked:
+            if self.confirmatory:
+                return self
+            raise ProtocolError("a previously locked or amended protocol cannot be re-locked")
         if not self.competing:
             raise ProtocolError("a protocol names at least one competing explanation")
         if not self.decision_rules:
@@ -219,6 +249,8 @@ class StudyProtocol:
 
     def amend(self, reason: str, **changes: Any) -> "StudyProtocol":
         """A change after locking: recorded, and the analysis becomes exploratory."""
+        if {"locked", "amendments"} & changes.keys():
+            raise ProtocolError("lock and amendment history are managed by the protocol")
         if not self.locked:
             return replace(self, **changes)
         return replace(self, **changes,
@@ -226,18 +258,25 @@ class StudyProtocol:
                                                       "changed": sorted(changes),
                                                       "from": self.locked},))
 
-    def check(self, *, endpoint: str, analysis: Mapping[str, Any]) -> str:
+    def check(self, *, endpoint: str, analysis: Mapping[str, Any],
+              interventions: tuple[str, ...] = (), data: tuple[str, ...] = ()) -> str:
         """``confirmatory`` or ``exploratory`` for an analysis about to run; raises when the
         protocol is locked and the analysis silently departs from it."""
         if not self.locked:
             return "exploratory"
         if self.amendments:
             return "exploratory"
+        if not self.confirmatory:
+            raise ProtocolError("the locked content no longer matches its fingerprint")
+        if tuple(interventions) != self.interventions or tuple(data) != self.data:
+            raise ProtocolError("the run must use the interventions and datasets in the lock")
         if endpoint != self.primary_endpoint:
             raise ProtocolError(f"the locked primary endpoint is {self.primary_endpoint!r}, "
                                 f"not {endpoint!r}; amend the protocol (the analysis then "
                                 "becomes exploratory)")
-        departures = {k for k in self.analysis if analysis.get(k) != self.analysis[k]}
+        departures = set(analysis) ^ set(self.analysis)
+        departures.update(k for k in analysis.keys() & self.analysis.keys()
+                          if _serializable(analysis[k]) != _serializable(self.analysis[k]))
         if departures:
             raise ProtocolError(f"the analysis departs from the locked protocol on "
                                 f"{sorted(departures)}")

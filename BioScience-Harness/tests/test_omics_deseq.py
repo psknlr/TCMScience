@@ -161,3 +161,43 @@ def test_agrees_with_pydeseq2():
     ours = set(np.flatnonzero(res.p_adjusted < 0.05))
     theirs = set(np.flatnonzero(ref["padj"].values < 0.05))
     assert len(ours & theirs) >= 0.95 * max(len(ours), len(theirs))
+
+
+@pytest.mark.parametrize("backend", ["builtin", "pydeseq2"])
+def test_unconverged_sparse_gene_cannot_become_a_significant_result(backend, tmp_path):
+    """Before masking, gene 29 in this null experiment had log2FC 165 and adjusted p=0."""
+    from bioagent.omics.rnaseq_counts import RNASeqCountsConfig, run_rnaseq_counts
+
+    if backend == "pydeseq2":
+        need_module("pydeseq2")
+    rng = np.random.default_rng(4)
+    ages = rng.integers(21, 86, 12)
+    library = rng.lognormal(0, 0.3, 12)
+    means = np.exp(rng.uniform(0.2, 4.5, (120, 1))) * library
+    counts = rng.negative_binomial(1, 1 / (1 + means))
+    counts[:80] *= rng.random((80, 12)) < 0.06 + np.arange(80)[:, None] / 120
+    matrix, samples = tmp_path / "counts.tsv", tmp_path / "samples.tsv"
+    with matrix.open("w") as stream:
+        print("gene_id", *(f"s{i}" for i in range(12)), sep="\t", file=stream)
+        for i, row in enumerate(counts):
+            print(f"g{i}", *row, sep="\t", file=stream)
+    with samples.open("w") as stream:
+        print("sample", "condition", "age", sep="\t", file=stream)
+        for i, age in enumerate(ages):
+            print(f"s{i}", "A" if i < 6 else "B", age, sep="\t", file=stream)
+    run = run_rnaseq_counts(matrix, samples, RNASeqCountsConfig(
+        design="~ age + condition", covariates=("age",), contrast=("condition", "B", "A"),
+        de_backend=backend), tmp_path / "out")
+    result = run.result
+    failed = ~result.gene_diagnostics["converged"]
+    assert failed[29]
+    assert result.diagnostics["not_converged"] == failed.sum()
+    assert any(f"{failed.sum()} gene fits did not converge" in note for note in run.warnings)
+    assert 29 not in result.significant()
+    for values in (result.log2_fold_change, result.lfc_se, result.stat, result.p_value,
+                   result.p_adjusted):
+        assert np.isnan(values[failed]).all()
+    included = np.isfinite(result.p_adjusted)
+    assert included.sum() > 80
+    assert np.allclose(result.p_adjusted[included],
+                       stats.false_discovery_control(result.p_value[included], method="bh"))

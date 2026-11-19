@@ -5,7 +5,7 @@
 
 Re-analyses group summaries (mean, SD, n) transcribed from the published tables, and the
 locally built ToxCast store, under a protocol locked in this file. Writes
-gqd_berberine.json and gqd_berberine.md.
+gqd_berberine.json and gqd_berberine_tables.md. The curated discussion is kept separately.
 
 Sources (the numbers below are transcribed, with the table they come from):
 
@@ -137,7 +137,7 @@ def toxcast_assays(tcmdb: Path) -> tuple[list[AssayResult], int]:
             continue
         assays.append(AssayResult(BERBERINE, name or oid, "AC50",
                                   Measurement("measured", float(c["value"]), c.get("unit", "uM")),
-                                  species=str(c.get("species", "")), system=c.get("cell", ""),
+                                  species=str(c.get("species") or ""), system=c.get("cell", ""),
                                   flags=tuple(c.get("flags") or ()), study="ToxCast invitrodb"))
     return assays, inactive
 
@@ -155,15 +155,31 @@ def exposure_screen(assays: list[AssayResult]) -> dict:
         verdicts: dict[str, int] = {}
         for r in res:
             verdicts[r["verdict"]] = verdicts.get(r["verdict"], 0) + 1
-        open_ = sorted((r for r in res if r["verdict"] != "implausible"),
+        open_ = sorted((r for r in res if r["ratio"] is not None and r["verdict"] != "implausible"),
                        key=lambda r: -r["ratio"][1])
         out[group] = {"cmax_ng_ml": cmax,
                       "cmax_nM_total": round(cmax / BERBERINE_MW * 1e3, 1),
                       "verdicts": verdicts,
+                      "unevaluable": [r for r in res if r["ratio"] is None],
                       "not_ruled_out": [{"assay": r["target"], "ratio_range": r["ratio"],
                                          "potency_uM": round(r["potency_molar"] * 1e6, 4),
                                          "verdict": r["verdict"]} for r in open_]}
     return out
+
+
+def bound_table(groups: dict) -> str:
+    """Rat plasma free Cmax / assay AC50, across the stated free-fraction range."""
+    rows = ["| Group | Lower bound ≥ 1 | Upper bound ≥ 1 | Highest upper bound |",
+            "| --- | ---: | ---: | ---: |"]
+    for group, summary in groups.items():
+        bounds = [r["ratio_range"] for r in summary["not_ruled_out"]]
+        lower = sum(lo >= 1 for lo, hi in bounds)
+        upper = sum(hi >= 1 for lo, hi in bounds)
+        # Only not_ruled_out contains individual ratios. No qualifying result is
+        # distinct from a measured maximum of zero.
+        highest = f"{max(hi for lo, hi in bounds):.3f}" if bounds else "unavailable"
+        rows.append(f"| {group} | {lower} | {upper} | {highest} |")
+    return "\n".join(rows)
 
 
 GPB_2020 = {
@@ -194,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
     status = PROTOCOL.check(endpoint=PROTOCOL.primary_endpoint, analysis=dict(PROTOCOL.analysis))
     assays, inactive = toxcast_assays(Path(args.tcmdb))
     result = {"protocol": {"locked": PROTOCOL.locked, "status": status,
-                           "amendments": list(PROTOCOL.amendments),
+                           "amendments": [dict(a) for a in PROTOCOL.amendments],
                            "hypothesis": PROTOCOL.hypothesis,
                            "competing": list(PROTOCOL.competing),
                            "decision_rules": dict(PROTOCOL.decision_rules)},
@@ -215,14 +231,15 @@ def main(argv: list[str] | None = None) -> int:
                      f"{r['ratio']:.2f} ({r['ci'][0]:.2f}–{r['ci'][1]:.2f}) | {c['verdict']} |")
     lines += ["", f"ToxCast: {len(assays)} active AC50s and {inactive} inactive results for "
                   "berberine chloride.", "",
-              "| Group | Plasma Cmax (total) | Implausible | Depends on unknowns | Plausible |",
-              "| --- | --- | ---: | ---: | ---: |"]
+              "| Group | Plasma Cmax (total) | Implausible | Depends on unknowns | Plausible | Undeterminable |",
+              "| --- | --- | ---: | ---: | ---: | ---: |"]
     for g, e in result["exposure"]["by_group"].items():
         v = e["verdicts"]
         lines.append(f"| {g} | {e['cmax_ng_ml']} ng/mL ({e['cmax_nM_total']} nM) | "
                      f"{v.get('implausible', 0)} | {v.get('depends_on_unknowns', 0)} | "
-                     f"{v.get('plausible', 0)} |")
-    (out / "gqd_berberine.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+                     f"{v.get('plausible', 0)} | {v.get('undeterminable', 0)} |")
+    lines.extend(["", bound_table(result["exposure"]["by_group"])])
+    (out / "gqd_berberine_tables.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
     return 0
 

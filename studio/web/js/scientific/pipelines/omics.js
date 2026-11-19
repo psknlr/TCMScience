@@ -99,7 +99,7 @@ const SCRNA = {
   kind: "pipeline.scrna",
   fn: "run_scrna",
   artefacts: { run: "run.json", report: "report.html", clusters: "clusters.tsv", cells: "cells.tsv", limitations: "limitations.md" },
-  params: ["source", "doublets", "analysis_backend", "integration", "resolution", "seed", "markers", "root", "contrast", "n_top_genes"],
+  params: ["source", "doublets", "analysis_backend", "integration", "resolution", "seed", "markers", "root", "contrast", "replicate_key", "design", "covariates", "n_top_genes"],
   files: ["source", "markers"],
   lines: [UMAP_LINE],
 };
@@ -229,7 +229,11 @@ function checkScrna(p) {
   if (present(p.resolution)) checkNumber("resolution", p.resolution, RESOLUTION);
   if (present(p.seed)) checkNumber("seed", p.seed, SEED, { integer: true });
   if (present(p.n_top_genes)) checkNumber("n_top_genes", p.n_top_genes, N_TOP_GENES, { integer: true });
-  for (const key of ["root", "contrast"]) if (given(p[key])) checkText(key, p[key]);
+  for (const key of ["root", "contrast", "replicate_key", "design"]) if (given(p[key])) checkText(key, p[key]);
+  if (present(p.covariates)) {
+    if (!Array.isArray(p.covariates)) throw bad("covariates must be a list of numeric column names");
+    for (const key of p.covariates) checkText("covariate", key);
+  }
 }
 
 // --------------------------------------------------------------------------------------------- project files
@@ -427,7 +431,7 @@ function safeName(name) {
  * refused unless its SHA-256 is the one the project recorded; the sheet rewritten to name the copies. Each input is
  * recorded on the job (ctx.input) → {names: the staged files, paths: param → path in the worker, digests}.
  */
-async function stageInputs(ctx, spec, inputsDir) {
+export async function stageInputs(ctx, spec, inputsDir) {
   const { files, sheet } = await plan(spec, ctx.params, ctx.projectFiles, ctx.job.project_id);
   const dir = [...ctx.dir, "inputs"];
   // an earlier attempt's copies are not trusted: every input is copied and checked again
@@ -510,7 +514,7 @@ function pythonArgs(spec, p, paths, outDir) {
   }
   return {
     source: paths.source, markers: paths.markers, doublets: p.doublets, analysis_backend: p.analysis_backend, integration: p.integration,
-    resolution: p.resolution, seed: p.seed, root: p.root, contrast: p.contrast, n_top_genes: p.n_top_genes, out_dir: outDir,
+    resolution: p.resolution, seed: p.seed, root: p.root, contrast: p.contrast, replicate_key: p.replicate_key, design: p.design, covariates: p.covariates, n_top_genes: p.n_top_genes, out_dir: outDir,
   };
 }
 

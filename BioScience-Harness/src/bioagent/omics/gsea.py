@@ -97,12 +97,14 @@ class RankedGenes:
     dropped: tuple[str, ...] = ()       # genes without a value
     capped: int = 0                     # p-values of 0, capped at the smallest double
     tied: int = 0                       # genes sharing their score with another
+    exclusions: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     def record(self) -> dict[str, Any]:
         return {"method": self.method, "meaning": RANKING_METHODS[self.method],
                 "species": self.species, "id_type": self.id_type, "source": self.source,
                 "genes": len(self.genes), "dropped": list(self.dropped),
                 "capped": self.capped, "tied": self.tied,
+                "exclusions": {k: list(v) for k, v in self.exclusions.items()},
                 "order": "descending score, ties by gene ID"}
 
 
@@ -145,6 +147,12 @@ def ranked_from_de(result: DEResult, *, method: str, species: str,
 
     A positive score means higher in the contrast's numerator, whichever backend ran.
     """
+    diagnostics = result.gene_diagnostics
+    rejected = {"cooks_outlier": diagnostics["cooks_outlier"],
+                "not_converged": ~diagnostics["converged"]}
+    invalid = rejected["cooks_outlier"] | rejected["not_converged"]
+    excluded = {reason: tuple(g for g, bad in zip(result.genes, mask) if bad)
+                for reason, mask in rejected.items() if mask.any()}
     capped = 0
     if method == "stat":
         scores = result.stat
@@ -152,7 +160,7 @@ def ranked_from_de(result: DEResult, *, method: str, species: str,
         scores = result.log2_fold_change
     elif method == "signed_log10_p":
         p = np.asarray(result.p_value, dtype=float)
-        capped = int(np.sum(p == 0))
+        capped = int(np.sum((p == 0) & ~invalid))
         with np.errstate(invalid="ignore"):
             scores = (np.sign(result.log2_fold_change)
                       * -np.log10(np.maximum(p, np.finfo(float).tiny)))
@@ -161,9 +169,9 @@ def ranked_from_de(result: DEResult, *, method: str, species: str,
     factor, numerator, denominator = result.contrast
     source = (f"{factor}: {numerator} vs {denominator}, by {result.backend} "
               f"{result.version}")
-    ranked = rank_genes(result.genes, scores, method=method, species=species,
+    ranked = rank_genes(result.genes, np.where(invalid, np.nan, scores), method=method, species=species,
                         id_type=id_type, source=source)
-    return replace(ranked, capped=capped)
+    return replace(ranked, capped=capped, exclusions=excluded)
 
 
 @dataclass(frozen=True)

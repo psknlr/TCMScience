@@ -35,6 +35,10 @@ def parse_reactome(path: str | Path, *, proteins: Iterable[str] | None = None,
     for row in read_rows(path, fieldnames=_COLUMNS, report=report):
         report.read["rows"] += 1
         acc, pathway = row.get("uniprot"), row.get("pathway")
+        if not row.get("species") or not row.get("pathway"):
+            report.drop("malformed mapping without species or pathway")
+            continue
+        report.read["mapping_rows"] += 1
         if row.get("species") != species:
             continue
         if scope is not None and acc not in scope:

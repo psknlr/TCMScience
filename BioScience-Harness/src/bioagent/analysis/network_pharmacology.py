@@ -10,7 +10,7 @@ The pipeline for ``tcm.network-pharmacology`` (``skills/tcm/network-pharmacology
 3. **Pathway over-representation** — Reactome, pathways of a stated size range,
    Benjamini–Hochberg over *every* pathway tested (not only those that happen to overlap
    the query). The background is, by default, the *assayed* proteins: every human protein
-   the formula's compounds were measured against, potent or not. Natural products are
+   for which at least one measurement can be classified at the threshold. Natural products are
    screened against the same panels again and again (carbonic anhydrases, transporters,
    cytochromes P450); against the whole human annotation, a pathway can look enriched
    because its proteins were tested, not because they were hit. Against the assayed
@@ -18,16 +18,18 @@ The pipeline for ``tcm.network-pharmacology`` (``skills/tcm/network-pharmacology
    what was tested. The whole-annotation background remains available as a parameter.
 4. **Annotation-bias control** — a pathway that passes BH must also beat a degree-matched
    permutation null: random target sets drawn so each target is matched on how many
-   pathways it is annotated to. Well-studied proteins sit in many pathways; without this,
-   "enriched" can mean "well studied".
+   pathways it is annotated to, and on the number of classifiable compounds in the
+   assayed background. The whole-annotation comparator deliberately omits assay coverage.
+   In screening mode, whole proteins are randomized within identical campaign and compound
+   exposure profiles; every profile in the term must include an outside comparator.
 5. **Network topology** — the STRING subnetwork over the targets at a stated confidence,
    reported as description: degree, betweenness, components. No significance is claimed
    for it.
 6. **Indication overlap** (when an Open Targets snapshot is given) — the measured targets
    against one disease's gene set, defined from one stated evidence type at a stated
    score (by default human genetic association, not literature co-mention, which would be
-   circular for a literature-derived compound network). Hypergeometric against the same
-   background plus the same degree-matched null; reported as a statistic, never as a claim.
+   circular for a literature-derived compound network). Genes are compared within their
+   assayed population independently of Reactome pathway membership.
 7. **Candidate claims** — one ``mechanism_hypothesis`` per pathway passing 3 and 4, each
    citing the exact snapshot edges of one supporting path, then the release check
    (``sources.release``). The strongest kind each path would license is recorded too, so
@@ -54,13 +56,14 @@ import bisect
 import hashlib
 import inspect
 import json
+import math
 import random
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
 from ..sources.herbs import GEGEN_QINLIAN, HERBS, FormulaVersion
-from ..sources.identity import group_sources
+from ..sources.identity import canonical_many, group_sources
 from ..sources.parsers.opentargets import KNOWLEDGE_LEVEL as DISEASE_EVIDENCE_TYPES
 from ..sources.release import CandidateClaim, check_release, path_licenses
 from ..sources.snapshot import Snapshot
@@ -84,7 +87,7 @@ class Parameters:
     activity_max_nm: float = 10_000.0
     #: weakest composition level accepted for a compound
     composition_min_level: str = "C1"
-    #: "assayed": human proteins the compounds were measured against, potent or not;
+    #: "assayed": annotated proteins with a classifiable measurement at the cutoff;
     #: "reactome": every protein in the human Reactome annotation
     background: str = "assayed"
     #: what counts as a hit. "potency": a curated measurement at or below the cut-off
@@ -119,6 +122,10 @@ class Parameters:
                 else tuple(self.disease_evidence))
 
     def __post_init__(self) -> None:
+        if not math.isfinite(self.activity_max_nm) or self.activity_max_nm <= 0:
+            raise ValueError("activity_max_nm must be finite and positive")
+        if self.degree_bins < 1:
+            raise ValueError("degree_bins must be positive")
         if self.composition_min_level not in _COMPOSITION_ORDER:
             raise ValueError(f"composition level {self.composition_min_level!r}")
         if not 0 < self.fdr < 1 or not 0 < self.permutation_alpha < 1:
@@ -236,22 +243,67 @@ def _why_not_potent(measure: Mapping[str, Any] | None, params: Parameters) -> st
     """
     if not measure or measure.get("type") not in params.activity_types:
         return "not a potency measure (IC50, Ki, Kd or EC50)"
-    if (measure.get("unit") or "").lower() != "nm":
+    if _unit_factor(measure) is None:
         return "potency in a non-molar unit (e.g. µg/mL): not comparable with the cut-off"
     if _censored_from_below(measure):
         return "potency given only as a lower bound (>, >=, >>)"
+    if _potency_call(measure, params) is None:
+        return "indeterminate potency or bound at the cut-off"
     return "potency above the cut-off"
 
 
-def _passes_potency(measure: Mapping[str, Any] | None, params: Parameters) -> bool:
+def _unit_factor(measure: Mapping[str, Any]) -> float | None:
+    unit = str(measure.get("unit") or "").strip().replace("μ", "u").replace("µ", "u")
+    return {"pm": 0.001, "nm": 1.0, "um": 1000.0, "mm": 1e6, "m": 1e9}.get(unit.lower())
+
+
+def _potency_call(measure: Mapping[str, Any] | None, params: Parameters) -> bool | None:
+    """Classify the full measurement interval relative to the protocol cutoff."""
     if not measure or measure.get("type") not in params.activity_types:
-        return False
-    if (measure.get("unit") or "").lower() != "nm" or _censored_from_below(measure):
-        return False
+        return None
+    factor = _unit_factor(measure)
+    if factor is None:
+        return None
     try:
-        return float(measure["value"]) <= params.activity_max_nm
+        value = float(measure["value"]) * factor
     except (TypeError, ValueError, KeyError):
-        return False
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    relation = str(measure.get("relation") or "=").strip()
+    cutoff = params.activity_max_nm
+    if relation in ("=", "=="):
+        return value <= cutoff
+    if relation in ("<", "<=", "≤", "<<"):
+        return True if value <= cutoff else None
+    if relation in (">", ">>"):
+        return False if value >= cutoff else None
+    if relation in (">=", "≥"):
+        return False if value > cutoff else None
+    return None
+
+
+def _passes_potency(measure: Mapping[str, Any] | None, params: Parameters) -> bool:
+    return _potency_call(measure, params) is True
+
+
+def _matched_pools(universe: Iterable[str], query: Iterable[str], degree: Mapping[str, int],
+                   opportunities: Mapping[str, set[str]] | None, degree_bins: int
+                   ) -> tuple[dict[tuple[int, int], list[str]], Counter]:
+    """Preserve the measured compound count exactly within annotation-degree strata.
+
+    opportunities=None denotes the explicitly unconditioned annotation comparator.
+    """
+    ordered = sorted(universe, key=lambda p: (degree.get(p, 0), p))
+    cuts = [degree.get(ordered[len(ordered) * k // degree_bins], 0)
+            for k in range(1, degree_bins)] if ordered else []
+    def stratum(p: str) -> tuple[int, int]:
+        count = len(opportunities.get(p, ())) if opportunities is not None else 0
+        return count, bisect.bisect_right(cuts, degree.get(p, 0))
+    pool = defaultdict(list)
+    for p in ordered:
+        pool[stratum(p)].append(p)
+    return pool, Counter(stratum(p) for p in query)
 
 
 def _brandes(adjacency: Mapping[str, set[str]]) -> dict[str, float]:
@@ -322,23 +374,76 @@ def _pooled_rate(proteins: Sequence[str], tests: Mapping[str, int],
 
 
 def _rate_test(members: set[str], eligible: Sequence[str], tests: Mapping[str, int],
-               actives: Mapping[str, int], rng: random.Random,
-               permutations: int) -> dict[str, Any]:
-    """Pooled active rate of ``members`` against random protein sets of the same size.
-
-    The unit is a compound-protein test, but tests on one protein are not independent (one
-    assay panel, one lab), so the null draws whole proteins: random sets of as many
-    eligible proteins, with all their tests, and the pooled rate recomputed.
-    """
+               actives: Mapping[str, int], rng: random.Random, permutations: int, *,
+               strata: Mapping[str, Any]) -> dict[str, Any]:
+    """Randomize whole proteins within the same assay and compound exposure profile."""
     chosen = sorted(members)
     rate = _pooled_rate(chosen, tests, actives)
-    overall = _pooled_rate(eligible, tests, actives)
-    at_least = sum(_pooled_rate(rng.sample(eligible, len(chosen)), tests, actives) >= rate
-                   for _ in range(permutations))
-    return {"proteins": len(chosen), "tests": sum(tests[p] for p in chosen),
-            "active_tests": sum(actives[p] for p in chosen), "active_rate": round(rate, 6),
-            "fold_enrichment": round(rate / overall, 4) if overall else None,
-            "empirical_p": (1 + at_least) / (1 + permutations)}
+    result = {"proteins": len(chosen), "tests": sum(tests[p] for p in chosen),
+              "active_tests": sum(actives[p] for p in chosen), "active_rate": rate,
+              "fold_enrichment": None, "empirical_p": None}
+    wanted = Counter(strata.get(p) for p in chosen)
+    pools = defaultdict(list)
+    for p in sorted(eligible):
+        key = strata.get(p)
+        if key in wanted:
+            pools[key].append(p)
+    if not chosen or None in wanted or any(len(pools[k]) <= n for k, n in wanted.items()):
+        result["reason"] = "no outside comparator for every assay and compound exposure profile"
+        return result
+    groups = [(pools[k], n) for k, n in wanted.items()]
+    expected = sum(sum(actives[p] for p in group) * n / len(group)
+                   for group, n in groups) / result["tests"]
+    # A stratum has the same compounds and hence denominator for every member.
+    at_least = sum(sum(actives[p] for group, n in groups for p in rng.sample(group, n))
+                   >= result["active_tests"] for _ in range(permutations))
+    return {**result, "fold_enrichment": rate / expected if expected else None,
+            "empirical_p": (1 + at_least) / (1 + permutations),
+            "null_exceedances": at_least, "null_permutations": permutations}
+
+
+def _assays(edge: Mapping[str, Any]) -> tuple[str, ...]:
+    aids = {str(x).lower() for x in edge.get("publications") or ()
+            if str(x).lower().startswith("pubchem.bioassay:") and str(x).split(":")[-1].isdigit()}
+    raw_aid = str(edge.get("source_record_id") or "").split("|", 1)[0]
+    if raw_aid.isdigit():
+        aids.add("pubchem.bioassay:" + raw_aid)
+    return tuple(sorted(aids))
+
+
+def _screen_calls(records, tested_pairs, active_pairs, target_paths):
+    """One consensus call per unique pair; retain excluded discordance and campaign design."""
+    strata, signatures, conflicts = {}, {}, []
+    active_records = total_records = 0
+    for protein, compounds in records.items():
+        signature = []
+        known_campaigns = True
+        for compound, paths in compounds.items():
+            positives = [(s, e) for s, e in paths if e["predicate"] == "targets"]
+            active_records += len(positives)
+            total_records += len(paths)
+            if positives and len(positives) < len(paths):
+                conflicts.append({"compound": compound, "target": protein,
+                                  "active_records": len(positives),
+                                  "inactive_records": len(paths) - len(positives),
+                                  "records": _records(paths)})
+                continue
+            tested_pairs[protein].add(compound)
+            if positives:
+                active_pairs[protein].add(compound)
+                target_paths[protein].extend(positives)
+            campaigns = [_assays(e) for _, e in paths]
+            known_campaigns &= all(bool(aids) for aids in campaigns)
+            signature.append((compound, tuple(sorted({aid for aids in campaigns for aid in aids}))))
+        if signature and known_campaigns:
+            sig = tuple(sorted(signature))
+            strata[protein] = signatures.setdefault(sig, len(signatures))
+    return strata, {"measurement_records": total_records, "active_records": active_records,
+                    "inactive_records": total_records - active_records,
+                    "unique_pairs": sum(len(c) for c in records.values()),
+                    "consensus_pairs": sum(len(c) for c in tested_pairs.values()),
+                    "discordant_pairs": len(conflicts), "discordant_records": conflicts,
+                    "unit": "one compound-protein pair with concordant active or inactive calls"}
 
 
 def _screening_enrichment(members: Mapping[str, set[str]], annotated: set[str],
@@ -346,7 +451,8 @@ def _screening_enrichment(members: Mapping[str, set[str]], annotated: set[str],
                           active_pairs: Mapping[str, set[str]],
                           target_paths: Mapping[str, list], names: Mapping[str, str],
                           params: Parameters,
-                          excluded: dict[str, int]) -> tuple[set[str], list[str], list[dict]]:
+                          excluded: dict[str, int], strata: Mapping[str, Any],
+                          untestable: list[dict]) -> tuple[set[str], list[str], list[dict]]:
     """Pathway test on screening results, inactive ones included.
 
     Counted per protein, screening hits saturate: across a thousand compounds almost every
@@ -372,13 +478,18 @@ def _screening_enrichment(members: Mapping[str, set[str]], annotated: set[str],
         if len(inside) < params.screening_min_members:
             continue
         test = _rate_test(inside, eligible, tests, actives, _pathway_rng(params, pathway),
-                          params.permutations)
+                          params.permutations, strata=strata)
+        if test["empirical_p"] is None:
+            untestable.append({"pathway": pathway, **test})
+            continue
         rows.append({"pathway": pathway, "name": names.get(pathway, pathway),
                      "size": len(members[pathway]), "in_background": len(inside),
                      "overlap": sum(1 for p in inside if actives[p]),
                      "targets": sorted(p for p in inside if actives[p]),
                      "tests": test["tests"], "active_tests": test["active_tests"],
                      "active_rate": test["active_rate"],
+                     "null_exceedances": test["null_exceedances"],
+                     "null_permutations": test["null_permutations"],
                      "p_value": test["empirical_p"], "empirical_p": test["empirical_p"],
                      "fold_enrichment": test["fold_enrichment"]})
     if rows:
@@ -393,6 +504,30 @@ def _screening_enrichment(members: Mapping[str, set[str]], annotated: set[str],
 #: own labels; "literature only" below means passing the cut-off through these alone.
 TEXT_MINED = frozenset(k for k, level in DISEASE_EVIDENCE_TYPES.items()
                        if level == "text_co_occurrence")
+
+
+def _association_gene(edge: Mapping[str, Any]) -> str:
+    # In historical snapshots the subject was a single selected protein; the record id
+    # still names the original Open Targets gene even for a shared protein accession.
+    original = str(edge.get("source_record_id", "")).split("|", 1)[0]
+    return f"ensembl:{original}" if original.startswith("ENSG") else edge["subject"]
+
+
+def _protein_genes(snaps: Sequence[Snapshot]) -> dict[str, set[str]]:
+    genes: dict[str, set[str]] = defaultdict(set)
+    for snap in snaps:
+        for node in snap.nodes:
+            refs = node.get("xrefs") or {}
+            gene_ids = {f"ensembl:{g}" for g in refs.get("ensembl", ()) if g.startswith("ENSG")}
+            for acc in refs.get("uniprot", ()):
+                genes[f"uniprot:{acc}"].update(gene_ids)
+            if node["id"].startswith("uniprot:"):
+                genes[node["id"]].update(gene_ids)
+        if snap.key == "opentargets":
+            for edge in snap.edges:
+                if edge["subject"].startswith("uniprot:"):
+                    genes[edge["subject"]].add(_association_gene(edge))
+    return genes
 
 
 def _disease_genes(snap: Snapshot, params: Parameters
@@ -413,7 +548,7 @@ def _disease_genes(snap: Snapshot, params: Parameters
     for e in snap.edges:
         if (e.get("predicate") == "associated_with" and e.get("object") == disease
                 and float(e.get("score") or 0) >= params.disease_min_score):
-            kind, target = str(e.get("score_name")), e["subject"]
+            kind, target = str(e.get("score_name")), _association_gene(e)
             passing[kind][target] = max(passing[kind].get(target, 0.0), float(e["score"]))
     genes: dict[str, float] = {}
     for kind in params.evidence_datatypes:
@@ -454,15 +589,26 @@ def _by_datatype(passing: Mapping[str, Mapping[str, float]], genes: Mapping[str,
     }
 
 
-def _sources(paths: Sequence[tuple[Snapshot, Mapping[str, Any]]]) -> int:
-    """Distinct publications behind a target's measurements (``sources.identity``).
+def _publication_counts(paths: Sequence[tuple[Snapshot, Mapping[str, Any]]]) -> dict[str, int]:
+    """Count bibliographic evidence separately from experiments and uncited observations."""
+    papers = [[sid for sid in canonical_many(e.get("publications") or ())
+               if sid.scheme in ("pmid", "pmcid", "doi")] for _, e in paths]
+    alias_sets = []
+    for ids in papers:
+        if len({sid.scheme for sid in ids}) == len(ids):
+            alias_sets.append(ids)
+        else:
+            # Two different PMIDs on one measurement cite two papers. Cross-scheme
+            # aliases on such a row cannot be assigned without an external crosswalk.
+            alias_sets.extend([sid] for sid in ids)
+    grouped = group_sources(alias_sets)
+    return {"publications": len(grouped.groups), "uncited_measurements": sum(not ids for ids in papers),
+            "assays": len({aid for snap, e in paths if getattr(snap, "key", "") == SCREENING_SOURCE
+                           for aid in _assays(e)})}
 
-    NPASS, CMAUP, BindingDB and ChEMBL curate from the same papers, so one IC50 reported
-    once can arrive as four edges: ``measurements`` counts the edges, this counts the
-    papers, however each database spells them. A measurement that cites no paper is a
-    source of its own.
-    """
-    return group_sources([e.get("publications") or () for _, e in paths]).count
+
+def _sources(paths: Sequence[tuple[Snapshot, Mapping[str, Any]]]) -> int:
+    return _publication_counts(paths)["publications"]
 
 
 def _records(paths: Iterable[tuple[Snapshot, Mapping[str, Any]]]) -> list[list[str]]:
@@ -481,10 +627,11 @@ def _gene_rows(snap: Snapshot, disease: str, genes: Mapping[str, float],
     used = params.evidence_datatypes
     records: dict[str, set[str]] = {}
     for e in snap.edges:
+        gene = _association_gene(e)
         if (e.get("predicate") == "associated_with" and e.get("object") == disease
-                and e.get("subject") in genes and str(e.get("score_name")) in used
+                and gene in genes and str(e.get("score_name")) in used
                 and float(e.get("score") or 0) >= params.disease_min_score):
-            records.setdefault(e["subject"], set()).add(str(e.get("source_record_id")))
+            records.setdefault(gene, set()).add(str(e.get("source_record_id")))
     return [{"target": g, "name": names.get(g, g), "score": genes[g],
              "datatypes": [k for k in used if g in (passing.get(k) or {})],
              "is_measured_target": g in measured, "in_background": g in background,
@@ -546,7 +693,7 @@ def _coverage_limitations(coverage: Mapping[str, Any], screening: bool) -> list[
                    f"{herbs['with_species']} components with a species have no constituent "
                    "recorded in these snapshots; absence from a snapshot is not absence from "
                    "the plant.")
-    what = "active screening result" if screening else "measured target"
+    what = "concordant active screening result" if screening else "measured target"
     if not compounds["total"]:
         out.append("No constituent of the formula is recorded in these snapshots, so no "
                    f"{what} could be looked for and no enrichment could be tested; {EMPTY_RESULT}.")
@@ -589,7 +736,7 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
         if herb in formula_edges:
             species_of[species].append(herb)
     names: dict[str, str] = {}
-    compound_paths: dict[str, list[tuple[Snapshot, dict]]] = defaultdict(list)
+    compound_paths: dict[str, list[tuple[Snapshot, dict, str, str]]] = defaultdict(list)
     compound_rows: dict[str, dict[str, Any]] = {}
     for snap in snaps:
         for n in snap.nodes:
@@ -598,30 +745,49 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
         for e in snap.edges:
             if e.get("predicate") != "contains" or e.get("subject") not in species_of:
                 continue
-            level = e.get("composition_level")
-            if level == "C1" and drugs.get(species_of[e["subject"]][0]) and (
-                    (e.get("raw") or {}).get("parts")):
-                herb = drugs[species_of[e["subject"]][0]]
-                if herb.matches_part(e["raw"]["parts"]):
+            parts = (e.get("raw") or {}).get("parts") or ()
+            if isinstance(parts, str):
+                parts = (parts,)
+            herbs = species_of[e["subject"]]
+            accepted = []
+            for herb in sorted(herbs):
+                drug = drugs.get(herb)
+                level = e.get("composition_level")
+                matches_part = drug is not None and drug.matches_part(parts)
+                if level == "C1" and matches_part:
                     level = "C2"
-            if not _level_at_least(level, params.composition_min_level):
+                elif (level in {"C2", "C3", "C4"} and len(herbs) > 1
+                      and not matches_part):
+                    # A species-level edge does not identify which crude drug was sampled.
+                    level = "C1"
+                if _level_at_least(level, params.composition_min_level):
+                    accepted.append((herb, level))
+            if not accepted:
                 excluded["composition below the minimum level"] += 1
                 continue
-            compound_paths[e["object"]].append((snap, e))
-            row = compound_rows.setdefault(e["object"], {
-                "compound": e["object"], "herbs": set(), "level": level, "sources": set()})
-            row["herbs"].update(species_of[e["subject"]])
-            row["sources"].add(snap.key)
-            if _COMPOSITION_ORDER.index(level) > _COMPOSITION_ORDER.index(row["level"]):
-                row["level"] = level
+            compound = e["object"]
+            for herb, level in accepted:
+                compound_paths[compound].append((snap, e, herb, level))
+                row = compound_rows.setdefault(compound, {
+                    "compound": compound, "herbs": set(), "herb_levels": {},
+                    "level": level, "sources": set()})
+                row["herbs"].add(herb)
+                row["sources"].add(snap.key)
+                previous = row["herb_levels"].get(herb)
+                if previous is None or _level_at_least(level, previous):
+                    row["herb_levels"][herb] = level
+                if _level_at_least(level, row["level"]):
+                    row["level"] = level
 
     # 2. measured targets ------------------------------------------------------------------
     screening = params.hits == "screening"
     target_paths: dict[str, list[tuple[Snapshot, dict]]] = defaultdict(list)
-    assayed: set[str] = set()          # measured with a potency type, at any value
+    measured_proteins: set[str] = set()
+    opportunities: dict[str, set[str]] = defaultdict(set)
     # screening hits: which compounds were tested against each protein, and were active
     tested_pairs: dict[str, set[str]] = defaultdict(set)
     active_pairs: dict[str, set[str]] = defaultdict(set)
+    screen_records = defaultdict(lambda: defaultdict(list))
     for snap in snaps:
         from_screen = snap.key == SCREENING_SOURCE
         for e in snap.edges:
@@ -637,10 +803,7 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                 if e.get("assay_type") not in params.screening_assay_types:
                     excluded["screening result of an assay type not used"] += 1
                     continue
-                tested_pairs[e["object"]].add(e["subject"])
-                if predicate == "targets":
-                    active_pairs[e["object"]].add(e["subject"])
-                    target_paths[e["object"]].append((snap, e))
+                screen_records[e["object"]][e["subject"]].append((snap, e))
                 continue
             if predicate != "targets":
                 continue
@@ -648,11 +811,17 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                 excluded["predicted target edge (not used by this skill)"] += 1
                 continue
             if (e.get("measure") or {}).get("type") in params.activity_types:
-                assayed.add(e["object"])
-            if not _passes_potency(e.get("measure"), params):
+                measured_proteins.add(e["object"])
+            call = _potency_call(e.get("measure"), params)
+            if call is not None:
+                opportunities[e["object"]].add(e["subject"])
+            if call is not True:
                 excluded[_why_not_potent(e.get("measure"), params)] += 1
                 continue
             target_paths[e["object"]].append((snap, e))
+    assayed = set(opportunities)
+    screen_strata, screen_coverage = _screen_calls(screen_records, tested_pairs, active_pairs,
+                                                  target_paths)
 
     # 3. over-representation ---------------------------------------------------------------
     reactome = by_key["reactome"]
@@ -663,10 +832,12 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
             members[e["object"]].add(e["subject"])
             membership[(e["subject"], e["object"])] = e
     annotated = set().union(*members.values()) if members else set()
+    degree = Counter(protein for proteins in members.values() for protein in proteins)
+    untestable = []
     if screening:
         background, query, rows = _screening_enrichment(
             members, annotated, tested_pairs, active_pairs, target_paths, names, params,
-            excluded)
+            excluded, screen_strata, untestable)
         wanted, pool, tested = {}, {}, {r["pathway"]: r for r in rows}
     else:
         background = annotated & assayed if params.background == "assayed" else annotated
@@ -694,23 +865,9 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                 row["q_value"] = q
 
         # 4. degree-matched permutation null for the BH-significant pathways ---------------------
-        degree = defaultdict(int)
-        for p, m in members.items():
-            for protein in m:
-                degree[protein] += 1
-        ordered = sorted(background, key=lambda x: (degree[x], x))
-        cuts = [degree[ordered[int(len(ordered) * k / params.degree_bins)]]
-                for k in range(1, params.degree_bins)] if ordered else []
-
-        def bin_of(protein: str) -> int:
-            return bisect.bisect_right(cuts, degree[protein])
-
-        pool: dict[int, list[str]] = defaultdict(list)
-        for protein in ordered:
-            pool[bin_of(protein)].append(protein)
-        wanted = defaultdict(int)
-        for t in query:
-            wanted[bin_of(t)] += 1
+        pool, wanted = _matched_pools(background, query, degree,
+                                      opportunities if params.background == "assayed" else None,
+                                      params.degree_bins)
         for row in rows:
             row["empirical_p"] = None
             if row["q_value"] > params.fdr:
@@ -729,7 +886,13 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                    and r["empirical_p"] <= params.permutation_alpha]
 
     # 5. network topology (descriptive) ----------------------------------------------------
-    adjacency: dict[str, set[str]] = {t: set() for t in query}
+    string = by_key.get("string")
+    represented = set()
+    if string is not None:
+        represented = {n["id"] for n in string.nodes if n.get("category") == "target"}
+        represented.update(e[k] for e in string.edges if e.get("predicate") == "interacts_with"
+                           for k in ("subject", "object"))
+    adjacency: dict[str, set[str]] = {t: set() for t in sorted(represented.intersection(target_paths))}
     # each pair once (a <= b), at its highest score; on a tie, the lowest record id
     pair_edges: dict[tuple[str, str], tuple[float, str]] = {}
     if "string" in by_key:
@@ -747,6 +910,9 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
     components = _components(adjacency) if adjacency else []
     network = {
         "nodes": len(adjacency), "edges": sum(len(v) for v in adjacency.values()) // 2,
+        "measured_targets": len(target_paths),
+        "measured_targets_outside_snapshot": sorted(set(target_paths) - represented)
+        if string is not None else None,
         "largest_component": len(components[0]) if components else 0,
         "components": len(components),
         "string_min_score": params.string_min_score,
@@ -756,7 +922,8 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                  for t in sorted(adjacency, key=lambda t: (-len(adjacency[t]), t))[:15]],
         "edge_list": [{"a": a, "b": b, "score": score, "record": record}
                       for (a, b), (score, record) in sorted(pair_edges.items())],
-        "interpretation": "descriptive only; no significance is claimed for topology",
+        "interpretation": ("descriptive topology of measured targets represented in this "
+                           "STRING snapshot; unrepresented targets have unknown degree"),
     }
 
     # 6. indication overlap (descriptive) ---------------------------------------------------
@@ -765,50 +932,89 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
     if "opentargets" in by_key:
         disease_id, disease_name, disease_genes, passing = _disease_genes(
             by_key["opentargets"], params)
-        in_background = {g for g in disease_genes if g in background}
-        hits = sorted(set(query) & in_background, key=lambda t: (-disease_genes[t], t))
-        # its own stream, so adding the disease leaves the pathway permutations unchanged
+        mapping = _protein_genes(snaps)
+        protein_tests = tested_pairs if screening else opportunities
+        # Only unique mappings are countable gene units. An unlinked human protein
+        # cannot silently become a gene with a negative disease association.
+        products: dict[str, set[str]] = defaultdict(set)
+        for protein in protein_tests:
+            if len(mapping.get(protein, ())) == 1:
+                products[next(iter(mapping[protein]))].add(protein)
+        gene_tests = {g: set().union(*(protein_tests[p] for p in ps)) for g, ps in products.items()}
+        minimum = params.screening_min_compounds if screening else 1
+        population = {g for g, compounds in gene_tests.items() if len(compounds) >= minimum}
+        measured = {g for g, ps in products.items() if ps.intersection(target_paths)}
+        selected = population & measured
+        in_background = population.intersection(disease_genes)
+        hits = sorted(selected & in_background, key=lambda g: (-disease_genes[g], g))
         disease_rng = random.Random(params.seed + 1)
         rate: dict[str, Any] = {}
         if screening:
-            tests = {p: len(tested_pairs[p]) for p in background}
-            actives = {p: len(active_pairs.get(p, ())) for p in background}
-            rate = _rate_test(in_background, sorted(background), tests, actives,
-                              disease_rng, params.permutations) if in_background else {
-                "empirical_p": 1.0, "fold_enrichment": None}
-            test = {"p_value": rate["empirical_p"],
-                    "fold_enrichment": rate["fold_enrichment"]}
+            tests = {g: len(gene_tests[g]) for g in population}
+            actives = {g: len(set().union(*(active_pairs.get(p, set()) for p in products[g])))
+                       for g in population}
+            profiles = {}
+            for gene in population:
+                signatures = [screen_strata.get(p) for p in products[gene]]
+                if all(sig is not None for sig in signatures):
+                    # Preserve each product's compound/campaign profile as well as the
+                    # number of measured products per gene when sampling comparators.
+                    profiles[gene] = tuple(sorted(signatures))
+            rate = _rate_test(in_background, sorted(population), tests, actives, disease_rng,
+                              params.permutations, strata=profiles)
+            test = {"p_value": rate["empirical_p"], "fold_enrichment": rate["fold_enrichment"]}
             empirical = rate["empirical_p"]
         else:
-            test = hypergeometric_test(len(hits), len(query), len(in_background),
-                                       len(background)) if query else {"p_value": 1.0,
-                                                                       "fold_enrichment": None}
-            at_least = 0
-            for _ in range(params.permutations):
-                draw = [x for b, k in sorted(wanted.items())
-                        for x in disease_rng.sample(pool[b], k)]
-                if len(in_background.intersection(draw)) >= len(hits):
-                    at_least += 1
-            empirical = (1 + at_least) / (1 + params.permutations)
+            test = (hypergeometric_test(len(hits), len(selected), len(in_background), len(population))
+                    if selected and in_background else {"p_value": None, "fold_enrichment": None})
+            empirical = None
+            if test["p_value"] is not None:
+                gene_pathways: dict[str, set[str]] = defaultdict(set)
+                for pathway, proteins in members.items():
+                    for protein in proteins:
+                        if len(mapping.get(protein, ())) == 1:
+                            gene_pathways[next(iter(mapping[protein]))].add(pathway)
+                degree = {g: len(v) for g, v in gene_pathways.items()}
+                pool, wanted = _matched_pools(population, selected, degree, gene_tests,
+                                              params.degree_bins)
+                at_least = 0
+                for _ in range(params.permutations):
+                    draw = [x for group, count in sorted(wanted.items())
+                            for x in disease_rng.sample(pool[group], count)]
+                    at_least += len(in_background.intersection(draw)) >= len(hits)
+                empirical = (1 + at_least) / (1 + params.permutations)
+        all_products: dict[str, list[str]] = defaultdict(list)
+        for protein, gene_ids in sorted(mapping.items()):
+            for gene in gene_ids:
+                all_products[gene].append(protein)
+
+        def display_gene(gene):
+            mapped = all_products.get(gene, [])
+            unique = len(mapped) == 1 and len(mapping[mapped[0]]) == 1
+            return {"gene": gene, "target": mapped[0] if unique else gene,
+                    "protein_products": mapped, "assayed_proteins": sorted(products.get(gene, ()))}
+        all_genes = _gene_rows(by_key["opentargets"], disease_id, disease_genes, passing,
+                               names, population, measured, params)
         disease = {
-            "disease": disease_id, "name": disease_name,
-            "snapshot": by_key["opentargets"].snapshot_id,
+            "disease": disease_id, "name": disease_name, "snapshot": by_key["opentargets"].snapshot_id,
             "evidence": params.disease_evidence, "min_score": params.disease_min_score,
             "disease_genes": len(disease_genes), "in_background": len(in_background),
-            "query": len(query), "overlap": len(hits),
-            "targets": [{"target": t, "name": names.get(t, t), "score": disease_genes[t]}
-                        for t in hits],
+            "query": len(selected), "overlap": len(hits), "universe_genes": len(population),
+            "eligible_proteins_without_gene_mapping": sum(not mapping.get(p) for p in protein_tests),
+            "proteins_with_ambiguous_gene_mapping": sum(len(mapping.get(p, ())) > 1 for p in protein_tests),
+            "targets": [{**display_gene(g), "name": names.get(g, g), "score": disease_genes[g]}
+                        for g in hits],
             "p_value": test["p_value"], "fold_enrichment": test["fold_enrichment"],
             "empirical_p": empirical,
-            **({k: rate[k] for k in ("tests", "active_tests", "active_rate") if k in rate}),
-            **_by_datatype(passing, disease_genes, by_key["opentargets"], query, background,
-                           params),
-            "genes": _gene_rows(by_key["opentargets"], disease_id, disease_genes, passing,
-                                names, background, set(target_paths), params),
-            "interpretation": ("descriptive: the overlap between measured targets and the "
-                               "disease gene set is reported, not claimed; it does not show "
-                               "that the formula acts on the disease"),
+            **{k: rate[k] for k in ("tests", "active_tests", "active_rate", "reason") if k in rate},
+            **_by_datatype(passing, disease_genes, by_key["opentargets"], selected, population, params),
+            "genes": [{**row, **display_gene(row["target"])} for row in all_genes],
+            "interpretation": ("descriptive gene-level overlap, not claimed as an effect on disease. "
+                               "The universe is conditioned on assay opportunity and a unique human "
+                               "gene mapping supplied by the snapshots. Multiple products count once. "
+                               "Historical snapshots retain only the product mappings they recorded."),
         }
+        disease_genes = {p: disease_genes[g] for g in disease_genes for p in products.get(g, ())}
 
     # 7. candidate claims, each citing one supporting path ----------------------------------
     claims: list[CandidateClaim] = []
@@ -818,11 +1024,10 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
         target_snap, target_edge = sorted(target_paths[target],
                                           key=lambda se: (se[0].key, se[1]["source_record_id"]))[0]
         compound = target_edge["subject"]
-        comp_snap, comp_edge = sorted(compound_paths[compound],
-                                      key=lambda se: (-_COMPOSITION_ORDER.index(
-                                          se[1].get("composition_level", "C1")),
-                                          se[0].key, se[1]["source_record_id"]))[0]
-        herb = species_of[comp_edge["subject"]][0]
+        comp_snap, comp_edge, herb, herb_level = min(
+            compound_paths[compound],
+            key=lambda path: (-_COMPOSITION_ORDER.index(path[3]), path[0].key,
+                              path[1]["source_record_id"], path[2]))
         support = [
             (herbs_snap.snapshot_id, formula_edges[herb]["source_record_id"]),
             (herbs_snap.snapshot_id, base_edges[(herb, comp_edge["subject"])]["source_record_id"]),
@@ -852,20 +1057,23 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                            "why_not_stronger": (
                                "a constituent is shown in the source species, not in the "
                                "decoction (composition below C3)"
-                               if comp_edge.get("composition_level") not in ("C3", "C4")
+                               if herb_level not in ("C3", "C4")
                                else "")})
     verdict = check_release(claims, snaps, contract=contract)
 
     compounds = sorted(({**r, "herbs": sorted(r["herbs"]), "sources": sorted(r["sources"]),
                          "name": names.get(r["compound"], r["compound"]),
-                         "records": _records(compound_paths[r["compound"]])}
+                         "records": _records((snap, edge) for snap, edge, _, _
+                                             in compound_paths[r["compound"]])}
                         for r in compound_rows.values()), key=lambda r: r["compound"])
     targets = []
     for t in sorted(target_paths):
         via = sorted({e["subject"] for _, e in target_paths[t]})
+        evidence_counts = _publication_counts(target_paths[t])
         targets.append({
             "target": t, "name": names.get(t, t), "compounds": via,
-            "measurements": len(target_paths[t]), "sources": _sources(target_paths[t]),
+            "measurements": len(target_paths[t]), "sources": evidence_counts["publications"],
+            **evidence_counts,
             "in_background": t in background, "disease_score": disease_genes.get(t),
             "herbs": sorted({h for c in via for h in compound_rows[c]["herbs"]}),
             "degree": len(adjacency[t]) if t in adjacency else None,
@@ -892,6 +1100,14 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                                           <= params.pathway_max_size)},
         "identity": identity,
     }
+    if screening:
+        coverage["screening"] = {**screen_coverage, "untestable_pathways": untestable}
+    else:
+        coverage["potency"] = {"measured_proteins": len(measured_proteins),
+                               "classifiable_proteins": len(assayed),
+                               "indeterminate_only_proteins": len(measured_proteins - assayed),
+                               "classifiable_compound_counts": {p: len(c) for p, c in
+                                                               sorted(opportunities.items())}}
     limitations = [
         "Composition is species-level (C1/C2): no constituent is shown in the decoction "
         "itself (C3) or in plasma after dosing (C4), so every claim stops at a hypothesis.",
@@ -908,6 +1124,13 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
          "because none exist."),
         _identity_limitation(identity),
     ]
+    if screening:
+        limitations.append(
+            f"The screened constituents had {screen_coverage['measurement_records']} deposited "
+            f"measurements on {screen_coverage['unique_pairs']} distinct compound-protein pairs. "
+            f"{screen_coverage['discordant_pairs']} pairs had conflicting calls. "
+            f"{len(untestable)} pathway(s) meeting the size and coverage thresholds lacked "
+            "comparable assay and compound exposure and could not be tested.")
     return NetworkPharmacologyResult(
         formula=formula.id, parameters=params,
         snapshots={s.key: s.snapshot_id for s in snaps},
@@ -917,6 +1140,9 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
             inspect.getsource(inspect.getmodule(run_network_pharmacology)).encode()).hexdigest(),
         limitations=limitations, disease=disease, coverage=coverage,
         background={"kind": "screening" if screening else params.background,
+                    "null_model": ("screening_assay_compound_matched" if screening else
+                                   "compound_count_and_annotation_degree" if params.background
+                                   == "assayed" else "whole_annotation_degree_only"),
                     "proteins": len(background),
                     "annotated": len(annotated),
                     "assayed_annotated": len(annotated & (set(tested_pairs) if screening
@@ -934,10 +1160,9 @@ def _potency_limitations(params: Parameters, hit_rate: float,
     """``proteins`` is the background's size. With no protein in it, or none of them a
     potent hit, there is no hit rate and no fold-enrichment bound to state: the sentence
     that gives them would print 0% and an infinite bound."""
-    assayed = ("Enrichment is against the assayed proteins (every human protein the "
-               "compounds were measured against, potent or not), so it asks where the potent "
-               "results concentrate given what was tested. It says nothing about proteins "
-               "never assayed.")
+    assayed = ("Enrichment is against the assayed proteins with a potency measurement "
+               "classifiable at the stated threshold. Measurements in mass units or with "
+               "bounds spanning the threshold cannot supply a hit or a negative.")
     if hit_rate:
         assayed_text = (
             f"{assayed} {hit_rate:.0%} of the assayed proteins are potent hits: databases "
@@ -963,10 +1188,10 @@ def _potency_limitations(params: Parameters, hit_rate: float,
         "thoroughly each protein is studied — hence the degree-matched null.",
         "Measured activities over-represent the target families natural products are "
         "routinely screened against (carbonic anhydrases, drug transporters, cytochromes "
-        "P450). The degree-matched null controls for how well studied a protein is, not for "
-        "which assay panels were run. "
-        + ("The assayed background removes most of that bias; what remains is which of the "
-           "tested proteins were potent, which still reflects how each panel was built."
+        "P450). The degree-matched null conditions on Reactome annotation degree. "
+        + ("Within the assayed background the null also matches the exact number of "
+           "distinct classifiable compounds for each protein. Compound identities, dose, "
+           "panel selection and publication bias may still influence the hit rate."
            if params.background == "assayed" else
            "Enriched ADME and screening-panel pathways should be read as assay coverage "
            "before biology."),
@@ -983,15 +1208,15 @@ def _screening_limitations(params: Parameters, proteins: int, tests: int,
         "inactive calls; potency is not re-thresholded. An active call can be an assay "
         "artefact (fluorescence, aggregation, cytotoxicity), and several natural products, "
         "berberine among them, interfere with optical read-outs.",
-        f"The test compares active rates over {tests} compound-protein tests ({rate:.1%} "
+        f"The test compares active rates over {tests} concordant compound-protein pairs ({rate:.1%} "
         f"active) on {proteins} human proteins, each tested against at least "
         f"{params.screening_min_compounds} of the formula's compounds; a pathway needs "
         f"{params.screening_min_members} such proteins. Proteins never screened are outside "
         "the question.",
-        "Some PubChem assays are literature measurements deposited from ChEMBL, of "
-        "compounds chosen because they were active; on those proteins the active rate is "
-        "inflated. The null draws whole proteins, which accounts for tests clustering by "
-        "protein, not for how the compounds were chosen.",
+        "Mixed active and inactive calls for a pair are reported separately and excluded. "
+        "The null samples whole proteins with identical compound and assay-ID profiles. "
+        "A pathway without an outside comparator in each stratum has no inferential result. "
+        "Protocol details within an AID and selection of the deposited assays still limit interpretation.",
         "The empirical p-value has a floor of 1/(permutations+1); BH is applied to it "
         "over every pathway tested.",
     ]

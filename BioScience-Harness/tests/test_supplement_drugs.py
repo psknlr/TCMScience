@@ -153,18 +153,15 @@ def test_drugcentral_mechanism_rows_take_the_effect_and_the_cited_paper(drugcent
     assert _ctx(r)["flags"] == "relation >" and r["note"] == "via PDSP"
 
 
-def test_drugcentral_complex_targets_give_one_row_per_component(drugcentral):
-    h, _ = drugcentral
-    rows = h.relations("drug_target", subject="drugcentral:864")
-    assert {(r["object_id"], r["object_name"]) for r in rows} == {
-        ("uniprot:P14867", "GABRA1"), ("uniprot:P28472", "GABRB3"),
-        ("uniprot:P18507", "GABRG2")}
-    for r in rows:
-        assert r["effect"] == "activation"        # a positive allosteric modulator
-        assert _ctx(r)["action"] == "POSITIVE ALLOSTERIC MODULATOR"
-        assert r["note"] == ("component of GABA-A receptor alpha-1/beta-3/gamma-2 "
-                             "(3 components); via GtoPdb; ChEMBL")
-        assert r["reference"].endswith("CHEMBL12")
+def test_drugcentral_complex_has_one_activity_and_separate_members(drugcentral):
+    hub, _ = drugcentral
+    target, = hub.relations("drug_target", subject="drugcentral:864")
+    assert target["object_type"] == "complex"
+    assert target["effect"] == "activation"
+    members = hub.relations("complex_member", subject=target["object_id"])
+    assert {row["object_id"] for row in members} == {
+        "uniprot:P14867", "uniprot:P28472", "uniprot:P18507"}
+    assert all(row["effect"] is None and row["score"] is None for row in members)
 
 
 def test_drugcentral_without_accession_goes_to_the_queue(drugcentral):

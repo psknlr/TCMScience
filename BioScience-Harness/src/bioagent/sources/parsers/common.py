@@ -68,7 +68,7 @@ def open_text(path: str | Path, encoding: str = "utf-8") -> io.TextIOBase:
 
 def read_rows(path: str | Path, *, delimiter: str = "\t",
               fieldnames: Sequence[str] | None = None, encoding: str = "utf-8",
-              report: "ParseReport | None" = None) -> Iterator[dict[str, str | None]]:
+              report: "ParseReport | None" = None, required: Sequence[str] = ()) -> Iterator[dict[str, str | None]]:
     """Rows as dicts with blanks normalised to None. ``fieldnames`` for headerless files.
 
     With a ``report``, a row holding bytes that are not valid ``encoding`` is counted as a
@@ -78,6 +78,9 @@ def read_rows(path: str | Path, *, delimiter: str = "\t",
     with open_text(path, encoding) as fh:
         reader = csv.DictReader(fh, delimiter=delimiter, fieldnames=fieldnames,
                                 quoting=csv.QUOTE_NONE if delimiter == "\t" else csv.QUOTE_MINIMAL)
+        missing = set(required) - {name.strip() for name in reader.fieldnames or ()}
+        if missing:
+            raise ValueError(f"{path}: missing required columns {sorted(missing)}")
         for row in reader:
             out = {(k or "").strip(): clean(v) for k, v in row.items() if k is not None}
             if report is not None and any(v and "\ufffd" in v for v in out.values()):

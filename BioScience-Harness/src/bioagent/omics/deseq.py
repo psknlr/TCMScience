@@ -643,6 +643,12 @@ def run_deseq(counts: np.ndarray, genes: Sequence[str], samples: Sequence[Mappin
     se = np.sqrt(np.einsum("k,gkl,l->g", contrast_vec, cov, contrast_vec)) / LN2
     with np.errstate(divide="ignore", invalid="ignore"):
         wald = lfc / se
+    if not converged.all():
+        notes.append(f"{int((~converged).sum())} gene fits did not converge; their fold "
+                     "changes, Wald statistics and p-values are unavailable")
+        lfc[~converged] = np.nan
+        se[~converged] = np.nan
+        wald[~converged] = np.nan
     pvals = 2.0 * special.ndtr(-np.abs(wald))
 
     # Cook's distances, in groups with three or more replicates

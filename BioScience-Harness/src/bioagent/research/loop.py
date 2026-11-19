@@ -106,11 +106,29 @@ ACTIVITY_SOURCES = ("npass", "cmaup", "lotus", "bindingdb", "pubchem_bioassay", 
 STAGES = ("protocol", "retrieve", "analyse", "rebut", "release")
 REBUTTALS = ("background_sensitivity", "leave_one_source_out", "seed_stability")
 FALLBACKS = ("drop_missing_optional_source",)
-_DISEASE_ID = re.compile(r"\b((?:MONDO|EFO|HP|Orphanet|DOID)_\d+)\b")
+_DISEASE_ID = re.compile(r"(?<![A-Za-z0-9_])((?:MONDO|EFO|HP|Orphanet|DOID)[:_]\d+)(?![A-Za-z0-9_])")
 
 
 class QuestionRefused(ValueError):
     """The question names nothing this loop can study."""
+
+
+class _NoFormula(QuestionRefused):
+    """No formula was named in the question."""
+
+
+class _AmbiguousFormula(QuestionRefused):
+    def __init__(self, message: str, candidates: Sequence[str]):
+        super().__init__(message)
+        self.candidates = set(candidates)
+
+
+def component_identity(drug: str | None, name: str, dose: str, processing: str) -> tuple:
+    """Compare numeric doses across alternate spellings, retaining units and processing."""
+    from ..sources.formulas import parse_dose
+    parsed = parse_dose(dose)
+    amount = (parsed.amount, parsed.unit, parsed.each) if parsed.amount is not None else dose
+    return drug, name, amount, processing
 
 
 class ResearchRefused(RuntimeError):
@@ -172,7 +190,8 @@ _FORMULA_ID = re.compile(r"tcm:formula\.[A-Za-z0-9_]+")
 
 def _disease_of(text: str, disease: str = "") -> str:
     """The disease id a question names (an ontology id), checked against ``disease``."""
-    ids = _DISEASE_ID.findall(text)
+    disease = disease.replace(":", "_")
+    ids = [item.replace(":", "_") for item in _DISEASE_ID.findall(text)]
     if disease and ids and disease not in ids:
         raise QuestionRefused(f"disease {disease!r} disagrees with the question's {ids}")
     if len(set(ids)) > 1:
@@ -204,43 +223,67 @@ def parse_question(text: str, *, disease: str = "", table: Any = None,
         named = parse_question(formula, table=table)
         try:
             stated: ResearchQuestion | None = parse_question(text, disease=disease, table=table)
-        except QuestionRefused:
-            stated = None                 # the text names no formula, or none on its own
+        except _NoFormula:
+            stated = None
+        except _AmbiguousFormula as exc:
+            if named.formula_id not in exc.candidates:
+                raise
+            stated = named
         if stated is not None and stated.formula_id != named.formula_id:
             raise QuestionRefused(
                 f"the question names {stated.formula_id} but the formula given is "
                 f"{named.formula_id} ({formula}); name one formula")
         return ResearchQuestion(text=text, formula_id=named.formula_id,
-                                disease=stated.disease if stated is not None
-                                else _disease_of(text, disease))
+                                disease=_disease_of(text, disease))
     disease = _disease_of(text, disease)
 
     explicit = _FORMULA_ID.findall(text)
     if explicit:
         if len(set(explicit)) > 1:
             raise QuestionRefused(f"the question names more than one formula id: {explicit}")
-        formula_for(explicit[0], table)                  # refuses an unknown id
+        picked = formula_for(explicit[0], table)
+        remainder = _FORMULA_ID.sub("", text)
+        from ..sources.formulas import source_matches, split_source
+        _, books = split_source(remainder)
+        if books and not source_matches(picked.source, books):
+            raise QuestionRefused(f"{picked.id} cites {picked.source}, not {books}")
+        if remainder.strip():
+            try:
+                named = parse_question(remainder, table=table)
+            except _NoFormula:
+                pass
+            except _AmbiguousFormula as exc:
+                if picked.id not in exc.candidates:
+                    raise
+            else:
+                if named.formula_id != picked.id:
+                    raise QuestionRefused(f"the question names more than one formula: {named.formula_id}, {picked.id}")
         if table is not None and all(t is not table for t in _TABLES):
             _TABLES.append(table)
         return ResearchQuestion(text=text, formula_id=explicit[0], disease=disease)
 
-    lowered = text.lower()
-    found = {fid for name, fid in FORMULA_NAMES.items() if name.lower() in lowered}
-    if len(found) > 1:
-        raise QuestionRefused(f"the question names more than one formula: {sorted(found)}")
-    if found:
-        return ResearchQuestion(text=text, formula_id=found.pop(), disease=disease)
-
-    table = table if table is not None else _table()
-    if table is not None and all(t is not table for t in _TABLES):
-        _TABLES.append(table)
-    # A book title is not a formula name, even when a formula shares it (普济方).
     from ..sources.formulas import source_matches, split_source
     bare, books = split_source(text)
-    names = table.names_in(bare) if table is not None else []
+    remainder = bare.lower()
+    found = set()
+    for name, fid in sorted(FORMULA_NAMES.items(), key=lambda item: -len(item[0])):
+        if name.lower() in remainder:
+            found.add(fid)
+            remainder = remainder.replace(name.lower(), " ")
+    table = table if table is not None else (_table() if remainder.strip() else None)
+    if table is not None and all(t is not table for t in _TABLES):
+        _TABLES.append(table)
+    names = table.names_in(remainder) if table is not None else []
+    if found:
+        if names or len(found) > 1:
+            raise QuestionRefused(f"the question names more than one formula: {sorted(found)} {names}")
+        fid = found.pop()
+        if books and not source_matches(FORMULAS[fid].source, books):
+            raise QuestionRefused(f"{fid} cites {FORMULAS[fid].source}, not {books}; specify the intended version")
+        return ResearchQuestion(text=text, formula_id=fid, disease=disease)
     if not names:
         known = sorted({f.chinese for f in FORMULAS.values()})
-        raise QuestionRefused(
+        raise _NoFormula(
             f"no known formula is named in {text!r}; known: {known}"
             + ("" if table is not None else " (the formula table is not available)"))
     if len(names) > 1:
@@ -260,17 +303,18 @@ def parse_question(text: str, *, disease: str = "", table: Any = None,
         candidates = narrowed
     distinct: dict[tuple, Any] = {}
     for r in candidates:
-        distinct.setdefault(tuple((c.drug, c.name) for c in r.components), r)
+        distinct.setdefault(tuple(component_identity(c.drug, c.name, c.dose, c.processing)
+                                  for c in r.components), r)
     if len(distinct) > 1:
         listing = "; ".join(
             f"{r.id} {r.source or '(no source)'}: "
             + "、".join(c.name for c in r.components[:6])
             + ("…" if len(r.components) > 6 else "")
             for r in list(distinct.values())[:8])
-        raise QuestionRefused(
+        raise _AmbiguousFormula(
             f"{names[0]} names {len(distinct)} different compositions in the formula table; "
             f"write the source book (e.g. {names[0]}《…》) or the formula id. Candidates: "
-            f"{listing}{' …' if len(distinct) > 8 else ''}")
+            f"{listing}{' …' if len(distinct) > 8 else ''}", [r.id for r in candidates])
     record = next(iter(distinct.values()))
     if not record.resolved:
         raise QuestionRefused(
@@ -305,6 +349,11 @@ class Protocol:
         activity = set(self.required_sources + self.optional_sources) & set(ACTIVITY_SOURCES)
         if not activity:
             raise ValueError(f"the protocol names no activity source ({ACTIVITY_SOURCES})")
+        if self.parameters.hits == "screening" and "pubchem_bioassay" not in self.required_sources:
+            raise ValueError("screening requires pubchem_bioassay as a required activity source")
+        if self.parameters.hits == "screening" and not (
+                set(self.required_sources) & {"npass", "cmaup", "lotus"}):
+            raise ValueError("screening requires a constituent composition source (NPASS, CMAUP or LOTUS)")
         if self.question.disease and "opentargets" not in self.required_sources:
             raise ValueError("a disease question requires the opentargets source")
 
@@ -322,15 +371,21 @@ class Protocol:
         return _digest(self.as_dict())
 
 
-def default_protocol(question: ResearchQuestion, *, activity: Sequence[str] = ("npass",),
+def default_protocol(question: ResearchQuestion, *, activity: Sequence[str] | None = None,
                      optional: Sequence[str] = ("string",),
                      parameters: Parameters | None = None) -> Protocol:
-    required = [HERB_KEY, "reactome", *activity]
+    parameters = parameters or Parameters()
+    if activity is None:
+        activity = ("npass", "pubchem_bioassay") if parameters.hits == "screening" else ("npass",)
+    required = list(dict.fromkeys((HERB_KEY, "reactome", *activity)))
+    if parameters.hits == "screening" and "pubchem_bioassay" in required and not (
+            set(required) & {"npass", "cmaup", "lotus"}):
+        required.append("npass")
     if question.disease:
         required.append("opentargets")
     return Protocol(question=question, required_sources=tuple(required),
                     optional_sources=tuple(o for o in optional if o not in required),
-                    parameters=parameters or Parameters())
+                    parameters=parameters)
 
 
 # ---------------------------------------------------------------------------
@@ -402,7 +457,7 @@ def snapshot_content_store(snapshots: Sequence[Snapshot],
 def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
                  ledger_path: str | Path, state_dir: str | Path, output_dir: str | Path,
                  protocol: Protocol | None = None, skill_dir: str | Path | None = None,
-                 accept_review: bool = False,
+                 accept_review: bool = False, snapshot_lock: str | Path | None = None,
                  analyse: Callable[..., Any] | None = None,
                  profile: str = "trusted_local",
                  isolate: bool | None = None) -> ResearchRun:
@@ -475,7 +530,14 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
         # -- retrieve -----------------------------------------------------------------
         ledger = SnapshotLedger(ledger_path)
         ledger.verify()
-        snaps, deviations = _retrieve(protocol, snapshot_root, ledger, accept_review)
+        lock = None
+        if snapshot_lock is not None:
+            from ..analysis.skill_runner import SkillRunRefused, read_lock
+            try:
+                lock = read_lock(snapshot_lock)
+            except (OSError, ValueError, AttributeError, SkillRunRefused) as exc:
+                raise ResearchRefused(f"cannot read snapshot lock {snapshot_lock}: {exc}") from exc
+        snaps, deviations = _retrieve(protocol, snapshot_root, ledger, accept_review, lock)
         herbs = next(s for s in snaps if s.key == HERB_KEY)
         formula_id = protocol.question.formula_id
         if not any(e.get("subject") == formula_id and e.get("predicate") == "contains"
@@ -555,7 +617,7 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
 
         # -- release ------------------------------------------------------------------
         artifact, exports = _artifact(run_id, protocol, snaps, result, rebuttal, deviations,
-                                      out)
+                                      out, profile=profile, accept_review=accept_review)
         # How the stages ran, as recorded when they ran: a resumed stage keeps its own
         # record, whatever this invocation is configured to do.
         artifact = replace(artifact, provenance={
@@ -661,10 +723,15 @@ def research_summary(run: ResearchRun, question: ResearchQuestion
 # ---------------------------------------------------------------------------
 
 def _retrieve(protocol: Protocol, root: str | Path, ledger: SnapshotLedger,
-              accept_review: bool) -> tuple[list[Snapshot], list[dict[str, Any]]]:
+              accept_review: bool, lock: Mapping[str, str] | None = None
+              ) -> tuple[list[Snapshot], list[dict[str, Any]]]:
+    requested = set(protocol.required_sources + protocol.optional_sources)
+    if lock is not None and (set(lock) - requested or set(protocol.required_sources) - set(lock)):
+        raise ResearchRefused("snapshot lock does not match the required and optional protocol sources")
     latest: dict[str, list[str]] = {}
     for entry in ledger.entries():
-        latest.setdefault(entry.key, []).append(entry.version)
+        if lock is None or lock.get(entry.key) == entry.snapshot_id:
+            latest.setdefault(entry.key, []).append(entry.version)
     snaps: list[Snapshot] = []
     deviations: list[dict[str, Any]] = []
     for key in (*protocol.required_sources, *protocol.optional_sources):
@@ -672,16 +739,22 @@ def _retrieve(protocol: Protocol, root: str | Path, ledger: SnapshotLedger,
         if key == "opentargets" and protocol.question.disease:
             versions = [v for v in versions if v.endswith("+" + protocol.question.disease)]
         if not versions:
+            if lock is not None and key in lock:
+                raise ResearchRefused(f"locked {key} snapshot {lock[key]} is missing or has the wrong indication")
             if key in protocol.optional_sources and \
                     "drop_missing_optional_source" in protocol.fallbacks:
                 deviations.append({"fallback": "drop_missing_optional_source",
                                    "source": key,
                                    "reason": "no snapshot recorded in the ledger"})
                 continue
-            raise ResearchRefused(f"no snapshot of required source {key!r} is recorded "
-                                  "in the ledger")
+            hint = {"pubchem_bioassay": " Import the saved PubChem screening response with "
+                    "bioagent snapshots build --pubchem-bioassay FILE or the Studio snapshot job.",
+                    "opentargets": f" Import the saved Open Targets response for {protocol.question.disease} "
+                    "with bioagent snapshots build --opentargets FILE or the Studio snapshot job."}.get(key, "")
+            raise ResearchRefused(f"no snapshot of required source {key!r} is recorded in the ledger." + hint)
         try:
             snaps.append(load_snapshot(root, key, versions[-1], ledger=ledger,
+                                       expected_id=lock[key] if lock is not None else None,
                                        accept_review=accept_review))
         except SnapshotError as exc:
             # Never a fallback: a snapshot that no longer matches its record changed.
@@ -872,7 +945,7 @@ def _rebut(analyse: Callable[..., Any], snaps: Sequence[Snapshot], protocol: Pro
         return survived
 
     if primary and "background_sensitivity" in protocol.rebuttals:
-        if params.background == "reactome":
+        if params.background == "reactome" and params.hits != "screening":
             kept = variant("background=assayed", snaps, replace(params, background="assayed"))
             for p in primary - kept:
                 reasons[p].append("not significant when the background is restricted to "
@@ -880,18 +953,43 @@ def _rebut(analyse: Callable[..., Any], snaps: Sequence[Snapshot], protocol: Pro
                                   "which proteins were tested")
         else:
             not_run.append({"test": "background_sensitivity",
-                            "why": "the primary background is already the assayed one"})
+                            "why": ("screening already conditions on measured observations" if params.hits == "screening"
+                                    else "the primary background is already the assayed one")})
 
     if primary and "leave_one_source_out" in protocol.rebuttals:
-        activity = sorted(s.key for s in snaps if s.key in ACTIVITY_SOURCES)
+        # Only sources that supplied measurements of the formula's constituents can
+        # provide independent activity evidence. A composition-only source cannot.
+        compounds = {c["compound"] for c in result["compounds"]}
+        def contributes(snap: Snapshot) -> bool:
+            if (snap.key == "pubchem_bioassay") != (params.hits == "screening"):
+                return False
+            for edge in snap.edges:
+                if edge.get("subject") not in compounds or edge.get("knowledge_level") == "prediction":
+                    continue
+                if params.hits == "screening":
+                    if edge.get("predicate") in ("targets", "tested_against") and edge.get("assay_type") in params.screening_assay_types:
+                        return True
+                elif edge.get("predicate") == "targets" and (edge.get("measure") or {}).get("type") in params.activity_types:
+                    return True
+            return False
+
+        activity = sorted(s.key for s in snaps if s.key in ACTIVITY_SOURCES and contributes(s))
         if len(activity) < 2:
             not_run.append({"test": "leave_one_source_out",
                             "why": f"only one activity source ({', '.join(activity)}); "
                                    "the claims cannot be checked against another"})
         else:
             for key in activity:
-                kept = variant(f"without {key}", [s for s in snaps if s.key != key], params)
-                for p in primary - kept:
+                label = f"without {key}"
+                trial = _analyse(analyse, [s for s in snaps if s.key != key], protocol, params, contract)
+                tested = {r["pathway"] for r in trial["enrichment"]}
+                if not trial["background"]["potent_in_background"] and params.hits != "screening":
+                    tested.clear()
+                kept = _released(trial)
+                tests.append({"test": label, "released": sorted(kept), "testable": sorted(primary & tested)})
+                for p in sorted(primary - tested):
+                    not_run.append({"test": label, "why": f"{p} could not be tested with the remaining evidence"})
+                for p in (primary & tested) - kept:
                     reasons[p].append(f"does not survive leaving out {key}; it rests on "
                                       "that one source")
 
@@ -914,7 +1012,7 @@ _MEDIA = {".json": "application/json", ".jsonl": "application/json", ".md": "tex
           ".tsv": "text/tab-separated-values", ".html": "text/html"}
 
 
-def _reproduce(protocol: Protocol) -> tuple[list[str], bool]:
+def _reproduce(protocol: Protocol, profile: str, accept_review: bool) -> tuple[list[str], bool]:
     """The ``bioagent research`` command for this protocol (paths as placeholders), and
     whether it gives exactly this protocol: the command carries the question, formula,
     disease, sources, background, hits and permutations, and every other parameter at its
@@ -922,9 +1020,14 @@ def _reproduce(protocol: Protocol) -> tuple[list[str], bool]:
     q, p = protocol.question, protocol.parameters
     activity = [k for k in protocol.required_sources if k in ACTIVITY_SOURCES]
     argv = ["bioagent", "research", q.text, "--formula", q.formula_id,
-            "--snapshots", "SNAPSHOTS", "--ledger", "LEDGER", "--state-dir", "STATE",
+            "--snapshots", "SNAPSHOTS", "--ledger", "LEDGER", "--lock", "OUT/snapshot_lock.json",
+            "--state-dir", "STATE",
             "--out", "OUT2", "--background", p.background, "--hits", p.hits,
             "--permutations", str(p.permutations)]
+    if profile != "trusted_local":
+        argv += ["--profile", profile]
+    if accept_review:
+        argv.append("--accept-review")
     if q.disease:
         argv += ["--disease", q.disease]
     for key in activity:
@@ -940,7 +1043,8 @@ def _reproduce(protocol: Protocol) -> tuple[list[str], bool]:
 
 def _artifact(run_id: str, protocol: Protocol, snaps: Sequence[Snapshot],
               result: Mapping[str, Any], rebuttal: Mapping[str, Any],
-              deviations: Sequence[Mapping[str, Any]], out: Path) -> tuple[ResearchArtifact, Any]:
+              deviations: Sequence[Mapping[str, Any]], out: Path, *, profile: str,
+              accept_review: bool) -> tuple[ResearchArtifact, Any]:
     from ..analysis.np_exports import write_exports
     from ..skills.base import artifact as build
 
@@ -954,6 +1058,7 @@ def _artifact(run_id: str, protocol: Protocol, snaps: Sequence[Snapshot],
     enrichment_text = "".join(canonical_row(r) + "\n" for r in result["enrichment"])
     outputs = {
         "protocol.json": _json(protocol.as_dict()),
+        "snapshot_lock.json": _json({"schema": 1, "snapshots": {s.key: s.snapshot_id for s in snaps}}),
         "result.json": _json({k: v for k, v in result.items()}),
         "enrichment.jsonl": enrichment_text,
         "rebuttal.json": _json(dict(rebuttal)),
@@ -965,7 +1070,7 @@ def _artifact(run_id: str, protocol: Protocol, snaps: Sequence[Snapshot],
             text.encode("utf-8")).hexdigest(), bytes=len(text.encode("utf-8")),
             media_type=_MEDIA[Path(name).suffix]))
     no_organism = _no_organism(protocol)
-    argv, exact = _reproduce(protocol)
+    argv, exact = _reproduce(protocol, profile, accept_review)
     exports = write_exports(
         result, out, formula=protocol.question.formula, snaps=snaps,
         limitations=_limitations(result, rebuttal, deviations, no_organism),

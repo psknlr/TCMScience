@@ -47,20 +47,20 @@ def _real(args, params) -> int:
     from bioagent.sources.snapshot import load_snapshot
     ledger = SnapshotLedger(args.ledger)
     ledger.verify()
-    lock = read_lock(args.lock)
-    snaps = []
-    for key, sid in sorted(lock.items()):
-        version = sid.split("@", 1)[1].rsplit("#", 1)[0]
-        snap = load_snapshot(args.snapshots, key, version, ledger=ledger)
-        if snap.snapshot_id != sid:
-            print(f"refused: {key} loads as {snap.snapshot_id}, the lock pins {sid}",
-                  file=sys.stderr)
-            return 1
-        snaps.append(snap)
+    def load(lockfile):
+        snaps = []
+        for key, sid in sorted(read_lock(lockfile).items()):
+            version = sid.split("@", 1)[1].rsplit("#", 1)[0]
+            snaps.append(load_snapshot(args.snapshots, key, version, ledger=ledger,
+                                       expected_id=sid))
+        return snaps
+    snaps = load(args.lock)
+    replicate = load(args.replication_lock) if args.replication_lock else []
     out = Path(args.out)
     result = run_pathway_inquiry(snaps, pathway=args.pathway, root=out / "derived",
                                  params=params, controls=args.controls,
-                                 rewirings=args.rewirings, state_dir=args.state or None)
+                                 rewirings=args.rewirings, state_dir=args.state or None,
+                                 replication_snapshots=replicate)
     _write(result, out)
     print(render_markdown(result))
     return 0
@@ -73,10 +73,12 @@ def _planted(args, params) -> int:
     for scenario in scenarios:
         root = out / scenario
         snaps = build_world(scenario, root / "snapshots")
+        replicate = build_world(scenario, root / "independent-experiment", experiment=1)
         state = (Path(args.state) / scenario) if args.state else None
         result = run_pathway_inquiry(snaps, pathway=PATHWAY, root=root / "derived",
                                      params=params, controls=args.controls,
-                                     rewirings=args.rewirings, state_dir=state)
+                                     rewirings=args.rewirings, state_dir=state,
+                                     replication_snapshots=replicate)
         _write(result, root)
         c = result.conclusion
         rows.append((scenario, TRUTH[scenario], c.verdict.value, c.leader,
@@ -87,8 +89,9 @@ def _planted(args, params) -> int:
     print("| --- | --- | --- | --- | ---: | ---: | ---: |")
     for row in rows:
         print("| " + " | ".join(str(x) for x in row) + " |")
-    wrong = [r for r in rows if r[3] != r[1] or r[2] != "accepted"]
-    print(f"\n{len(rows) - len(wrong)} of {len(rows)} planted explanations recovered; "
+    wrong = [r for r in rows if (r[2] != "undetermined" if r[0] == "coverage"
+                                 else r[3] != r[1] or r[2] != "accepted")]
+    print(f"\n{len(rows) - len(wrong)} of {len(rows)} expected decisions reproduced; "
           f"reports under {out}")
     return 1 if wrong else 0
 
@@ -100,12 +103,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--snapshots", default="")
     ap.add_argument("--ledger", default="")
     ap.add_argument("--lock", default="", help="snapshot_lock.json of the run to question")
+    ap.add_argument("--replication-lock", default="",
+                    help="optional lock for disjoint, traceable activity measurements")
     ap.add_argument("--pathway", default="", help="the pathway whose signal is questioned")
     ap.add_argument("--out", required=True)
     ap.add_argument("--state", default="",
                     help="record the inquiry in a PSH world model and audit chain here")
-    ap.add_argument("--controls", type=int, default=20)
-    ap.add_argument("--rewirings", type=int, default=10)
+    ap.add_argument("--controls", type=int, default=60)
+    ap.add_argument("--rewirings", type=int, default=60)
     ap.add_argument("--permutations", type=int, default=Parameters.permutations)
     ap.add_argument("--seed", type=int, default=Parameters.seed)
     args = ap.parse_args(argv)

@@ -721,9 +721,13 @@ def _scrna_choices(p: dict[str, Any]) -> dict[str, Any]:
         "resolution": _num("resolution", p.get("resolution", 1.0), *SCRNA_RESOLUTION),
         "seed": _int("seed", p.get("seed", 0), 0, 2**31 - 1),
         "n_top_genes": _int("n_top_genes", p.get("n_top_genes", 2000), *SCRNA_TOP_GENES)}
-    for key in ("root", "contrast"):
+    for key in ("root", "contrast", "replicate_key", "design"):
         if p.get(key):
             out[key] = _text(key, p[key], max_len=200)
+    if p.get("covariates") is not None:
+        if not isinstance(p["covariates"], list):
+            raise BadParams("covariates must be a list of numeric column names")
+        out["covariates"] = [_text("covariate", value, max_len=200) for value in p["covariates"]]
     return out
 
 
@@ -733,9 +737,10 @@ def _scrna_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
                 _opt("integration", r["integration"]), _opt("resolution", r["resolution"]),
                 _opt("seed", r["seed"]), _opt("n-top-genes", r.get("n_top_genes", 2000)),
                 _opt("scvi-threads", ctx.threads))
-    for key in ("markers", "root", "contrast"):
+    for key in ("markers", "root", "contrast", "design", "replicate_key"):
         if r.get(key):
-            argv.append(_opt(key, r[key]))
+            argv.append(_opt(key.replace("_", "-"), r[key]))
+    argv.extend(_opt("covariate", key) for key in r.get("covariates", ()))
     return argv + ["--json"]
 
 
@@ -832,6 +837,7 @@ def _dock_prepared(p: dict[str, Any], ctx: PrepareContext, receptor: str) -> dic
     for key, why in (("site_ligand", "name the site with center and size, or give the co-crystal "
                                      "ligand prepared in its crystal pose as reference_ligand"),
                      ("chains", "the receptor is used as prepared, every chain of it"),
+                     ("site_ligand_instance", "a ligand instance applies only to a PDB receptor"),
                      ("allow_remote", "nothing is fetched: the receptor is the .pdbqt given")):
         if p.get(key):
             raise BadParams(f"{key}: a .pdbqt receptor is used as prepared, so {key} cannot apply; "
@@ -911,6 +917,11 @@ def _dock_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
         if not remote:
             raise BadParams("site_ligand: its SMILES comes from the RCSB Chemical Component "
                             "Dictionary; set allow_remote, or give center and size instead")
+    if p.get("site_ligand_instance"):
+        if "site_ligand" not in out:
+            raise BadParams("site_ligand_instance requires site_ligand")
+        out["site_ligand_instance"] = _text("site_ligand_instance", p["site_ligand_instance"],
+                                           pattern=re.compile(r"^[A-Za-z0-9]?:-?[0-9]{1,4}[A-Za-z]?$"))
     _dock_box(p, out)
     if "site_ligand" not in out and "center" not in out:
         raise BadParams("give the docking site: site_ligand (a co-crystal ligand), or center "
@@ -922,7 +933,8 @@ def _dock_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     argv = _cli(ctx, "dock", r["receptor"], r["ligands"], _opt("out", OUTPUT_TOKEN),
                 _opt("scoring", r["scoring"]), _opt("exhaustiveness", r["exhaustiveness"]),
                 _opt("poses", r["poses"]), _opt("seed", r["seed"]))
-    for key, flag in (("site_ligand", "site-ligand"), ("reference_ligand", "reference-ligand"),
+    for key, flag in (("site_ligand", "site-ligand"), ("site_ligand_instance", "site-ligand-instance"),
+                      ("reference_ligand", "reference-ligand"),
                       ("center", "center"), ("size", "size"), ("chains", "chains")):
         if r.get(key):
             argv.append(_opt(flag, r[key]))
@@ -1072,19 +1084,33 @@ def formula_ambiguity(formula: str) -> str | None:
     hand-checked name, a formula id, a name with its book (桂枝汤《伤寒论》), one
     composition, or no workbook here to tell (the loop reads the question itself)."""
     formula = str(formula or "").strip()
-    if not formula or "《" in formula or formula.startswith("tcm:formula."):
+    if not formula or formula.startswith("tcm:formula."):
         return None
     try:
-        from bioagent.research.loop import FORMULA_NAMES
-        if any(name.lower() in formula.lower() for name in FORMULA_NAMES):
-            return None
+        from bioagent.research.loop import FORMULA_NAMES, FORMULAS, component_identity
+        from bioagent.sources.formulas import source_matches, split_source
         from .repository_data import formula_search
-        found = formula_search(formula, exact=True, limit=100)
-    except Exception:                                           # noqa: BLE001
+        bare, books = split_source(formula)
+        canonical = FORMULA_NAMES.get(bare.lower())
+        if canonical:
+            source = FORMULAS[canonical].source
+            return f"{canonical} cites {source}, not {books}" if books and not source_matches(source, books) else None
+        page = formula_search(bare, exact=True, limit=100)
+        records = list(page["records"])
+        while page.get("next_offset") is not None:
+            page = formula_search(bare, exact=True, limit=100, offset=page["next_offset"])
+            records.extend(page["records"])
+    except (OSError, ValueError, ImportError, RuntimeError):
         return None
-    distinct: dict[tuple, dict[str, Any]] = {}
-    for r in found["records"]:      # as the loop tells compositions apart (parse_question)
-        distinct.setdefault(tuple((c.get("drug"), c.get("name")) for c in r["components"]), r)
+    if books and records:
+        records = [r for r in records if source_matches(r["source"], books)]
+        if not records:
+            return f"no version of {bare} cites {books}"
+    distinct = {}
+    for r in records:
+        key = tuple(component_identity(c["drug"], c["name"], c["dose"], c["processing"])
+                    for c in r["components"])
+        distinct.setdefault(key, r)
     if len(distinct) < 2:
         return None
     books = list(dict.fromkeys(b for r in distinct.values()
@@ -1157,6 +1183,18 @@ def _research_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
         "optional": [_text("optional", a, pattern=_SOURCE_KEY) for a in p.get("optional") or []]}
     if p.get("disease"):
         out["disease"] = _text("disease", p["disease"], pattern=_DISEASE)
+    if ledger.is_file() and (out.get("disease") or out["hits"] == "screening"):
+        from bioagent.sources.ledger import SnapshotLedger
+        needed = {"pubchem_bioassay"} if out["hits"] == "screening" else set()
+        disease = out.get("disease", "").replace(":", "_")
+        if disease:
+            needed.add("opentargets")
+        for entry in SnapshotLedger(ledger).entries():
+            if entry.key != "opentargets" or entry.version.endswith("+" + disease):
+                needed.discard(entry.key)
+        if needed:
+            raise BadParams("Build research.snapshot with the saved response file(s) for "
+                            + ", ".join(sorted(needed)) + (f" ({disease})" if disease else ""))
     if p.get("formula"):
         out["formula"] = _text("formula", p["formula"], max_len=100)
         ambiguous = formula_ambiguity(out["formula"])
@@ -1186,7 +1224,8 @@ def _snapshot_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     # the data hub's copies of the same reviewed files (job.tcmdb.fetch): adopted as hard
     # links when they hash to the reviewed checksum, so NPASS and CMAUP are stored once
     hub_raw = Path(ctx.data_env["BIOAGENT_TCMDB"]) / "raw"
-    return {"sources": sources,
+    supplemental = {k: str(ctx.file(k, p[k])) for k in ("pubchem_bioassay", "opentargets") if p.get(k)}
+    return {"sources": sources, **supplemental,
             "network": bool(p.get("network", True)), "formulas": formulas,
             "raw": str(Path(ctx.data_env["BIOAGENT_DATA_LAKE"]) / "raw"),
             "snapshots": str(root), "ledger": str(ledger),
@@ -1197,6 +1236,7 @@ def _snapshot_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     argv = _cli(ctx, "snapshots", "build", _opt("raw", r["raw"]), _opt("out", r["snapshots"]),
                 _opt("ledger", r["ledger"]), _opt("report", f"{OUTPUT_TOKEN}/snapshot_report.json"),
                 "--sources", *r["sources"])
+    argv += [_opt(k.replace("_", "-"), r[k]) for k in ("pubchem_bioassay", "opentargets") if r.get(k)]
     argv += [_opt("mirror", m) for m in r.get("mirrors") or ()]
     if not r["network"]:
         argv.append("--no-network")

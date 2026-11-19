@@ -60,6 +60,13 @@ either runs:
 | Cook's outliers | PyDESeq2 replaces outlier counts at 7+ replicates and refits; the built-in implementation has no replacement step | in both, an outlier loses its p-value and no count is replaced |
 | VST | one implementation's trend applied to the other's counts | each backend stabilises its own normalised counts with its own design-aware trend (DESeq2's `blind=FALSE`); `vst_detail` records which and the coefficients |
 
+A nonconverged gene fit has unavailable fold change, standard error, Wald statistic,
+p-value and adjusted p-value. Its flag remains in the diagnostics and the remaining
+valid p-values form the adjustment family. Rankings derived from either backend exclude
+failed fits and Cook's distance outliers in every mode and list the exclusions. A valid
+Wald statistic remains eligible when independent low-count filtering only suppressed its
+adjusted p-value.
+
 Both backends fill one result contract, with DESeq2's meanings:
 
 | DESeq2 / PyDESeq2 | here | meaning |
@@ -427,3 +434,25 @@ GSEA 不作为 Skill 的一步：它需要第三方基因集来源及其许可�
 - **安装：** `bioagent[analysis]` 提供 GSEApy 与 harmonypy，下限为实测通过的版本：GSEApy 1.1.6（1.1.0 和 1.1.5 未通过，现在会被拒绝并说明原因），harmonypy 0.0.10。`bioagent[scvi]` 提供 scvi-tools 1.5.1 及以上；先从 PyTorch 的 CPU 源安装 torch，可避免从 PyPI 装入 CUDA 版。
 - **测试：** 三个测试文件在单元层自动跳过需要可选包的部分，在 CI 的 analysis-tools 作业中全部运行。`tests/test_omics_deseq2_r.py` 还需要 R 和 DESeq2：同一作业安装了 R 与 Bioconductor 的 DESeq2 并运行它，并重跑 `tests/test_runrecord.py` 与 `tests/test_pipeline_references.py`（各流程记录的阶段，以及内置参考数据集）；这两个文件不需要任何引擎，参考数据集固定使用内置后端，所以引擎路径由上面的后端测试检查，而不是由它们检查。`tests/test_omics_scvi.py` 还需要 scvi-tools，在单独的 CI 作业「scVI, trained on the CPU」中用 PyTorch 的 CPU 版运行。
 - **依据：** 上述比较（PyDESeq2、R 的 DESeq2、Scanpy、harmonypy、scVI、GSEApy）是在撰写本文的环境中、用文中写明的版本实际运行的，CI 作业在每次分配到运行器时会重复这些比较（在 `ci` #317 中通过，2026-10-19，CPU 运行器）。这些后端都不在浏览器中运行，也没有来自任何已部署服务的记录：它们是 Runner 端的实现。内置实现则会在 Studio 的浏览器任务中运行，用于从计数矩阵出发的 RNA-seq 和从计数表出发的单细胞分析（内置 DESeq2 实现、内置分析、内置 Harmony）；在那里选择 PyDESeq2、Scanpy 或 scVI 的调用会被拒绝并说明原因，需要 Runner，绝不改交内置实现（[studio/docs/BROWSER_JOBS.md §3.1](../studio/docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)）。在两个模拟参考上，它们在浏览器中的数值与原生运行在给定容差内一致，而不是逐字节一致：DESeq2 的离散度搜索会把不同 numpy 构建之间末位的差异放大到打印出的数字（不同的表都是 DESeq2 拟合的输出；由 Harmony 得出的表格完全相同，不做比较的 UMAP 布局除外）。用户自己的运行不与任何结果比较。
+
+### Comparing the bulk backends on seven public pasilla samples
+
+The Bioconductor pasilla experiment includes three knockdown and four untreated
+Drosophila samples. On the same 14,599 genes and the same additive design
+(`~ library_type + condition`, treated versus untreated), the built-in backend
+and PyDESeq2 0.6.0 returned 8,562 genes with finite adjusted p-values in both
+results. The log2 fold-change Spearman correlation on those genes was 0.99994.
+At BH q < 0.05 they called 1,284 and 1,119 genes respectively; all 1,112 shared
+calls had matching signs. This measures backend agreement on one experiment.
+The extra calls require independent validation.
+
+Use the two files in the [pinned Bioconductor dataset](https://github.com/bioc/pasilla/tree/3c91e8df8add3549129e46b7a7a078fda4e2755a/inst/extdata).
+After installing the analysis dependencies, run the following from the repository
+root; the script checks both input SHA-256 values before analysis.
+
+```sh
+python BioScience-Harness/scripts/compare_pasilla_de.py pasilla_gene_counts.tsv pasilla_sample_annotation.csv pasilla-comparison
+```
+
+The per-backend manifests and `comparison.json` record the versions, parameters
+and denominators for that run.

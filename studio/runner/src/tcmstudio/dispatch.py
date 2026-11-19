@@ -3644,7 +3644,8 @@ def _exec_study(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
                 time_h=e.get("time_h"), concentration=meas(e["concentration"]),
                 free=bool(e.get("free", False)),
                 free_fraction=tuple(e["free_fraction"]) if e.get("free_fraction") else None,
-                method=str(e.get("method", "")), study=str(e.get("study", "")))
+                method=str(e.get("method", "")), study=str(e.get("study", "")),
+                intervention=str(e.get("intervention", "")), dose=str(e.get("dose", "")))
                 for e in args["exposures"]]
             assays = [AssayResult(molecule=str(a["molecule"]), target=str(a["target"]),
                                   endpoint=str(a["endpoint"]), result=meas(a["result"]),

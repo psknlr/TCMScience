@@ -57,17 +57,17 @@ runtime's own checks.
 `python scripts/run_governance_ablation.py --out benchmarks/ablation` (a few seconds;
 committed as `BioScience-Harness/benchmarks/ablation/results.json` and `results.md`):
 
-| Configuration | Errors released | 95% CI | Correct outputs refused |
-| --- | ---: | --- | ---: |
-| no governance | 121/121 (100%) | 97–100% | 0/10 |
-| kernel only | 7/121 (6%) | 3–11% | 0/10 |
-| domain layer only | 57/121 (47%) | 38–56% | 0/10 |
-| **full stack** | **0/121 (0%)** | **0–3%** | **0/10** |
-| full stack without ingest | 10/121 (8%) | 5–15% | 0/10 |
-| full stack without the output gate | 42/121 (35%) | 27–44% | 0/10 |
-| full stack without licensing | 0/121 (0%) | 0–3% | 0/10 |
-| full stack without the claim contract | 6/121 (5%) | 2–10% | 0/10 |
-| full stack without the release check | 1/121 (1%) | 0–5% | 0/10 |
+| Configuration | Errors released | Correct outputs refused |
+| --- | ---: | ---: |
+| no governance | 121/121 (100%) | 0/10 |
+| kernel only | 7/121 (6%) | 0/10 |
+| domain layer only | 57/121 (47%) | 0/10 |
+| **full stack** | **0/121 (0%)** | **0/10** |
+| full stack without ingest | 10/121 (8%) | 0/10 |
+| full stack without the output gate | 42/121 (35%) | 0/10 |
+| full stack without licensing | 0/121 (0%) | 0/10 |
+| full stack without the claim contract | 6/121 (5%) | 0/10 |
+| full stack without the release check | 1/121 (1%) | 0/10 |
 
 **What each gate adds** (leave-one-out: errors the full stack refuses and releases once that
 gate is off):
@@ -148,7 +148,7 @@ benchmark can express are closed, not that the gates catch every error.
   question "does a model under this governance write better science" also involves what the
   model writes when it knows it will be checked, which this does not measure; that is what
   the four-arm comparison in [comparison.md](comparison.md) is designed for.
-- **Ten base cases.** The intervals are wide on purpose; read them.
+- **Ten base cases.** Mutants derived from a draft share its underlying evidence. The generated report counts affected source drafts alongside mutants.
 
 ## Your own outputs
 
@@ -188,7 +188,7 @@ Tests: `BioScience-Harness/tests/test_governance_ablation.py`, `tests/test_near_
 | 无治理 | 121/121（100%） |
 | 仅内核 | 7/121（6%） |
 | 仅领域层 | 57/121（47%） |
-| 完整治理 | 0/121（0%，95% 置信区间 0–3%） |
+| 完整治理 | 0/121（0%） |
 
 留一法：输出闸门独自拦下 42 个，证据摄入 10 个（均为被篡改的记录），主张契约 6 个，路径检查 1 个；许可检查不再有独有的拦截。
 

@@ -326,7 +326,8 @@ def _run_pydeseq2(y: np.ndarray, genes: tuple[str, ...], ids: tuple[str, ...],
                 "dispersion": var["dispersions"].to_numpy(float),
                 "cooks_outlier": (var["_pvalue_cooks_outlier"].to_numpy(bool)
                                   if cooks_cutoff else np.zeros(len(genes), dtype=bool)),
-                "converged": var["_LFC_converged"].fillna(True).to_numpy(bool)},
+                "converged": (var["_LFC_converged"].fillna(False).to_numpy(bool)
+                               | (y.sum(axis=1) == 0))},
             "vst": None, "vst_detail": {}}
         out["diagnostics"] = {
             "size_factor_method": size_factor_method, "dispersion_trend": trend,
@@ -385,9 +386,20 @@ def run_de(counts: Any, genes: Sequence[Any], sample_ids: Sequence[Any],
                     alpha=alpha, cooks_cutoff=cooks_cutoff,
                     independent_filtering=independent_filtering, vst=vst,
                     threads=max(int(threads), 1))
-    # Genes whose own dispersion estimate stayed at the floor are left out of the trend
-    # and of the prior's spread. With few residual degrees of freedom the two
-    # optimisers leave different numbers there, and their shrinkage parts from that.
+    if backend == "pydeseq2":
+        failed = ~fields["gene_diagnostics"]["converged"] & (fields["base_mean"] > 0)
+        if failed.any():
+            for column in ("log2_fold_change", "lfc_se", "stat", "p_value"):
+                fields[column] = np.where(failed, np.nan, fields[column])
+            if independent_filtering:
+                fields["p_adjusted"], threshold = deseq._independent_filter(
+                    fields["base_mean"], fields["p_value"], alpha)
+                fields["diagnostics"]["filter_threshold"] = threshold
+            else:
+                fields["p_adjusted"] = deseq.benjamini_hochberg(fields["p_value"])
+            fields["notes"].append(f"{int(failed.sum())} gene fits did not converge; "
+                                   "excluded from Wald tests and FDR adjustment")
+    # With few residual degrees of freedom, these floor counts affect shrinkage.
     gene_wise = fields["gene_diagnostics"]["dispersion_gene_wise"]
     fields["diagnostics"]["gene_wise_at_floor"] = int(np.sum(gene_wise < 100 * deseq.MIN_DISP))
     return DEResult(backend=backend, version=found, genes=gene_ids, samples=ids,

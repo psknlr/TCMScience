@@ -1,0 +1,37 @@
+{
+ "status": "PASS",
+ "checks": [
+  {
+   "name": "manifest_digests",
+   "status": "PASS",
+   "detail": "every output the manifest lists has the SHA-256 and size it records"
+  },
+  {
+   "name": "enrichment_arithmetic",
+   "status": "PASS",
+   "detail": "955 p-values recomputed from the table's overlaps against a background of 382 with 236 targets, and the BH q-values over all of them, match"
+  },
+  {
+   "name": "code",
+   "status": "PASS",
+   "detail": "the analysis code here is the code that made the run"
+  },
+  {
+   "name": "result_digest",
+   "status": "PASS",
+   "detail": "recomputed result sha256:24c8def00a80678833c50718bd447d07157badce53dd6a27825281c04de7281e"
+  },
+  {
+   "name": "tables",
+   "status": "PASS",
+   "detail": "the 5 tables recomputed from the snapshots are byte-identical to the saved ones (their SHA-256 match the manifest)",
+   "recomputed": [
+    "compounds.tsv",
+    "disease_targets.tsv",
+    "enrichment.tsv",
+    "network.tsv",
+    "targets.tsv"
+   ]
+  }
+ ]
+}

@@ -81,6 +81,17 @@ inputs:
       type: string
     contrast:
       type: string
+    replicate_key:
+      type: string
+      description: "independent biological unit (auto: donor, else sample)"
+    design:
+      type: string
+      description: "additive pseudobulk design formula"
+    covariates:
+      type: array
+      items:
+        type: string
+      description: "numeric terms in the pseudobulk design"
     analysis_backend:
       type: string
       enum: [builtin, scanpy]

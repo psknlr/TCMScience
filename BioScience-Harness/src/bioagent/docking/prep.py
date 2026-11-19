@@ -218,17 +218,28 @@ def read_ligands(source: str | Path) -> list[tuple[str, str]]:
 
 
 def cocrystal_ligand(pdb_text: str, resname: str, *, smiles: str | None = None,
-                     chain: str | None = None) -> tuple[Any, np.ndarray]:
+                     chain: str | None = None, instance: str | None = None) -> tuple[Any, np.ndarray]:
     """(RDKit Mol with the crystal coordinates, heavy-atom coordinates)."""
     Chem = _need("rdkit.Chem")
     AllChem = _need("rdkit.Chem.AllChem")
-    lines = [ln for ln in pdb_text.splitlines()
-             if ln.startswith("HETATM") and ln[17:20].strip() == resname.upper()
-             and (chain is None or ln[21] == chain)]
-    if not lines:
-        raise DockingError(f"the structure has no ligand {resname}")
-    first = (lines[0][21], lines[0][22:27])
-    lines = [ln for ln in lines if (ln[21], ln[22:27]) == first and ln[16] in (" ", "A")]
+    copies: dict[str, list[str]] = {}
+    for line in pdb_text.splitlines():
+        if line.startswith("ENDMDL"):
+            break
+        if (line.startswith("HETATM") and line[17:20].strip() == resname.upper()
+                and (chain is None or line[21] == chain) and line[16] in (" ", "A")):
+            locus = f"{line[21].strip()}:{line[22:27].strip()}"
+            copies.setdefault(locus, []).append(line)
+    if instance is not None:
+        if instance not in copies:
+            raise DockingError(f"no {resname} at {instance} in the selected receptor")
+        copies = {instance: copies[instance]}
+    if not copies:
+        raise DockingError(f"the selected receptor has no ligand {resname}")
+    if len(copies) > 1:
+        raise DockingError(f"{resname} occurs at {', '.join(sorted(copies))}; "
+                           "select one with --site-ligand-instance CHAIN:RESIDUE")
+    locus, lines = next(iter(copies.items()))
     block = "\n".join(ln[:16] + " " + ln[17:] for ln in lines) + "\nEND\n"
     mol = Chem.MolFromPDBBlock(block, removeHs=True, sanitize=False)
     if mol is None:
@@ -239,4 +250,5 @@ def cocrystal_ligand(pdb_text: str, resname: str, *, smiles: str | None = None,
     except Exception as exc:                                   # noqa: BLE001
         raise DockingError(f"ligand {resname}: the SMILES template does not match its "
                            f"atoms ({exc})") from exc
+    mol.SetProp("pdb_ligand_instance", locus)
     return mol, mol.GetConformer().GetPositions()

@@ -153,31 +153,32 @@ GAP_NOTE = ("A test nobody has run is a proposal, not a failure: withdraw it wit
 
 def _pathway_signal() -> Scaffold:
     from .inquiry import ANALYSES, predictions
-    runs = {"enrichment": 1.0, "random": 21.0, "rewired": 11.0}
+    runs = {"enrichment": 1.0, "random": 61.0, "rewired": 61.0}
     enrich = ("enriched: the pathway is released by the run (BH q and permutation p below "
-              "its thresholds); not_enriched otherwise")
+              "its thresholds); not_enriched only for a tested pathway with detectable enrichment; "
+              "withdraw absent or untestable pathways")
     how = {
         "annotated": ("network_pharmacology_run with parameters.background 'reactome'",
                       enrich),
         "assayed": ("network_pharmacology_run with parameters.background 'assayed' (the "
                     "default)", enrich),
-        "assayed-seed": ("the seed_stability rebuttal of the assayed run (its 'seed+N' "
-                         "test), or the run repeated", enrich.replace(
-                             "released by the run", "still released under the other seed")),
+        "assayed-independent": ("the assayed enrichment on disjoint original studies or assays",
+                               enrich),
         "random-herbs": ("the random-formula control of bioagent.studies.validation, on "
                          "the runner: BioScience-Harness/scripts/run_inquiry.py runs it "
                          "(not a Studio tool)",
-                         "specific: at most 5% of random herb combinations of the "
-                         "formula's size reach the pathway; not_specific: more do; "
-                         "not_enriched: the formula's own enrichment did not hold"),
+                         "specific: the upper 95% one-sided frequency bound is at most 5% for random herb combinations of the "
+                         "formula's size reaching the pathway; not_specific: the lower bound exceeds 5%; "
+                         "withdraw when the formula's own enrichment did not hold"),
         "rewired": ("the degree-preserving rewiring control of "
                     "bioagent.studies.validation, on the runner (scripts/run_inquiry.py)",
-                    "beyond_wiring: at most 5% of rewired networks keep the pathway "
-                    "enriched; explained_by_degree: more do; not_enriched: the formula's "
+                    "beyond_wiring: the upper one-sided 95% frequency bound is at most 5% for rewired networks keeping the pathway "
+                    "enriched; explained_by_degree: more do; withdraw if the formula's "
                     "own enrichment did not hold"),
     }
-    how["random-herbs-2"] = how["random-herbs"]
-    how["rewired-2"] = how["rewired"]
+    for repeated, original in (("random-herbs-2", "random-herbs"), ("rewired-2", "rewired")):
+        tool, rule = how[original]
+        how[repeated] = (tool + " on disjoint original activity studies or assays", rule)
     tests = tuple(
         Test(a, title, outcomes, predictions(a), how[a][0], how[a][1], design="in_silico",
              cost=runs["enrichment" if a == "annotated" else kind], replicates=replicates)
@@ -210,14 +211,14 @@ def _formula_vs_constituent() -> Scaffold:
     contrast = {
         "formula_adds": {"formula_exceeds": 0.82, "equivalent": 0.05,
                          "monomer_exceeds": 0.01, "inconclusive": 0.12},
-        "constituent_accounts": {"formula_exceeds": 0.04, "equivalent": 0.80,
+        "equivalent_response": {"formula_exceeds": 0.04, "equivalent": 0.80,
                                  "monomer_exceeds": 0.04, "inconclusive": 0.12},
         "formula_attenuates": {"formula_exceeds": 0.01, "equivalent": 0.05,
                                "monomer_exceeds": 0.82, "inconclusive": 0.12}}
     second_dose = {
         "formula_adds": {"formula_exceeds": 0.70, "equivalent": 0.12,
                          "monomer_exceeds": 0.02, "inconclusive": 0.16},
-        "constituent_accounts": {"formula_exceeds": 0.07, "equivalent": 0.70,
+        "equivalent_response": {"formula_exceeds": 0.07, "equivalent": 0.70,
                                  "monomer_exceeds": 0.07, "inconclusive": 0.16},
         "formula_attenuates": {"formula_exceeds": 0.02, "equivalent": 0.12,
                                "monomer_exceeds": 0.70, "inconclusive": 0.16}}
@@ -239,15 +240,15 @@ def _formula_vs_constituent() -> Scaffold:
          Param("margin", "the equivalence margin in the endpoint's units, fixed now",
                "number"),
          _BETTER, _MODEL_PRECLINICAL),
-        (Rival("formula_adds", "{formula}'s other constituents add to {constituent}'s effect "
-               "on {endpoint}: at the dose of {constituent} it contains, the whole formula's "
-               "effect exceeds {constituent}'s alone", "mechanism", 0.35),
-         Rival("constituent_accounts", "{constituent} accounts for {formula}'s effect on "
-               "{endpoint}: at the dose the formula contains, the two are equivalent within "
-               "±{margin}", "mechanism", 0.35),
-         Rival("formula_attenuates", "{formula}'s other constituents reduce {constituent}'s "
-               "effect on {endpoint} (for example by lowering its absorption): "
-               "{constituent} alone exceeds the whole formula", "mechanism", 0.2)),
+        (Rival("formula_adds", "at matched constituent doses, {formula} exceeds "
+               "{constituent} alone on {endpoint} in the studied model",
+               "mechanism_hypothesis", 0.35),
+         Rival("equivalent_response", "{constituent} and {formula} produce equivalent values "
+               "on {endpoint} at the matched constituent dose, within ±{margin}",
+               "mechanism_hypothesis", 0.35),
+         Rival("formula_attenuates", "at matched constituent doses, {constituent} alone "
+               "exceeds {formula} on {endpoint} in the studied model",
+               "mechanism_hypothesis", 0.2)),
         (Test("contrast", "{formula} against {constituent} at the dose it contains, on "
               "{endpoint} ({better} is better), in one study, equivalence margin ±{margin}",
               outcomes, contrast, run, rule, classifier="contrast"),
@@ -278,7 +279,7 @@ def _combination() -> Scaffold:
                          "no_excess": 0.15}}
     outcomes = ("selective_excess", "cytotoxic_excess", "no_excess")
     run = "study.combination: pass its arguments as data to research_inquiry record"
-    rule = ("selective_excess: a combination's 95% interval lies above the {reference} "
+    rule = ("selective_excess: a combination's simultaneous 95% interval lies above the {reference} "
             "reference and its cytotoxicity is below 0.5; cytotoxic_excess: every "
             "combination above the reference is at or above 0.5 cytotoxicity; no_excess: "
             "none is above it. Every combination needs a cytotoxicity readout of the same "
@@ -881,6 +882,13 @@ def _meta(test: Test, arguments: Mapping[str, Any], result: Mapping[str, Any],
           values: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
     if arguments.get("scale", "log") != values["scale"]:
         raise _refuse(f"the inquiry was opened on the {values['scale']} scale")
+    ids = arguments.get("study_ids")
+    if (not isinstance(ids, (list, tuple)) or len(ids) != result.get("k") or len(ids) < 2
+            or any(not isinstance(i, str) or not i.strip() for i in ids)):
+        raise _refuse("one independent study/cohort identifier (study_ids) per estimate is required")
+    ids = [i.strip().casefold() for i in ids]
+    if len(set(ids)) != len(ids):
+        raise _refuse("a trial or cohort contributes more than one effect; combine dependent estimates first")
     pooled = result.get("random_effects") or {}
     low, high = _number(pooled, "ci_low"), _number(pooled, "ci_high")
     mcid = values.get("mcid")
@@ -890,7 +898,7 @@ def _meta(test: Test, arguments: Mapping[str, Any], result: Mapping[str, Any],
         significant, short = high < 0, mcid is not None and low > -mcid
     outcome = ("no_important_benefit" if short else "benefit" if significant
                else "inconclusive")
-    return outcome, {"k": result.get("k"), "random_effects": dict(pooled),
+    return outcome, {"k": result.get("k"), "study_ids": ids, "random_effects": dict(pooled),
                      "heterogeneity": result.get("heterogeneity")}
 
 
@@ -954,7 +962,7 @@ CLASSIFIER_DATA: Mapping[str, str] = {
     "contrast": "the arguments of study.contrast_formula_monomer",
     "combination": "the arguments of study.combination",
     "exposure": "the arguments of study.exposure_screen",
-    "meta": "the arguments of native.meta_analysis (estimates, standard_errors, labels, "
+    "meta": "the arguments of native.meta_analysis (estimates, standard_errors, study_ids, labels, "
             "scale)",
     "ratio_interval": "{ratio, ci_low, ci_high}: a geometric mean ratio and its 90% CI",
     "difference_interval": "{estimate, ci_low, ci_high}: a difference and its 95% CI"}

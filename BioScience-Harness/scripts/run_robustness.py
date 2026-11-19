@@ -73,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     for r in result["runs"]:
         lines.append(f"| {r['held_out']} | {r['edges_removed']} | " + " | ".join(
             (f"{v['q_value']:.3g}" if v["q_value"] is not None else "–")
-            + ("" if v["significant"] else " ✗") for v in r["pathways"].values()) + " |")
+            + (" (untestable)" if not v["testable"] else "" if v["significant"] else " ✗") for v in r["pathways"].values()) + " |")
     (out / f"robustness_{args.group}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
     return 0

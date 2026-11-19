@@ -54,17 +54,17 @@ ANALYSES: Mapping[str, tuple[str, tuple[str, ...], str, str]] = {
                   ("enriched", "not_enriched"), "", "enrichment"),
     "assayed": ("enrichment against the proteins the constituents were assayed against",
                 ("enriched", "not_enriched"), "", "enrichment"),
-    "assayed-seed": ("the assayed-background enrichment under another permutation seed",
+    "assayed-independent": ("assayed-background enrichment on independent activity records",
                      ("enriched", "not_enriched"), "assayed", "enrichment"),
     "random-herbs": ("random herb combinations of the formula's size",
-                     ("specific", "not_specific", "not_enriched"), "", "random"),
-    "random-herbs-2": ("random herb combinations, a second independent draw",
-                       ("specific", "not_specific", "not_enriched"), "random-herbs",
+                     ("specific", "not_specific"), "", "random"),
+    "random-herbs-2": ("random herb combinations on independent activity records",
+                       ("specific", "not_specific"), "random-herbs",
                        "random"),
     "rewired": ("degree-preserving rewiring of the compound-target network",
-                ("beyond_wiring", "explained_by_degree", "not_enriched"), "", "rewired"),
-    "rewired-2": ("degree-preserving rewiring, a second independent draw",
-                  ("beyond_wiring", "explained_by_degree", "not_enriched"), "rewired",
+                ("beyond_wiring", "explained_by_degree"), "", "rewired"),
+    "rewired-2": ("degree-preserving rewiring on independent activity records",
+                  ("beyond_wiring", "explained_by_degree"), "rewired",
                   "rewired"),
 }
 
@@ -86,16 +86,16 @@ _PREDICTIONS: Mapping[str, Mapping[str, Mapping[str, float]]] = {
         "target": {"enriched": 0.85, "not_enriched": 0.15},
         "coverage": {"enriched": 0.05, "not_enriched": 0.95},
         "promiscuity": {"enriched": 0.85, "not_enriched": 0.15}},
+    # Conditional on an eligible, significant primary result. Controls that cannot run
+    # generate no evidence; their absence has no likelihood.
     "random": {
-        "target": {"specific": 0.8, "not_specific": 0.1, "not_enriched": 0.1},
-        "coverage": {"specific": 0.05, "not_specific": 0.05, "not_enriched": 0.9},
-        "promiscuity": {"specific": 0.1, "not_specific": 0.8, "not_enriched": 0.1}},
+        "target": {"specific": 8/9, "not_specific": 1/9},
+        "coverage": {"specific": 0.5, "not_specific": 0.5},
+        "promiscuity": {"specific": 1/9, "not_specific": 8/9}},
     "rewired": {
-        "target": {"beyond_wiring": 0.8, "explained_by_degree": 0.1, "not_enriched": 0.1},
-        "coverage": {"beyond_wiring": 0.05, "explained_by_degree": 0.05,
-                     "not_enriched": 0.9},
-        "promiscuity": {"beyond_wiring": 0.4, "explained_by_degree": 0.5,
-                        "not_enriched": 0.1}},
+        "target": {"beyond_wiring": 8/9, "explained_by_degree": 1/9},
+        "coverage": {"beyond_wiring": 0.5, "explained_by_degree": 0.5},
+        "promiscuity": {"beyond_wiring": 4/9, "explained_by_degree": 5/9}},
 }
 
 #: The fraction of random formulas (or rewired networks) that may reach the pathway for it
@@ -126,12 +126,16 @@ def predictions(analysis_id: str) -> dict[str, dict[str, float]]:
     return {h: dict(row) for h, row in _PREDICTIONS[kind].items()}
 
 
-def pathway_inquiry(pathway: str, formula: Any, *, controls: int = 20,
-                    rewirings: int = 10, rule: Any = None, recorder: Any = None,
+def pathway_inquiry(pathway: str, formula: Any, *, controls: int = 60,
+                    rewirings: int = 60, rule: Any = None, recorder: Any = None,
                     question: str = "") -> Any:
     """An inquiry with every prediction sealed, before any analysis has run."""
     from psh.scientist import Analysis, Inquiry, StoppingRule
     from psh.sir.values import StudyDesign
+    if rule is not None and not rule.require_replication:
+        raise ValueError("a pathway inquiry requires independent replication")
+    if controls < 1 or rewirings < 1:
+        raise ValueError("controls and rewirings must be positive")
     runs = {"enrichment": 1, "random": controls + 1, "rewired": rewirings + 1}
     analyses = [Analysis(a, title, StudyDesign.IN_SILICO, outcomes,
                          cost=float(runs[kind]), replicates=replicates)
@@ -152,16 +156,63 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
+def _activity_origins(snapshots: Sequence[Any], screening: bool) -> set[str]:
+    """Require a traceable origin for each activity in the proposed replication datasets."""
+    from .inquiries import _sources
+    origins: set[str] = set()
+    for snap in snapshots:
+        if (snap.key == "pubchem_bioassay") != screening:
+            continue
+        for edge in snap.edges:
+            if edge.get("predicate") not in ("targets", "tested_against"):
+                continue
+            if edge.get("knowledge_level") == "prediction":
+                continue
+            papers = {source for citation in edge.get("publications") or ()
+                      for source in _sources(str(citation)) if source.startswith(("pmid:", "doi:"))}
+            aid = str(edge.get("source_record_id", "")).split("|", 1)[0]
+            if screening and aid.isdigit():
+                papers.add("aid:" + aid)
+            if not papers:
+                return set()
+            origins.update(papers)
+    return origins
+
+
+def _null_frequency(hits: int, tested: int) -> tuple[bool, list[float]]:
+    """Classify a prespecified upper frequency limit with one-sided 95% exact bounds."""
+    from psh.scientist import AnalysisUnavailable
+    from scipy.stats import beta
+    if not tested:
+        raise AnalysisUnavailable("no eligible control tested the original pathway")
+    low = float(beta.ppf(.05, hits, tested - hits + 1)) if hits else 0.0
+    high = float(beta.ppf(.95, hits + 1, tested - hits)) if hits < tested else 1.0
+    if low <= SPECIFICITY_LIMIT < high:
+        raise AnalysisUnavailable(f"{hits}/{tested} eligible controls reached the pathway; "
+                                  f"the frequency bounds ({low:.4g}, {high:.4g}) "
+                                  f"straddle {SPECIFICITY_LIMIT}")
+    return high <= SPECIFICITY_LIMIT, [low, high]
+
+
 class _Executor:
     """Runs one analysis and classifies its result into a declared outcome."""
 
     def __init__(self, snapshots: Sequence[Any], formula: Any, params: Any, pathway: str,
-                 root: Path, controls: int, rewirings: int) -> None:
-        self.snapshots, self.formula, self.params = list(snapshots), formula, params
+                 root: Path, controls: int, rewirings: int, replication: Sequence[Any]) -> None:
+        self.snapshots, self.formula = list(snapshots), formula
+        self.params = replace(params, background="assayed")
         self.pathway, self.root = pathway, root
         self.controls, self.rewirings = controls, rewirings
+        self.replication = list(replication)
+        self.replication_problem = "no independent activity dataset was supplied"
+        if self.replication:
+            first = _activity_origins(self.snapshots, params.hits == "screening")
+            second = _activity_origins(self.replication, params.hits == "screening")
+            self.replication_problem = ("" if first and second and first.isdisjoint(second)
+                                        else "replication needs disjoint, traceable assay/study origins")
         self.results: dict[str, dict[str, Any]] = {}
         self.np_runs = 0
+        self.assayed_significant: dict[bool, bool] = {}
         self.primary: Any = None       # the assayed-background result, when it ran
 
     def _significant(self, result: Any) -> bool:
@@ -174,17 +225,37 @@ class _Executor:
         from ..analysis.network_pharmacology import run_network_pharmacology
         from ..studies import validation as V
         kind = ANALYSES[analysis.id][3]
-        seed = self.params.seed + (1 if analysis.replicates else 0)
+        if analysis.replicates and self.replication_problem:
+            raise AnalysisUnavailable(self.replication_problem)
+        independent = bool(analysis.replicates)
+        if kind in ("random", "rewired") and self.assayed_significant.get(independent) is False:
+            raise AnalysisUnavailable("the original pathway was not significant; no control test")
+        snaps = self.replication if independent else self.snapshots
+        seed = self.params.seed
         detail: dict[str, Any]
-        if kind == "enrichment" or analysis.id == "annotated":
+        if kind == "enrichment":
             background = "reactome" if analysis.id == "annotated" else "assayed"
+            if background == "reactome" and self.params.hits == "screening":
+                raise AnalysisUnavailable("screening has only the assay-matched background")
             result = run_network_pharmacology(
-                self.snapshots, formula=self.formula,
+                snaps, formula=self.formula,
                 params=replace(self.params, background=background, seed=seed))
             self.np_runs += 1
             if analysis.id == "assayed":
                 self.primary = result
-            row = next((r for r in result.enrichment if r["pathway"] == self.pathway), {})
+            if background == "assayed":
+                self.assayed_significant[independent] = self._significant(result)
+            row = next((r for r in result.enrichment if r["pathway"] == self.pathway), None)
+            if row is None or row.get("q_value") is None:
+                raise AnalysisUnavailable(f"{self.pathway} was not eligible for testing in {background}")
+            if self.params.hits == "potency":
+                from ..tools.stats import hypergeometric_test
+                n = result.background["potent_in_background"]
+                total = result.background["proteins"]
+                size = row["in_background"]
+                minimum = hypergeometric_test(min(n, size), n, size, total)["p_value"] if n else 1
+                if minimum > self.params.fdr:
+                    raise AnalysisUnavailable(f"no attainable enrichment at the specified FDR in {background}")
             outcome = "enriched" if self._significant(result) else "not_enriched"
             digest = result.digest()
             detail = {"background": background, "seed": seed,
@@ -192,34 +263,42 @@ class _Executor:
                       "overlap": row.get("overlap"), "result_digest": digest}
         elif kind == "random":
             report = V.random_formula_control(
-                self.snapshots, self.formula, self.params, n=self.controls,
+                snaps, self.formula, self.params, n=self.controls,
                 seed=20261007 + (1 if analysis.replicates else 0),
                 root=self.root / analysis.id)
             if not report.get("performed"):
                 raise AnalysisUnavailable(report.get("why") or "no random formulas")
             self.np_runs += 1 + self.controls
             reached = report["specificity"].get(self.pathway)
-            outcome = ("not_enriched" if reached is None else
-                       "specific" if reached <= SPECIFICITY_LIMIT else "not_specific")
+            if self.pathway not in report["specificity"]:
+                raise AnalysisUnavailable("the original pathway was not significant; no specificity test")
+            tested = report["tested_in"][self.pathway]
+            below, bounds = _null_frequency(report["reached_count"][self.pathway], tested)
+            outcome = "specific" if below else "not_specific"
             digest = _digest(report)
             detail = {"controls": report["controls"], "seed": report["seed"],
-                      "reached_by_random_formulas": reached,
-                      "empirical_p": report["empirical_p"], "pool": report["pool"],
+                      "reached_by_random_formulas": reached, "tested": tested,
+                      "one_sided_95_bounds": bounds,
+                      "global_count_empirical_p": report["empirical_p"], "pool": report["pool"],
                       "result_digest": digest}
         else:
-            report = V.rewired_control(self.snapshots, self.formula, self.params,
+            report = V.rewired_control(snaps, self.formula, self.params,
                                        n=self.rewirings,
                                        seed=20261007 + (1 if analysis.replicates else 0))
             self.np_runs += 1 + self.rewirings
             still = report["still_enriched"].get(self.pathway)
-            outcome = ("not_enriched" if still is None else
-                       "beyond_wiring" if still <= SPECIFICITY_LIMIT
-                       else "explained_by_degree")
+            if self.pathway not in report["still_enriched"]:
+                raise AnalysisUnavailable("the original pathway was not significant; no rewiring test")
+            tested = report["tested_in"][self.pathway]
+            below, bounds = _null_frequency(report["reached_count"][self.pathway], tested)
+            outcome = "beyond_wiring" if below else "explained_by_degree"
             digest = _digest(report)
             detail = {"rewirings": report["rewirings"], "seed": report["seed"],
-                      "still_enriched": still, "empirical_p": report["empirical_p"],
+                      "still_enriched": still, "tested": tested, "one_sided_95_bounds": bounds,
+                      "global_count_empirical_p": report["empirical_p"],
                       "result_digest": digest}
-        self.results[analysis.id] = {"outcome": outcome, **detail}
+        self.results[analysis.id] = {"outcome": outcome, **detail,
+                                     "input_snapshots": [s.snapshot_id for s in snaps]}
         return Executed(outcome, evidence_ref=f"{analysis.id}:{digest[:16]}",
                         result_digest=digest)
 
@@ -255,9 +334,10 @@ class PathwayInquiryResult:
 
 
 def run_pathway_inquiry(snapshots: Sequence[Any], *, pathway: str, root: str | Path,
-                        formula: Any = None, params: Any = None, controls: int = 20,
-                        rewirings: int = 10, state_dir: str | Path | None = None,
-                        rule: Any = None) -> PathwayInquiryResult:
+                        formula: Any = None, params: Any = None, controls: int = 60,
+                        rewirings: int = 60, state_dir: str | Path | None = None,
+                        rule: Any = None,
+                        replication_snapshots: Sequence[Any] = ()) -> PathwayInquiryResult:
     """Decide what the pathway signal means, recording the inquiry when ``state_dir`` is set.
 
     With ``state_dir`` the inquiry is written into PSH's world model and audit chain as it
@@ -283,7 +363,8 @@ def run_pathway_inquiry(snapshots: Sequence[Any], *, pathway: str, root: str | P
     try:
         inquiry = pathway_inquiry(pathway, formula, controls=controls, rewirings=rewirings,
                                   rule=rule, recorder=recorder)
-        execute = _Executor(snapshots, formula, params, pathway, root, controls, rewirings)
+        execute = _Executor(snapshots, formula, params, pathway, root, controls, rewirings,
+                            replication_snapshots)
         conclusion = run_inquiry(inquiry, execute)
         if recorder is not None:
             recorder.close(inquiry, conclusion)
@@ -318,7 +399,8 @@ def run_pathway_inquiry(snapshots: Sequence[Any], *, pathway: str, root: str | P
                         "recorded_in_world_model": recorder is not None,
                         "parameters": {k: v for k, v in vars(params).items()
                                        if not k.startswith("_")},
-                        "controls": controls, "rewirings": rewirings})
+                        "controls": controls, "rewirings": rewirings,
+                        "replication_snapshots": [s.snapshot_id for s in replication_snapshots]})
     finally:
         if kernel is not None:
             kernel.close()

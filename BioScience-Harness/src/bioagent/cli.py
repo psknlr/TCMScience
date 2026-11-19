@@ -392,12 +392,12 @@ def _cmd_research(a) -> int:
         question = parse_question(a.question, disease=a.disease, formula=a.formula)
         params = replace(Parameters(), background=a.background, hits=a.hits,
                          permutations=a.permutations)
-        protocol = default_protocol(question, activity=tuple(a.activity or ["npass"]),
+        protocol = default_protocol(question, activity=tuple(a.activity) if a.activity else None,
                                     optional=tuple(a.optional or ["string"]),
                                     parameters=params)
         run = run_research(question, protocol=protocol, snapshot_root=a.snapshots,
                            ledger_path=a.ledger, state_dir=a.state_dir, output_dir=a.out,
-                           accept_review=a.accept_review, profile=a.profile)
+                           accept_review=a.accept_review, profile=a.profile, snapshot_lock=a.lock or None)
     except (QuestionRefused, ResearchRefused, ValueError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
@@ -438,6 +438,7 @@ def _cmd_snapshots(a) -> int:
     doc = pipeline.build_research_snapshots(
         raw, out, ledger, sources=a.sources, network=not a.no_network, formulas=a.formula,
         formula_table=a.formula_table or None, confirm=a.confirm, offline=a.offline,
+        pubchem_bioassay=a.pubchem_bioassay, opentargets=a.opentargets,
         report_path=a.report or None, mirrors=a.mirror,
         log=lambda m: print(m, file=sys.stderr))
     print(json.dumps(pipeline.summary(doc), indent=1, ensure_ascii=False))
@@ -623,6 +624,7 @@ def main(argv: list[str] | None = None) -> int:
                          "id); a question that names another formula is refused")
     rs.add_argument("--snapshots", required=True, help="snapshot root directory")
     rs.add_argument("--ledger", required=True, help="the snapshot ledger (jsonl)")
+    rs.add_argument("--lock", help="replay the exact snapshot_lock.json of a prior research run")
     rs.add_argument("--state-dir", required=True,
                     help="checkpoints and the PSH audit chain; reuse it to resume")
     rs.add_argument("--out", required=True, help="where the outputs and artifact go")
@@ -667,6 +669,8 @@ def main(argv: list[str] | None = None) -> int:
         x.add_argument("--formula", action="append", default=[],
                        help="add this formula to the herb layer: an id or a name with its "
                             "source book, e.g. 桂枝汤《伤寒论》 (repeatable)")
+        x.add_argument("--pubchem-bioassay", help="saved PubChem screening response (.json.gz)")
+        x.add_argument("--opentargets", help="saved Open Targets disease response (.json)")
         x.add_argument("--formula-table", default="",
                        help="the formula table; alone, every fully resolved formula of it "
                             "joins the herb layer")

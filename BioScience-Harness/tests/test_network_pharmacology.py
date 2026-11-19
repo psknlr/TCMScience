@@ -424,18 +424,20 @@ def test_disease_parameters_are_checked():
 B0, B1 = PROTEINS[8:15], PROTEINS[15:22]
 
 
-def test_the_assayed_background_is_every_protein_measured_potent_or_not(tmp_path):
+def test_the_assayed_background_contains_classifiable_measurements(tmp_path):
     result = run_network_pharmacology(_build(tmp_path), params=replace(FAST,
                                                                        background="assayed"))
-    # 9 potent targets, plus the weak and the censored measurement; not the docked one
-    assert result.background == {"kind": "assayed", "proteins": 11, "annotated": 57,
-                                 "assayed_annotated": 11,
+    # The weak measurement is classifiable; ">10 nM" spans the 10,000 nM cutoff.
+    assert result.coverage["potency"]["indeterminate_only_proteins"] == 1
+    assert result.background == {"kind": "assayed", "proteins": 10, "annotated": 57,
+                                 "assayed_annotated": 10,
+                                 "null_model": "compound_count_and_annotation_degree",
                                  "pathways_tested": len(result.enrichment),
-                                 "potent_in_background": 9, "hit_rate": round(9 / 11, 4)}
+                                 "potent_in_background": 9, "hit_rate": 0.9}
     rows = {r["pathway"]: r for r in result.enrichment}
     assert rows["reactome:R-HSA-A"]["size"] == 8 and rows["reactome:R-HSA-A"]["in_background"] == 8
     assert "reactome:R-HSA-B2" not in rows           # none of its proteins was assayed
-    assert any("assayed proteins" in line and "82%" in line and "1.22-fold" in line
+    assert any("assayed proteins" in line and "90%" in line and "1.11-fold" in line
                for line in result.limitations)
 
 
@@ -549,7 +551,7 @@ def test_a_lower_bound_is_never_a_hit_however_it_is_spelled(relation):
 def test_a_point_or_upper_bound_value_under_the_cut_off_is_a_hit():
     from bioagent.analysis.network_pharmacology import Parameters, _passes_potency
 
-    for relation in ("=", "<", "<=", "~", None):
+    for relation in ("=", "<", "<=", None):
         assert _passes_potency({"type": "IC50", "relation": relation, "value": 1000.0,
                                 "unit": "nM"}, Parameters()) is True
 

@@ -23,7 +23,7 @@ import pytest
 from tcmstudio import webbuild
 
 STUDIO = Path(__file__).resolve().parents[2]
-SAFETY_HASH = "f505c3bfde0c2ac49f1871e27edf67cca8c283d6d8680fb885a5458b29d079e3"
+SAFETY_HASH = "3501d3913bb3bf92b4f79f68306879a97339652f516566059f9ce70e09b29e77"
 
 
 @pytest.fixture(scope="module")

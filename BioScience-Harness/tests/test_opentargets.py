@@ -49,19 +49,19 @@ def test_each_evidence_type_is_its_own_labelled_association(tmp_path):
     nodes = {n["id"]: n for n in result.nodes}
     assert nodes["mondo:0005148"]["category"] == "disease"
     assert nodes["mondo:0005148"]["xrefs"]["doid"] == ["9352"]
-    assert nodes["uniprot:P10000"]["xrefs"]["ensembl"] == ["ENSG00000000001"]
+    assert nodes["ensembl:ENSG00000000001"]["xrefs"]["uniprot"] == ["P10000"]
     assert "ensembl:ENSG00000000002" in nodes            # no Swiss-Prot entry: kept, counted
     assert result.report.as_dict()["dropped"] == {
         "target without a Swiss-Prot accession (kept by Ensembl id)": 1}
     by_kind = {(e["subject"], e["score_name"]): e for e in result.edges}
-    assert set(by_kind) == {("uniprot:P10000", "overall"),
-                            ("uniprot:P10000", "genetic_association"),
-                            ("uniprot:P10000", "literature"),
+    assert set(by_kind) == {("ensembl:ENSG00000000001", "overall"),
+                            ("ensembl:ENSG00000000001", "genetic_association"),
+                            ("ensembl:ENSG00000000001", "literature"),
                             ("ensembl:ENSG00000000002", "overall"),
                             ("ensembl:ENSG00000000002", "literature")}
-    assert by_kind[("uniprot:P10000", "genetic_association")]["knowledge_level"] == (
+    assert by_kind[("ensembl:ENSG00000000001", "genetic_association")]["knowledge_level"] == (
         "statistical_association")
-    assert by_kind[("uniprot:P10000", "literature")]["knowledge_level"] == "text_co_occurrence"
+    assert by_kind[("ensembl:ENSG00000000001", "literature")]["knowledge_level"] == "text_co_occurrence"
     for e in result.edges:
         assert e["study_design"] == "evidence_aggregate" and e["predicate"] == "associated_with"
         assert validate_edge(e) == []

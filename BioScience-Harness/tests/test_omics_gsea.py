@@ -221,3 +221,37 @@ def test_a_gseapy_that_would_reorder_the_ranking_is_refused(monkeypatch, library
     monkeypatch.setattr(gsea, "version", lambda distribution: found)
     with pytest.raises(BackendUnavailable, match="needs 1.1.6 or later"):
         gsea.run_prerank(_ranked(), library, permutations=10)
+
+
+@pytest.mark.parametrize("backend", ["builtin", "pydeseq2"])
+def test_cooks_outlier_is_excluded_from_every_ranking_method(backend):
+    if backend == "pydeseq2":
+        need_module("pydeseq2")
+    counts = np.random.default_rng(0).poisson(100, size=(100, 12))
+    counts[0, -1] = 100_000
+    ids = [f"s{i}" for i in range(12)]
+    meta = {s: {"condition": "A" if i < 6 else "B"} for i, s in enumerate(ids)}
+    result = run_de(counts, [f"g{i}" for i in range(100)], ids, meta,
+                    design="~ condition", contrast=("condition", "B", "A"), backend=backend)
+    # The outlier has no valid test, but still has finite effect-size and Wald estimates.
+    assert result.gene_diagnostics["cooks_outlier"][0] and np.isnan(result.p_value[0])
+    assert np.isfinite(result.stat[0]) and np.isfinite(result.log2_fold_change[0])
+    for method in gsea.RANKING_METHODS:
+        ranked = gsea.ranked_from_de(result, method=method, species="human", id_type="symbol")
+        assert "g0" not in ranked.genes and "g0" in ranked.dropped
+        assert "g0" in ranked.record()["exclusions"]["cooks_outlier"]
+        assert "g1" in ranked.genes
+
+
+def test_rankings_respect_fit_status_without_filtering_by_adjusted_p(de_result):
+    # An archived result can retain finite values for a failed fit. A converged fit whose
+    # p-value was omitted only from BH's independent filter is still eligible for GSEA.
+    diagnostics = {name: values.copy() for name, values in de_result.gene_diagnostics.items()}
+    diagnostics["converged"][0] = False
+    adjusted = de_result.p_adjusted.copy()
+    adjusted[1] = np.nan
+    result = dataclasses.replace(de_result, gene_diagnostics=diagnostics, p_adjusted=adjusted)
+    for method in gsea.RANKING_METHODS:
+        ranked = gsea.ranked_from_de(result, method=method, species="human", id_type="symbol")
+        assert "G000" not in ranked.genes and "G001" in ranked.genes
+        assert "G000" in ranked.record()["exclusions"]["not_converged"]

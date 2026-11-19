@@ -9,10 +9,10 @@ from tcmstudio.catalog import get_entry
 from tcmstudio.dispatch import Context, call, call_json, validate
 
 LOCK_HASHES = {
-    "normalize-tcm-entities": "b613d287d3bc57e63d2867f0470b2e5eb59ce3199992c6c5d1a86db514f28267",
-    "retrieve-tcm-evidence": "3b4281d416f5414b62f6c07b4e386825e1f3f8c19e06e373367741fa54cebc21",
-    "assess-tcm-safety": "f505c3bfde0c2ac49f1871e27edf67cca8c283d6d8680fb885a5458b29d079e3",
-    "analyze-tcm-network-pharmacology": "89034d920b1d9ff6d86b4ef1a2307c44315513913f30f1689b412f53bcf64e69",
+    "normalize-tcm-entities": "e09c29eb3f697075100061bb49eb014a985013c34e9d55756292d68f89ba49a5",
+    "retrieve-tcm-evidence": "d47fbd5287d4845f81bc96577db64697db3dfe6024ea242f9f6922b679cd8610",
+    "assess-tcm-safety": "3501d3913bb3bf92b4f79f68306879a97339652f516566059f9ce70e09b29e77",
+    "analyze-tcm-network-pharmacology": "bd4ba49f722c49d960a19af0b62737f7fe3f10d5eb71ba72fdacdc15df40bc1a",
 }
 
 

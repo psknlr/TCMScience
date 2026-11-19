@@ -683,3 +683,30 @@ def test_the_skill_reproduce_command_says_when_it_cannot_carry_a_choice():
     argv, exact = _reproduce(GEGEN_QINLIAN, FAST, None, "academic",
                              **{**kw, "governed": False})
     assert exact and argv[-1] == "--allow-ungoverned"
+
+
+def test_target_report_counts_taxa_instead_of_assigning_human_to_all_targets(tmp_path):
+    snaps = _build(tmp_path / "data")
+    source = next(s for s in snaps if s.key == "npass")
+    protein = "uniprot:" + PATHWAY_A[0]
+    nodes = tuple({**n, "raw": {"organism": "Mus musculus"}} if n["id"] == protein else n
+                  for n in source.nodes)
+    changed = [replace(s, nodes=nodes) if s is source else s for s in snaps]
+    result = run_network_pharmacology(changed, params=FAST)
+    exports = write_exports(result.as_dict(), tmp_path / "out", formula=GEGEN_QINLIAN, snaps=changed)
+    row = next(s for s in exports.stages if s["id"] == "compound_target")
+    assert row["counts"]["nonhuman_or_conflicting"] == 1
+    assert row["counts"]["human_confirmed"] < len(result.targets)
+
+
+def test_screening_report_never_labels_rate_tests_as_hypergeometric():
+    from bioagent.research.workflow import _Ctx, _intersections, _permutation_sensitivity
+    result = {"parameters": {"hits": "screening", "permutations": 100}, "disease": {
+        "in_background": 20, "empirical_p": .25, "p_value": .25},
+        "background": {"kind": "screening", "null_model": "screening_assay_compound_matched"},
+        "enrichment": [{"pathway": "R1", "p_value": .25, "q_value": .25, "empirical_p": .25}]}
+    ctx = _Ctx(result, GEGEN_QINLIAN, "test", None, None, (), None, (), "")
+    message = _intersections(ctx).checks[-1].detail
+    assert "permutation p" in message and "hypergeometric" not in message
+    message = next(c.detail for c in _permutation_sensitivity(ctx).checks if c.name == "permutation")
+    assert "1 pathways" in message and "empirical p-values" in message

@@ -16,10 +16,9 @@
    "errors_released": 121,
    "mutants": 121,
    "error_release_rate": 1.0,
-   "error_release_ci95": [
-    0.9692,
-    1.0
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 10,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -34,10 +33,9 @@
    "errors_released": 7,
    "mutants": 121,
    "error_release_rate": 0.0579,
-   "error_release_ci95": [
-    0.0283,
-    0.1146
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 4,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -51,10 +49,9 @@
    "errors_released": 57,
    "mutants": 121,
    "error_release_rate": 0.4711,
-   "error_release_ci95": [
-    0.3844,
-    0.5595
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 10,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -71,10 +68,9 @@
    "errors_released": 0,
    "mutants": 121,
    "error_release_rate": 0.0,
-   "error_release_ci95": [
-    0.0,
-    0.0308
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 0,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -90,10 +86,9 @@
    "errors_released": 10,
    "mutants": 121,
    "error_release_rate": 0.0826,
-   "error_release_ci95": [
-    0.0455,
-    0.1455
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 10,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -109,10 +104,9 @@
    "errors_released": 42,
    "mutants": 121,
    "error_release_rate": 0.3471,
-   "error_release_ci95": [
-    0.2682,
-    0.4355
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 10,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -128,10 +122,9 @@
    "errors_released": 0,
    "mutants": 121,
    "error_release_rate": 0.0,
-   "error_release_ci95": [
-    0.0,
-    0.0308
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 0,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -147,10 +140,9 @@
    "errors_released": 6,
    "mutants": 121,
    "error_release_rate": 0.0496,
-   "error_release_ci95": [
-    0.0229,
-    0.104
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 4,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -166,10 +158,9 @@
    "errors_released": 1,
    "mutants": 121,
    "error_release_rate": 0.0083,
-   "error_release_ci95": [
-    0.0015,
-    0.0453
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 1,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -182,10 +173,9 @@
    "errors_released": 111,
    "mutants": 121,
    "error_release_rate": 0.9174,
-   "error_release_ci95": [
-    0.8545,
-    0.9545
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 10,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -198,10 +188,9 @@
    "errors_released": 22,
    "mutants": 121,
    "error_release_rate": 0.1818,
-   "error_release_ci95": [
-    0.1232,
-    0.26
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 10,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -214,10 +203,9 @@
    "errors_released": 70,
    "mutants": 121,
    "error_release_rate": 0.5785,
-   "error_release_ci95": [
-    0.4894,
-    0.6628
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 10,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -230,10 +218,9 @@
    "errors_released": 58,
    "mutants": 121,
    "error_release_rate": 0.4793,
-   "error_release_ci95": [
-    0.3923,
-    0.5676
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 10,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0
@@ -246,10 +233,9 @@
    "errors_released": 117,
    "mutants": 121,
    "error_release_rate": 0.9669,
-   "error_release_ci95": [
-    0.9181,
-    0.9871
-   ],
+   "source_drafts_with_mutants": 10,
+   "source_drafts_with_released_mutants": 10,
+   "mutants_without_source_draft": 0,
    "false_refusals": 0,
    "base_cases": 10,
    "false_refusal_rate": 0.0

@@ -65,13 +65,11 @@ def parse_opentargets(path: str | Path) -> ParseResult:
         target = row["target"]
         swissprot = sorted(p["id"] for p in target.get("proteinIds") or []
                            if p.get("source") == "uniprot_swissprot" and is_uniprot(p["id"]))
-        if swissprot:
-            node = f"uniprot:{swissprot[0]}"
-        else:
-            node = f"ensembl:{target['id']}"
+        node = f"ensembl:{target['id']}"
+        if not swissprot:
             report.drop("target without a Swiss-Prot accession (kept by Ensembl id)")
         book.add(node, "target", target.get("approvedSymbol") or target["id"],
-                 xrefs={"ensembl": [target["id"]], "uniprot": swissprot[:1],
+                 xrefs={"ensembl": [target["id"]], "uniprot": swissprot,
                         "hgnc_symbol": [target.get("approvedSymbol") or ""]},
                  names={"en": [target.get("approvedName") or ""]})
         scores = {"overall": row["score"],

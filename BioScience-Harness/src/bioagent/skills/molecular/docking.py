@@ -37,13 +37,14 @@ def _now() -> str:
 
 def dock_ligands(receptor: str, ligands: str, *, site_ligand: str = "",
                  site_ligand_smiles: str = "", chains: str = "", allow_remote: bool = False,
-                 exhaustiveness: int = 8, out_dir: str = "", run_id: str = "") -> Any:
+                 site_ligand_instance: str = "", exhaustiveness: int = 8, out_dir: str = "", run_id: str = "") -> Any:
     from ...docking.pipeline import DockConfig, run_docking
 
     out = Path(out_dir) if out_dir else Path(tempfile.mkdtemp(prefix="bioagent-dock-"))
     started = _now()
     run = run_docking(receptor, ligands, DockConfig(
         site_ligand=site_ligand or None, site_ligand_smiles=site_ligand_smiles or None,
+        site_ligand_instance=site_ligand_instance or None,
         chains=tuple(chains), allow_remote=bool(allow_remote),
         exhaustiveness=int(exhaustiveness)), out)
     src = run.receptor.source

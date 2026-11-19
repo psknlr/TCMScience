@@ -76,14 +76,17 @@ EXPORTS = (*DATA_EXPORTS, REPORT_FILE, MANIFEST_FILE)
 
 COLUMNS: dict[str, list[str]] = {
     "compounds.tsv": ["compound", "name", "inchikey", "connectivity", "id_kind", "level",
-                      "herbs", "sources"],
+                      "herbs", "sources", "herb_levels"],
     "targets.tsv": ["target", "name", "evidence_class", "measurements", "publications",
+                    "assays", "uncited_measurements",
                     "compounds", "herbs", "in_background", "disease_score", "degree",
                     "betweenness"],
-    "disease_targets.tsv": ["target", "name", "score", "datatypes", "is_measured_target",
+    "disease_targets.tsv": ["target", "gene", "protein_products", "assayed_proteins", "name", "score", "datatypes", "is_measured_target",
                             "in_background"],
     "enrichment.tsv": ["library", "pathway", "name", "size", "in_background", "overlap",
-                       "p_value", "q_value", "empirical_p", "fold_enrichment", "targets"],
+                       "p_value", "q_value", "empirical_p", "fold_enrichment", "targets",
+                       "tests", "active_tests", "active_rate", "null_exceedances",
+                       "null_permutations"],
     "network.tsv": ["a", "b", "score", "record"],
 }
 
@@ -129,8 +132,9 @@ def _tables(result: Mapping[str, Any]) -> dict[str, str]:
     compounds = []
     for c in result.get("compounds") or ():
         key, block, kind = _key(str(c["compound"]))
-        compounds.append({**c, "inchikey": key, "connectivity": block, "id_kind": kind})
-    targets = [{**t, "evidence_class": "measured", "publications": t.get("sources")}
+        compounds.append({**c, "inchikey": key, "connectivity": block, "id_kind": kind,
+                          "herb_levels": json.dumps(c.get("herb_levels", {}), sort_keys=True)})
+    targets = [{**t, "evidence_class": "measured"}
                for t in result.get("targets") or ()]
     genes = list((result.get("disease") or {}).get("genes") or ())
     library = "reactome"
@@ -197,7 +201,7 @@ def _edges(result: Mapping[str, Any], formula: Mapping[str, Any],
         "pathway_membership": membership if reactome is not None else None,
         "interactions": [{"a": e["a"], "b": e["b"], "snapshot": network.get("ppi_source"),
                           "record": e["record"]} for e in network.get("edge_list") or ()],
-        "disease_associations": [{"target": g["target"], "snapshot": sid, "record": rid}
+        "disease_associations": [{"target": g["target"], "gene": g.get("gene"), "snapshot": sid, "record": rid}
                                  for g in disease.get("genes") or ()
                                  for sid, rid in g.get("records") or ()],
         "note": ("each row of the tables rests on the snapshot records listed here; a list "
@@ -535,10 +539,32 @@ def _enrichment_arithmetic(run: Path, background: Mapping[str, Any],
 
     rows = _read_tsv(run / "enrichment.tsv")
     if not rows:
+        if params.get("hits") == "screening" and background.get("pathways_tested") == 0:
+            return "NOT_APPLICABLE", "the screening analysis had no estimable pathway or p-value"
         return "UNVERIFIED", "enrichment.tsv holds no pathway: nothing to recompute"
     if params.get("hits") == "screening":
-        return "UNVERIFIED", ("screening p-values are empirical (a permutation of protein "
-                              "sets); they are recomputed by the re-run, not from the table")
+        if any("null_exceedances" not in r for r in rows):
+            return "UNVERIFIED", "legacy screening export lacks the permutation counts"
+        probabilities = []
+        permutations = params.get("permutations")
+        try:
+            for r in rows:
+                draws, exceed = int(r["null_permutations"]), int(r["null_exceedances"])
+                tests, hits = int(r["tests"]), int(r["active_tests"])
+                if not (draws == permutations and draws > 0 and 0 <= exceed <= draws
+                        and tests > 0 and 0 <= hits <= tests):
+                    return "FAIL", f"{r['pathway']}: invalid screening counts"
+                p = (exceed + 1) / (draws + 1)
+                if not (float(r["p_value"]) == float(r["empirical_p"]) == p
+                        and float(r["active_rate"]) == hits / tests):
+                    return "FAIL", f"{r['pathway']}: empirical p or active rate disagrees with counts"
+                probabilities.append(p)
+            expected = benjamini_hochberg(probabilities)["q_values"]
+            if any(float(r["q_value"]) != q for r, q in zip(rows, expected)):
+                return "FAIL", "screening BH results differ from the empirical p-values"
+        except (TypeError, KeyError, ValueError) as exc:
+            return "FAIL", f"malformed screening counts: {exc}"
+        return "PASS", f"{len(rows)} active rates, empirical p-values and BH q-values recomputed"
     query = int(background.get("potent_in_background") or 0)
     proteins = int(background.get("proteins") or 0)
     bad = []
