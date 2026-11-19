@@ -557,3 +557,23 @@ def test_the_candidate_skill_makes_no_claim_from_an_incomplete_run(world, tmp_pa
     text = " ".join(art.limitations)
     assert ("the run is incomplete (stage verify: its check failed: an output has changed), "
             "so no claim is made") in text
+
+
+def test_annotation_abstains_without_a_majority_of_unique_positive_cell_votes(monkeypatch):
+    from bioagent.omics.sc import annotate
+
+    # In cluster 0 the median leads even though four of six cells favour other types.
+    # In cluster 1 an exactly tied cell gives neither type a vote.
+    values = {
+        "A": [4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
+        "B": [6, 6, 0, 0, 0, 0, 4, 0, 0, 0],
+        "C": [0, 0, 6, 6, 0, 0, 0, 0, 0, 0],
+    }
+    panel = {"cell_types": {name: [name] for name in values}}
+    monkeypatch.setattr(annotate, "score_genes",
+                        lambda matrix, names, markers, **kw: np.array(values[markers[0]]))
+    result = annotate.annotate_clusters(sparse.csr_matrix((10, 3)), np.array(list(values)),
+                                        [0] * 6 + [1] * 4, panel)
+    assert result.labels == {"0": "unassigned", "1": "A"}
+    assert result.decisions["0"] == {"candidate": "A", "support": 0.3333, "reason": "minority_support"}
+    assert result.decisions["1"] == {"candidate": "A", "support": 0.75, "reason": "assigned"}

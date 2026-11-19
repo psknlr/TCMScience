@@ -6,7 +6,8 @@ built ToxCast store under a protocol locked in the script. **Status: exploratory
 The primary contrast was computed while the summary-statistics code was being tested,
 before the protocol was locked. The protocol records that as an amendment, which makes
 the study exploratory by its own rules. The exposure table below summarizes the archived JSON. New runs also check assay
-species and quality flags, and report how many readouts are undeterminable.
+species and quality flags, report how many readouts are undeterminable, and record the
+number and SHA-256 of the CompTox rows used for berberine chloride.
 
 ## Data
 

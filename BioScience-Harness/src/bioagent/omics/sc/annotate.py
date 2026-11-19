@@ -5,8 +5,9 @@ method of Satija et al. 2015): the mean log-normalised expression of the type's 
 minus that of control genes drawn from the same expression bins (25 bins, 50 controls
 per marker), so a type is not favoured for having highly expressed markers. A cluster
 takes the type with the highest median score when that median is above zero and leads
-the runner-up by at least ``margin``; otherwise it is ``unassigned``. Its confidence is
-the share of its cells whose own best-scoring type is the cluster's.
+the runner-up by at least ``margin``, and a strict majority of cells support that type.
+A cell supports a type only when its score is positive and uniquely highest. The
+cluster decisions retain this support fraction and the reason for any abstention.
 
 The default panel (``bioagent/data/cell_markers.json``) holds canonical markers for 30
 common human cell types and states its sources. A panel can be supplied instead, as
@@ -38,6 +39,7 @@ class Annotation:
     scores: dict[str, dict[str, float]]          # cluster -> type -> median score
     markers_used: dict[str, list[str]]           # type -> markers present in the data
     panel: dict[str, Any] = field(default_factory=dict)
+    decisions: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def default_panel() -> dict[str, Any]:
@@ -113,12 +115,16 @@ def annotate_clusters(logx: sparse.csr_matrix, gene_names: np.ndarray,
     labels: dict[str, str] = {}
     confidence: dict[str, float] = {}
     scores: dict[str, dict[str, float]] = {}
+    decisions: dict[str, dict[str, Any]] = {}
     if not names:
         for c in cluster_ids:
             labels[c], confidence[c], scores[c] = UNASSIGNED, 0.0, {}
-        return Annotation(labels, confidence, scores, used, panel)
+            decisions[c] = {"candidate": None, "support": 0.0, "reason": "insufficient_markers"}
+        return Annotation(labels, confidence, scores, used, panel, decisions)
     matrix = np.vstack([per_type[n] for n in names])        # types x cells
     best_cell = np.argmax(matrix, axis=0)
+    best_score = matrix.max(axis=0)
+    decisive = (best_score > 0) & ((matrix == best_score).sum(axis=0) == 1)
     for c in cluster_ids:
         mask = labels_arr == c
         med = np.median(matrix[:, mask], axis=1)
@@ -126,10 +132,14 @@ def annotate_clusters(logx: sparse.csr_matrix, gene_names: np.ndarray,
         order = np.argsort(-med, kind="mergesort")
         top = order[0]
         second = med[order[1]] if len(order) > 1 else -np.inf
-        if med[top] > 0 and med[top] - second >= margin:
-            labels[c] = names[top]
-            confidence[c] = round(float(np.mean(best_cell[mask] == top)), 4)
+        support = float(np.mean(decisive[mask] & (best_cell[mask] == top)))
+        if med[top] <= 0 or med[top] - second < margin:
+            reason = "weak_median"
+        elif support <= 0.5:
+            reason = "minority_support"
         else:
-            labels[c] = UNASSIGNED
-            confidence[c] = 0.0
-    return Annotation(labels, confidence, scores, used, panel)
+            reason = "assigned"
+        decisions[c] = {"candidate": names[top], "support": round(support, 4), "reason": reason}
+        labels[c] = names[top] if reason == "assigned" else UNASSIGNED
+        confidence[c] = round(support, 4) if reason == "assigned" else 0.0
+    return Annotation(labels, confidence, scores, used, panel, decisions)

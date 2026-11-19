@@ -430,8 +430,8 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
             cell_types = dict(annotation.labels)
             unassigned = [c for c, v in cell_types.items() if v == sc_annotate.UNASSIGNED]
             if unassigned:
-                warnings.append(f"clusters {', '.join(unassigned)}: no cell type of the "
-                                "panel leads; left unassigned")
+                warnings.append(f"clusters {', '.join(unassigned)} left unassigned because marker "
+                                "scores or within-cluster support were insufficient")
             st.reason = (f"{len(cell_types) - len(unassigned)} of {len(cell_types)} clusters "
                          "named from marker scores"
                          + (" (the given panel)" if config.markers else
@@ -475,6 +475,11 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
             units, unit_info, pb_design, pb_unit = sc_pb.experimental_units(
                 m.obs, contrast, config.replicate_key, config.design)
             selected = np.isin(m.obs[contrast[0]], contrast[1:])
+            unresolved = selected & (labels == sc_annotate.UNASSIGNED)
+            if np.any(unresolved):
+                warnings.append(f"{int(unresolved.sum())} cells lack a confident cell-type label "
+                                "and were excluded from cell-type pseudobulk testing")
+                selected &= ~unresolved
             pb = sc_pb.pseudobulk_de(m.counts[selected], list(m.gene_names), labels[selected],
                                      units[selected], unit_info, design=pb_design, contrast=contrast,
                                      de_backend=config.de_backend, covariates=config.covariates,
@@ -694,6 +699,7 @@ def _write(run: ScRun, m: sc_io.CellMatrix, config: ScConfig, qmetrics: dict[str
             "config": config.as_dict(), "samples": info, "inputs": inputs,
             "outputs": outputs, "summary": run.summary(), "qc": run.qc,
             "doublets": run.doublets, "analysis": {**run.analysis, "modularity": an.modularity},
+            "annotation_decisions": run.annotation.decisions if run.annotation else {},
             "integration": run.integration, "pseudobulk": pseudobulk,
             "warnings": run.warnings})
         found = _content_problems(out, manifest) + output_problems(rec.stages, outputs, out)
@@ -898,8 +904,16 @@ def _markdown(run: ScRun, config: ScConfig, contrast: tuple[str, str, str] | Non
         top = ", ".join(r["gene"] for r in run.markers.top(g, 5))
         lines.append(f"| {g} | {s['clusters'].get(g, 0)} | {run.cell_types.get(g, '')} | "
                      f"{'NA' if conf is None else f'{conf:.0%}'} | {top} |")
-    lines += ["", "Confidence is the share of the cluster's cells whose own best-scoring type "
-              "is the cluster's. `markers.tsv` holds 50 markers per cluster, `cells.tsv` every "
+    if run.annotation:
+        for group, decision in run.annotation.decisions.items():
+            if decision["reason"] == "minority_support":
+                lines.append(f"\nCluster {group} remained unassigned. Its leading candidate "
+                             f"{decision['candidate']} had a unique positive best score in "
+                             f"{decision['support']:.1%} of cells.")
+    lines += ["", "Confidence for an assigned type is the share of all cells with a unique, "
+              "positive top score for that type. Assignment requires a majority of cells. "
+              "Per-cluster candidates and support fractions are recorded in "
+              "`run.json` under `annotation_decisions`. `markers.tsv` holds 50 markers per cluster, `cells.tsv` every "
               "cell, `paga.tsv` the cluster connectivities.", ""]
     lines += ["## Trajectory", ""]
     lines.append("PAGA tree (minimum spanning tree of the inverse connectivities): "

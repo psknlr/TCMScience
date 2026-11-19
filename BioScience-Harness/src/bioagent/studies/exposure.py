@@ -63,6 +63,19 @@ def to_molar(value: float, unit: str, *, mw: float | None = None) -> float:
     raise ValueError(f"unit {unit!r} is not a concentration unit this converts")
 
 
+def _species_id(value: str) -> str:
+    """Match common experimental species names to NCBI taxon IDs used by ToxCast."""
+    name = str(value or "").strip().casefold()
+    if name in {"", "0", "unknown", "unspecified", "not reported", "mixed", "n/a", "na", "none"}:
+        return ""
+    prefix, separator, code = name.partition(":")
+    if separator and prefix in {"taxon", "ncbitaxon", "taxonomy"} and code.isdecimal():
+        return code if int(code) > 0 else ""
+    names = {"human": "9606", "homo sapiens": "9606", "mouse": "10090",
+             "mus musculus": "10090", "rat": "10116", "rattus norvegicus": "10116"}
+    return names.get(name, name)
+
+
 def exposure_ratio(exposure: ExposureRecord, assay: AssayResult, *,
                    mw: float | None = None,
                    unknown_free_fraction: tuple[float, float] = (0.01, 1.0),
@@ -79,9 +92,11 @@ def exposure_ratio(exposure: ExposureRecord, assay: AssayResult, *,
     if exposure.molecule != assay.molecule:
         return undeterminable(f"exposure is of {exposure.molecule}, the assay of "
                               f"{assay.molecule} (parent and metabolite are different molecules)")
-    if not exposure.species or not assay.species:
+    exposure_taxon = _species_id(exposure.species)
+    assay_taxon = _species_id(assay.species)
+    if not exposure_taxon or not assay_taxon:
         return undeterminable("both exposure and assay species are required")
-    if exposure.species.strip().casefold() != assay.species.strip().casefold():
+    if exposure_taxon != assay_taxon:
         return undeterminable(f"species differ: exposure in {exposure.species}, "
                               f"assay on {assay.species}")
     if assay.flags:

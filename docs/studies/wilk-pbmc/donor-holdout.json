@@ -1,0 +1,266 @@
+{
+  "dataset": "GSE150728",
+  "sources": [
+    {
+      "accession": "GSM4557336",
+      "donor": "HIP023",
+      "source_url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4557nnn/GSM4557336/suppl/GSM4557336_HIP023_cell.counts.matrices.rds.gz",
+      "sha256": "cba7b8602cd7db3887d686be905800a8b50ad9639b119168a597444fdf9c26ed",
+      "source_barcodes": 8343,
+      "source_features": 30937,
+      "at_least_200_genes": 5109,
+      "sampled": 256,
+      "barcode_validation": {
+        "author_metadata_sha256": "06d416f2b822399ac9c5786eaea3836809970352fd46b9af021617e4efd05c1d",
+        "author_cells": 2306,
+        "epicprehs_barcodes": 3448,
+        "nCount_RNA_pearson_r": 0.9999998179649857,
+        "nFeature_RNA_pearson_r": 0.9999979208886031
+      }
+    }
+  ],
+  "config": {
+    "min_genes": 200,
+    "min_cells": 3,
+    "nmads": 5.0,
+    "doublets": "flag",
+    "expected_doublet_rate": 0.06,
+    "n_top_genes": 1000,
+    "n_pcs": 20,
+    "batch_key": "library",
+    "analysis_backend": "builtin",
+    "integration_method": "none",
+    "scvi_epochs": 400,
+    "scvi_threads": 1,
+    "de_backend": "builtin",
+    "n_neighbors": 15,
+    "resolution": 1.0,
+    "markers": null,
+    "annotate": true,
+    "root": null,
+    "paga_threshold": 0.05,
+    "contrast": null,
+    "seed": 2026,
+    "replicate_key": "auto",
+    "design": null,
+    "covariates": []
+  },
+  "versions": {
+    "numpy": "2.5.5",
+    "scipy": "1.18.1",
+    "rdata": "1.0.0",
+    "h5py": "3.15.1"
+  },
+  "summary": {
+    "cells": 224,
+    "genes": 9705,
+    "clusters": {
+      "0": 66,
+      "1": 61,
+      "2": 46,
+      "3": 21,
+      "4": 16,
+      "5": 14
+    },
+    "cell_types": {
+      "0": "unassigned",
+      "1": "unassigned",
+      "2": "Naive CD4+ T cell",
+      "3": "B cell",
+      "4": "unassigned",
+      "5": "CD14+ monocyte"
+    },
+    "doublets": 24,
+    "analysis_backend": "builtin",
+    "integration": "none",
+    "integration_implementation": null,
+    "pseudotime": false,
+    "pseudobulk": [],
+    "de_backend": null,
+    "warnings": [
+      "clusters 0, 1, 4 left unassigned because marker scores or within-cluster support were insufficient"
+    ],
+    "out_dir": "analysis",
+    "complete": true
+  },
+  "cells_per_library_after_qc": {
+    "GSM4557336": 224
+  },
+  "verification": {
+    "ok": true,
+    "problems": []
+  },
+  "warnings": [
+    "clusters 0, 1, 4 left unassigned because marker scores or within-cluster support were insufficient"
+  ],
+  "cohort": "held-out healthy donor H3",
+  "scope": "One library per donor. No condition contrast.",
+  "author_comparison": {
+    "cellxgene_version": "8d7fad46-2f37-4aa0-ac9d-babbc36efb6f",
+    "reference_column": "cell.type.coarse",
+    "author_lineage_mapping": {
+      "B": "B",
+      "CD14 Monocyte": "monocyte",
+      "CD16 Monocyte": "monocyte",
+      "CD4 T": "T",
+      "CD8 T": "T",
+      "gd T": "T",
+      "DC": "dendritic",
+      "pDC": "dendritic",
+      "Granulocyte": "granulocyte",
+      "RBC": "erythroid",
+      "Platelet": "platelet",
+      "NK": "NK",
+      "PB": "plasma"
+    },
+    "panel_lineage_mapping": {
+      "B cell": "B",
+      "Plasma cell": "plasma",
+      "CD14+ monocyte": "monocyte",
+      "FCGR3A+ monocyte": "monocyte",
+      "Naive CD4+ T cell": "T",
+      "Memory CD4+ T cell": "T",
+      "CD8+ T cell": "T",
+      "Regulatory T cell": "T",
+      "NK cell": "NK",
+      "Conventional dendritic cell": "dendritic",
+      "Plasmacytoid dendritic cell": "dendritic",
+      "Neutrophil": "granulocyte",
+      "Platelet": "platelet",
+      "Erythrocyte": "erythroid"
+    },
+    "all": {
+      "retained": 224,
+      "matched_author_labels": 103,
+      "retained_without_author_label": 121,
+      "current": {
+        "assigned_retained": 81,
+        "assigned_matched": 38,
+        "unassigned_matched": 65,
+        "broad_lineage_concordant": 37,
+        "broad_concordance_among_matched_percent": 35.922330097087375,
+        "broad_concordance_among_assigned_matched_percent": 97.36842105263158,
+        "panel_call_by_author_coarse_label": {
+          "unassigned": {
+            "CD4 T": 24,
+            "CD8 T": 23,
+            "gd T": 9,
+            "NK": 9
+          },
+          "Naive CD4+ T cell": {
+            "CD4 T": 13,
+            "gd T": 2
+          },
+          "B cell": {
+            "B": 12
+          },
+          "CD14+ monocyte": {
+            "CD14 Monocyte": 9,
+            "CD16 Monocyte": 1,
+            "Granulocyte": 1
+          }
+        }
+      },
+      "median_only": {
+        "assigned_retained": 208,
+        "assigned_matched": 99,
+        "unassigned_matched": 4,
+        "broad_lineage_concordant": 61,
+        "broad_concordance_among_matched_percent": 59.22330097087379,
+        "broad_concordance_among_assigned_matched_percent": 61.61616161616162,
+        "panel_call_by_author_coarse_label": {
+          "Naive CD4+ T cell": {
+            "CD4 T": 28,
+            "gd T": 2
+          },
+          "B cell": {
+            "B": 12
+          },
+          "NK cell": {
+            "CD8 T": 22,
+            "gd T": 9,
+            "NK": 9,
+            "CD4 T": 6
+          },
+          "CD14+ monocyte": {
+            "CD14 Monocyte": 9,
+            "CD16 Monocyte": 1,
+            "Granulocyte": 1
+          },
+          "unassigned": {
+            "CD4 T": 3,
+            "CD8 T": 1
+          }
+        }
+      }
+    },
+    "by_library": {
+      "GSM4557336": {
+        "retained": 224,
+        "matched_author_labels": 103,
+        "retained_without_author_label": 121,
+        "current": {
+          "assigned_retained": 81,
+          "assigned_matched": 38,
+          "unassigned_matched": 65,
+          "broad_lineage_concordant": 37,
+          "broad_concordance_among_matched_percent": 35.922330097087375,
+          "broad_concordance_among_assigned_matched_percent": 97.36842105263158,
+          "panel_call_by_author_coarse_label": {
+            "unassigned": {
+              "CD4 T": 24,
+              "CD8 T": 23,
+              "gd T": 9,
+              "NK": 9
+            },
+            "Naive CD4+ T cell": {
+              "CD4 T": 13,
+              "gd T": 2
+            },
+            "B cell": {
+              "B": 12
+            },
+            "CD14+ monocyte": {
+              "CD14 Monocyte": 9,
+              "CD16 Monocyte": 1,
+              "Granulocyte": 1
+            }
+          }
+        },
+        "median_only": {
+          "assigned_retained": 208,
+          "assigned_matched": 99,
+          "unassigned_matched": 4,
+          "broad_lineage_concordant": 61,
+          "broad_concordance_among_matched_percent": 59.22330097087379,
+          "broad_concordance_among_assigned_matched_percent": 61.61616161616162,
+          "panel_call_by_author_coarse_label": {
+            "Naive CD4+ T cell": {
+              "CD4 T": 28,
+              "gd T": 2
+            },
+            "B cell": {
+              "B": 12
+            },
+            "NK cell": {
+              "CD8 T": 22,
+              "gd T": 9,
+              "NK": 9,
+              "CD4 T": 6
+            },
+            "CD14+ monocyte": {
+              "CD14 Monocyte": 9,
+              "CD16 Monocyte": 1,
+              "Granulocyte": 1
+            },
+            "unassigned": {
+              "CD4 T": 3,
+              "CD8 T": 1
+            }
+          }
+        }
+      }
+    },
+    "interpretation": "Author annotations from the same experiment are a comparative reference. The median-only comparison retains the same inputs and clusters."
+  }
+}

@@ -456,3 +456,58 @@ python BioScience-Harness/scripts/compare_pasilla_de.py pasilla_gene_counts.tsv 
 
 The per-backend manifests and `comparison.json` record the versions, parameters
 and denominators for that run.
+
+### Human PBMC annotation on three healthy donors
+
+We used the exonic UMI counts from three healthy volunteers in Wilk et al.
+(GSE150728). H1 and H2 exposed mixed lymphocyte clusters in the built-in
+annotation workflow. Of 106 cells called NK that could be linked to the
+authors’ coarse labels, the authors labelled 31 NK, 56 CD8 T, 16 CD4 T and
+3 γδ T. The cluster-wide median marker score led even though few individual
+cells supported that call. We changed assignment to require a positive median
+separated from the runner-up and a strict majority of cells with a unique
+positive top score for the same type. A tied cell contributes no vote. The
+cluster candidate, support fraction and decision are available under
+`annotation_decisions` in `run.json`. [Study](https://doi.org/10.1038/s41591-020-0944-y)
+
+We fixed the rule before examining H3 and processed that donor separately.
+Within each original library, 256 barcodes with at least 200 detected genes
+were selected by SHA-256 rank. Both runs used the same seed, retained all
+features shared between their input libraries, flagged doublets, and applied
+no batch correction. Each donor contributed one library. All donors were
+healthy, so no condition contrast was fitted. We reconstructed the published
+post-QC barcode ordinals and verified the mapping against the deposited UMI
+and detected-gene totals. Pearson r exceeded 0.99999 in each library for both
+checks. [GEO inputs](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE150728)
+[Authors’ barcode procedure](https://github.com/ajwilk/EpicTools/blob/4cc68f2c798d0f1d7ba52a4325812005b4591993/R/EpicMerge.R#L190-L224)
+[Versioned CELLxGENE author labels](https://datasets.cellxgene.cziscience.com/8d7fad46-2f37-4aa0-ac9d-babbc36efb6f.h5ad)
+
+| Donors and calling rule | Retained cells | Cells with author labels | Assigned among matched | Broad lineage agreement among assigned | Broad agreement among all matched |
+|---|---:|---:|---:|---:|---:|
+| H1/H2 exploratory, median only | 454 | 244 | 241 | 149/241 (61.8%) | 149/244 (61.1%) |
+| H1/H2 exploratory, majority required | 454 | 244 | 96 | 88/96 (91.7%) | 88/244 (36.1%) |
+| H3 held out, median only | 224 | 103 | 99 | 61/99 (61.6%) | 61/103 (59.2%) |
+| H3 held out, majority required | 224 | 103 | 38 | 37/38 (97.4%) | 37/103 (35.9%) |
+
+On H3, abstention avoided a 46-cell matched cluster in which only nine cells
+called NK had the authors’ NK label. It also left 65 of the 103 matched cells
+unassigned. The new rule retained fewer concordant assignments overall.
+These comparisons use broad immune lineages. CD4, CD8 and γδ T cells share a
+lineage in this calculation. The cohort, assay and author reference are shared
+across the donors, and author annotations are expression-based interpretations.
+This experiment evaluates the trade-off between coverage and agreement on
+these libraries. Its results do not establish fine-subtype accuracy or
+performance across cohorts. The two result files contain the complete
+confusion tables, denominators, parameters, input hashes and donor-level
+identity checks. [H1/H2 results](studies/wilk-pbmc/exploratory.json)
+[H3 results](studies/wilk-pbmc/donor-holdout.json)
+
+Install the project, `rdata==1.0.0` and `h5py`. Place the GEO RDS files
+listed in the result files under `geo-inputs/` and download the versioned
+CELLxGENE H5AD linked above. The script reads five observation metadata
+columns from that file. The GEO counts drive all clustering and annotation.
+
+```sh
+python BioScience-Harness/scripts/validate_wilk_pbmc.py geo-inputs wilk-h1-h2 --author-h5ad 8d7fad46-2f37-4aa0-ac9d-babbc36efb6f.h5ad
+python BioScience-Harness/scripts/validate_wilk_pbmc.py geo-inputs wilk-h3 --holdout --author-h5ad 8d7fad46-2f37-4aa0-ac9d-babbc36efb6f.h5ad
+```

@@ -23,6 +23,8 @@ Sources (the numbers below are transcribed, with the table they come from):
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
+import hashlib
 import json
 import sqlite3
 import sys
@@ -123,10 +125,17 @@ def pk_contrasts() -> list[dict]:
     return out
 
 
-def toxcast_assays(tcmdb: Path) -> tuple[list[AssayResult], int]:
-    conn = sqlite3.connect(tcmdb / "db" / "comptox.sqlite")
-    rows = conn.execute("SELECT object_id, object_name, outcome, context FROM relations "
-                        "WHERE subject_id = ?", (COMPTOX_ID,)).fetchall()
+def toxcast_assays(tcmdb: Path) -> tuple[list[AssayResult], int, dict]:
+    database = (tcmdb / "db" / "comptox.sqlite").resolve().as_uri()
+    with closing(sqlite3.connect(database + "?mode=ro", uri=True)) as conn:
+        rows = conn.execute("SELECT object_id, object_name, outcome, context FROM relations "
+                            "WHERE subject_id = ? ORDER BY object_id, object_name, outcome, context",
+                            (COMPTOX_ID,)).fetchall()
+    if not rows:
+        raise ValueError(f"the CompTox store has no assay records for {COMPTOX_ID}")
+    encoded = json.dumps(rows, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    evidence = {"subject": COMPTOX_ID, "n_input_rows": len(rows),
+                "selected_rows_sha256": hashlib.sha256(encoded).hexdigest()}
     assays, inactive = [], 0
     for oid, name, outcome, ctx in rows:
         c = json.loads(ctx or "{}")
@@ -136,10 +145,10 @@ def toxcast_assays(tcmdb: Path) -> tuple[list[AssayResult], int]:
         if outcome != "positive" or c.get("measure") != "AC50" or c.get("value") in (None, ""):
             continue
         assays.append(AssayResult(BERBERINE, name or oid, "AC50",
-                                  Measurement("measured", float(c["value"]), c.get("unit", "uM")),
+                                  Measurement("measured", float(c["value"]), str(c.get("unit") or "")),
                                   species=str(c.get("species") or ""), system=c.get("cell", ""),
                                   flags=tuple(c.get("flags") or ()), study="ToxCast invitrodb"))
-    return assays, inactive
+    return assays, inactive, evidence
 
 
 def exposure_screen(assays: list[AssayResult]) -> dict:
@@ -208,14 +217,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv)
     status = PROTOCOL.check(endpoint=PROTOCOL.primary_endpoint, analysis=dict(PROTOCOL.analysis))
-    assays, inactive = toxcast_assays(Path(args.tcmdb))
+    assays, inactive, evidence = toxcast_assays(Path(args.tcmdb))
     result = {"protocol": {"locked": PROTOCOL.locked, "status": status,
                            "amendments": [dict(a) for a in PROTOCOL.amendments],
                            "hypothesis": PROTOCOL.hypothesis,
                            "competing": list(PROTOCOL.competing),
                            "decision_rules": dict(PROTOCOL.decision_rules)},
               "pk_contrasts": pk_contrasts(),
-              "exposure": {"assays_active": len(assays), "assays_inactive": inactive,
+              "exposure": {"input": evidence, "assays_active": len(assays), "assays_inactive": inactive,
                            "by_group": exposure_screen(assays)},
               "efficacy_study": GPB_2020}
     out = Path(args.out)

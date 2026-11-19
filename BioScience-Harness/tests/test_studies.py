@@ -510,3 +510,28 @@ def test_equivalence_and_residual_uncertainty():
     resid = unexplained_response([1] * 8, {"a": [0, 1] * 4}, [0, 1] * 4)["unexplained"]
     assert resid["ci"][0] < resid["estimate"] < resid["ci"][1]
     assert resid["se"] > 0
+
+
+def test_gqd_toxcast_matches_ncbi_species_and_preserves_original_input(tmp_path):
+    import importlib.util
+    import json
+    import sqlite3
+    from pathlib import Path
+    script = Path(__file__).resolve().parents[1] / "scripts/study_gqd_berberine.py"
+    spec = importlib.util.spec_from_file_location("gqd_taxon", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    (tmp_path / "db").mkdir()
+    path = tmp_path / "db/comptox.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE relations(subject_id, object_id, object_name, outcome, context)")
+        for name, taxon, unit in (("rat", "10116", "uM"), ("human", "9606", "uM"),
+                                  ("unit missing", "NCBITaxon:10116", None)):
+            context = {"species": taxon, "measure": "AC50", "value": 0.05, "unit": unit}
+            db.execute("INSERT INTO relations VALUES(?,?,?,?,?)",
+                       (module.COMPTOX_ID, name, name, "positive", json.dumps(context)))
+    assays, _, evidence = module.toxcast_assays(tmp_path)
+    assert evidence == module.toxcast_assays(tmp_path)[2] and evidence["n_input_rows"] == 3
+    full = module.exposure_screen(assays)["GQD"]
+    assert [r["assay"] for r in full["not_ruled_out"]] == ["rat"]
+    assert {r["target"] for r in full["unevaluable"]} == {"human", "unit missing"}
