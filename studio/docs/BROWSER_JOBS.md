@@ -213,7 +213,8 @@ is refused the same way on the runner.
 by its id or its name (the newest file of that name, as the runner takes the newest upload of a bare name). It is
 copied into `tcmstudio/jobs/<id>/inputs/` in OPFS, hashed as it is written, and kept only when its SHA-256 is the one
 the project recorded (otherwise the job fails as `integrity` and the copy is removed); a sample sheet's `path` cells
-are resolved the same way and the sheet is rewritten to name the copies, as the runner's `_stage_sheet` does. The
+are resolved the same way. A sheet that already names its files keeps its original bytes and digest. Upload IDs and
+filename collisions are rewritten to the staged filenames, relative to the sheet. The
 files are sent nowhere (the model reads a job's status and summary, like any tool result). *analysis*: in one job worker holding numpy and scipy, the inputs mounted read-only, the pipeline
 writes its outputs (stage progress comes from its own `stages.json`, through `runrecord.watching`); every file is
 persisted to the job's `out/` and registered, the runner's required artefacts under the runner's names (RNA-seq:
@@ -827,7 +828,7 @@ cells」拒绝（此前是归在「a value is not a number」之下的 numpy 报
 即作为参数错误拒绝。不带调用参数查看某个任务类型时（目录页、`catalog_search`），它在其任务服务运行的地方即为就绪；
 目录页把停止的任务服务标为本浏览器的，而不是 Runner 的。若任务服务的模块未能加载，路由器按目录中的
 `execution.browser_job.runner_only` 规则判断哪些参数需要 Runner。输入是用户项目中的文件：按 ID 或文件名（同名取最新）找到，复制到该任务的 OPFS 目录，写入时计算
-哈希，与项目记录的 SHA-256 不一致即拒绝；样本表中的路径同样解析并改写为副本；每个输入记入任务及其回执（`inputs`）。
+哈希，与项目记录的 SHA-256 不一致即拒绝；样本表可按原文件名定位时保留原始字节和摘要。上传 ID 或重名文件引用改为相对于样本表的副本文件名。每个输入记入任务及其回执（`inputs`）。
 这些文件不会被发送到任何地方（模型读到的是任务的状态与摘要，与其他工具结果一样）。分析在一个任务工作线程中运行，输出全部持久化，并在同一线程中由 `verify_pipeline` 按 Runner 的检查
 （流程自身的 `verify_run`、`required_artefacts`、`validator:run`）复核。分析阶段的检查点涵盖其参数、输入摘要以及计算它的
 运行时（应用包的 SHA-256、Pyodide 版本、工作线程报告的 numpy 与 scipy），运行时变了的任务续跑时会重新分析，其局限说明

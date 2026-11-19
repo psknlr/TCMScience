@@ -14,7 +14,7 @@
 // The inputs are the project's own files (core/store.js, in IndexedDB). Each is copied into this origin's private file
 // system under the job (tcmstudio/jobs/<id>/inputs/<name>), hashed as it is written, and used only when it has the
 // SHA-256 the project recorded for it; then it is mounted read-only in the worker. A sample sheet's files are found the
-// same way and the sheet is rewritten to name the copies, as the runner's _stage_sheet does.
+// same way; paths that name upload IDs or collide are rewritten to name the job's local copies.
 //
 // inputs → analysis → verify. The analysis stage is checkpointed (its parameters, its inputs' digests and the runtime
 // that computed it: the bundle, Pyodide, numpy and scipy): a resumed job reuses it when every output it wrote still
@@ -409,9 +409,10 @@ async function sheetRows(rec) {
   return rows;
 }
 
-/** The sheet with each path cell replaced (paths: line → the new path), written with the sheet's own delimiter. */
+/** Return a rewritten sheet only when one of its paths must change to name a staged file. */
 function rewriteSheet(text, paths) {
   const { header, rows, delimiter } = readSheet(text);
+  if (rows.every((row) => paths.get(row.line) === row.path)) return null;
   const out = [formatRow(header, delimiter)];
   for (const r of rows) out.push(formatRow(header.map((h) => (h === "path" && paths.has(r.line) ? paths.get(r.line) : r.values[h])), delimiter));
   return `${out.join("\n")}\n`;
@@ -465,7 +466,7 @@ export async function stageInputs(ctx, spec, inputsDir) {
     done += 1;
     ctx.progress(0.1 * (done / files.length), `${f.rec.name} copied and checked`);
     const path = `${inputsDir}/${name}`;
-    if (f.param === "source.files") sheetPaths.set(Number(f.line.slice(5)), path);
+    if (f.param === "source.files") sheetPaths.set(Number(f.line.slice(5)), name);
     else paths[f.param] = path;
     const got = copied.get(f.rec.id);
     if (got) {
@@ -475,12 +476,15 @@ export async function stageInputs(ctx, spec, inputsDir) {
     }
   }
   if (sheet) {
-    // the sheet's own bytes are held to the project's digest; the copy the pipeline reads names the staged files, as
-    // the runner's staged sheet names its uploads
+    // Keep the original bytes whenever the sheet already resolves beside its staged files.
+    // Upload IDs or filename collisions need relative paths that also survive moving the job.
     const bytes = new Uint8Array(await sheet.rec.blob.arrayBuffer());
     const sha256 = await sha256Hex(bytes);
     if (sha256 !== bareSha256(sheet.rec.sha256)) throw mismatch(sheet.rec, sha256);
-    await ctx.store.writeText([...dir, staged.get(sheet.rec.id)], rewriteSheet(sheetText(sheet.rec, bytes), sheetPaths));
+    const rewritten = rewriteSheet(sheetText(sheet.rec, bytes), sheetPaths);
+    const target = [...dir, staged.get(sheet.rec.id)];
+    if (rewritten === null) await ctx.store.writeBytes(target, bytes);
+    else await ctx.store.writeText(target, rewritten);
     ctx.input({ name: "source", sha256, bytes: bytes.length, source: { project_file: sheet.rec.id, name: sheet.rec.name } });
     digests.source = sha256;
   }

@@ -633,11 +633,15 @@ unlike anything in the training set is flagged as outside the domain; and that
 
 ### Applicability-domain results on the official TDC test sets
 
-Four endpoints were rebuilt to cover the four leaderboard metrics. Each used the archive's
-`train_val` for fitting and `test` for evaluation. All rows in these four endpoints passed
-native chemical preparation. A test molecule is inside the domain when its highest
-training-fingerprint Tanimoto similarity is at least 0.3. The training sets have 523,
-728, 532 and 534 molecules respectively. [TDC benchmark archive, Harvard Dataverse file 4426004](https://dataverse.harvard.edu/api/access/datafile/4426004)
+All 22 TDC endpoints were rebuilt with `train_val` for fitting and `test` for
+evaluation. Native chemical preparation retained 65,430 of 65,430 training rows
+and 16,377 of 16,379 test rows. The two exclusions were in the AqSolDB solubility test set.
+A molecule can contribute to multiple endpoint counts. For each endpoint, a test molecule is
+inside the domain when its highest training-fingerprint Tanimoto similarity is at
+least 0.3. The full results include 14,393 inside and 1,984 outside test rows.
+[All 22 endpoint results](studies/tdc-admet/heldout.json) · [Official TDC archive](https://dataverse.harvard.edu/api/access/datafile/4426004)
+
+Four examples cover the leaderboard metrics.
 
 | Endpoint | Metric | All test molecules (n, score) | Inside (n, score) | Outside (n, score) |
 |---|---|---:|---:|---:|
@@ -667,13 +671,11 @@ the precision written in the model cards. Rebuild these cards with the versions 
 
 ```bash
 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
-bioagent admet --build-models --cache ./tdc-domain-check --rebuild --seed 0 --max-iter 600 \
-  --endpoint herg --endpoint caco2_wang --endpoint half_life_obach \
-  --endpoint cyp2c9_substrate_carbonmangels
+bioagent admet --build-models --cache ./tdc-domain-check --rebuild --seed 0 --max-iter 600
 ```
 
 The resulting `tdc-domain-check/models/model_cards.json` contains `heldout_by_domain`
-for each endpoint. Older cards remain readable and can be rebuilt for these diagnostics.
+for each endpoint. The next model build refreshes older cards that lack these diagnostics.
 
 **Why the domain flag matters here.** TDC's training sets are drug-like synthetic
 compounds, and much of what this repository studies is not. Largest Tanimoto similarity

@@ -269,11 +269,9 @@ test("a cancel stops the search between bands and releases its buffers; a lost d
   const q = fingerprints(r, 64), refs = fingerprints(r, 4000);
   const gpu = fakeScienceGPU(), g = new ScienceGPU({ ...gpu, bandPairs: 4096 });
   await g.ready();
-  gpu.state.delayMs = 5;
-  let stop = false;
-  const timer = setTimeout(() => { stop = true; }, 30);
-  await assert.rejects(g.tanimotoBest(q, refs, { isCancelled: () => stop }), (e) => e.code === "cancelled");
-  clearTimeout(timer);
+  // Request cancellation once one band has completed, regardless of host scheduling.
+  const isCancelled = () => (g.lastRun?.bands ?? 0) >= 1;
+  await assert.rejects(g.tanimotoBest(q, refs, { isCancelled }), (e) => e.code === "cancelled");
   assert.ok(g.lastRun.bands >= 1 && g.lastRun.bands < 64, "stopped part of the way");
   assert.equal(gpu.state.destroyed.length, gpu.state.created.length, "its buffers released");
   assert.equal(g.knownAnswer.ok, true, "a cancelled call leaves the device's verdict standing");
