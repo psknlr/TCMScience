@@ -425,7 +425,7 @@ def relations_digest(conn: sqlite3.Connection) -> str:
     return f"sum128:{total:032x}"
 
 
-def build_relations(conn: sqlite3.Connection, dataset_key: str) -> dict[str, int]:
+def build_relations(conn: sqlite3.Connection, dataset_key: str, *, commit: bool = True) -> dict[str, int]:
     """(Re)write the ``relations`` and ``unresolved`` tables of one built store.
 
     Returns counts per kind. Each row gets the licence of the file it came from (the
@@ -442,7 +442,8 @@ def build_relations(conn: sqlite3.Connection, dataset_key: str) -> dict[str, int
     extractor = EXTRACTORS.get(dataset_key)
     counts: dict[str, int] = {}
     if extractor is None:
-        conn.commit()
+        if commit:
+            conn.commit()
         return counts
     batch: list[tuple] = []
     queue: list[tuple] = []
@@ -479,5 +480,6 @@ def build_relations(conn: sqlite3.Connection, dataset_key: str) -> dict[str, int
         conn.executemany("INSERT INTO unresolved VALUES (?, ?, ?, ?, ?, ?, ?, ?)", queue)
     for c in ("kind", "subject_id", "object_id"):
         conn.execute(f"CREATE INDEX IF NOT EXISTS relations_{c} ON relations({c})")
-    conn.commit()
+    if commit:
+        conn.commit()
     return counts

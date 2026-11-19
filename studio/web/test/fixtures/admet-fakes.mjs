@@ -240,6 +240,7 @@ export function admetPython({ verify = "PASS", rejectSimilarity = null } = {}) {
         sklearn: "1.8.0", rdkit: engine.version, chemistry: { engine: engine.name, version: engine.version, detail: engine.detail },
         model_file: `${args.endpoint}.pkl`, model_sha256: hex(model), domain_file: `${args.endpoint}_domain.npy`, domain_sha256: hex(domain),
         domain_threshold: 0.3, seed: args.seed, max_iter: args.max_iter,
+        heldout_by_domain: { inside: { n: sets.test.ok, score: 0.5 }, outside: { n: 0, score: null } },
       };
       put(fs, `${args.models_dir}/${card.model_file}`, model);
       put(fs, `${args.models_dir}/${card.domain_file}`, domain);

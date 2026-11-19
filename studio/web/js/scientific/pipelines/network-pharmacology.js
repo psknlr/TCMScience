@@ -11,6 +11,7 @@
 // research.run       prepare → research → verify: the sixteen-stage workflow and its nine exports, then the exports
 //                    recomputed (np_exports verify) and checked like the runner checks them
 
+import { stageInputs } from "./omics.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { limitationLines, onPythonEvent, refusal, storageRefusal, unwrap, work } from "./shared.js";
 
@@ -95,12 +96,19 @@ export const researchSnapshot = {
       await ctx.stage("build", async (s) => {
         const m = await lease.call("mount", { root: `${root}/raw`, dir: RAW, files: names }, { signal: ctx.signal });
         ctx.log("info", `${m.files.length} raw files mounted (${(m.bytes / 1e6).toFixed(0)} MB, ${m.mode})`);
+        let supplemental = {};
+        if (params.pubchem_bioassay || params.opentargets) {
+          const dir = `${root}/inputs`;
+          const staged = await stageInputs(ctx, { files: ["pubchem_bioassay", "opentargets"] }, dir);
+          await lease.call("mount", { root: dir, dir: [...ctx.dir, "inputs"], files: staged.names }, { signal: ctx.signal });
+          supplemental = staged.paths;
+        }
         const report = unwrap(await lease.call("run", {
           fn: "build_snapshots",
           args: {
             raw_dir: `${root}/raw`, snapshot_root: `${root}/snapshots`, ledger: `${root}/snapshots/ledger.jsonl`,
             sources: params.sources || undefined, network: params.network !== false, formulas: params.formulas || undefined,
-            report_path: `${root}/out/snapshot_report.json`,
+            ...supplemental, report_path: `${root}/out/snapshot_report.json`,
           },
         }, { signal: ctx.signal, onEvent: (ev) => onPythonEvent(ctx, ev, 0.5, 0.4) }), "build_snapshots");
         s.record({ report_status: report.status, worker: lease.id });
@@ -168,6 +176,17 @@ export const researchRun = {
     if (!(await svc.store.exists(BUILT)) || !(await svc.store.exists([...SNAPSHOTS, "ledger.jsonl"]))) {
       throw refusal("unavailable", "No research snapshots in this browser yet: the research job reads them through their ledger.", "dataset",
         "Build them first (research.snapshot: the NPASS, CMAUP and LOTUS files plus STRING and Reactome), or connect a runner that has them.");
+    }
+    const disease = (params.disease || (params.question.match(/(?:MONDO|EFO|HP|Orphanet|DOID)[:_]\d+/) || [])[0] || "").replace(":", "_");
+    if (!disease && params.hits !== "screening") return;
+    const manifest = await svc.store.readJson(BUILT);
+    if (disease && !manifest?.snapshots?.opentargets?.includes(`+${disease}#`)) {
+      throw refusal("unavailable", `No Open Targets snapshot for ${disease} in this browser.`, "dataset",
+        "Rebuild research.snapshot with opentargets set to this indication's saved Open Targets response.");
+    }
+    if (params.hits === "screening" && !manifest?.snapshots?.pubchem_bioassay) {
+      throw refusal("unavailable", "No PubChem BioAssay screening snapshot in this browser.", "dataset",
+        "Rebuild research.snapshot with pubchem_bioassay set to the saved BioAssay response.");
     }
   },
 

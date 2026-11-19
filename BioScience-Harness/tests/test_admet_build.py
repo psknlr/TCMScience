@@ -220,3 +220,23 @@ def test_the_command_passes_its_iterations_and_seed_to_the_build(tmp_path):
     assert code == 0
     card = json.loads((tmp_path / "cache" / "models" / "model_cards.json").read_text())["hia_hou"]
     assert (card["max_iter"], card["seed"]) == (40, 7)
+
+
+def test_model_card_reliability_uses_the_endpoint_heldout_labels():
+    from bioagent.admet import models
+    train = np.array([[255] * 8], dtype=np.uint8)
+    test = np.array([[255] * 8, [255] * 8, [0] * 8], dtype=np.uint8)
+    rows = models._heldout_by_domain(models.ENDPOINTS["herg"], np.array([0, 1, 1]),
+                                     np.array([0.2, 0.8, 1.0]), test, train)
+    assert rows["inside"]["n"] == 2 and rows["inside"]["brier_score"] == 0.04
+    assert rows["outside"]["n"] == 1 and rows["outside"]["score"] is None
+    assert rows["outside"]["reliability_bins"][-1]["observed_fraction"] == 1.0
+
+
+def test_constant_binary_predictions_still_have_a_defined_heldout_auroc():
+    from bioagent.admet import models
+    bits = np.full((2, 8), 255, dtype=np.uint8)
+    rows = models._heldout_by_domain(models.ENDPOINTS["herg"], np.array([0, 1]),
+                                    np.array([0.5, 0.5]), bits, bits[:1])
+    assert rows["inside"]["score"] == 0.5
+    assert rows["outside"]["score"] is None

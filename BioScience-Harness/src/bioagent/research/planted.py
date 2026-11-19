@@ -74,14 +74,16 @@ def _control_herbs() -> list[str]:
     return sorted(h for h, d in drugs.items() if h not in HERBS and d.species)[:_CONTROLS]
 
 
-def _tables(scenario: str, controls: bool = True
+def _tables(scenario: str, controls: bool = True, experiment: int = 0
             ) -> tuple[tuple[list, list], tuple[list, list]]:
     from ..sources.herbs import HERBS
     from ..sources.materia import all_drugs
     species = [f"ncbitaxon:{h.species[0].taxid}" for h in HERBS.values()]
     compounds = [f"inchikey:{_inchikey(i)}" for i in range(4)]
-    hits = {0: _PATHWAY_A[:3], 1: _PATHWAY_A[3:5], 2: _PATHWAY_A[5:7],
-            3: [_PATHWAY_A[7], PROTEINS[40]]}
+    rng = random.Random(7 + experiment)
+    responsive = rng.sample(_PATHWAY_A, len(_PATHWAY_A)) if experiment else _PATHWAY_A
+    hits = {0: responsive[:3], 1: responsive[3:5], 2: responsive[5:7],
+            3: [responsive[7], PROTEINS[40]]}
     nodes = ([{"id": s, "category": "organism", "name": s, "source": "planted"}
               for s in species]
              + [{"id": c, "category": "ingredient", "name": f"cmp{i}", "source": "planted"}
@@ -97,7 +99,6 @@ def _tables(scenario: str, controls: bool = True
         edges += [_activity(f"inactive-{t}", compounds[2], t, 90_000.0) for t in _INACTIVE]
 
     drugs = all_drugs()
-    rng = random.Random(7)
     for k, herb in enumerate(_control_herbs() if controls else ()):
         organism = f"ncbitaxon:{drugs[herb].species[0].taxid}"
         compound = f"inchikey:{_inchikey(100 + k)}"
@@ -111,9 +112,18 @@ def _tables(scenario: str, controls: bool = True
         pool = _PATHWAY_A if scenario == "promiscuous" else PROTEINS[8:57]
         hit = rng.sample(pool, 3)
         edges += [_activity(f"ctl-act{k}-{t}", compound, t, 500.0) for t in hit]
-        if scenario == "promiscuous":
-            edges += [_activity(f"ctl-inactive{k}-{t}", compound, t, 90_000.0)
-                      for t in _INACTIVE[k::4]]
+        # Control formulas must actually assay pathway A and negative comparators.
+        # Without these measurements a null draw has no opportunity to reach A.
+        panel = _PATHWAY_A + _INACTIVE
+        edges += [_activity(f"ctl-inactive{k}-{t}", compound, t, 90_000.0)
+                  for t in panel if t not in hit]
+
+    if experiment:
+        for e in edges:
+            if e["predicate"] == "targets":
+                e["publications"] = [f"pmid:{99 + experiment}"]
+                e["source_record_id"] = f"experiment-{experiment}:" + e["source_record_id"]
+                e["measure"]["value"] *= rng.uniform(0.8, 1.2)
 
     pathways = {"R-HSA-A": _PATHWAY_A}
     for k in range(7):                                   # background pathways of 7
@@ -129,7 +139,7 @@ def _tables(scenario: str, controls: bool = True
 
 
 def build_world(scenario: str, root: str | Path, *, ledger: Any = None,
-                controls: bool = True) -> list[Any]:
+                controls: bool = True, experiment: int = 0) -> list[Any]:
     """Build one planted world's snapshots under ``root`` and return them.
 
     ``controls=False`` leaves the control herbs out, so no random herb combination can be
@@ -141,8 +151,8 @@ def build_world(scenario: str, root: str | Path, *, ledger: Any = None,
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     raw = root / "planted.txt"
-    raw.write_text(f"planted world: {scenario}\n", encoding="utf-8")
-    (np_nodes, np_edges), (r_nodes, r_edges) = _tables(scenario, controls)
+    raw.write_text(f"planted world: {scenario}, experiment {experiment}\n", encoding="utf-8")
+    (np_nodes, np_edges), (r_nodes, r_edges) = _tables(scenario, controls, experiment)
     herb_nodes, herb_edges = herb_rows()
     common = dict(raw_files={"planted.txt": raw}, parser=f"planted:{scenario}", root=root,
                   ledger=ledger)

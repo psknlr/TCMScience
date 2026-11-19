@@ -150,7 +150,7 @@ def test_a_pathway_explained_by_which_proteins_were_assayed_is_refuted(tmp_path)
         "a rebuttal that could not run is recorded, never counted as passed"
 
 
-def test_a_claim_resting_on_one_source_is_refuted(tmp_path):
+def test_a_composition_only_source_cannot_independently_test_activity(tmp_path):
     ledger = _world(tmp_path, tested_only=PROTEINS[8:40])
     # A second activity source that reports a constituent but no activity at all.
     species = f"ncbitaxon:{next(iter(HERBS.values())).species[0].taxid}"
@@ -166,8 +166,8 @@ def test_a_claim_resting_on_one_source_is_refuted(tmp_path):
     q = parse_question(QUESTION)
     protocol = default_protocol(q, activity=("npass", "cmaup"), parameters=FAST)
     run = _run(tmp_path, ledger, protocol)
-    assert run.hypotheses == ()
-    assert any("leaving out npass" in r for r in run.refuted[0]["reasons"])
+    assert run.hypotheses == ("reactome:R-HSA-A",)
+    assert any(r["test"] == "leave_one_source_out" for r in run.rebuttal["not_run"])
 
 
 # ------------------------------------------------------------------ repair and refusal
@@ -348,3 +348,51 @@ def test_relative_directories_still_have_their_outputs_verified(tmp_path, monkey
                        state_dir="state-rel", output_dir="out-rel")
     assert run.verdict.states["outputs_verified"] is True
     assert run.artifact.provenance["governed_execution"] is True
+
+
+def test_chinese_formula_version_and_indication_survive_parsing():
+    from bioagent.sources.formulas import FormulaRecord, FormulaTable, parse_composition
+
+    different = [FormulaRecord(i, "半夏酒", "半夏酒", source, dose, parse_composition(dose))
+                 for i, (source, dose) in enumerate([("《圣济总录》", "半夏10枚"), ("《圣惠》", "半夏20枚")])]
+    table = FormulaTable(different)
+    q = parse_question("葛根芩连汤对MONDO:0005148的通路", table=table)
+    assert q.disease == "MONDO_0005148" and "opentargets" in default_protocol(q).required_sources
+    with pytest.raises(QuestionRefused):
+        parse_question("葛根芩连汤《金匮要略》", table=table)
+    with pytest.raises(QuestionRefused):
+        parse_question("葛根芩连汤和半夏酒比较", table=table, formula="葛根芩连汤")
+    with pytest.raises(QuestionRefused):
+        parse_question("半夏酒", table=table)
+    assert parse_question("半夏酒", formula=different[1].id, table=table).formula_id == different[1].id
+    assert parse_question("半夏酒《圣惠》", table=table).formula_id == different[1].id
+
+
+def test_exact_replay_keeps_the_snapshot_versions_and_absent_optional_sources(tmp_path):
+    ledger = _world(tmp_path, tested_only=PROTEINS[8:40])
+    q = parse_question(QUESTION)
+    protocol = default_protocol(q, optional=("lotus",), parameters=FAST)
+    first = _run(tmp_path, ledger, protocol, tag="initial", isolate=False)
+    lock = Path(first.output_dir) / "snapshot_lock.json"
+    manifest = json.loads((Path(first.output_dir) / "run_manifest.json").read_text())
+    assert "--lock" in manifest["reproduce"]["argv"]
+    snap = load_snapshot(tmp_path / "snap", "npass", "2.0+fx", ledger=ledger)
+    for key in ("lotus", "npass"):
+        build_snapshot(key=key, version="changed", nodes=snap.nodes,
+                       edges=snap.edges, raw_files={"raw.txt": tmp_path / "snap" / "raw.txt"},
+                       parser="changed", license="fixture", citation="fixture",
+                       root=tmp_path / "snap", ledger=ledger)
+    replay = _run(tmp_path, ledger, protocol, tag="replay", isolate=False, snapshot_lock=lock)
+    assert replay.snapshots == first.snapshots
+    assert replay.deviations == first.deviations
+    assert replay.hypotheses == first.hypotheses
+
+
+def test_screening_requires_both_composition_and_a_screening_snapshot(tmp_path):
+    from bioagent.analysis import Parameters
+    ledger = _world(tmp_path)
+    q = parse_question(QUESTION)
+    p = default_protocol(q, parameters=Parameters(hits="screening"))
+    assert {"npass", "pubchem_bioassay"} <= set(p.required_sources)
+    with pytest.raises(ResearchRefused, match="pubchem_bioassay"):
+        _run(tmp_path, ledger, p, isolate=False)

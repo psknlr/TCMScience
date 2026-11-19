@@ -1,0 +1,1497 @@
+{
+  "dataset": {
+    "name": "Therapeutics Data Commons ADMET benchmark group",
+    "archive_url": "https://dataverse.harvard.edu/api/access/datafile/4426004",
+    "archive_sha256": "bd0005246cb6f1672333c28ad202112a8bf071ab65d847848715030308faf1f1",
+    "archive_bytes": 1472501,
+    "fit_split": "train_val",
+    "evaluation_split": "test"
+  },
+  "native_build": {
+    "source_commit": "6bf6dc01de3fb24c0929efcc53e39c51190c1cc0",
+    "python": "3.12.14",
+    "rdkit": "2026.9.1",
+    "scikit-learn": "1.8.0",
+    "numpy": "2.5.5",
+    "scipy": "1.18.1",
+    "threads": 1,
+    "seed": 0,
+    "max_iter": 600,
+    "domain_rule": "Maximum Tanimoto similarity to an endpoint's training molecules, using binary Morgan fingerprints (radius 2, 2048 bits). Inside when similarity >= 0.3.",
+    "independent_check": "Official test rows prepared again with native RDKit. Per-row domains recomputed with RDKit BulkTanimotoSimilarity. Saved-model predictions scored with scikit-learn or SciPy. Group sizes, primary scores and classification calibration bins matched model cards at stored precision."
+  },
+  "totals": {
+    "endpoint_count": 22,
+    "archive_train_rows": 65430,
+    "archive_test_rows": 16379,
+    "retained_train_rows": 65430,
+    "retained_test_rows": 16377,
+    "inside_test_rows": 14393,
+    "outside_test_rows": 1984
+  },
+  "endpoints": {
+    "caco2_wang": {
+      "task": "regression",
+      "target_unit": "log10(cm/s)",
+      "metric": "mae",
+      "archive_rows": {
+        "train_val": 728,
+        "test": 182
+      },
+      "n_train": 728,
+      "n_test": 182,
+      "test_score": 0.2882,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 119,
+          "score": 0.289
+        },
+        "outside": {
+          "n": 63,
+          "score": 0.2868
+        }
+      }
+    },
+    "hia_hou": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auroc",
+      "archive_rows": {
+        "train_val": 461,
+        "test": 117
+      },
+      "n_train": 461,
+      "n_test": 117,
+      "test_score": 0.9313,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 76,
+          "score": 0.977,
+          "brier_score": 0.052285,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 7,
+              "mean_prediction": 0.105674,
+              "observed_fraction": 0.0
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 4,
+              "mean_prediction": 0.3202,
+              "observed_fraction": 0.25
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 3,
+              "mean_prediction": 0.476069,
+              "observed_fraction": 0.333333
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 3,
+              "mean_prediction": 0.631042,
+              "observed_fraction": 0.666667
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 59,
+              "mean_prediction": 0.972943,
+              "observed_fraction": 0.966102
+            }
+          ],
+          "n_positive": 61
+        },
+        "outside": {
+          "n": 41,
+          "score": 0.8391,
+          "brier_score": 0.167042,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 1,
+              "mean_prediction": 0.169008,
+              "observed_fraction": 0.0
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 4,
+              "mean_prediction": 0.281357,
+              "observed_fraction": 0.5
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 3,
+              "mean_prediction": 0.456306,
+              "observed_fraction": 0.333333
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 5,
+              "mean_prediction": 0.740294,
+              "observed_fraction": 0.4
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 28,
+              "mean_prediction": 0.951714,
+              "observed_fraction": 0.857143
+            }
+          ],
+          "n_positive": 29
+        }
+      }
+    },
+    "pgp_broccatelli": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auroc",
+      "archive_rows": {
+        "train_val": 973,
+        "test": 245
+      },
+      "n_train": 973,
+      "n_test": 245,
+      "test_score": 0.8828,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 189,
+          "score": 0.8858,
+          "brier_score": 0.160064,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 80,
+              "mean_prediction": 0.066991,
+              "observed_fraction": 0.225
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 18,
+              "mean_prediction": 0.293869,
+              "observed_fraction": 0.555556
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 10,
+              "mean_prediction": 0.465628,
+              "observed_fraction": 0.6
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 7,
+              "mean_prediction": 0.702709,
+              "observed_fraction": 1.0
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 74,
+              "mean_prediction": 0.96651,
+              "observed_fraction": 0.918919
+            }
+          ],
+          "n_positive": 109
+        },
+        "outside": {
+          "n": 56,
+          "score": 0.8244,
+          "brier_score": 0.122557,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 38,
+              "mean_prediction": 0.063209,
+              "observed_fraction": 0.105263
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 5,
+              "mean_prediction": 0.273144,
+              "observed_fraction": 0.0
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 5,
+              "mean_prediction": 0.472957,
+              "observed_fraction": 1.0
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 3,
+              "mean_prediction": 0.720641,
+              "observed_fraction": 0.666667
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 5,
+              "mean_prediction": 0.903751,
+              "observed_fraction": 0.8
+            }
+          ],
+          "n_positive": 15
+        }
+      }
+    },
+    "bioavailability_ma": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auroc",
+      "archive_rows": {
+        "train_val": 512,
+        "test": 128
+      },
+      "n_train": 512,
+      "n_test": 128,
+      "test_score": 0.7679,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 96,
+          "score": 0.7625,
+          "brier_score": 0.152336,
+          "reliability_bins": [
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 1,
+              "mean_prediction": 0.35312,
+              "observed_fraction": 1.0
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 17,
+              "mean_prediction": 0.49669,
+              "observed_fraction": 0.647059
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 21,
+              "mean_prediction": 0.713064,
+              "observed_fraction": 0.619048
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 57,
+              "mean_prediction": 0.890962,
+              "observed_fraction": 0.877193
+            }
+          ],
+          "n_positive": 75
+        },
+        "outside": {
+          "n": 32,
+          "score": 0.7682,
+          "brier_score": 0.179392,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 2,
+              "mean_prediction": 0.179353,
+              "observed_fraction": 0.0
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 1,
+              "mean_prediction": 0.334369,
+              "observed_fraction": 1.0
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 4,
+              "mean_prediction": 0.519874,
+              "observed_fraction": 0.5
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 7,
+              "mean_prediction": 0.730684,
+              "observed_fraction": 0.571429
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 18,
+              "mean_prediction": 0.887226,
+              "observed_fraction": 0.833333
+            }
+          ],
+          "n_positive": 22
+        }
+      }
+    },
+    "lipophilicity_astrazeneca": {
+      "task": "regression",
+      "target_unit": "logD7.4",
+      "metric": "mae",
+      "archive_rows": {
+        "train_val": 3360,
+        "test": 840
+      },
+      "n_train": 3360,
+      "n_test": 840,
+      "test_score": 0.541,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 791,
+          "score": 0.5326
+        },
+        "outside": {
+          "n": 49,
+          "score": 0.6772
+        }
+      }
+    },
+    "solubility_aqsoldb": {
+      "task": "regression",
+      "target_unit": "log10(mol/L)",
+      "metric": "mae",
+      "archive_rows": {
+        "train_val": 7985,
+        "test": 1997
+      },
+      "n_train": 7985,
+      "n_test": 1995,
+      "test_score": 0.7946,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 1809,
+          "score": 0.7772
+        },
+        "outside": {
+          "n": 186,
+          "score": 0.9634
+        }
+      }
+    },
+    "bbb_martins": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auroc",
+      "archive_rows": {
+        "train_val": 1624,
+        "test": 406
+      },
+      "n_train": 1624,
+      "n_test": 406,
+      "test_score": 0.895,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 280,
+          "score": 0.8986,
+          "brier_score": 0.093392,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 39,
+              "mean_prediction": 0.077897,
+              "observed_fraction": 0.179487
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 19,
+              "mean_prediction": 0.312711,
+              "observed_fraction": 0.315789
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 17,
+              "mean_prediction": 0.520051,
+              "observed_fraction": 0.941176
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 24,
+              "mean_prediction": 0.701878,
+              "observed_fraction": 0.75
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 181,
+              "mean_prediction": 0.956557,
+              "observed_fraction": 0.955801
+            }
+          ],
+          "n_positive": 220
+        },
+        "outside": {
+          "n": 126,
+          "score": 0.8781,
+          "brier_score": 0.077787,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 4,
+              "mean_prediction": 0.124849,
+              "observed_fraction": 0.25
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 4,
+              "mean_prediction": 0.298874,
+              "observed_fraction": 0.0
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 7,
+              "mean_prediction": 0.537287,
+              "observed_fraction": 0.571429
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 12,
+              "mean_prediction": 0.721525,
+              "observed_fraction": 0.833333
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 99,
+              "mean_prediction": 0.952704,
+              "observed_fraction": 0.939394
+            }
+          ],
+          "n_positive": 108
+        }
+      }
+    },
+    "ppbr_az": {
+      "task": "regression",
+      "target_unit": "% bound",
+      "metric": "mae",
+      "archive_rows": {
+        "train_val": 2231,
+        "test": 559
+      },
+      "n_train": 2231,
+      "n_test": 559,
+      "test_score": 8.321,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 483,
+          "score": 8.2595
+        },
+        "outside": {
+          "n": 76,
+          "score": 8.7124
+        }
+      }
+    },
+    "vdss_lombardo": {
+      "task": "regression",
+      "target_unit": "L/kg",
+      "metric": "spearman",
+      "archive_rows": {
+        "train_val": 904,
+        "test": 226
+      },
+      "n_train": 904,
+      "n_test": 226,
+      "test_score": 0.6361,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 134,
+          "score": 0.7312
+        },
+        "outside": {
+          "n": 92,
+          "score": 0.4499
+        }
+      }
+    },
+    "cyp2c9_veith": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auprc",
+      "archive_rows": {
+        "train_val": 9673,
+        "test": 2419
+      },
+      "n_train": 9673,
+      "n_test": 2419,
+      "test_score": 0.7784,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 2222,
+          "score": 0.7851,
+          "brier_score": 0.125361,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 1142,
+              "mean_prediction": 0.064773,
+              "observed_fraction": 0.065674
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 251,
+              "mean_prediction": 0.287411,
+              "observed_fraction": 0.314741
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 200,
+              "mean_prediction": 0.498335,
+              "observed_fraction": 0.52
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 294,
+              "mean_prediction": 0.709187,
+              "observed_fraction": 0.642857
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 335,
+              "mean_prediction": 0.888147,
+              "observed_fraction": 0.865672
+            }
+          ],
+          "n_positive": 737
+        },
+        "outside": {
+          "n": 197,
+          "score": 0.5954,
+          "brier_score": 0.098583,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 142,
+              "mean_prediction": 0.067795,
+              "observed_fraction": 0.077465
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 29,
+              "mean_prediction": 0.271477,
+              "observed_fraction": 0.103448
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 9,
+              "mean_prediction": 0.485942,
+              "observed_fraction": 0.666667
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 10,
+              "mean_prediction": 0.725091,
+              "observed_fraction": 0.7
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 7,
+              "mean_prediction": 0.889966,
+              "observed_fraction": 0.857143
+            }
+          ],
+          "n_positive": 33
+        }
+      }
+    },
+    "cyp2d6_veith": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auprc",
+      "archive_rows": {
+        "train_val": 10504,
+        "test": 2626
+      },
+      "n_train": 10504,
+      "n_test": 2626,
+      "test_score": 0.6857,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 2344,
+          "score": 0.6974,
+          "brier_score": 0.085408,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 1781,
+              "mean_prediction": 0.056318,
+              "observed_fraction": 0.061202
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 215,
+              "mean_prediction": 0.288736,
+              "observed_fraction": 0.265116
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 126,
+              "mean_prediction": 0.491418,
+              "observed_fraction": 0.460317
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 106,
+              "mean_prediction": 0.700738,
+              "observed_fraction": 0.679245
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 116,
+              "mean_prediction": 0.883957,
+              "observed_fraction": 0.922414
+            }
+          ],
+          "n_positive": 403
+        },
+        "outside": {
+          "n": 282,
+          "score": 0.595,
+          "brier_score": 0.087263,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 248,
+              "mean_prediction": 0.035832,
+              "observed_fraction": 0.068548
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 16,
+              "mean_prediction": 0.307241,
+              "observed_fraction": 0.5625
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 12,
+              "mean_prediction": 0.522835,
+              "observed_fraction": 0.75
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 5,
+              "mean_prediction": 0.698805,
+              "observed_fraction": 0.8
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 1,
+              "mean_prediction": 0.868001,
+              "observed_fraction": 1.0
+            }
+          ],
+          "n_positive": 40
+        }
+      }
+    },
+    "cyp3a4_veith": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auprc",
+      "archive_rows": {
+        "train_val": 9861,
+        "test": 2467
+      },
+      "n_train": 9861,
+      "n_test": 2467,
+      "test_score": 0.8758,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 2366,
+          "score": 0.8782,
+          "brier_score": 0.129658,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 827,
+              "mean_prediction": 0.068279,
+              "observed_fraction": 0.065296
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 320,
+              "mean_prediction": 0.300425,
+              "observed_fraction": 0.29375
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 290,
+              "mean_prediction": 0.496691,
+              "observed_fraction": 0.510345
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 306,
+              "mean_prediction": 0.710699,
+              "observed_fraction": 0.637255
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 623,
+              "mean_prediction": 0.918828,
+              "observed_fraction": 0.906902
+            }
+          ],
+          "n_positive": 1056
+        },
+        "outside": {
+          "n": 101,
+          "score": 0.7581,
+          "brier_score": 0.104163,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 64,
+              "mean_prediction": 0.046756,
+              "observed_fraction": 0.03125
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 7,
+              "mean_prediction": 0.309447,
+              "observed_fraction": 0.571429
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 10,
+              "mean_prediction": 0.503034,
+              "observed_fraction": 0.5
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 14,
+              "mean_prediction": 0.709923,
+              "observed_fraction": 0.714286
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 6,
+              "mean_prediction": 0.871072,
+              "observed_fraction": 0.833333
+            }
+          ],
+          "n_positive": 26
+        }
+      }
+    },
+    "cyp2c9_substrate_carbonmangels": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auprc",
+      "archive_rows": {
+        "train_val": 534,
+        "test": 135
+      },
+      "n_train": 534,
+      "n_test": 135,
+      "test_score": 0.3684,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 94,
+          "score": 0.422,
+          "brier_score": 0.230374,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 67,
+              "mean_prediction": 0.080221,
+              "observed_fraction": 0.298507
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 17,
+              "mean_prediction": 0.260791,
+              "observed_fraction": 0.117647
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 10,
+              "mean_prediction": 0.479531,
+              "observed_fraction": 0.6
+            }
+          ],
+          "n_positive": 28
+        },
+        "outside": {
+          "n": 41,
+          "score": 0.3774,
+          "brier_score": 0.185729,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 25,
+              "mean_prediction": 0.126345,
+              "observed_fraction": 0.24
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 13,
+              "mean_prediction": 0.287543,
+              "observed_fraction": 0.230769
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 2,
+              "mean_prediction": 0.473951,
+              "observed_fraction": 0.5
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 1,
+              "mean_prediction": 0.71642,
+              "observed_fraction": 0.0
+            }
+          ],
+          "n_positive": 10
+        }
+      }
+    },
+    "cyp2d6_substrate_carbonmangels": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auprc",
+      "archive_rows": {
+        "train_val": 532,
+        "test": 135
+      },
+      "n_train": 532,
+      "n_test": 135,
+      "test_score": 0.6504,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 96,
+          "score": 0.7028,
+          "brier_score": 0.145027,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 48,
+              "mean_prediction": 0.093551,
+              "observed_fraction": 0.0625
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 19,
+              "mean_prediction": 0.298584,
+              "observed_fraction": 0.421053
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 13,
+              "mean_prediction": 0.502104,
+              "observed_fraction": 0.538462
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 9,
+              "mean_prediction": 0.703791,
+              "observed_fraction": 0.888889
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 7,
+              "mean_prediction": 0.849423,
+              "observed_fraction": 0.714286
+            }
+          ],
+          "n_positive": 31
+        },
+        "outside": {
+          "n": 39,
+          "score": 0.4981,
+          "brier_score": 0.210088,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 19,
+              "mean_prediction": 0.122595,
+              "observed_fraction": 0.263158
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 9,
+              "mean_prediction": 0.319092,
+              "observed_fraction": 0.222222
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 10,
+              "mean_prediction": 0.476483,
+              "observed_fraction": 0.4
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 1,
+              "mean_prediction": 0.706802,
+              "observed_fraction": 1.0
+            }
+          ],
+          "n_positive": 12
+        }
+      }
+    },
+    "cyp3a4_substrate_carbonmangels": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auroc",
+      "archive_rows": {
+        "train_val": 535,
+        "test": 135
+      },
+      "n_train": 535,
+      "n_test": 135,
+      "test_score": 0.6735,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 105,
+          "score": 0.6909,
+          "brier_score": 0.219043,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 5,
+              "mean_prediction": 0.176579,
+              "observed_fraction": 0.2
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 22,
+              "mean_prediction": 0.316798,
+              "observed_fraction": 0.272727
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 29,
+              "mean_prediction": 0.518676,
+              "observed_fraction": 0.586207
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 40,
+              "mean_prediction": 0.712808,
+              "observed_fraction": 0.7
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 9,
+              "mean_prediction": 0.842323,
+              "observed_fraction": 0.666667
+            }
+          ],
+          "n_positive": 58
+        },
+        "outside": {
+          "n": 30,
+          "score": 0.5873,
+          "brier_score": 0.230209,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 1,
+              "mean_prediction": 0.192491,
+              "observed_fraction": 0.0
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 4,
+              "mean_prediction": 0.304532,
+              "observed_fraction": 0.75
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 12,
+              "mean_prediction": 0.500359,
+              "observed_fraction": 0.75
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 11,
+              "mean_prediction": 0.680452,
+              "observed_fraction": 0.636364
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 2,
+              "mean_prediction": 0.857652,
+              "observed_fraction": 1.0
+            }
+          ],
+          "n_positive": 21
+        }
+      }
+    },
+    "half_life_obach": {
+      "task": "regression",
+      "target_unit": "hours",
+      "metric": "spearman",
+      "archive_rows": {
+        "train_val": 532,
+        "test": 135
+      },
+      "n_train": 532,
+      "n_test": 135,
+      "test_score": 0.4544,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 88,
+          "score": 0.673
+        },
+        "outside": {
+          "n": 47,
+          "score": 0.0307
+        }
+      }
+    },
+    "clearance_hepatocyte_az": {
+      "task": "regression",
+      "target_unit": "uL/min/10^6 cells",
+      "metric": "spearman",
+      "archive_rows": {
+        "train_val": 970,
+        "test": 243
+      },
+      "n_train": 970,
+      "n_test": 243,
+      "test_score": 0.3473,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 165,
+          "score": 0.4066
+        },
+        "outside": {
+          "n": 78,
+          "score": 0.2324
+        }
+      }
+    },
+    "clearance_microsome_az": {
+      "task": "regression",
+      "target_unit": "mL/min/g",
+      "metric": "spearman",
+      "archive_rows": {
+        "train_val": 881,
+        "test": 221
+      },
+      "n_train": 881,
+      "n_test": 221,
+      "test_score": 0.553,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 185,
+          "score": 0.5612
+        },
+        "outside": {
+          "n": 36,
+          "score": 0.3442
+        }
+      }
+    },
+    "ld50_zhu": {
+      "task": "regression",
+      "target_unit": "-log10(mol/kg)",
+      "metric": "mae",
+      "archive_rows": {
+        "train_val": 5907,
+        "test": 1478
+      },
+      "n_train": 5907,
+      "n_test": 1478,
+      "test_score": 0.6279,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 1280,
+          "score": 0.6203
+        },
+        "outside": {
+          "n": 198,
+          "score": 0.6769
+        }
+      }
+    },
+    "herg": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auroc",
+      "archive_rows": {
+        "train_val": 523,
+        "test": 132
+      },
+      "n_train": 523,
+      "n_test": 132,
+      "test_score": 0.8306,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 102,
+          "score": 0.7807,
+          "brier_score": 0.135765,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 4,
+              "mean_prediction": 0.135701,
+              "observed_fraction": 0.25
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 2,
+              "mean_prediction": 0.31053,
+              "observed_fraction": 0.0
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 5,
+              "mean_prediction": 0.465627,
+              "observed_fraction": 0.4
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 16,
+              "mean_prediction": 0.72779,
+              "observed_fraction": 0.6875
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 75,
+              "mean_prediction": 0.930262,
+              "observed_fraction": 0.88
+            }
+          ],
+          "n_positive": 80
+        },
+        "outside": {
+          "n": 30,
+          "score": 0.9186,
+          "brier_score": 0.114304,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 7,
+              "mean_prediction": 0.145293,
+              "observed_fraction": 0.0
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 3,
+              "mean_prediction": 0.293984,
+              "observed_fraction": 0.333333
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 3,
+              "mean_prediction": 0.477014,
+              "observed_fraction": 0.666667
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 1,
+              "mean_prediction": 0.652966,
+              "observed_fraction": 0.0
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 16,
+              "mean_prediction": 0.90179,
+              "observed_fraction": 0.875
+            }
+          ],
+          "n_positive": 17
+        }
+      }
+    },
+    "ames": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auroc",
+      "archive_rows": {
+        "train_val": 5821,
+        "test": 1457
+      },
+      "n_train": 5821,
+      "n_test": 1457,
+      "test_score": 0.8555,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 1326,
+          "score": 0.8716,
+          "brier_score": 0.139923,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 272,
+              "mean_prediction": 0.098144,
+              "observed_fraction": 0.150735
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 178,
+              "mean_prediction": 0.289257,
+              "observed_fraction": 0.337079
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 146,
+              "mean_prediction": 0.506055,
+              "observed_fraction": 0.541096
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 155,
+              "mean_prediction": 0.710449,
+              "observed_fraction": 0.780645
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 575,
+              "mean_prediction": 0.926886,
+              "observed_fraction": 0.907826
+            }
+          ],
+          "n_positive": 823
+        },
+        "outside": {
+          "n": 131,
+          "score": 0.5578,
+          "brier_score": 0.273089,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 50,
+              "mean_prediction": 0.108898,
+              "observed_fraction": 0.36
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 29,
+              "mean_prediction": 0.288048,
+              "observed_fraction": 0.206897
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 17,
+              "mean_prediction": 0.488249,
+              "observed_fraction": 0.235294
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 14,
+              "mean_prediction": 0.733747,
+              "observed_fraction": 0.357143
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 21,
+              "mean_prediction": 0.901858,
+              "observed_fraction": 0.666667
+            }
+          ],
+          "n_positive": 47
+        }
+      }
+    },
+    "dili": {
+      "task": "classification",
+      "target_unit": "probability",
+      "metric": "auroc",
+      "archive_rows": {
+        "train_val": 379,
+        "test": 96
+      },
+      "n_train": 379,
+      "n_test": 96,
+      "test_score": 0.8883,
+      "heldout_by_domain": {
+        "inside": {
+          "n": 43,
+          "score": 0.9101,
+          "brier_score": 0.108431,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 17,
+              "mean_prediction": 0.107531,
+              "observed_fraction": 0.176471
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 7,
+              "mean_prediction": 0.259338,
+              "observed_fraction": 0.0
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 1,
+              "mean_prediction": 0.520472,
+              "observed_fraction": 0.0
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 5,
+              "mean_prediction": 0.701208,
+              "observed_fraction": 0.8
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 13,
+              "mean_prediction": 0.910627,
+              "observed_fraction": 0.923077
+            }
+          ],
+          "n_positive": 19
+        },
+        "outside": {
+          "n": 53,
+          "score": 0.8504,
+          "brier_score": 0.14251,
+          "reliability_bins": [
+            {
+              "from": 0.0,
+              "to": 0.2,
+              "n": 6,
+              "mean_prediction": 0.128964,
+              "observed_fraction": 0.0
+            },
+            {
+              "from": 0.2,
+              "to": 0.4,
+              "n": 8,
+              "mean_prediction": 0.23492,
+              "observed_fraction": 0.125
+            },
+            {
+              "from": 0.4,
+              "to": 0.6,
+              "n": 10,
+              "mean_prediction": 0.507994,
+              "observed_fraction": 0.7
+            },
+            {
+              "from": 0.6,
+              "to": 0.8,
+              "n": 10,
+              "mean_prediction": 0.696956,
+              "observed_fraction": 0.7
+            },
+            {
+              "from": 0.8,
+              "to": 1.0,
+              "n": 19,
+              "mean_prediction": 0.907854,
+              "observed_fraction": 0.842105
+            }
+          ],
+          "n_positive": 31
+        }
+      }
+    }
+  }
+}

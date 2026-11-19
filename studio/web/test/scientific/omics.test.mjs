@@ -394,6 +394,19 @@ test("a project file whose bytes do not have the SHA-256 the project recorded is
   assert.deepEqual(done.stages.map((s) => s.status), ["failed", "pending", "pending"]);
 });
 
+test("scrna: a relative sample sheet keeps its original input digest", async () => {
+  const files = projectStore();
+  const original = '\uFEFFsample,path,batch\r\ncontrol,"counts.tsv",b1\r\n';
+  files.add("p1", "counts.tsv", "gene\tc1\nG1\t3\n");
+  files.add("p1", "sheet.csv", original);
+  const { svc, store } = await setup({ python: cannedPython(SCRNA_OUT), files });
+  const job = await svc.submit("pipeline.scrna", { source: "sheet.csv" }, { project_id: "p1" });
+  const done = await settle(svc, job.id);
+  assert.equal(done.state, "succeeded", JSON.stringify(done.error));
+  const staged = await store.readBytes([...jobDir(job.id), "inputs", "sheet.csv"]);
+  assert.deepEqual(new Uint8Array(staged), new TextEncoder().encode(original));
+});
+
 test("scrna: a sample sheet's files found in the project (by name or id), copied, and the sheet rewritten to the copies", async () => {
   const files = projectStore();
   const a = files.add("p1", "ctrl1.tsv.gz", "gene\tc1\nG1\t3\n");
@@ -411,7 +424,7 @@ test("scrna: a sample sheet's files found in the project (by name or id), copied
   const staged = Object.keys(Worker.instances[0].mounted[0].files).sort();
   assert.deepEqual(staged, ["2-matrix.tsv", "ctrl1.tsv.gz", "markers.tsv", "matrix.tsv", "sheet.csv"]);
   const sheet = dec.decode(await store.readBytes([...jobDir(job.id), "inputs", "sheet.csv"]));
-  assert.equal(sheet, `sample,path,batch,note\nctrl1,${inputs}/ctrl1.tsv.gz,b1,"first, of two"\ntrt1,${inputs}/matrix.tsv,b2,x\ntrt2,${inputs}/2-matrix.tsv,b2,y\n`);
+  assert.equal(sheet, `sample,path,batch,note\nctrl1,ctrl1.tsv.gz,b1,"first, of two"\ntrt1,matrix.tsv,b2,x\ntrt2,2-matrix.tsv,b2,y\n`);
   const run = python.calls.find((c) => c.name === "run_scrna");
   assert.deepEqual(run.args, { source: `${inputs}/sheet.csv`, markers: `${inputs}/markers.tsv`, integration: "harmony", n_top_genes: 600, out_dir: `/work/${job.id}/out` });
   // the sheet as the project holds it, and each of its files as the runner's receipt keys them ("<column>:<line>")

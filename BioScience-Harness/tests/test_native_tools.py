@@ -676,3 +676,25 @@ def test_set_overlap_counts_exactly_and_tests_against_a_stated_background():
             network.set_overlap(bad)
     with pytest.raises(ValueError, match="smaller than the union"):
         network.set_overlap({"a": ["x", "y"], "b": ["z"]}, background=2)
+
+
+def test_undefined_statistics_do_not_report_significance():
+    from bioagent.tools import stats
+    assert stats.one_way_anova([[7, 7], [7, 7]])["p_value"] is None
+    fit = stats.linear_regression([1, 2, 3, 4], [7] * 4)
+    assert fit["slope"] == 0 and fit["p_value"] is None and fit["r_squared"] is None
+    with pytest.raises(ValueError, match="finite"):
+        stats.correlation([0, 1, float("nan")], [2, 3, 5])
+    assert stats.wilcoxon_signed_rank([1, 2, 3, 4])["median_difference"] == 2.5
+
+
+def test_biallelic_hwe_and_hgvs_coordinates():
+    from bioagent.tools import variants
+    for unsupported in ("1/2", "1", "0/1/1", "-1/0"):
+        with pytest.raises(ValueError, match="diploid"):
+            variants.allele_frequencies([unsupported])
+    result = variants.allele_frequencies(["./.", ".", "0|1"])
+    assert result["n_missing"] == 2 and result["ref_allele_frequency"] == 0.5
+    assert not variants.parse_hgvs("c.-12A>G")["intronic"]
+    assert variants.parse_hgvs("c.-12-3A>G")["intronic"]
+    assert variants.parse_hgvs("c.*12+3A>G")["intronic"]

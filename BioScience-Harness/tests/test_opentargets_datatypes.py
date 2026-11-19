@@ -56,9 +56,9 @@ def test_fetch_parse_and_snapshot_keep_each_datatype_score(tmp_path):
                           edges=parsed.edges, raw_files=parsed.raw_files, parser="test",
                           root=tmp_path / "snap", license="CC0-1.0", citation="t")
     by = {(e["subject"], e["score_name"]): e for e in snap.edges}
-    assert by[("uniprot:P10002", "literature")]["knowledge_level"] == "text_co_occurrence"
-    assert by[("uniprot:P10001", "genetic_association")]["score"] == 0.9
-    assert ("uniprot:P10002", "genetic_association") not in by
+    assert by[("ensembl:ENSG00000000002", "literature")]["knowledge_level"] == "text_co_occurrence"
+    assert by[("ensembl:ENSG00000000001", "genetic_association")]["score"] == 0.9
+    assert ("ensembl:ENSG00000000002", "genetic_association") not in by
     assert {k for _, k in by} == {"overall", "genetic_association", "literature", "clinical",
                                   "somatic_mutation"}
 
@@ -146,3 +146,21 @@ def test_a_datatype_the_release_does_not_have_is_named_not_silently_empty(tmp_pa
     assert result.disease["declared_absent"] == ["known_drug"]
     assert any("no known_drug associations" in line and "'clinical'" in line
                for line in result.limitations)
+
+
+def test_one_gene_with_two_assayed_products_counts_once(tmp_path):
+    gene = "ENSG00000000001"
+    row = ot_row(gene, A[0], 0.9, genetic_association=0.9)
+    row["target"]["proteinIds"].append({"id": A[1], "source": "uniprot_swissprot"})
+    parsed = parse_opentargets(ot_answer([row], tmp_path / "ot.json"))
+    node = next(n for n in parsed.nodes if n["id"] == f"ensembl:{gene}")
+    assert node["xrefs"]["uniprot"] == sorted(A[:2])
+    snap = build_snapshot(key="opentargets", version="fx", nodes=parsed.nodes,
+                          edges=parsed.edges, raw_files=parsed.raw_files, parser="test",
+                          root=tmp_path / "ot", license="CC0-1.0", citation="fixture")
+    out = run_network_pharmacology([*_build(tmp_path / "w"), snap], params=FAST)
+    assert out.disease["overlap"] == out.disease["query"] == 1
+    assert out.disease["targets"][0]["gene"] == f"ensembl:{gene}"
+    assert out.disease["targets"][0]["assayed_proteins"] == [f"uniprot:{p}" for p in A[:2]]
+    assert {r["target"] for r in out.targets if r["disease_score"] == 0.9} == {
+        f"uniprot:{p}" for p in A[:2]}

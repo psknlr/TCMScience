@@ -26,12 +26,14 @@ def runs(tmp_path_factory):
     for scenario in SCENARIOS:
         root = tmp_path_factory.mktemp(scenario)
         snaps = build_world(scenario, root / "snap")
+        replica = build_world(scenario, root / "independent", experiment=1)
         out[scenario] = run_pathway_inquiry(snaps, pathway=PATHWAY, root=root / "work",
-                                            params=FAST, state_dir=root / "state")
+                                            params=FAST, state_dir=root / "state",
+                                            replication_snapshots=replica)
     return out
 
 
-@pytest.mark.parametrize("scenario", SCENARIOS)
+@pytest.mark.parametrize("scenario", ["selective", "promiscuous"])
 def test_the_inquiry_accepts_the_explanation_the_world_makes_true(runs, scenario):
     conclusion = runs[scenario].conclusion
     assert conclusion.accepted and conclusion.final
@@ -50,11 +52,26 @@ def test_a_mechanism_claim_is_released_only_where_the_mechanism_is_true(runs):
         assert "no mechanism claim" in runs[scenario].refused[0]
 
 
-def test_the_engine_spends_fewer_runs_than_the_full_checklist(runs):
-    for result in runs.values():
-        assert 0 < result.np_runs < result.np_runs_if_everything
-    # Where the first analysis already refutes the mechanism, the engine stops early.
-    assert runs["coverage"].np_runs < runs["selective"].np_runs
+def test_an_all_hit_background_cannot_explain_the_signal(runs):
+    r = runs["coverage"]
+    assert r.conclusion.final and not r.conclusion.accepted
+    assert "no attainable enrichment" in r.inquiry.withdrawn["assayed"]
+    assert not r.conclusion.replications and not r.released
+    assert r.np_runs == 3
+
+
+def test_absent_pathway_never_updates_belief(tmp_path):
+    s = build_world("selective", tmp_path/"snap")
+    r = run_pathway_inquiry(s, pathway="reactome:absent", root=tmp_path/"work", params=FAST)
+    assert not r.inquiry.updates and not r.released and not r.conclusion.accepted
+
+
+@pytest.mark.parametrize("supply_same", [False, True])
+def test_reseeding_or_reciting_the_same_dataset_is_not_replication(tmp_path, supply_same):
+    s = build_world("selective", tmp_path/"snap")
+    r = run_pathway_inquiry(s, pathway=PATHWAY, root=tmp_path/"work", params=FAST,
+                            replication_snapshots=s if supply_same else ())
+    assert not r.conclusion.accepted and not r.conclusion.replications and not r.released
 
 
 def test_the_usual_analysis_is_worth_almost_nothing_before_anything_runs():
@@ -102,5 +119,14 @@ def test_predictions_cover_every_analysis_and_explanation():
 
 def test_the_report_leads_with_the_verdict_and_names_what_did_not_run(runs):
     text = render_markdown(runs["coverage"])
-    assert text.splitlines()[2].startswith("**Verdict: accepted.**")
-    assert "Not run" in text and "governed_execution: false" in text
+    assert text.splitlines()[2].startswith("**Verdict: undetermined.**")
+    assert "no attainable enrichment" in text and "governed_execution: false" in text
+
+
+def test_small_null_ensemble_cannot_establish_five_percent():
+    from psh.scientist import AnalysisUnavailable
+    from bioagent.research.inquiry import _null_frequency
+    with pytest.raises(AnalysisUnavailable, match="straddle"):
+        _null_frequency(0, 20)
+    assert _null_frequency(0, 60)[0]
+    assert not _null_frequency(60, 60)[0]

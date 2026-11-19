@@ -104,3 +104,18 @@ test("createJobsRuntime: the ADMET kinds, with the RDKit.js build boot.json pins
   assert.match(refused.error.message, /boot\.json pins RDKit\.js 2027\.3\.1/);
   assert.match(refused.error.hint, /Reload the page/);
 });
+
+test("research preflight requires the screening and indication snapshots requested", async () => {
+  const { researchRun } = await import("../../js/scientific/pipelines/network-pharmacology.js");
+  const snapshots = { npass: "npass@2.0#x" };
+  const svc = { store: { exists: async () => true, readJson: async () => ({ snapshots }) } };
+  const base = { question: "葛根芩连汤", hits: "screening" };
+  await assert.rejects(researchRun.preflight(base, svc), /PubChem BioAssay/);
+  snapshots.pubchem_bioassay = "pubchem_bioassay@fixture#x";
+  await researchRun.preflight(base, svc);
+  const disease = { question: "葛根芩连汤对MONDO:0005148的通路" };
+  snapshots.opentargets = "opentargets@26.09+MONDO_0000001#x";
+  await assert.rejects(researchRun.preflight(disease, svc), /MONDO_0005148/);
+  snapshots.opentargets = "opentargets@26.09+MONDO_0005148#x";
+  await researchRun.preflight(disease, svc);
+});

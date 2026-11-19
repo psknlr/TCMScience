@@ -22,6 +22,7 @@ and not a probability of efficacy. The rules:
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Iterable
 
@@ -44,6 +45,8 @@ _TIME_INTEGRATED = re.compile(r"[*·.\s]\s*(h|hr|min)\b|\b(h|hr|min)\s*/|h\*|·h
 
 
 def to_molar(value: float, unit: str, *, mw: float | None = None) -> float:
+    if not math.isfinite(value) or value < 0:
+        raise ValueError("concentration must be finite and nonnegative")
     u = unit.strip()
     if _TIME_INTEGRATED.search(u):
         raise ValueError(f"{unit!r} is time-integrated (an AUC), not a concentration")
@@ -54,10 +57,23 @@ def to_molar(value: float, unit: str, *, mw: float | None = None) -> float:
     if u in _MOLAR:
         return value * _MOLAR[u]
     if u in _MASS:
-        if not mw:
+        if mw is None or not math.isfinite(mw) or mw <= 0:
             raise ValueError(f"{unit!r} is a mass concentration: the molecular weight is needed")
         return value * _MASS[u] / mw
     raise ValueError(f"unit {unit!r} is not a concentration unit this converts")
+
+
+def _species_id(value: str) -> str:
+    """Match common experimental species names to NCBI taxon IDs used by ToxCast."""
+    name = str(value or "").strip().casefold()
+    if name in {"", "0", "unknown", "unspecified", "not reported", "mixed", "n/a", "na", "none"}:
+        return ""
+    prefix, separator, code = name.partition(":")
+    if separator and prefix in {"taxon", "ncbitaxon", "taxonomy"} and code.isdecimal():
+        return code if int(code) > 0 else ""
+    names = {"human": "9606", "homo sapiens": "9606", "mouse": "10090",
+             "mus musculus": "10090", "rat": "10116", "rattus norvegicus": "10116"}
+    return names.get(name, name)
 
 
 def exposure_ratio(exposure: ExposureRecord, assay: AssayResult, *,
@@ -66,7 +82,9 @@ def exposure_ratio(exposure: ExposureRecord, assay: AssayResult, *,
                    implausible_below: float = 0.1) -> dict:
     out = {"molecule": exposure.molecule, "site": exposure.site, "endpoint": assay.endpoint,
            "target": assay.target, "exposure_study": exposure.study,
-           "assay_study": assay.study}
+           "assay_study": assay.study, "exposure_species": exposure.species,
+           "assay_species": assay.species, "intervention": exposure.intervention,
+           "dose": exposure.dose, "time_h": exposure.time_h, "measured_free": exposure.free}
 
     def undeterminable(why: str) -> dict:
         return {**out, "verdict": "undeterminable", "reason": why, "ratio": None}
@@ -74,9 +92,15 @@ def exposure_ratio(exposure: ExposureRecord, assay: AssayResult, *,
     if exposure.molecule != assay.molecule:
         return undeterminable(f"exposure is of {exposure.molecule}, the assay of "
                               f"{assay.molecule} (parent and metabolite are different molecules)")
-    if exposure.species and assay.species and exposure.species != assay.species:
-        out["species_note"] = (f"exposure in {exposure.species}, assay on {assay.species} "
-                               "protein: potency may differ across species")
+    exposure_taxon = _species_id(exposure.species)
+    assay_taxon = _species_id(assay.species)
+    if not exposure_taxon or not assay_taxon:
+        return undeterminable("both exposure and assay species are required")
+    if exposure_taxon != assay_taxon:
+        return undeterminable(f"species differ: exposure in {exposure.species}, "
+                              f"assay on {assay.species}")
+    if assay.flags:
+        return undeterminable("assay quality flags require review: " + ", ".join(assay.flags))
     if assay.endpoint not in ("IC50", "EC50", "AC50", "Ki", "Kd"):
         return undeterminable(f"{assay.endpoint} is not a potency the ratio is defined for")
     if assay.result.qualifier == "inactive":
@@ -117,6 +141,10 @@ def exposure_ratio(exposure: ExposureRecord, assay: AssayResult, *,
         fu = unknown_free_fraction
         fu_note = (f"free fraction unknown: range {fu[0]}–{fu[1]} applied (not assumed to "
                    "be 1)")
+    if potency <= 0:
+        return undeterminable("the assay potency must be positive")
+    if len(fu) != 2 or not 0 <= fu[0] <= fu[1] <= 1:
+        return undeterminable("free-fraction bounds must be ordered within [0, 1]")
     low, high = conc * fu[0] / potency, conc * fu[1] / potency
     if upper_only:
         low = 0.0
@@ -157,18 +185,7 @@ def screen_exposure(exposures: Iterable[ExposureRecord], assays: Iterable[AssayR
                                   + (f" (measured at {others}; another site is not this one)"
                                      if others else "")})
             continue
-        # Compare exposures in molar units, and a measured value before any bound: a
-        # below-LOD record says only that the concentration was lower than its bound.
-        def molar(e: ExposureRecord) -> float:
-            c = e.concentration
-            v = c.value if c.known else c.bound
-            try:
-                return to_molar(v, c.unit, mw=(mw or {}).get(a.molecule)) if v is not None \
-                    else -1.0
-            except ValueError:
-                return -1.0
-        measured = [e for e in at_site if e.concentration.known and molar(e) >= 0]
-        pool = measured or at_site
-        best = max(pool, key=molar)
-        out.append(exposure_ratio(best, a, mw=(mw or {}).get(a.molecule), **kw))
+        # Individual doses, time points and studies can disagree. Preserve every pair.
+        out.extend(exposure_ratio(e, a, mw=(mw or {}).get(a.molecule), **kw)
+                   for e in at_site)
     return out

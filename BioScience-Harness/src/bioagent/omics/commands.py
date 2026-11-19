@@ -52,7 +52,8 @@ def register(sub: argparse._SubParsersAction) -> None:
                    help="single-end reads: assumed fragment length (default 200)")
     r.add_argument("--fragment-sd", type=float, default=None, help="(default 30)")
     r.add_argument("--strand", type=int, default=None, choices=(0, 1, 2),
-                   help="featureCounts strandedness (hisat2 engine; default 0)")
+                   help="featureCounts strandedness for samples without a sheet strandedness entry "
+                        "(hisat2 engine; default 0)")
     r.add_argument("--threads", type=int, default=2)
     r.add_argument("--out", default="", help="output directory")
     r.add_argument("--verify", default="",
@@ -89,6 +90,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     c.add_argument("--markers", default="", help="a marker panel (JSON or cell_type,gene CSV)")
     c.add_argument("--root", default="",
                    help="root cluster or cell type for diffusion pseudotime")
+    c.add_argument("--replicate-key", default="auto",
+                   help="independent biological unit (auto: donor if available, else sample)")
+    c.add_argument("--design", help="additive pseudobulk design; default adjusts for paired "
+                                    "units and shared batch effects")
+    c.add_argument("--covariate", action="append", default=[], help="numeric pseudobulk design term")
     c.add_argument("--contrast", default="",
                    help="factor,numerator,denominator for pseudobulk (default: the "
                         "condition column's two levels, against a control-like one such as "
@@ -132,7 +138,8 @@ def _scrna(a: argparse.Namespace) -> int:
                       scvi_epochs=a.scvi_epochs, scvi_threads=a.scvi_threads,
                       de_backend=a.de_backend, resolution=a.resolution,
                       markers=a.markers or None, root=a.root or None, contrast=contrast,
-                      seed=a.seed)
+                      seed=a.seed, replicate_key=a.replicate_key, design=a.design,
+                      covariates=tuple(a.covariate))
     try:
         run = run_scrna(a.source, config, a.out)
     except (ScError, ValueError, BackendUnavailable) as exc:

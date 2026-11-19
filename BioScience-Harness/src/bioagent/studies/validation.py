@@ -272,32 +272,46 @@ def variant_study(snapshots: Sequence[Any], base: Any, variants: Sequence[tuple[
 
 def background_sensitivity(snapshots: Sequence[Any], formula: Any, params: Any
                            ) -> dict[str, Any]:
+    if params.hits == "screening":
+        return {"performed": False, "why": "the screening test has one eligible assayed universe"}
     runs = {bg: _run(snapshots, formula, replace(params, background=bg))
             for bg in ("assayed", "reactome")}
     sig = {bg: sorted(_significant(r, params.fdr, params.permutation_alpha))
            for bg, r in runs.items()}
-    return {"significant": sig,
+    return {"performed": True, "significant": sig,
             "both": sorted(set(sig["assayed"]) & set(sig["reactome"])),
             "jaccard": round(_jaccard(set(sig["assayed"]), set(sig["reactome"])), 6),
             "comparison": compare_results(runs["assayed"], runs["reactome"], params)}
 
 
 def threshold_scan(snapshots: Sequence[Any], formula: Any, params: Any, *,
-                   grid: Mapping[str, Sequence[Any]] = DEFAULT_SCAN) -> dict[str, Any]:
+                   grid: Mapping[str, Sequence[Any]] | None = None) -> dict[str, Any]:
     """The analysis over every combination of ``grid``; how often each pathway holds.
 
     A pathway's frequency counts only the settings in which it was tested: a size range
     that excludes it says nothing about whether it is enriched."""
+    if grid is None:
+        grid = ({"screening_min_compounds": sorted({max(1, params.screening_min_compounds // 2),
+                                                    params.screening_min_compounds,
+                                                    2 * params.screening_min_compounds}),
+                 "pathway_min_size": (3, 5, 10)} if params.hits == "screening" else DEFAULT_SCAN)
+    inactive = ({"activity_max_nm", "activity_types", "background", "degree_bins"}
+                if params.hits == "screening" else
+                {"screening_min_members", "screening_min_compounds", "screening_assay_types"})
+    if inactive.intersection(grid):
+        raise ValueError(f"{params.hits} threshold scan has inactive parameters: "
+                         f"{sorted(inactive.intersection(grid))}")
     names = sorted(grid)
     settings: list[dict[str, Any]] = [{}]
     for name in names:
         settings = [{**s, name: v} for s in settings for v in grid[name]]
     runs = []
     for setting in settings:
-        result = _run(snapshots, formula, replace(params, **setting))
+        trial = replace(params, **setting)
+        result = _run(snapshots, formula, trial)
         runs.append({"setting": setting,
-                     "significant": sorted(_significant(result, params.fdr,
-                                                        params.permutation_alpha)),
+                     "significant": sorted(_significant(result, trial.fdr,
+                                                        trial.permutation_alpha)),
                      "tested": sorted(r["pathway"] for r in result.enrichment),
                      "targets": len(result.targets)})
     seen = sorted({p for r in runs for p in r["significant"]})
@@ -371,8 +385,12 @@ def random_formula_control(snapshots: Sequence[Any], formula: Any, params: Any, 
     snaps = _replace_layer(snapshots, layer)
     real = _significant(_run(snaps, formula, params), params.fdr, params.permutation_alpha)
     counts, reached = [], {p: 0 for p in real}
+    tested_in = {p: 0 for p in real}
     for control in controls:
-        sig = _significant(_run(snaps, control, params), params.fdr, params.permutation_alpha)
+        result = _run(snaps, control, params)
+        sig = _significant(result, params.fdr, params.permutation_alpha)
+        for p in real.intersection(row["pathway"] for row in result.enrichment):
+            tested_in[p] += 1
         counts.append(len(sig))
         for p in real & sig:
             reached[p] += 1
@@ -381,7 +399,9 @@ def random_formula_control(snapshots: Sequence[Any], formula: Any, params: Any, 
             "seed": seed, "herb_layer": layer.snapshot_id,
             "real_significant": len(real), "control_significant": counts,
             "empirical_p": round((1 + at_least) / (1 + n), 6),
-            "specificity": {p: round(reached[p] / n, 6) for p in sorted(real)}}
+            "tested_in": tested_in, "reached_count": reached,
+            "specificity": {p: round(reached[p] / tested_in[p], 6) if tested_in[p] else None
+                            for p in sorted(real)}}
 
 
 #: The compound-protein edges a rewiring moves: measured targets and, for screening
@@ -389,29 +409,28 @@ def random_formula_control(snapshots: Sequence[Any], formula: Any, params: Any, 
 REWIRED = ("targets", "tested_against")
 
 
+def _rewiring_map(edges, rng: random.Random, swaps: int) -> dict[tuple[str, str], str]:
+    """Reassign endpoints once per distinct pair across all contributing snapshots."""
+    original = sorted({(e["subject"], e["object"]) for e in edges})
+    pairs = list(original)
+    present = set(pairs)
+    n = len(pairs)
+    for _ in range(swaps if n > 1 else 0):
+        i, j = rng.randrange(n), rng.randrange(n)
+        (a, p), (b, q) = pairs[i], pairs[j]
+        if a == b or p == q or (a, q) in present or (b, p) in present:
+            continue
+        present.remove((a, p))
+        present.remove((b, q))
+        present.update(((a, q), (b, p)))
+        pairs[i], pairs[j] = (a, q), (b, p)
+    return {orig: new[1] for orig, new in zip(original, pairs)}
+
+
 def _rewire(edges: Sequence[Mapping[str, Any]], rng: random.Random, swaps: int
             ) -> list[dict[str, Any]]:
-    """Degree-preserving swaps: two edges exchange their proteins, so every compound keeps
-    its number of edges and every protein its number of compounds. A swap that would put
-    the same compound on the same protein twice is skipped."""
-    from collections import Counter
-    edges = [dict(e) for e in edges]
-    present = Counter((e["subject"], e["object"]) for e in edges)
-    n = len(edges)
-    if n < 2:
-        return edges
-    for _ in range(swaps):
-        a, b = edges[rng.randrange(n)], edges[rng.randrange(n)]
-        if a["subject"] == b["subject"] or a["object"] == b["object"]:
-            continue
-        if present[(a["subject"], b["object"])] or present[(b["subject"], a["object"])]:
-            continue
-        present[(a["subject"], a["object"])] -= 1
-        present[(b["subject"], b["object"])] -= 1
-        a["object"], b["object"] = b["object"], a["object"]
-        present[(a["subject"], a["object"])] += 1
-        present[(b["subject"], b["object"])] += 1
-    return edges
+    mapping = _rewiring_map(edges, rng, swaps)
+    return [{**e, "object": mapping[e["subject"], e["object"]]} for e in edges]
 
 
 def rewired_control(snapshots: Sequence[Any], formula: Any, params: Any, *, n: int = 20,
@@ -420,20 +439,28 @@ def rewired_control(snapshots: Sequence[Any], formula: Any, params: Any, *, n: i
     base = _significant(_run(snapshots, formula, params), params.fdr,
                         params.permutation_alpha)
     rng = random.Random(seed)
+    from ..analysis.network_pharmacology import SCREENING_SOURCE
     counts, reached = [], {p: 0 for p in base}
+    tested_in = {p: 0 for p in base}
+    applicable = [s for s in snapshots if (s.key == SCREENING_SOURCE) == (params.hits == "screening")]
+    edges = [e for s in applicable for e in s.edges if e.get("predicate") in REWIRED]
+    pairs = {(e["subject"], e["object"]) for e in edges}
     for i in range(n):
+        mapping = _rewiring_map(edges, rng, swaps_per_edge * len(pairs))
         derived = []
         for snap in snapshots:
-            target_edges = [e for e in snap.edges if e.get("predicate") in REWIRED]
-            if not target_edges:
+            if (snap.key == SCREENING_SOURCE) != (params.hits == "screening") or not any(
+                    e.get("predicate") in REWIRED for e in snap.edges):
                 derived.append(snap)
                 continue
-            rewired = _rewire(target_edges, rng, swaps_per_edge * len(target_edges))
-            others = [e for e in snap.edges if e.get("predicate") not in REWIRED]
-            derived.append(replace(snap, edges=tuple(others + rewired),
+            rewired = tuple({**e, "object": mapping[e["subject"], e["object"]]}
+                            if e.get("predicate") in REWIRED else e for e in snap.edges)
+            derived.append(replace(snap, edges=rewired,
                                    snapshot_id=f"{snap.snapshot_id}+derived:rewired-{i}"))
-        sig = _significant(_run(derived, formula, params), params.fdr,
-                           params.permutation_alpha)
+        result = _run(derived, formula, params)
+        sig = _significant(result, params.fdr, params.permutation_alpha)
+        for p in base.intersection(row["pathway"] for row in result.enrichment):
+            tested_in[p] += 1
         counts.append(len(sig))
         for p in base & sig:
             reached[p] += 1
@@ -441,7 +468,9 @@ def rewired_control(snapshots: Sequence[Any], formula: Any, params: Any, *, n: i
     return {"rewirings": n, "seed": seed, "swaps_per_edge": swaps_per_edge,
             "real_significant": len(base), "rewired_significant": counts,
             "empirical_p": round((1 + at_least) / (1 + n), 6),
-            "still_enriched": {p: round(reached[p] / n, 6) for p in sorted(base)}}
+            "tested_in": tested_in, "reached_count": reached,
+            "still_enriched": {p: round(reached[p] / tested_in[p], 6) if tested_in[p] else None
+                               for p in sorted(base)}}
 
 
 # ------------------------------------------------------------------ scope
@@ -542,7 +571,7 @@ def verify_reproduction(bundle_path: str | Path, snapshot_root: str | Path, *,
 def validate(snapshots: Sequence[Any], formula: Any, params: Any, *, root: str | Path,
              variants: Sequence[tuple[str, str, Any]] | None = None,
              controls: int = 50, rewirings: int = 20, hubs: Sequence[int] = (1, 3),
-             grid: Mapping[str, Sequence[Any]] = DEFAULT_SCAN,
+             grid: Mapping[str, Sequence[Any]] | None = None,
              seed: int = 20261007) -> dict[str, Any]:
     """Every check, and a verdict per pathway the analysis found significant."""
     snaps = list(snapshots)
@@ -584,16 +613,22 @@ def pathway_verdicts(report: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     out = {}
     for p in report["significant"]:
         failed = []
-        if p not in report["background"]["both"]:
+        if report["background"].get("performed", True) and p not in report["background"]["both"]:
             failed.append("not significant on both backgrounds")
         if report["thresholds"]["frequency"].get(p, 0.0) < THRESHOLD_SHARE:
             failed.append("significant in under three quarters of the threshold settings "
                           "that tested it")
         rf = report["random_formulas"]
-        if rf.get("performed") and rf["specificity"].get(p, 0.0) > SPECIFICITY_LIMIT:
-            failed.append(f"random formulas reach it too ({rf['specificity'][p]:.0%})")
+        if rf.get("performed"):
+            rate = rf["specificity"].get(p)
+            if rate is None:
+                failed.append("the pathway was untestable in every random formula")
+            elif rate > SPECIFICITY_LIMIT:
+                failed.append(f"random formulas reach it too ({rate:.0%})")
         still = report["rewired"]["still_enriched"].get(p, 0.0)
-        if still > SPECIFICITY_LIMIT:
+        if still is None:
+            failed.append("the pathway was untestable in every rewired control")
+        elif still > SPECIFICITY_LIMIT:
             failed.append(f"still enriched after degree-preserving rewiring ({still:.0%})")
         if any(p in run["lost"] for run in report["hubs"]["runs"] if run["top"] == 1):
             failed.append("lost when the single most-reached target is removed")
@@ -622,9 +657,13 @@ def render_markdown(report: Mapping[str, Any]) -> str:
                      f"{len(r['compounds_lost'])}/{len(r['compounds_gained'])} | "
                      f"{len(r['significant_lost'])}/{len(r['significant_gained'])} |")
     bg = report["background"]
-    lines += ["", "## Background", "",
-              f"Assayed: {len(bg['significant']['assayed'])} significant; whole annotation: "
-              f"{len(bg['significant']['reactome'])}; Jaccard {bg['jaccard']}.", ""]
+    lines += ["", "## Background", ""]
+    if bg.get("performed", True):
+        lines.append(f"Assayed: {len(bg['significant']['assayed'])} significant; whole annotation: "
+                     f"{len(bg['significant']['reactome'])}; Jaccard {bg['jaccard']}.")
+    else:
+        lines.append(bg["why"])
+    lines.append("")
     lines += ["## Thresholds", "", "| Pathway | Share of settings significant |",
               "| --- | ---: |"]
     for p, f in sorted(report["thresholds"]["frequency"].items(), key=lambda kv: -kv[1]):

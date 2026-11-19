@@ -302,11 +302,13 @@ def build_snapshots(args: Mapping[str, Any], emit: Emit | None = None) -> dict[s
     from bioagent.sources import pipeline
 
     _only(args, ("raw_dir", "snapshot_root", "ledger", "sources", "network", "formulas",
-                 "report_path"))
+                 "report_path", "opentargets", "pubchem_bioassay"))
     return pipeline.build_research_snapshots(
         _text(args, "raw_dir"), _text(args, "snapshot_root"), _text(args, "ledger"),
         sources=_sources(args), network=_flag(args, "network", True),
         formulas=_strings(args, "formulas"), offline=True,
+        pubchem_bioassay=_text(args, "pubchem_bioassay", required=False) or None,
+        opentargets=_text(args, "opentargets", required=False) or None,
         report_path=_text(args, "report_path", required=False) or None, log=_log(emit))
 
 
@@ -339,7 +341,7 @@ def run_research(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str,
     permutations = 1000 if permutations is None else _runner_check(
         kinds._int, "permutations", permutations, *kinds.PERMUTATIONS)
     activity = tuple(_runner_check(kinds._text, "activity", a, pattern=kinds._SOURCE_KEY)
-                     for a in _strings(args, "activity")) or ("npass",)
+                     for a in _strings(args, "activity")) or None
     optional = tuple(_runner_check(kinds._text, "optional", a, pattern=kinds._SOURCE_KEY)
                      for a in _strings(args, "optional")) or ("string",)
     disease = _text(args, "disease", required=False)
@@ -652,12 +654,12 @@ def run_scrna(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, An
     from . import kinds
 
     _only(args, ("source", "doublets", "analysis_backend", "integration", "resolution", "seed",
-                 "markers", "root", "contrast", "n_top_genes", "out_dir"))
+                 "markers", "root", "contrast", "replicate_key", "design", "covariates", "n_top_genes", "out_dir"))
     source, out_dir = Path(_text(args, "source")), _text(args, "out_dir")
     markers = _text(args, "markers", required=False) or None
     choices = _runner_check(kinds._scrna_choices, _given(args, (
         "doublets", "analysis_backend", "integration", "resolution", "seed", "n_top_genes",
-        "root", "contrast")))
+        "root", "contrast", "replicate_key", "design", "covariates")))
     contrast = _contrast(choices.get("contrast"))
     log = _log(emit)
     if choices["analysis_backend"] == "scanpy":
@@ -709,7 +711,9 @@ def run_scrna(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, An
                       integration_method=choices["integration"],
                       resolution=choices["resolution"], seed=choices["seed"],
                       n_top_genes=choices["n_top_genes"], markers=markers,
-                      root=choices.get("root"), contrast=contrast)
+                      root=choices.get("root"), contrast=contrast, design=choices.get("design"),
+                      replicate_key=choices.get("replicate_key", "auto"),
+                      covariates=tuple(choices.get("covariates", ())))
     log(f"scrna: {len(files)} count table(s) of {cells:,} cells from {source.name}; "
         f"integration {config.integration_method}, {config.n_top_genes} highly variable genes "
         f"at most, seed {config.seed}")

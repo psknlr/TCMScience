@@ -132,7 +132,7 @@ def quality_check(nodes: Sequence[Mapping[str, Any]], edges: Sequence[Mapping[st
                   gold: Mapping[str, Mapping[str, Any]] | None = None,
                   gold_edges: Mapping[str, Sequence[tuple[str, str, str]]] | None = None,
                   previous_ids: Mapping[str, Iterable[str]] | None = None,
-                  max_listed: int = 20) -> QCReport:
+                  empty_scope: str | None = None, max_listed: int = 20) -> QCReport:
     """Run the gate against hand-checked answer keys: ``gold`` maps node id -> expected
     xrefs; ``gold_edges`` maps a label -> (subject, predicate, object) triples of which at
     least one must be present (e.g. a marker compound in any of a herb's source species)."""
@@ -153,6 +153,8 @@ def quality_check(nodes: Sequence[Mapping[str, Any]], edges: Sequence[Mapping[st
     ids = [n.get("id") for n in nodes]
     if len(ids) != len(set(ids)):
         errors.append(f"{len(ids) - len(set(ids))} duplicate node ids")
+    if not nodes and not empty_scope:
+        errors.append("empty snapshot: no nodes found and no explicit empty scope")
     known = set(ids)
     dangling = sorted({e.get(end) for e in edges for end in ("subject", "object")
                        if e.get(end) not in known})
@@ -160,6 +162,8 @@ def quality_check(nodes: Sequence[Mapping[str, Any]], edges: Sequence[Mapping[st
         errors.append(f"{len(dangling)} edge endpoints are not nodes: {dangling[:5]}")
 
     metrics: dict[str, Any] = {"nodes": len(nodes), "edges": len(edges)}
+    if not nodes and empty_scope:
+        metrics["empty_scope"] = empty_scope
     for category, prefix, minimum in (
             ("ingredient", "inchikey", thresholds.min_inchikey_coverage),
             ("target", "uniprot", thresholds.min_uniprot_coverage)):
@@ -319,7 +323,7 @@ def build_snapshot(*, key: str, version: str, nodes: Iterable[Mapping[str, Any]]
                    gold: Mapping[str, Mapping[str, Any]] | None = None,
                    gold_edges: Mapping[str, Sequence[tuple[str, str, str]]] | None = None,
                    extra: Mapping[str, Any] | None = None,
-                   ledger: Any = None, replace: bool = False) -> Snapshot:
+                   ledger: Any = None, replace: bool = False, empty_scope: str | None = None) -> Snapshot:
     """Validate, hash and publish one source version. Raises ``SnapshotRejected`` when the
     quality gate fails; a ``review`` result is published but ``load`` will not hand it out
     until a person accepts it. With a ``SnapshotLedger`` the id is recorded there.
@@ -348,7 +352,7 @@ def build_snapshot(*, key: str, version: str, nodes: Iterable[Mapping[str, Any]]
                                           "edges": [e.get("source_record_id")
                                                     for e in previous.edges]}
                                          if previous else None),
-                           gold=gold, gold_edges=gold_edges)
+                           gold=gold, gold_edges=gold_edges, empty_scope=empty_scope)
     if report.status == "fail":
         raise SnapshotRejected(f"{key}@{version} failed the quality gate: "
                                + "; ".join(report.errors[:5]), report)

@@ -157,10 +157,17 @@ def _drugcentral(conn) -> Iterator[Row | None]:
             assay=None if (v(r["ACT_COMMENT"]) or "").lower() == "mechanism of action"
             else v(r["ACT_COMMENT"]), species=v(r["ORGANISM"]),
             source_db=names(act_source, moa_source))
-        complex_note = (f"component of {v(r['TARGET_NAME'])} ({len(accessions)} components)"
-                        if len(accessions) > 1 else None)
-        via = f"via {'; '.join(upstream)}" if upstream else None
-        note = "; ".join(x for x in (complex_note, via) if x) or None
+        note = f"via {'; '.join(upstream)}" if upstream else None
+        if len(accessions) > 1:
+            # The measured quantity and action belong to the assembled receptor.
+            target = "drugcentral:complex." + ".".join(sorted(accessions))
+            yield rel("drug_target", "drugcentral", subject, r["DRUG_NAME"], target,
+                      r["TARGET_NAME"], "known", object_type="complex", score=value,
+                      reference=reference, note=note, effect=effect, context=context)
+            for acc, gene in zip(accessions, genes):
+                yield rel("complex_member", "drugcentral", target, r["TARGET_NAME"],
+                          f"uniprot:{acc}", gene, "listed", reference=reference)
+            continue
         for acc, gene in zip(accessions, genes):
             yield rel("drug_target", "drugcentral", subject, r["DRUG_NAME"],
                       f"uniprot:{acc}",
@@ -206,10 +213,10 @@ DRUGCENTRAL = DatasetSpec(
           "DrugBank, KEGG, WOMBAT-PK, DrugMatrix or PDSP say so as 'via ...'. The effect "
           "comes from the action type (inhibitor, agonist, blocker ...), kept in "
           "context.action; rows without an action type have no effect. A target made of "
-          "several proteins (a channel complex) gives one row per component. Indications "
+          "several proteins is recorded as a complex with separate membership rows. Indications "
           "are not in any public file except the database dump; use the live connector "
           "('indications').",
-    relations=("drug_target",),
+    relations=("drug_target", "complex_member"),
     commercial_use="allowed",
     upstream=("ChEMBL", "GtoPdb", "DrugBank", "KEGG", "WOMBAT-PK", "DrugMatrix", "PDSP"),
     crosswalk={

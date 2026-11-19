@@ -100,6 +100,7 @@ TRIMMERS = ("auto", "builtin", "fastp", "none")
 MIN_MAPPING = 0.5            # below this a library is flagged
 TOP_VARIABLE = 500           # genes for PCA, as DESeq2's plotPCA
 RESERVED = {"sample", "fastq_1", "fastq_2", "strandedness"}
+STRAND_CODES = {"unstranded": 0, "forward": 1, "reverse": 2}
 
 
 class RNASeqError(ValueError):
@@ -114,6 +115,7 @@ class Sample:
     fastq_1: tuple[Path, ...]                 # one per lane
     fastq_2: tuple[Path, ...]                 # empty for single-end
     attributes: Mapping[str, str]
+    strandedness: str | None = None          # nf-core sample-sheet declaration
 
     @property
     def paired(self) -> bool:
@@ -150,6 +152,13 @@ def read_sample_sheet(path: str | Path) -> list[Sample]:
             other = {k: v for k, v in row.items() if k not in RESERVED}
             if other != attrs:
                 raise RNASeqError(f"sample {name}: lanes disagree on the design variables")
+        strands = {row.get("strandedness", "").lower() for row in group}
+        if len(strands) != 1:
+            raise RNASeqError(f"sample {name}: lanes disagree on strandedness")
+        strand = strands.pop() or None
+        if strand is not None and strand not in {*STRAND_CODES, "auto"}:
+            raise RNASeqError(f"sample {name}: unknown strandedness {strand!r}; expected "
+                              "unstranded, forward, reverse or auto")
         f1, f2 = [], []
         for row in group:
             for key, bucket in (("fastq_1", f1), ("fastq_2", f2)):
@@ -164,7 +173,7 @@ def read_sample_sheet(path: str | Path) -> list[Sample]:
         if f2 and len(f2) != len(f1):
             raise RNASeqError(f"sample {name}: every lane needs both mates or none")
         samples.append(Sample(name=name, fastq_1=tuple(f1), fastq_2=tuple(f2),
-                              attributes=attrs))
+                              attributes=attrs, strandedness=strand))
     if len({s.paired for s in samples}) > 1:
         raise RNASeqError("the sheet mixes single-end and paired-end samples")
     return samples
@@ -235,6 +244,25 @@ def _choose_engine(config: RNASeqConfig) -> str:
         if backends.find_tool(tool) is not None:
             return tool
     return "builtin"
+
+
+def _sample_strands(samples: Sequence[Sample], engine: str, strand: int) -> dict[str, str]:
+    """Resolve one library protocol per sample, in count-column order."""
+    if strand not in (0, 1, 2):
+        raise RNASeqError("strand must be 0, 1 or 2")
+    if engine != "hisat2" and strand != 0:
+        raise RNASeqError("the global strand option applies to HISAT2 + featureCounts; "
+                          "set strandedness in the sample sheet for transcript quantifiers")
+    fallback = "auto" if engine == "salmon" else ("unstranded", "forward", "reverse")[strand]
+    strands = {s.name: s.strandedness or fallback for s in samples}
+    for name, protocol in strands.items():
+        if protocol == "auto" and engine != "salmon":
+            raise RNASeqError(f"sample {name}: {engine} cannot infer library strandedness; "
+                              "supply the library protocol or use Salmon for auto detection")
+        if engine == "builtin" and protocol != "unstranded":
+            raise RNASeqError(f"sample {name}: the builtin quantifier cannot apply "
+                              f"{protocol} strandedness; use Salmon or kallisto")
+    return strands
 
 
 def _choose_trimmer(config: RNASeqConfig) -> str:
@@ -389,10 +417,15 @@ def run_rnaseq(sheet: str | Path, config: RNASeqConfig, out_dir: str | Path) -> 
     if not 0 < config.alpha < 1:
         raise RNASeqError(f"alpha is the FDR level, between 0 and 1 (not {config.alpha:g})")
     out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
     # the choices first: one that cannot run here is refused before anything is written
     engine = _choose_engine(config)
+    if engine != "hisat2" and config.counts_from_abundance not in ("scaledTPM", "lengthScaledTPM"):
+        raise RNASeqError("transcript-based differential expression requires scaledTPM or "
+                          "lengthScaledTPM; raw transcript counts need sample-specific "
+                          "effective-length offsets the DE backends do not fit")
+    strands = _sample_strands(samples, engine, config.strand)
     trimmer = _choose_trimmer(config)
+    out.mkdir(parents=True, exist_ok=True)
     _check_de_backend(config)
     contrast = _infer_contrast(samples, config)
     rec = StageRecorder(out, PIPELINE, plan=STAGES)
@@ -533,6 +566,7 @@ def run_rnaseq(sheet: str | Path, config: RNASeqConfig, out_dir: str | Path) -> 
             for s in samples:
                 r1, r2 = reads_for[s.name]
                 stats, sts = backends.hisat2_align(idx, r1, qdir / f"{s.name}.bam", read2=r2,
+                                                   strandedness=strands[s.name],
                                                    threads=config.threads)
                 steps += [x.as_dict() for x in sts]
                 quantification[s.name] = {"method": "HISAT2 + featureCounts",
@@ -541,7 +575,8 @@ def run_rnaseq(sheet: str | Path, config: RNASeqConfig, out_dir: str | Path) -> 
             matrix, step = backends.featurecounts(bams, [s.name for s in samples],
                                                   config.annotation, qdir / "featureCounts.txt",
                                                   paired=samples[0].paired,
-                                                  strand=config.strand,
+                                                  strand=[STRAND_CODES[strands[s.name]]
+                                                          for s in samples],
                                                   threads=config.threads)
             steps.append(step.as_dict())
             for s in samples:
@@ -576,11 +611,16 @@ def run_rnaseq(sheet: str | Path, config: RNASeqConfig, out_dir: str | Path) -> 
                                          fragment_sd=config.fragment_sd)
                     quant.write_abundance(res, sdir / "abundance.tsv")
                 elif engine == "salmon":
+                    protocol = strands[s.name]
+                    library = ("A" if protocol == "auto" else
+                               ("I" if s.paired else "") +
+                               {"unstranded": "U", "forward": "SF", "reverse": "SR"}[protocol])
                     res, step = backends.salmon_quant(index_dir, r1, sdir, read2=r2,
-                                                      threads=config.threads)
+                                                      library_type=library, threads=config.threads)
                     steps.append(step.as_dict())
                 else:
                     res, step = backends.kallisto_quant(index_file, r1, sdir, read2=r2,
+                                                        strandedness=strands[s.name],
                                                         fragment_mean=config.fragment_mean,
                                                         fragment_sd=config.fragment_sd,
                                                         threads=config.threads)
@@ -589,6 +629,7 @@ def run_rnaseq(sheet: str | Path, config: RNASeqConfig, out_dir: str | Path) -> 
                 quantification[s.name] = dict(res.run)
                 quantification[s.name]["mapping_rate"] = res.run.get("pseudoaligned_fraction")
         for s in samples:
+            quantification[s.name]["strandedness"] = strands[s.name]
             rate = quantification[s.name].get("mapping_rate")
             if rate is not None and rate < MIN_MAPPING:
                 warnings.append(f"{s.name}: only {rate:.1%} of reads mapped; check the "
@@ -680,6 +721,10 @@ def _test(rec: StageRecorder, out: Path, counts: np.ndarray, genes: Sequence[str
                                     covariates=config.covariates, vst=True,
                                     threads=config.threads)
         st.version = result.version
+        failed = result.diagnostics.get("not_converged", 0)
+        if failed:
+            warnings.append(f"{failed} gene fits did not converge and were excluded from "
+                            "Wald tests and significance calls")
         factor = contrast[0]
         per_level: dict[str, int] = {}
         for attributes in metadata.values():
@@ -844,7 +889,10 @@ def _write_outputs(run: RNASeqRun, config: RNASeqConfig, dist: np.ndarray,
             "differential_expression": run.result.record(),
             "contrast": list(run.contrast), "samples": [
                 {"name": s.name, "fastq_1": [str(p) for p in s.fastq_1],
-                 "fastq_2": [str(p) for p in s.fastq_2], "attributes": dict(s.attributes)}
+                 "fastq_2": [str(p) for p in s.fastq_2], "attributes": dict(s.attributes),
+                 "strandedness_declared": s.strandedness,
+                 "strandedness": run.quantification[s.name]["strandedness"],
+                 "library_type": run.quantification[s.name].get("library_type")}
                 for s in run.samples],
             "steps": steps, "inputs": inputs, "outputs": outputs,
             "summary": run.summary(), "warnings": run.warnings})
@@ -1075,8 +1123,8 @@ def _markdown(run: RNASeqRun, config: RNASeqConfig, steps: list[dict[str, Any]])
     unit = "read pairs" if run.samples[0].paired else "reads"
     lines += ["## Samples", "",
               "| sample | " + " | ".join(run.samples[0].attributes) +
-              f" | {unit} | kept after trimming | assigned | QC fail | QC warn |",
-              "|---" * (len(run.samples[0].attributes) + 6) + "|"]
+              f" | strandedness | {unit} | kept after trimming | assigned | QC fail | QC warn |",
+              "|---" * (len(run.samples[0].attributes) + 7) + "|"]
     for s in run.samples:
         fails = sorted({m for r in run.qc[s.name].values() for m, v in r["flags"].items()
                         if v == "fail"})
@@ -1089,8 +1137,10 @@ def _markdown(run: RNASeqRun, config: RNASeqConfig, steps: list[dict[str, Any]])
         kept = (f"{trimmed['reads_out'] / trimmed['reads_in']:.1%}"
                 if trimmed.get("reads_in") else "not trimmed")
         rate = run.quantification[s.name].get("mapping_rate")
+        q = run.quantification[s.name]
+        protocol = q.get("library_type") or q["strandedness"]
         lines.append(f"| {s.name} | " + " | ".join(s.attributes.values()) +
-                     f" | {total:,} | {kept} | "
+                     f" | {protocol} | {total:,} | {kept} | "
                      f"{'NA' if rate is None else f'{rate:.1%}'} | "
                      f"{', '.join(fails) or '-'} | {', '.join(warns) or '-'} |")
     lines += ["", f"QC measured at most the first {config.qc_reads:,} reads of each file; "
@@ -1117,14 +1167,14 @@ def _markdown(run: RNASeqRun, config: RNASeqConfig, steps: list[dict[str, Any]])
          f"adapters at 10% error, minimum length {config.min_length})."
          if run.trimmer == "builtin" else "- **Trimming**: none."),
         {"salmon": f"- **Quantification**: salmon {tools.get('salmon', '?')} (selective "
-                   "alignment, library type detected).",
+                   "alignment, library type per sample as recorded above).",
          "kallisto": f"- **Quantification**: kallisto {tools.get('kallisto', '?')} "
                      "(pseudoalignment).",
          "builtin": f"- **Quantification**: built-in k-mer pseudoalignment (k = {config.k}) "
                     "and kallisto's EM; read pairs checked for fragment-length consistency.",
          "hisat2": f"- **Alignment**: HISAT2 {tools.get('hisat2', '?')}, samtools "
                    f"{tools.get('samtools', '?')}; gene counts by featureCounts "
-                   f"{tools.get('featureCounts', '?')} (strand {config.strand})."}[run.engine],
+                   f"{tools.get('featureCounts', '?')} with each sample's strandedness."}[run.engine],
         (f"- **Gene totals**: tximport's rules ({run.genes.counts_from_abundance}), "
          "rounded for the count model." if run.engine != "hisat2" else
          "- **Gene totals**: featureCounts' gene counts."),

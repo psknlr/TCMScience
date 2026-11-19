@@ -185,6 +185,10 @@ python -m bioagent.cli research "葛根芩连汤的实测靶点是否集中在�
     --state-dir WORK/state --out WORK/out --activity npass --activity cmaup
 ```
 
+The command in `run_manifest.json` replays the recorded inputs with `--lock OUT/snapshot_lock.json`. Keep this file with the snapshots and their ledger. For screening, import the saved PubChem response with `bioagent snapshots build --pubchem-bioassay FILE`. For a disease, also import its Open Targets response with `--opentargets FILE`. Studio accepts the same inputs as project files in the `research.snapshot` job.
+
+`run_manifest.json` 中的重放命令通过 `--lock OUT/snapshot_lock.json` 选择原始输入，请一起保留快照、台账和锁文件。使用筛选数据时，可通过 `bioagent snapshots build --pubchem-bioassay FILE` 导入已保存的 PubChem 响应。分析特定疾病时，通过 `--opentargets FILE` 导入该疾病的 Open Targets 响应。Studio 的 `research.snapshot` 任务可以读取对应的项目文件。
+
 The loop has five stages:
 
 1. **Protocol.** The protocol is frozen and its digest is written to the audit chain

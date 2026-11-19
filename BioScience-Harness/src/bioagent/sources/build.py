@@ -12,6 +12,7 @@ import gzip
 import hashlib
 import inspect
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -20,12 +21,12 @@ from typing import Any, Mapping, Iterable
 from . import cards as cards_module
 from . import herbs as herb_layer
 from . import schema
-from .cards import card as source_card
+from .cards import card as source_card, check_key_version
 from .composition import herb_composition
 from .parsers import (bindingdb, cmaup, common, lotus, npass, opentargets, pubchem_bioassay,
                       reactome, string_db)
 from .parsers.common import ParseResult, TaxonFilter
-from .snapshot import Snapshot, SnapshotError, build_snapshot, file_hash
+from .snapshot import Snapshot, SnapshotError, build_snapshot, code_hash, file_hash, load_snapshot
 
 __all__ = ["LOTUS_FILE", "VERSIONS", "build_source", "build_gold", "require_gold", "GoldBuild"]
 
@@ -78,7 +79,8 @@ def _parse(key: str, raw_dir: Path, taxa: TaxonFilter | None,
 
 def _scope(version: str) -> str:
     """What a version is a version *of*: the part after ``+`` (a subset, a disease)."""
-    return version.split("+", 1)[1] if "+" in version else ""
+    return "+".join(part for part in version.split("+")[1:]
+                    if not re.fullmatch(r"(?:sha256|parser)-[0-9a-f]+", part))
 
 
 def _previous(ledger: Any, key: str, version: str, root: str | Path) -> Snapshot | None:
@@ -115,7 +117,15 @@ def build_source(key: str, raw_dir: str | Path, root: str | Path, *,
     A restricted build (``taxa``, or BindingDB's ``inchikeys``) is a different dataset from
     the full one, so its version says so (``2.0+subset-<hash>``) and they never share an id.
     """
+    explicit_version = version is not None
+    # Iterators must describe the same subset during parsing and version selection.
+    for field in ("proteins", "inchikeys"):
+        if kw.get(field) is not None:
+            kw[field] = tuple(kw[field])
     result, module = _parse(key, Path(raw_dir), taxa, **kw)
+    if key == "reactome" and version in (None, "current"):
+        release_digest = file_hash(Path(raw_dir) / reactome.FILE).split(":", 1)[1]
+        version = f"current+sha256-{release_digest}"
     if key == "pubchem_bioassay":
         # PubChem has no releases: the version is the fetch date, and the compound set
         # queried is the subset
@@ -136,7 +146,24 @@ def build_source(key: str, raw_dir: str | Path, root: str | Path, *,
     if scope is not None:
         digest = hashlib.sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest()
         version = f"{version}+subset-{digest[:8]}"
-    if previous is None and ledger is not None:
+    code = _code(module, cards_module) if key == "bindingdb" else _code(module)
+    check_key_version(key, version)
+    existing = Path(root) / key / version / "manifest.json"
+    if not explicit_version and existing.exists():
+        saved_content = json.loads(existing.read_text(encoding="utf-8"))["content"]
+        if saved_content["parser"] != code_hash(code):
+            version = f"{version}+parser-{code_hash(code)[7:19]}"
+            existing = Path(root) / key / version / "manifest.json"
+    if previous is None and existing.is_file():
+        # The baseline belongs to the stored release. Rebuilding it must reproduce its
+        # original drift report even after later releases have been published.
+        saved_content = load_snapshot(root, key, version, accept_review=True).manifest["content"]
+        baseline_id = saved_content.get("previous")
+        if baseline_id:
+            baseline_version = baseline_id.split("@", 1)[1].rsplit("#", 1)[0]
+            previous = load_snapshot(root, key, baseline_version, expected_id=baseline_id,
+                                     accept_review=True)
+    elif previous is None and ledger is not None:
         candidate = _previous(ledger, key, version, root)
         # A rebuild of the same version from the same raw files is not a new release and
         # has no drift to measure; comparing it with its predecessor would put that
@@ -149,11 +176,16 @@ def build_source(key: str, raw_dir: str | Path, root: str | Path, *,
             previous = candidate
     # BindingDB's per-record licence rule is read from its source card, so the card is
     # part of what the parser does and a change to it is a new snapshot.
-    code = _code(module, cards_module) if key == "bindingdb" else _code(module)
+    empty_scope = None
+    parsed_source = (result.report.read.get("mapping_rows", 0) if key == "reactome"
+                     else sum(result.report.read.values()))
+    if scope is not None and not result.nodes and parsed_source:
+        empty_scope = f"no rows matched the declared {key} subset in {version}"
     return build_snapshot(key=key, version=version, nodes=result.nodes, edges=result.edges,
                           raw_files=result.raw_files, parser=code, root=root,
                           card=source_card(key), previous=previous,
-                          extra={"parse_report": result.report.as_dict()}, ledger=ledger)
+                          extra={"parse_report": result.report.as_dict()}, ledger=ledger,
+                          empty_scope=empty_scope)
 
 
 @dataclass

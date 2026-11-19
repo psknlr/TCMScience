@@ -425,6 +425,18 @@ def record_classified(store: InquiryStore, inquiry_id: str, analysis_id: str,
             raise rivals.Unclassifiable(
                 f"these data were already recorded for {again[0]}: a replication, or any "
                 "second analysis, needs data of its own")
+        if classifier == "meta":
+            original = inquiry.analysis(analysis_id).replicates
+            # Enforce independence in either recording order.
+            linked = [a.id for a in inquiry.analyses
+                      if a.id == original or a.replicates == analysis_id]
+            for other in linked:
+                if other not in record["read"]:
+                    continue
+                other_ids = record["read"][other].get("study_ids")
+                if not other_ids or set(other_ids) & set(read["study_ids"]):
+                    raise rivals.Unclassifiable(
+                        f"{analysis_id} needs cohorts demonstrably disjoint from {other}")
         ref = f"runtime:{tool or classifier}:{computed[:16]}"
         source = " ".join(str(evidence_ref or "").split())
         _own_source(inquiry, analysis_id, source)

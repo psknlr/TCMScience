@@ -245,6 +245,20 @@ test("admet.models again: an endpoint whose model still stands is kept (nothing 
   assert.ok(ChemWorker.instances.every((w) => w.terminated), "every job's chemistry worker was stopped when it ended");
 });
 
+test("admet.models refreshes a cached legacy model card without held-out domain diagnostics", async () => {
+  const { svc, store, python } = await built();
+  const cards = await readCards(store);
+  delete cards.caco2_wang.heldout_by_domain;
+  await store.writeJson([...modelsDir(store), "model_cards.json"], cards);
+  const before = python.calls.length;
+  const job = await settle(svc, (await svc.submit("admet.models", { archive: "admet_group.zip", endpoints: TWO, max_iter: 100 }, { project_id: "p1" })).id);
+  assert.equal(job.state, "succeeded", JSON.stringify(job.error));
+  const trained = python.calls.slice(before).filter((call) => call.name === "admet_train");
+  assert.deepEqual(trained.map((call) => call.args.endpoint), ["caco2_wang"]);
+  assert.ok((await readCards(store)).caco2_wang.heldout_by_domain.inside);
+  assert.equal(job.result.endpoints.hia_hou.kept, true);
+});
+
 test("admet.models: a model file changed in storage is not kept; the archive comes through the dataset workspace when none is given", async () => {
   const bytes = archiveBytes(C.ok);
   const sha = hex(bytes);

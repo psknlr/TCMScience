@@ -35,13 +35,13 @@ import hashlib
 import importlib.util
 import inspect
 import json
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 # The ablation's interval, so the two benchmarks report the same computation.
-from .ablation import _wilson
 
 __all__ = ["DESIGNS", "LICENCES", "MANUAL_SEED", "NEGATIVES", "SAMPLE_SEED", "SPLIT_SEED",
            "VALUE_FIELDS", "Label", "Outcome", "Record", "compare", "draw_key",
@@ -110,6 +110,15 @@ AGE_MESH = frozenset({
     "Infant, Newborn", "Infant", "Child, Preschool", "Child", "Adolescent", "Young Adult",
     "Adult", "Middle Aged", "Aged", "Aged, 80 and over",
 })
+
+
+def _wilson(k: int, n: int, z: float = 1.959964) -> tuple[float, float]:
+    if n == 0:
+        return (0.0, 0.0)
+    p = k / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return (round(max(0.0, centre - half), 4), round(min(1.0, centre + half), 4))
 
 
 def _digest(text: str) -> int:

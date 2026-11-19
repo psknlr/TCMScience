@@ -4,22 +4,22 @@
 
 ## Configurations
 
-| Configuration | Errors released | 95% CI | Correct outputs refused |
+| Configuration | Errors released | Source drafts with ≥1 released mutant | Correct outputs refused |
 | --- | ---: | --- | ---: |
-| ungoverned | 121/121 (100%) | 97%–100% | 0/10 |
-| kernel only | 7/121 (6%) | 3%–11% | 0/10 |
-| domain only | 57/121 (47%) | 38%–56% | 0/10 |
-| full | 0/121 (0%) | 0%–3% | 0/10 |
-| full without provenance | 10/121 (8%) | 5%–15% | 0/10 |
-| full without output | 42/121 (35%) | 27%–44% | 0/10 |
-| full without licensing | 0/121 (0%) | 0%–3% | 0/10 |
-| full without claim_contract | 6/121 (5%) | 2%–10% | 0/10 |
-| full without release_path | 1/121 (1%) | 0%–5% | 0/10 |
-| provenance only | 111/121 (92%) | 85%–95% | 0/10 |
-| output only | 22/121 (18%) | 12%–26% | 0/10 |
-| licensing only | 70/121 (58%) | 49%–66% | 0/10 |
-| claim_contract only | 58/121 (48%) | 39%–57% | 0/10 |
-| release_path only | 117/121 (97%) | 92%–99% | 0/10 |
+| ungoverned | 121/121 (100%) | 10/10 | 0/10 |
+| kernel only | 7/121 (6%) | 4/10 | 0/10 |
+| domain only | 57/121 (47%) | 10/10 | 0/10 |
+| full | 0/121 (0%) | 0/10 | 0/10 |
+| full without provenance | 10/121 (8%) | 10/10 | 0/10 |
+| full without output | 42/121 (35%) | 10/10 | 0/10 |
+| full without licensing | 0/121 (0%) | 0/10 | 0/10 |
+| full without claim_contract | 6/121 (5%) | 4/10 | 0/10 |
+| full without release_path | 1/121 (1%) | 1/10 | 0/10 |
+| provenance only | 111/121 (92%) | 10/10 | 0/10 |
+| output only | 22/121 (18%) | 10/10 | 0/10 |
+| licensing only | 70/121 (58%) | 10/10 | 0/10 |
+| claim_contract only | 58/121 (48%) | 10/10 | 0/10 |
+| release_path only | 117/121 (97%) | 10/10 | 0/10 |
 
 ## Which part catches which error
 

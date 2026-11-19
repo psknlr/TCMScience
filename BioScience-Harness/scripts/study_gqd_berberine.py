@@ -5,7 +5,7 @@
 
 Re-analyses group summaries (mean, SD, n) transcribed from the published tables, and the
 locally built ToxCast store, under a protocol locked in this file. Writes
-gqd_berberine.json and gqd_berberine.md.
+gqd_berberine.json and gqd_berberine_tables.md. The curated discussion is kept separately.
 
 Sources (the numbers below are transcribed, with the table they come from):
 
@@ -23,6 +23,8 @@ Sources (the numbers below are transcribed, with the table they come from):
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
+import hashlib
 import json
 import sqlite3
 import sys
@@ -123,10 +125,17 @@ def pk_contrasts() -> list[dict]:
     return out
 
 
-def toxcast_assays(tcmdb: Path) -> tuple[list[AssayResult], int]:
-    conn = sqlite3.connect(tcmdb / "db" / "comptox.sqlite")
-    rows = conn.execute("SELECT object_id, object_name, outcome, context FROM relations "
-                        "WHERE subject_id = ?", (COMPTOX_ID,)).fetchall()
+def toxcast_assays(tcmdb: Path) -> tuple[list[AssayResult], int, dict]:
+    database = (tcmdb / "db" / "comptox.sqlite").resolve().as_uri()
+    with closing(sqlite3.connect(database + "?mode=ro", uri=True)) as conn:
+        rows = conn.execute("SELECT object_id, object_name, outcome, context FROM relations "
+                            "WHERE subject_id = ? ORDER BY object_id, object_name, outcome, context",
+                            (COMPTOX_ID,)).fetchall()
+    if not rows:
+        raise ValueError(f"the CompTox store has no assay records for {COMPTOX_ID}")
+    encoded = json.dumps(rows, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    evidence = {"subject": COMPTOX_ID, "n_input_rows": len(rows),
+                "selected_rows_sha256": hashlib.sha256(encoded).hexdigest()}
     assays, inactive = [], 0
     for oid, name, outcome, ctx in rows:
         c = json.loads(ctx or "{}")
@@ -136,10 +145,10 @@ def toxcast_assays(tcmdb: Path) -> tuple[list[AssayResult], int]:
         if outcome != "positive" or c.get("measure") != "AC50" or c.get("value") in (None, ""):
             continue
         assays.append(AssayResult(BERBERINE, name or oid, "AC50",
-                                  Measurement("measured", float(c["value"]), c.get("unit", "uM")),
-                                  species=str(c.get("species", "")), system=c.get("cell", ""),
+                                  Measurement("measured", float(c["value"]), str(c.get("unit") or "")),
+                                  species=str(c.get("species") or ""), system=c.get("cell", ""),
                                   flags=tuple(c.get("flags") or ()), study="ToxCast invitrodb"))
-    return assays, inactive
+    return assays, inactive, evidence
 
 
 def exposure_screen(assays: list[AssayResult]) -> dict:
@@ -155,15 +164,31 @@ def exposure_screen(assays: list[AssayResult]) -> dict:
         verdicts: dict[str, int] = {}
         for r in res:
             verdicts[r["verdict"]] = verdicts.get(r["verdict"], 0) + 1
-        open_ = sorted((r for r in res if r["verdict"] != "implausible"),
+        open_ = sorted((r for r in res if r["ratio"] is not None and r["verdict"] != "implausible"),
                        key=lambda r: -r["ratio"][1])
         out[group] = {"cmax_ng_ml": cmax,
                       "cmax_nM_total": round(cmax / BERBERINE_MW * 1e3, 1),
                       "verdicts": verdicts,
+                      "unevaluable": [r for r in res if r["ratio"] is None],
                       "not_ruled_out": [{"assay": r["target"], "ratio_range": r["ratio"],
                                          "potency_uM": round(r["potency_molar"] * 1e6, 4),
                                          "verdict": r["verdict"]} for r in open_]}
     return out
+
+
+def bound_table(groups: dict) -> str:
+    """Rat plasma free Cmax / assay AC50, across the stated free-fraction range."""
+    rows = ["| Group | Lower bound ≥ 1 | Upper bound ≥ 1 | Highest upper bound |",
+            "| --- | ---: | ---: | ---: |"]
+    for group, summary in groups.items():
+        bounds = [r["ratio_range"] for r in summary["not_ruled_out"]]
+        lower = sum(lo >= 1 for lo, hi in bounds)
+        upper = sum(hi >= 1 for lo, hi in bounds)
+        # Only not_ruled_out contains individual ratios. No qualifying result is
+        # distinct from a measured maximum of zero.
+        highest = f"{max(hi for lo, hi in bounds):.3f}" if bounds else "unavailable"
+        rows.append(f"| {group} | {lower} | {upper} | {highest} |")
+    return "\n".join(rows)
 
 
 GPB_2020 = {
@@ -192,14 +217,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv)
     status = PROTOCOL.check(endpoint=PROTOCOL.primary_endpoint, analysis=dict(PROTOCOL.analysis))
-    assays, inactive = toxcast_assays(Path(args.tcmdb))
+    assays, inactive, evidence = toxcast_assays(Path(args.tcmdb))
     result = {"protocol": {"locked": PROTOCOL.locked, "status": status,
-                           "amendments": list(PROTOCOL.amendments),
+                           "amendments": [dict(a) for a in PROTOCOL.amendments],
                            "hypothesis": PROTOCOL.hypothesis,
                            "competing": list(PROTOCOL.competing),
                            "decision_rules": dict(PROTOCOL.decision_rules)},
               "pk_contrasts": pk_contrasts(),
-              "exposure": {"assays_active": len(assays), "assays_inactive": inactive,
+              "exposure": {"input": evidence, "assays_active": len(assays), "assays_inactive": inactive,
                            "by_group": exposure_screen(assays)},
               "efficacy_study": GPB_2020}
     out = Path(args.out)
@@ -215,14 +240,15 @@ def main(argv: list[str] | None = None) -> int:
                      f"{r['ratio']:.2f} ({r['ci'][0]:.2f}–{r['ci'][1]:.2f}) | {c['verdict']} |")
     lines += ["", f"ToxCast: {len(assays)} active AC50s and {inactive} inactive results for "
                   "berberine chloride.", "",
-              "| Group | Plasma Cmax (total) | Implausible | Depends on unknowns | Plausible |",
-              "| --- | --- | ---: | ---: | ---: |"]
+              "| Group | Plasma Cmax (total) | Implausible | Depends on unknowns | Plausible | Undeterminable |",
+              "| --- | --- | ---: | ---: | ---: | ---: |"]
     for g, e in result["exposure"]["by_group"].items():
         v = e["verdicts"]
         lines.append(f"| {g} | {e['cmax_ng_ml']} ng/mL ({e['cmax_nM_total']} nM) | "
                      f"{v.get('implausible', 0)} | {v.get('depends_on_unknowns', 0)} | "
-                     f"{v.get('plausible', 0)} |")
-    (out / "gqd_berberine.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+                     f"{v.get('plausible', 0)} | {v.get('undeterminable', 0)} |")
+    lines.extend(["", bound_table(result["exposure"]["by_group"])])
+    (out / "gqd_berberine_tables.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
     return 0
 

@@ -466,19 +466,15 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
           INQUIRY_SCHEMA, "study.inquiry", B_R),
     _core("network_pharmacology_run", "网络药理研究闭环（任务）", "Network pharmacology run (job)",
           "netpharm", """
-        The data-driven network-pharmacology workflow, as a job (in this browser's job workers,
-        or on a connected local runner): frozen
-        protocol → verified snapshots (NPASS / CMAUP / LOTUS, STRING, Reactome, Open
-        Targets) → measured targets → Reactome enrichment against a stated background, BH
-        over every pathway tested, a degree-matched permutation null → pre-registered
-        rebuttals → attested release. It records sixteen workflow stages, each with a
-        validation status and its reason (GO skipped: no GO snapshot; KEGG blocked: licence
-        required), and writes nine exports: compound, target, disease-target, enrichment and
-        network-edge tables, provenance.json, run_manifest.json, limitations.md, report.html.
-        Needs the snapshots built where the job runs, with the formula in their herb layer
-        (job.research.snapshot: formulas ["桂枝汤《伤寒论》"]); jobs need one approval per project.
-        Returns a job id for job_status. Claims are capped at mechanism_hypothesis; a refuted
-        hypothesis, or nothing testable, is a result.""",
+        Run network pharmacology as a browser or local runner job. Freeze the protocol, load
+        verified snapshots, identify constituent targets, test Reactome pathways with BH
+        correction and a mode-specific permutation null, then run the rebuttals and release
+        eligible hypotheses. The report records sixteen stages and nine exports including
+        TSVs, provenance and a reproducible manifest. GO is skipped, KEGG requires a licence.
+        Build the formula's herb layer with job.research.snapshot (e.g. formulas ["桂枝汤《伤寒论》"]).
+        For screening, supply its pubchem_bioassay response file. For a disease, supply
+        its opentargets response file. Jobs need approval per project. Poll job_status.
+        Read the limitations even when a hypothesis is released. No testable pathway is a result.""",
           obj({"formula": S("formula name, e.g. 葛根芩连汤"),
                "disease": S("disease ontology id, e.g. MONDO_0005148"),
                "parameters": obj({

@@ -1,0 +1,121 @@
+{
+  "scope": "Curated constituent potency analysis of 葛根芩连汤 using NPASS 2.0, CMAUP 2.0, LOTUS 2026-04-13, human Reactome annotations, STRING v12 and UniProt. The overall potency-target list includes nonhuman or conflicting species records. Human pathway statistics use the Reactome-mapped subset. PubChem BioAssay and disease association data are outside this run.",
+  "reference": {
+    "workflow_run": 43872919627,
+    "artifact_id": 14230690825,
+    "commit": "83f27a555e0dfc9e15e28b9d250057b050eaa606",
+    "verification_status": "PASS",
+    "result_digest": "sha256:6b2ed4eb0055420ebc0cff6e01ed9f68c349efac1d3381ff6a2ce35551dad77e",
+    "counts": {
+      "compounds": 1792,
+      "potent_target_ids": 370,
+      "unique_compounds_with_target_evidence": 180,
+      "reactome_proteins": 12186,
+      "assayed_annotated_background": 391,
+      "potent_in_reactome": 237,
+      "pathways_tested": 966,
+      "pathways_at_BH_0_05": 0,
+      "pathways_passing_both_filters": 0,
+      "released_mechanism_hypotheses": 0,
+      "STRING_nodes": 237,
+      "STRING_edges": 624,
+      "STRING_largest_component": 195
+    }
+  },
+  "repaired_worktree": {
+    "result_digest": "sha256:24c8def00a80678833c50718bd447d07157badce53dd6a27825281c04de7281e",
+    "verification_status": "PASS",
+    "matched_archived_input_files": 17,
+    "counts": {
+      "compounds": 1792,
+      "potent_target_ids": 369,
+      "unique_compounds_with_target_evidence": 179,
+      "reactome_proteins": 12186,
+      "assayed_annotated_background": 382,
+      "potent_in_reactome": 236,
+      "pathways_tested": 955,
+      "pathways_at_BH_0_05": 0,
+      "pathways_passing_both_filters": 0,
+      "released_mechanism_hypotheses": 0,
+      "STRING_nodes": 244,
+      "STRING_edges": 648,
+      "STRING_largest_component": 200
+    },
+    "coverage": {
+      "classifiable_proteins": 637,
+      "indeterminate_only_proteins": 19,
+      "measured_proteins": 656,
+      "potent_targets_outside_STRING_snapshot": 125,
+      "target_taxa": {
+        "human_confirmed": 244,
+        "nonhuman_or_conflicting": 125,
+        "taxon_unknown": 0
+      }
+    },
+    "null_model": "compound_count_and_annotation_degree",
+    "enrichment_table_sha256": "sha256:ea023d92f24eaf34bd2daf5eb5cfa996281bb1d18ce3f6f1eca1929c6b06066f",
+    "network_table_sha256": "sha256:64ab1c3bb97e392a33f515d3f803b823bbc10d6a2a0952169e02b4c987e1de5d",
+    "verify_checks": {
+      "manifest_digests": "PASS",
+      "enrichment_arithmetic": "PASS",
+      "code": "PASS",
+      "result_digest": "PASS",
+      "tables": "PASS"
+    }
+  },
+  "verification_note": "The reference and repaired worktree use the same 17 archived raw byte streams. The two UNVERIFIED input registry checks are documented in inputs-and-snapshots.json. The repaired run independently reloaded the six snapshots and reproduced the result digest and all five exported tables.",
+  "commands": [
+    [
+      "bioagent",
+      "snapshots",
+      "build",
+      "--offline",
+      "--raw",
+      "RAW",
+      "--out",
+      "SNAP",
+      "--ledger",
+      "SNAP/ledger.jsonl",
+      "--sources",
+      "npass",
+      "cmaup",
+      "lotus",
+      "--report",
+      "snapshot_report.json"
+    ],
+    [
+      "bioagent",
+      "research",
+      "葛根芩连汤的实测靶点集中在哪些通路？",
+      "--formula",
+      "葛根芩连汤",
+      "--snapshots",
+      "SNAP",
+      "--ledger",
+      "SNAP/ledger.jsonl",
+      "--state-dir",
+      "STATE",
+      "--out",
+      "OUT",
+      "--activity",
+      "npass",
+      "--activity",
+      "cmaup",
+      "--activity",
+      "lotus",
+      "--optional",
+      "string"
+    ],
+    [
+      "python",
+      "-m",
+      "bioagent.analysis.np_exports",
+      "verify",
+      "OUT",
+      "--snapshots",
+      "SNAP",
+      "--ledger",
+      "SNAP/ledger.jsonl"
+    ]
+  ]
+}

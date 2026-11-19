@@ -16,7 +16,7 @@ cannot disagree about it. Each measured value (Ki, IC50, Kd, EC50) is one ``targ
 edge; a row may carry more than one.
 
 The target is the protein the row's chains name. One chain with a UniProt accession is
-that protein, even when other chains carry none. Chains naming *different* proteins are a
+that protein. A multichain record with an unidentified chain is unresolved. Chains naming *different* proteins are a
 complex — BindingDB's own header says "> 1 implies a multichain complex" — and an
 affinity measured against a complex is not a measurement against any one of its
 proteins, so the row is counted and dropped rather than filed under whichever chain
@@ -95,12 +95,17 @@ def parse_bindingdb(path: str | Path, *, inchikeys: Iterable[str]) -> ParseResul
                 report.drop("ligand without a valid InChIKey")
                 continue
             chains = get(c["chains"])
-            n = int(chains) if chains and chains.isdigit() else 1
-            proteins = sorted({value for k in range(max(n, 1))
-                               if is_uniprot(value := get(c["chains"] + 1 + k * len(block)
-                                                          + acc_offset))})
+            if not chains or not chains.isdigit() or int(chains) < 1:
+                report.drop("missing or invalid target chain count")
+                continue
+            chain_ids = [get(c["chains"] + 1 + k * len(block) + acc_offset)
+                         for k in range(int(chains))]
+            proteins = sorted({acc for acc in chain_ids if is_uniprot(acc)})
             if not proteins:
                 report.drop("target chain without a UniProt accession")
+                continue
+            if len(chain_ids) > 1 and not all(is_uniprot(acc) for acc in chain_ids):
+                report.drop("unresolved multichain complex: at least one chain is unidentified")
                 continue
             if len(proteins) > 1:
                 report.drop("multichain complex: the affinity belongs to the complex, not "

@@ -49,7 +49,8 @@ def qc_metrics(m: CellMatrix) -> dict[str, np.ndarray]:
     x = m.counts
     total = np.asarray(x.sum(axis=1)).ravel()
     genes = np.diff(x.indptr)
-    mito = np.asarray(x[:, _mito(m.gene_names)].sum(axis=1)).ravel()
+    mt = _mito(m.gene_names)
+    mito = np.asarray(x[:, mt].sum(axis=1)).ravel()
     ribo = np.asarray(x[:, _ribo(m.gene_names)].sum(axis=1)).ravel()
     top = np.zeros(len(total))
     for i in range(x.shape[0]):
@@ -59,7 +60,8 @@ def qc_metrics(m: CellMatrix) -> dict[str, np.ndarray]:
     with np.errstate(divide="ignore", invalid="ignore"):
         pct = lambda a: np.where(total > 0, 100.0 * a / total, 0.0)   # noqa: E731
         return {"total_counts": total, "n_genes": genes.astype(float),
-                "pct_mito": pct(mito), "pct_ribo": pct(ribo), "pct_top20": pct(top)}
+                "pct_mito": pct(mito) if mt.any() else np.full(len(total), np.nan),
+                "pct_ribo": pct(ribo), "pct_top20": pct(top)}
 
 
 def _mad_outlier(values: np.ndarray, nmads: float, *, upper_only: bool = False
@@ -101,7 +103,8 @@ def filter_cells(m: CellMatrix, settings: QCSettings = QCSettings()) -> QCResult
         per_sample[str(s)] = {"cells_in": int(idx.sum()),
                               "median_genes": float(np.median(met["n_genes"][idx])),
                               "median_counts": float(np.median(met["total_counts"][idx])),
-                              "median_pct_mito": float(np.median(met["pct_mito"][idx]))}
+                              "median_pct_mito": (float(np.median(met["pct_mito"][idx]))
+                                                  if np.isfinite(met["pct_mito"][idx]).any() else None)}
     drop = np.zeros(n, dtype=bool)
     removed = {}
     for name, flag in reasons.items():

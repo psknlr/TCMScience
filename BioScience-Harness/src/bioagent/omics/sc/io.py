@@ -96,10 +96,11 @@ def _first(directory: Path, *names: str) -> Path:
 
 def _check_integer(matrix: sparse.spmatrix, where: str) -> sparse.csr_matrix:
     m = sparse.csr_matrix(matrix)
-    if m.nnz and (m.data.min() < 0 or np.any(np.abs(m.data - np.round(m.data)) > 1e-6)):
-        raise ScIOError(f"{where} does not hold raw counts (negative or non-integer "
+    if m.nnz and (not np.isfinite(m.data).all() or m.data.min() < 0
+                  or np.any(np.abs(m.data - np.round(m.data)) > 1e-6)):
+        raise ScIOError(f"{where} does not hold raw counts (nonfinite, negative or non-integer "
                         "values); the pipeline needs counts, not normalised values")
-    m.data = np.round(m.data).astype(np.float32)
+    m.data = np.round(m.data).astype(np.float64 if m.nnz and m.data.max() > 2**24 else np.float32)
     m.eliminate_zeros()
     return m
 
@@ -188,10 +189,12 @@ def from_anndata(ad: Any, *, source: str = "") -> CellMatrix:
     x = ad.layers["counts"] if "counts" in ad.layers else ad.X
     where = source or "the AnnData"
     m = _check_integer(sparse.csr_matrix(x), f"{where} (X or layers['counts'])")
-    names = np.array(ad.var_names, dtype=object)
+    symbol_key = next((k for k in ("gene_symbols", "gene_symbol", "feature_name")
+                       if k in ad.var), None)
+    names = np.array(ad.var[symbol_key] if symbol_key else ad.var_names, dtype=object)
     ids = (np.array(ad.var["gene_ids"], dtype=object) if "gene_ids" in ad.var
-           else names.copy())
-    obs = {str(c): np.array(ad.obs[c].astype(str), dtype=object) for c in ad.obs.columns}
+           else np.array(ad.var_names, dtype=object))
+    obs = {str(c): np.array(ad.obs[c].astype(object).fillna("").astype(str), dtype=object) for c in ad.obs.columns}
     return CellMatrix(counts=m, cells=np.array(ad.obs_names, dtype=object), gene_ids=ids,
                       gene_names=_dedupe(names), obs=obs,
                       source=source or str(ad.uns.get("bioagent_source", "")))
@@ -282,36 +285,47 @@ def read_counts(path: str | Path) -> CellMatrix:
 
 def concatenate(parts: Sequence[tuple[str, CellMatrix]],
                 attributes: Mapping[str, Mapping[str, Any]] | None = None) -> CellMatrix:
-    """Samples into one matrix over the union of genes (by gene id).
+    """Align by stable ID over the features measured in every source and retain cell metadata.
 
-    Cell barcodes become ``sample:barcode``; ``obs['sample']`` and each sample's
-    attributes (condition, batch, ...) are recorded per cell.
+    Samples may arrive already multiplexed in AnnData. Sheet-level attributes must agree
+    with embedded non-missing values; library/sample identity and biological units remain
+    separate. An absent feature must never become an observed zero.
     """
     if not parts:
         raise ScIOError("no samples to combine")
-    order: dict[str, int] = {}
-    names: dict[str, str] = {}
-    for _, m in parts:
-        for gid, gname in zip(m.gene_ids, m.gene_names):
-            if gid not in order:
-                order[gid] = len(order)
-                names[gid] = gname
-    blocks, cells, obs = [], [], {"sample": []}
-    attr_keys = sorted({k for a in (attributes or {}).values() for k in a})
-    for k in attr_keys:
-        obs[k] = []
+    common = set(parts[0][1].gene_ids)
+    keys = {"sample"}
+    attrs = attributes or {}
     for sample, m in parts:
-        cols = np.array([order[g] for g in m.gene_ids])
-        coo = m.counts.tocoo()
-        blocks.append(sparse.csr_matrix((coo.data, (coo.row, cols[coo.col])),
-                                        shape=(m.shape[0], len(order))))
-        cells += [f"{sample}:{c}" for c in m.cells]
-        obs["sample"] += [sample] * m.shape[0]
-        for k in attr_keys:
-            obs[k] += [str((attributes or {}).get(sample, {}).get(k, ""))] * m.shape[0]
-    gene_ids = np.array(list(order), dtype=object)
+        if len(set(m.gene_ids)) != len(m.gene_ids):
+            raise ScIOError(f"{sample}: gene IDs repeat; reconcile them before combining counts")
+        common.intersection_update(m.gene_ids)
+        keys.update(m.obs)
+        keys.update(attrs.get(sample, {}))
+    if not common:
+        raise ScIOError("no common measured gene IDs across the samples; check the references")
+    first = parts[0][1]
+    kept = np.array([g in common for g in first.gene_ids])
+    ids = first.gene_ids[kept]
+    blocks, cells = [], []
+    annotations = {k: [] for k in sorted(keys)}
+    for sample, m in parts:
+        by_id = {g: i for i, g in enumerate(m.gene_ids)}
+        blocks.append(m.counts[:, [by_id[g] for g in ids]])
+        cells.extend(f"{sample}:{c}" for c in m.cells)
+        for key in annotations:
+            external = str(attrs.get(sample, {}).get(key, ""))
+            embedded = m.obs.get(key)
+            if embedded is not None:
+                values = np.asarray(embedded, dtype=object)
+                if external and np.any((values != "") & (values != external)):
+                    raise ScIOError(f"{sample}: sheet and embedded metadata disagree on {key!r}")
+                if external:
+                    values = np.where(values == "", external, values)
+            else:
+                values = np.full(m.shape[0], sample if key == "sample" else external, dtype=object)
+            annotations[key].extend(values)
     return CellMatrix(counts=sparse.vstack(blocks).tocsr(), cells=np.array(cells, dtype=object),
-                      gene_ids=gene_ids,
-                      gene_names=_dedupe(np.array([names[g] for g in gene_ids], dtype=object)),
-                      obs={k: np.array(v, dtype=object) for k, v in obs.items()},
+                      gene_ids=ids, gene_names=_dedupe(first.gene_names[kept]),
+                      obs={k: np.array(v, dtype=object) for k, v in annotations.items()},
                       source=";".join(m.source for _, m in parts))

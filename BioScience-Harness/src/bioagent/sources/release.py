@@ -252,6 +252,9 @@ def _path_directions(subject: str, obj: str, edges: Sequence[Mapping[str, Any]],
             steps += 1
             if steps > limit:
                 return None
+            if e.get("predicate") == "participates_in":
+                # Pathway membership has no causal sign (the protein may repress it).
+                continue
             if _definitional(e) or e.get("predicate") == "contains":
                 nxt_state = state             # what a thing is or holds, not what it does
             else:

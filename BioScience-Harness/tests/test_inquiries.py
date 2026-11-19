@@ -414,11 +414,12 @@ def test_trials_relabelled_are_the_same_trials(store):
     iid = inq.open_inquiry(store, scaffold="efficacy", values=EFFICACY)["inquiry_id"]
     pooled = {"k": 3, "random_effects": {"ci_low": -1.0, "ci_high": -0.5}}
     trials = {"estimates": [-0.8, -0.6, -0.9], "standard_errors": [0.2, 0.25, 0.3],
-              "scale": "raw"}
+              "scale": "raw", "study_ids": ["A", "B", "C"]}
     inq.record_classified(store, iid, "all_trials", {**trials, "labels": ["t1", "t2", "t3"]},
                           pooled, tool="native.meta_analysis")
     relabelled = {"estimates": [-0.9, -0.8, -0.6], "standard_errors": [0.3, 0.2, 0.25],
-                  "labels": ["trial 3", "trial 1", "trial 2"], "scale": "raw"}
+                  "labels": ["trial 3", "trial 1", "trial 2"], "scale": "raw",
+                  "study_ids": ["C", "A", "B"]}
     with pytest.raises(rivals.Unclassifiable, match="already recorded for all_trials"):
         inq.record_classified(store, iid, "all_trials-rep", relabelled, pooled,
                               tool="native.meta_analysis")
@@ -431,10 +432,10 @@ def test_the_same_numbers_paired_differently_are_other_data(store):
     pooled = {"k": 2, "random_effects": {"ci_low": -1.0, "ci_high": -0.5}}
     inq.record_classified(store, iid, "all_trials",
                           {"estimates": [-0.8, -0.2], "standard_errors": [0.1, 0.5],
-                           "scale": "raw"}, pooled, tool="native.meta_analysis")
+                           "scale": "raw", "study_ids": ["A", "B"]}, pooled, tool="native.meta_analysis")
     view = inq.record_classified(store, iid, "all_trials-rep",
                                  {"estimates": [-0.8, -0.2], "standard_errors": [0.5, 0.1],
-                                  "scale": "raw"}, pooled, tool="native.meta_analysis")
+                                  "scale": "raw", "study_ids": ["C", "D"]}, pooled, tool="native.meta_analysis")
     assert view["update"]["by"] == "runtime"
     assert rivals.inputs("combination", {"cells": [{"dose_a": 1, "dose_b": 2}]}) != \
         rivals.inputs("combination", {"cells": [{"dose_a": 2, "dose_b": 1}]})
@@ -490,3 +491,19 @@ def test_a_replicate_the_agent_adds_to_a_runtime_classified_test_takes_its_rule(
                                  {"ratio": 1.05, "ci_low": 0.9, "ci_high": 1.2}, None)
     assert view["update"]["outcome"] == "unchanged"         # the sealed 0.80-1.25 limits
     assert view["update"]["by"] == "runtime"
+
+
+def test_trial_ids_within_and_between_evidence_sets(store):
+    from bioagent.tools.stats import meta_analysis
+    for extra in ({"labels": ["Trial A", "trial a"]}, {"study_ids": ["A", "a"]}):
+        with pytest.raises(ValueError):
+            meta_analysis([.15, .15], [.1, .1], scale="raw", **extra)
+    iid = inq.open_inquiry(store, scaffold="efficacy", values=EFFICACY)["inquiry_id"]
+    args = {"estimates": [-.5, -.6], "standard_errors": [.1, .1], "scale": "raw"}
+    with pytest.raises(rivals.Unclassifiable, match="study_ids"):
+        inq.record_classified(store, iid, "all_trials", args, meta_analysis(**args))
+    first = {**args, "study_ids": ["cohort X", "cohort Y"]}
+    inq.record_classified(store, iid, "all_trials", first, meta_analysis(**first))
+    overlapping = {**args, "study_ids": ["cohort X", "cohort Z"], "estimates": [-.4, -.7]}
+    with pytest.raises(rivals.Unclassifiable, match="disjoint"):
+        inq.record_classified(store, iid, "all_trials-rep", overlapping, meta_analysis(**overlapping))

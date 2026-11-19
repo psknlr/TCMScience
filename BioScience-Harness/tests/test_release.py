@@ -262,3 +262,18 @@ def test_pathway_membership_connects_but_does_not_limit_a_claim():
     member = _edge("member", COX2, "participates_in", pathway, "expert_consensus")
     by = {e["source_record_id"]: e for e in EDGES}
     assert path_licenses([by["ic50"], member]) == {"mechanism_hypothesis", "mechanism"}
+
+
+def test_unsigned_pathway_membership_cannot_propagate_an_inhibitory_sign(snap):
+    pathway = "reactome:R-HSA-123"
+    measured = {**EDGES[3], "effect": "inhibition"}
+    membership = _edge("membership", COX2, "participates_in", pathway, "expert_consensus")
+    data = replace(snap, edges=(measured, membership))
+    support = ((snap.snapshot_id, "ic50"), (snap.snapshot_id, "membership"))
+    signed = CandidateClaim("mechanism", PUERARIN, pathway, support,
+                            "The compound inhibits this pathway.")
+    checked = check_release([signed], [data])
+    assert not checked.ok and "direction" in checked.refused[0][1]
+    direct = CandidateClaim("mechanism", PUERARIN, COX2, support[:1],
+                            "The compound inhibits this protein.")
+    assert check_release([direct], [data]).ok

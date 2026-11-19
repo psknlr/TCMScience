@@ -68,7 +68,8 @@ concurrency:
 jobs:
   live:
     name: Real downloads, hub datasets, research snapshots and the benchmark
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 has Chromium dependencies for Ubuntu 24.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
@@ -247,7 +248,8 @@ jobs:
 
   admet:
     name: "ADMET on the real TDC archive: the 22 models built natively and in a browser, compared"
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 has Chromium dependencies for Ubuntu 24.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4

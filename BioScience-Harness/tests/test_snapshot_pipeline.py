@@ -243,3 +243,27 @@ def test_nothing_is_downloaded_when_the_disk_cannot_hold_a_file(served, tmp_path
     assert not any(s.startswith("GET") for s in _Serve.seen), "no body was requested"
     kept = [p.name for p in raw.rglob("*") if p.is_file() and not p.name.startswith(".")]
     assert not [n for n in kept if n in pipeline._SPECS], kept
+
+
+def test_research_snapshot_build_records_supplemental_observations_and_indication(served, tmp_path):
+    from test_pubchem_bioassay import row, saved
+    from test_network_pharmacology import ot_answer, ot_row
+    from bioagent.sources.snapshot import load_snapshot
+
+    responses = tmp_path / "responses"
+    responses.mkdir()
+    screen = saved(responses, [row(410, 2353, "Active", gene="5743"),
+                               row(410, 5281807, "Inactive", gene="5743")])
+    ot = ot_answer([ot_row("ENSG00000000001", "P35354", .9, genetic_association=.9)],
+                   responses / "disease.json")
+    snap = tmp_path / "snap"
+    ledger = SnapshotLedger(tmp_path / "ledger.jsonl")
+    doc = pipeline.build_research_snapshots(served, snap, ledger.path, offline=True,
+                                            pubchem_bioassay=str(screen), opentargets=str(ot))
+    assert doc["status"] in (PASS, UNVERIFIED), doc["stages"]
+    for key in ("opentargets", "pubchem_bioassay"):
+        rec = doc["snapshots"][key]
+        reread = load_snapshot(snap, key, rec["version"], expected_id=rec["snapshot_id"],
+                               ledger=ledger, accept_review=True)
+        assert reread.edges
+    assert "--pubchem-bioassay" in doc["reproduce"] and "--opentargets" in doc["reproduce"]

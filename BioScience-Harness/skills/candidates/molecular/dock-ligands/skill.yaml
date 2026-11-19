@@ -76,6 +76,9 @@ inputs:
     site_ligand:
       type: string
       description: residue name of the co-crystal ligand that defines and validates the site
+    site_ligand_instance:
+      type: string
+      description: PDB chain and residue of a specific ligand copy, e.g. A:401B
     site_ligand_smiles:
       type: string
     chains:

@@ -96,6 +96,7 @@ class DockConfig:
     n_poses: int = 9
     seed: int = 42
     allow_remote: bool = False
+    site_ligand_instance: str | None = None  # PDB chain:residue, including insertion code
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -172,11 +173,20 @@ def _receptor_text(spec: str, config: DockConfig) -> tuple[str, dict[str, Any], 
                             "UniProt:<acc>")
 
 
-def _site(text: str, config: DockConfig) -> tuple[engine.Box, Any]:
+def _site(text: str, config: DockConfig, *, chains: Sequence[str] | None = None
+          ) -> tuple[engine.Box, Any]:
+    selected = set(config.chains if chains is None else chains)
+    if selected:
+        text = "\n".join(ln for ln in text.splitlines()
+                         if ln.startswith("ENDMDL") or (len(ln) > 21 and ln[21] in selected))
+    text = text.split("ENDMDL", 1)[0]
     reference = None
+    if config.site_ligand_instance and not config.site_ligand:
+        raise prep.DockingError("a ligand instance requires a site ligand residue name")
     if config.site_ligand:
         reference, coords = prep.cocrystal_ligand(text, config.site_ligand,
-                                                  smiles=config.site_ligand_smiles)
+                                                  smiles=config.site_ligand_smiles,
+                                                  instance=config.site_ligand_instance)
         box = engine.Box.around(coords, source=f"co-crystal ligand {config.site_ligand}")
         if config.box_size:
             box = engine.Box(box.center, tuple(config.box_size), box.source)
@@ -267,7 +277,7 @@ def run_docking(receptor: str, ligands: str | Sequence[tuple[str, str]], config:
                          if entries else "no ligand was given")
 
     with rec.stage("site", engine=PIPELINE, version=_VERSION) as st:
-        box, reference = _site(text, config)
+        box, reference = _site(text, config, chains=chains)
         st.reason = (f"{box.source}: centre ({', '.join(f'{c:.1f}' for c in box.center)}), "
                      f"size ({', '.join(f'{c:.0f}' for c in box.size)}) Å")
 
@@ -286,6 +296,7 @@ def run_docking(receptor: str, ligands: str | Sequence[tuple[str, str]], config:
                 p.rmsd_to_reference = r
             top = rmsds[0] if rmsds else float("inf")
             validation = {"ligand": config.site_ligand, "smiles": smiles,
+                          "pdb_ligand_instance": reference.GetProp("pdb_ligand_instance"),
                           "top_pose_rmsd": top,
                           "best_rmsd_in_top3": min(rmsds[:3]) if rmsds else None,
                           "top_score": res.poses[0].score if res.poses else None,

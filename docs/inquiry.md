@@ -101,9 +101,9 @@ true, the analysis comes out …".
 | Analysis (runs) | Outcomes | `target` | `coverage` | `promiscuity` |
 | --- | --- | --- | --- | --- |
 | whole-Reactome enrichment, the usual analysis (1) | enriched / not | .90 / .10 | .90 / .10 | .90 / .10 |
-| assayed-background enrichment (1), and a reseeded replicate (1) | enriched / not | .85 / .15 | .05 / .95 | .85 / .15 |
-| random herb combinations (21), and a second draw (21) | specific / not specific / not enriched | .80 / .10 / .10 | .05 / .05 / .90 | .10 / .80 / .10 |
-| degree-preserving rewiring (11), and a second draw (11) | beyond wiring / explained by degree / not enriched | .80 / .10 / .10 | .05 / .05 / .90 | .40 / .50 / .10 |
+| assayed-background enrichment (1), and an independent activity dataset (1) | enriched / not | .85 / .15 | .05 / .95 | .85 / .15 |
+| random herb combinations (61) on each of two independent datasets | specific / not specific | 8/9, 1/9 | .50 / .50 | 1/9, 8/9 |
+| degree-preserving rewiring (61) on each of two independent datasets | beyond wiring / explained by degree | 8/9, 1/9 | .50 / .50 | 4/9, 5/9 |
 
 Every explanation predicts the usual analysis comes out enriched, so before anything runs it
 is worth 0.06 bits against 0.43 for the assayed background. The 葛根芩连汤 case study in the
@@ -116,16 +116,21 @@ layer, each making one explanation true. The inquiry runs unchanged on each:
 
 | World | True explanation | Verdict | Leader | Posterior | Mechanism claims released | Network-pharmacology runs used / all |
 | --- | --- | --- | --- | ---: | ---: | ---: |
-| selective | `target` | accepted | `target` | 0.974 | 1 | 45 / 67 |
-| coverage | `coverage` | accepted | `coverage` | 0.976 | 0 | 14 / 67 |
-| promiscuous | `promiscuity` | accepted | `promiscuity` | 0.974 | 0 | 45 / 67 |
+| selective | `target` | accepted | `target` | 0.964 | 1 | 125 / 247 |
+| coverage | `coverage` | undetermined | `coverage` | 0.314 | 0 | 3 / 247 |
+| promiscuous | `promiscuity` | accepted | `promiscuity` | 0.964 | 0 | 125 / 247 |
 
 In the selective world the released claim is the pipeline's own, which had to pass its
 snapshot-edge release check as well. It is licensed as a mechanism hypothesis and stated at
-most *tentatively*. In the other two the conclusion is a finding about the analysis, and no
-mechanism claim leaves. In the coverage world the first analysis already refutes the
-mechanism, and the engine stops after 14 runs. Without control herbs the specificity test is
-withdrawn, `target` cannot be accepted, and nothing is released.
+most *tentatively*. Each replicate uses a separately generated set of activity
+measurements. A real run can supply a second snapshot lock via `--replication-lock`;
+its traceable original studies or assays must be disjoint. In the coverage world every
+assayed protein is a hit and enrichment in that universe is mathematically impossible.
+The engine therefore withholds a verdict. For control and rewiring frequencies,
+the prespecified 5% threshold must lie outside the range between the two one-sided
+95% exact binomial bounds. Only eligible draws enter the denominator. For example,
+zero occurrences in 20 draws leaves the frequency unresolved. An absent pathway or a control that had no
+primary signal to check contributes no evidence.
 
 These are fixtures: three worlds built to have an answer. They show the mechanics and catch
 regressions. They are not evidence that the engine decides real questions correctly.
@@ -147,7 +152,8 @@ runs. Each of its analyses is then recorded as part of the engine's batch
 made in, so a plan written after the fact is refused (`INQ150`). An inquiry begun under
 earlier rules keeps the plans it recorded (rule 1).
 
-Measured on the eight scaffolds of the Studio chat ([below](#in-the-studio-chat)), in the
+Historical results, before the pathway scaffold required disjoint activity studies
+and identifiable control frequencies. Measured on the eight scaffolds of the Studio chat ([below](#in-the-studio-chat)), in the
 noisy worlds of their calibration (100 per rival, 2,400 in all). Every batch size starts
 from the calibration's seeds, so the first row is the calibration itself. Outcomes are
 drawn as analyses run, so a larger batch, which runs them in another order, meets other
@@ -248,7 +254,7 @@ and every source that can produce the evidence ([studio/docs/ROUTES.md](../studi
 | Scaffold | Question | Rivals | Tests | Who classifies an outcome |
 | --- | --- | --- | ---: | --- |
 | `pathway_signal` | a pathway signal: mechanism or artefact? | target · coverage · promiscuity | 7 | the agent, citing the run (the controls run on the runner only) |
-| `formula_vs_constituent` | does the formula do more than its main constituent? | formula adds · constituent accounts · formula attenuates | 3 | the runtime, from `study.contrast_formula_monomer` |
+| `formula_vs_constituent` | does the formula do more than its main constituent? | formula higher · equivalent response · monomer higher | 3 | the runtime, from `study.contrast_formula_monomer` |
 | `combination` | more than each agent alone predicts? | synergy · independent · cytotoxicity | 3 | the runtime, from `study.combination` |
 | `exposure` | does the bench activity happen at the exposure reached? | parent reaches · not reached · metabolite carries | 4 | the runtime, from `study.exposure_screen` |
 | `efficacy` | benefit or bias? | effective · ineffective · bias | 4 | the runtime, from `native.meta_analysis` |
@@ -268,7 +274,7 @@ by the scaffold's rule, recording `runtime:<tool>:<digest>` as the evidence. Onl
 needs no approval, job or network runs this way, so nothing nested skips an approval. The same data
 recorded again (a replicate that is not one) is refused. What is compared is the numbers the
 classifier reads, so relabelled trials, an extra key or 1 written as 1.0 are still the same
-data. Each trial's estimate stays with its standard error and each cell's numbers with their
+data. A clinical synthesis must supply one independent cohort identifier per estimate in `study_ids`; replications with overlapping cohorts are refused. Each trial's estimate stays with its standard error and each cell's numbers with their
 keys, so the same numbers paired differently are other data. A test without a classifier
 takes an `outcome` with `evidence_ref`, recorded as `agent:<ref>`. A replicate may not cite
 its original's source, whoever classified either: a PMID or DOI is the same source however
@@ -377,7 +383,7 @@ write-ahead refusal),
 - **竞争解释：** 选择性作用（机制假说）、检测覆盖伪影、化合物"滥交"性。
 - **七个分析：** 全注释背景富集（常规分析）、已检测蛋白背景富集、随机药材组合、度保持重连，后三者各带一个重复。
 - **常规分析几乎不提供信息：** 三个解释都预测它会富集，所以开始前它只值 0.06 比特，已检测背景富集值 0.43 比特。
-- **在三个已知答案的人工世界中：** 引擎三次都选出了正确解释。只有在机制确实为真的世界里，才发布一条（试探性）机制假说。所用网络药理运行次数分别为 45、14、45 次，全部检查需要 67 次。
+- **在三个已知答案的人工世界中：** 引擎在有足够证据的两个世界接受了正确解释，在所有实测蛋白均命中的世界保留判断。只有在机制确实为真的世界里，才发布一条（试探性）机制假说。所用网络药理运行次数分别为 125、3、125 次，全部检查需要 247 次。
 - **人工世界的局限：** 它们展示机制、防止回归，不证明引擎能正确判断真实问题。
 
 **同时运行与敏感性：**

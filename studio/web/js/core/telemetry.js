@@ -582,7 +582,7 @@ export class Telemetry {
   }
 
   #lockApi() {
-    const locks = this.nav?.locks ?? globalThis.navigator?.locks;
+    const locks = (this.nav ?? globalThis.navigator)?.locks;
     return locks && typeof locks.request === "function" && typeof locks.query === "function" ? locks : null;
   }
 

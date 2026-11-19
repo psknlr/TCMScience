@@ -9,6 +9,7 @@ textbook values.
 from __future__ import annotations
 
 import math
+from statistics import median
 from typing import Any, Mapping, Sequence
 
 __all__ = ["hypergeometric_test", "fisher_exact", "enrichment_analysis", "benjamini_hochberg",
@@ -78,9 +79,12 @@ def _numbers(values: Any, what: str) -> list[float]:
     if not isinstance(values, (list, tuple)) or not values:
         raise ValueError(f"{what} must be a non-empty list of numbers")
     try:
-        return [float(v) for v in values]
+        numbers = [float(v) for v in values]
     except (TypeError, ValueError):
         raise ValueError(f"{what} must contain only numbers") from None
+    if not all(math.isfinite(v) for v in numbers):
+        raise ValueError(f"{what} must contain only finite numbers")
+    return numbers
 
 
 def _ranks(values: Sequence[float]) -> list[float]:
@@ -208,7 +212,7 @@ def enrichment_analysis(genes: Sequence[str], gene_sets: Mapping[str, Sequence[s
 def benjamini_hochberg(p_values: Sequence[float]) -> dict[str, Any]:
     """Benjamini–Hochberg false-discovery-rate adjustment, order preserved."""
     ps = _numbers(p_values, "p_values")
-    if any(p < 0 or p > 1 for p in ps):
+    if any(not math.isfinite(p) or p < 0 or p > 1 for p in ps):
         raise ValueError("p-values must lie in [0, 1]")
     m = len(ps)
     order = sorted(range(m), key=lambda i: ps[i])
@@ -218,7 +222,7 @@ def benjamini_hochberg(p_values: Sequence[float]) -> dict[str, Any]:
         i = order[rank - 1]
         running = min(running, ps[i] * m / rank)
         q[i] = running
-    return {"q_values": [round(v, 10) for v in q],
+    return {"q_values": q,
             "bonferroni": [min(1.0, p * m) for p in ps], "m": m}
 
 
@@ -543,10 +547,13 @@ def _groups(groups: Any, minimum: int = 2) -> list[list[float]]:
 # ------------------------------------------------------------------ inference
 
 def meta_analysis(estimates: Sequence[float], standard_errors: Sequence[float],
-                  labels: Sequence[str] | None = None, scale: str = "log") -> dict[str, Any]:
+                  labels: Sequence[str] | None = None, scale: str = "log",
+                  study_ids: Sequence[str] | None = None) -> dict[str, Any]:
     """Inverse-variance meta-analysis: fixed effect, DerSimonian–Laird random effects,
     Cochran's Q, I² and τ². ``scale="log"`` treats the estimates as log ratios (log OR,
-    RR or HR) and also reports the exponentiated pooled values."""
+    RR or HR) and also reports the exponentiated pooled values. Supply one independent
+    effect per study/cohort; ``study_ids`` names those units for downstream evidence checks.
+    Multiple correlated outcomes or arms require combination before pooling."""
     y = _numbers(estimates, "estimates")
     se = _numbers(standard_errors, "standard_errors")
     if len(y) != len(se) or len(y) < 2:
@@ -555,9 +562,17 @@ def meta_analysis(estimates: Sequence[float], standard_errors: Sequence[float],
         raise ValueError("standard errors must be positive")
     if scale not in ("log", "raw"):
         raise ValueError("scale must be 'log' or 'raw'")
-    names = [str(l) for l in labels] if labels else [f"study {i + 1}" for i in range(len(y))]
-    if len(names) != len(y):
-        raise ValueError("labels must match estimates")
+    ids = None
+    if study_ids is not None:
+        ids = [str(s).strip().casefold() for s in study_ids]
+        if (len(ids) != len(y) or not all(ids) or len(set(ids)) != len(ids)
+                or not all(isinstance(s, str) for s in study_ids)):
+            raise ValueError("provide one distinct independent study/cohort id per estimate")
+    names = ([str(label).strip() for label in labels] if labels is not None else
+             list(ids) if ids is not None else [f"study {i + 1}" for i in range(len(y))])
+    if (len(names) != len(y) or not all(names) or
+            len({name.casefold() for name in names}) != len(names)):
+        raise ValueError("study labels must be nonempty, distinct and match estimates")
     k = len(y)
     w = [1.0 / (s * s) for s in se]
     sw = sum(w)
@@ -585,7 +600,7 @@ def meta_analysis(estimates: Sequence[float], standard_errors: Sequence[float],
             out["ratio_ci_high"] = round(math.exp(est + z * s), 6)
         return out
 
-    return {"k": k, "fixed_effect": summary(fixed, se_fixed),
+    return {"k": k, "study_ids": ids, "fixed_effect": summary(fixed, se_fixed),
             "random_effects": summary(random, se_random),
             "heterogeneity": {"Q": round(q, 4), "df": df, "p_value": round(_chi2_sf(q, df), 6),
                               "I_squared": round(i2, 4), "tau_squared": round(tau2, 6)},
@@ -643,10 +658,15 @@ def linear_regression(x: Sequence[float], y: Sequence[float]) -> dict[str, Any]:
     syy = sum((v - my) ** 2 for v in ys)
     if sxx == 0:
         raise ValueError("x has no variance")
+    if syy == 0:
+        return {"slope": 0.0, "intercept": my, "r_squared": None, "r": None,
+                "residual_std_error": 0.0, "slope_std_error": 0.0, "t": None,
+                "df": n - 2, "p_value": None, "slope_ci_95": None, "n": n,
+                "reason": "the response is constant; slope inference is undefined"}
     slope = sxy / sxx
     intercept = my - slope * mx
     sse = sum((b - (intercept + slope * a)) ** 2 for a, b in zip(xs, ys))
-    r2 = 1.0 - sse / syy if syy > 0 else 1.0
+    r2 = 1.0 - sse / syy
     df = n - 2
     resid_se = math.sqrt(sse / df) if df > 0 else 0.0
     se_slope = resid_se / math.sqrt(sxx)
@@ -671,8 +691,11 @@ def one_way_anova(groups: Sequence[Sequence[float]]) -> dict[str, Any]:
     df_between, df_within = len(gs) - 1, len(everything) - len(gs)
     ms_between, ms_within = ss_between / df_between, ss_within / df_within
     f = ms_between / ms_within if ms_within > 0 else float("inf")
+    p_value = round(_f_sf(f, df_between, df_within), 8) if math.isfinite(f) else None
+    if ms_within == 0 and ms_between > 0:
+        p_value = 0.0   # distinct constant groups, the limiting F is infinite
     return {"F": round(f, 4) if math.isfinite(f) else None, "df_between": df_between,
-            "df_within": df_within, "p_value": round(_f_sf(f, df_between, df_within), 8) if math.isfinite(f) else 0.0,
+            "df_within": df_within, "p_value": p_value,
             "ss_between": round(ss_between, 6), "ss_within": round(ss_within, 6),
             "eta_squared": round(ss_between / (ss_between + ss_within), 6) if ss_between + ss_within > 0 else None,
             "group_means": [round(_mean(g), 6) for g in gs], "group_sizes": [len(g) for g in gs]}
@@ -736,7 +759,7 @@ def wilcoxon_signed_rank(x: Sequence[float], y: Sequence[float] | None = None) -
     return {"W_plus": w_plus, "W_minus": w_minus, "W": min(w_plus, w_minus), "n_nonzero": n,
             "dropped_zero_differences": len(diffs) - n, "z": round(z, 4),
             "p_value": round(math.erfc(z / math.sqrt(2.0)), 8),
-            "median_difference": round(sorted(diffs)[len(diffs) // 2], 6),
+            "median_difference": round(median(diffs), 6),
             "note": "normal approximation; exact tables are preferable below n = 10"}
 
 

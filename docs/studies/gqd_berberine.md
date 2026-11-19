@@ -5,8 +5,9 @@ built ToxCast store under a protocol locked in the script. **Status: exploratory
 
 The primary contrast was computed while the summary-statistics code was being tested,
 before the protocol was locked. The protocol records that as an amendment, which makes
-the study exploratory by its own rules. Every number below can be regenerated from the
-script.
+the study exploratory by its own rules. The exposure table below summarizes the archived JSON. New runs also check assay
+species and quality flags, report how many readouts are undeterminable, and record the
+number and SHA-256 of the CompTox rows used for berberine chloride.
 
 ## Data
 
@@ -43,10 +44,10 @@ With 黄连 given at the same dose as in the formula:
 - the whole formula roughly **doubles berberine AUC_last** (ratio 1.97, 90% CI 1.40–2.76);
 - it **lowers Cmax to about a third** (0.37, 0.25–0.55).
 
-The AUC increase needs 甘草. Without it, the formula's AUC is not distinguishable from
-黄连 alone (0.75, 0.54–1.05), and the full formula's AUC is 2.6 times that of the formula
-without 甘草. The Cmax reduction persists without 甘草 (0.42), so it comes from the other
-herbs.
+Removing 甘草 from the tested preparation lowered AUC. The full-formula AUC was
+2.6 times the AUC without 甘草. The interval comparing the preparation without 甘草
+to 黄连 alone included 1 (0.75, 0.54–1.05). The Cmax reduction persisted without
+甘草 (0.42, 0.31–0.57). These groups do not resolve contributions of individual constituents.
 
 Together this points to slower, longer absorption or elimination rather than simply more
 absorption. The half-life is 11.4 h with the formula against 9.3 h with 黄连 alone. AUC_last
@@ -56,31 +57,30 @@ are therefore live. The finding is consistent with the authors' report that glyc
 acid raises berberine permeability by inhibiting P-gp. It does not, on these summaries,
 support "the formula raises berberine exposure" without naming the metric.
 
-### 2. At the plasma exposure reached, none of berberine's in vitro activities is plausible
+### 2. The plasma exposure screen depends on the assumed free fraction
 
 The highest plasma Cmax is 228 nM total, with 黄连 alone; with the formula it is 84 nM.
-Against berberine's 128 active ToxCast AC50s, no activity has a free-concentration ratio
-≥ 1 even if all of the drug were free. 100–106 are implausible (ratio < 0.1 at 100% free).
-The rest depend on the unknown free fraction:
-- 19 developmental-neurotoxicity readouts (rat cortical network MEA), with that platform's
-  cytotoxicity (LDH);
-- SHH antagonism, a luciferase reporter;
-- AhR agonism;
-- CYP2D6 inhibition.
+For each of the 128 active AC50 readouts, the screen divides free rat plasma Cmax
+by the in vitro AC50 over an assumed free fraction of 1–100%. The archived intervals
+give the following counts.
 
-None concerns glucose or insulin. CYP inhibition is the activity reachable at real
-exposure, which is the same thing the route-A analysis found carrying the formula's
-pathway signals.
+| Group | Lower bound ≥ 1 | Upper bound ≥ 1 | Highest upper bound |
+| --- | ---: | ---: | ---: |
+| GQD | 0 | 1 | 1.051 |
+| GQD-GC | 0 | 4 | 1.203 |
+| HL | 0 | 15 | 2.856 |
 
-The protocol's decision rule applies: *a plasma-mediated mechanism at these assays is not
-supported at the measured exposure; a gut-lumen mechanism is not addressed.* Berberine's
-antidiabetic action through the gut (microbiota, intestinal signalling) is neither shown
-nor refuted here, because no gut-lumen concentration was measured.
+No readout reaches its AC50 throughout the assumed range. At the hypothetical
+100% free upper limit, one full-formula readout reaches its AC50, a cortical-network
+spike measure. The upper bound for the full-formula CYP2D6 reporter is 0.119.
+These results leave assay interference, free fraction and exposure at the relevant
+site unresolved. Human drug interactions and gut-lumen effects require separate
+evidence. The underlying values are in [the archived JSON](gqd_berberine.json).
 
-### 3. "Attributable to berberine" is not yet an equivalence result
+### 3. The efficacy contrast has no prespecified equivalence result
 
 The 2020 study's conclusion rests on non-significant differences between the formula and
-berberine. For example, the microbiota structures differ at adjusted P = 0.269, with
+berberine. For example, the reported comparison of microbiota structure gave adjusted P = 0.269, with
 n = 6 rats per group. Under the contrast rules (`studies.contrast`), that is
 *inconclusive*, not equivalent: no equivalence margin was set, and with six animals only a
 large difference could have been detected. Testing it needs the per-animal efficacy

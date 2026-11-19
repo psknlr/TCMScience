@@ -1327,6 +1327,9 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
                            "resolution": N(minimum=0.05, maximum=5, default=1.0),
                            "markers": S(f"marker table: {_UPLOAD}"), "root": S("root cell type"),
                            "contrast": S("pseudobulk contrast"), "seed": I(default=0),
+                           "replicate_key": S("independent biological unit (default donor or sample)"),
+                           "design": S("additive design for pseudobulk differential expression"),
+                           "covariates": arr(S("numeric design column")),
                            "n_top_genes": I("highly variable genes", minimum=50, maximum=10000,
                                             default=2000)},
                           required=("source",)),
@@ -1366,6 +1369,7 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
                                                  "center and size are given, and it is redocked to validate the "
                                                  "setup"),
                            "site_ligand": S("co-crystal ligand residue name"),
+                           "site_ligand_instance": S("PDB chain:residue of the ligand copy, e.g. A:401B"),
                            "center": arr(N(), minItems=3, maxItems=3),
                            "size": arr(N(), minItems=3, maxItems=3),
                            "chains": S(), "scoring": S(enum=["vina", "vinardo"], default="vina"),
@@ -1433,6 +1437,8 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
                                           "natural-product sources (default: all three)"),
                            "network": B("also STRING and Reactome, for enrichment and the "
                                         "protein network", default=True),
+                           "pubchem_bioassay": S("project file with the saved PubChem BioAssay response (.json.gz)"),
+                           "opentargets": S("project file with the saved Open Targets disease response (.json)"),
                            "formulas": arr(S(), "formulas to add to the herb layer, each with "
                                                 "its source book, e.g. 桂枝汤《伤寒论》")}),
         "network": True, "duration": "minutes",

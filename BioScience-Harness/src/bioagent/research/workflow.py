@@ -92,7 +92,7 @@ STAGE_TITLES = {
     "pathway_annotation": "Pathway annotation (Reactome; GO; KEGG)",
     "enrichment_background": "Enrichment against an explicit background",
     "multiple_testing": "Benjamini-Hochberg across the full family",
-    "permutation_sensitivity": "Degree-matched permutation and sensitivity",
+    "permutation_sensitivity": "Permutation and sensitivity",
     "topology": "Network topology (descriptive)",
     "bounded_interpretation": "Bounded interpretation",
     "reproducible_export": "Reproducible export",
@@ -511,6 +511,10 @@ def _compound_target(ctx: _Ctx) -> Record:
             compounds_with_target=cov.get("with_measured_target", 0), excluded=excluded)
     what = "active screening result" if screening else "measured target"
     if not targets:
+        if screening and ctx.result.get("enrichment"):
+            rec.add("targets", PASS, "Screening observations were present and none was active; the "
+                    "eligible pathways were tested using their active and inactive calls.")
+            return rec
         rec.add("targets", UNVERIFIED,
                 f"No {what} was found for the {cov.get('total', 0)} constituents in these "
                 f"snapshots, so no enrichment could be tested; {EMPTY}")
@@ -540,8 +544,30 @@ def _compound_target(ctx: _Ctx) -> Record:
         rec.add("targets", FAIL, f"{len(unsupported)} target(s) rest on no measured snapshot "
                 f"edge: {unsupported[:10]}", unsupported=unsupported[:50])
     else:
+        target_ids = {t["target"] for t in targets}
+        taxa = {tid: set() for tid in target_ids}
+        for snap in ctx.snaps.values():
+            for n in snap.nodes:
+                if n["id"] not in taxa:
+                    continue
+                refs = (n.get("xrefs") or {}).get("ncbitaxon") or ()
+                if isinstance(refs, str):
+                    refs = [refs]
+                taxa[n["id"]].update(str(ref).removeprefix("ncbitaxon:") for ref in refs)
+                organism = str((n.get("raw") or {}).get("organism") or "").strip().lower()
+                if organism and organism not in ("-", "na", "n/a", "unknown", "not available"):
+                    taxa[n["id"]].add("9606" if organism in {"human", "homo sapiens", "9606"}
+                                      else organism)
+        if "reactome" in ctx.snaps:
+            for e in ctx.snaps["reactome"].edges:
+                if e.get("subject") in taxa and str(e.get("object", "")).startswith("reactome:R-HSA-"):
+                    taxa[e["subject"]].add("9606")
+        human = sum(ids == {"9606"} for ids in taxa.values())
+        unspecified = sum(not ids for ids in taxa.values())
+        _counts(rec, human_confirmed=human, taxon_unknown=unspecified,
+                nonhuman_or_conflicting=len(targets) - human - unspecified)
         rec.add("targets", PASS,
-                f"{len(targets)} human proteins, each resting on a {what} edge re-read from "
+                f"{len(targets)} protein targets ({human} confirmed human, {unspecified} without taxon evidence), each resting on a {what} edge re-read from "
                 "its snapshot" + ("" if screening else
                                   f" at or below {float(params.activity_max_nm):g} nM"))
     return rec
@@ -636,14 +662,21 @@ def _intersections(ctx: _Ctx) -> Record:
     _counts(rec, overlap=disease.get("overlap", 0), in_background=disease.get("in_background", 0),
             query=disease.get("query", 0), p_value=disease.get("p_value"),
             empirical_p=disease.get("empirical_p"))
-    if not disease.get("query"):
-        rec.add("overlap", UNVERIFIED, "no measured target is in the background, so the "
+    if ctx.params.get("hits") == "screening":
+        rate = disease.get("empirical_p")
+        if rate is None or not disease.get("in_background"):
+            rec.add("overlap", UNVERIFIED, "no testable screening comparison for the mapped disease genes")
+        else:
+            rec.add("overlap", PASS, f"Screening activity rate for {disease['in_background']} disease "
+                    f"genes in the screened background, assay/compound-matched permutation p = {rate}; descriptive")
+    elif disease.get("p_value") is None:
+        rec.add("overlap", UNVERIFIED, "the gene universe or its intersection is insufficient, so the "
                 f"intersection could not be tested; {EMPTY}")
     else:
         rec.add("overlap", PASS,
-                f"{disease.get('overlap', 0)} of the {disease.get('query')} measured targets in the "
+                f"{disease.get('overlap', 0)} of the {disease.get('query')} measured genes in the "
                 f"background are among the {disease.get('in_background', 0)} disease genes there "
-                f"(hypergeometric p = {disease.get('p_value')}, degree-matched permutation p = "
+                f"(hypergeometric p = {disease.get('p_value')}, annotation-degree/assay-opportunity-matched permutation p = "
                 f"{disease.get('empirical_p')}); descriptive, not a claim")
     return rec
 
@@ -754,6 +787,8 @@ def nothing_tested(result: Mapping[str, Any]) -> str | None:
     coverage = result.get("coverage") or {}
     targets = coverage.get("targets") or {}
     compounds = (coverage.get("compounds") or {}).get("total", 0)
+    if background.get("kind") == "screening":
+        return None if rows else f"no screening pathway met the coverage and null-model requirements; {EMPTY}"
     if not targets.get("measured"):
         return (f"No measured target was found for the {compounds} constituents in these "
                 f"snapshots, so no enrichment could be tested; {EMPTY}")
@@ -776,6 +811,9 @@ def _enrichment_background(ctx: _Ctx) -> Record:
     if why:
         _empty(rec)
         rec.add("tested", UNVERIFIED, why)
+    elif ctx.params.get("hits") == "screening":
+        rec.add("tested", PASS, f"{len(rows)} pathways tested using {background.get('tests', 0)} "
+                f"screening observations across {background.get('proteins', 0)} eligible proteins")
     elif query < 3:
         rec.add("tested", UNVERIFIED, f"{query} measured target(s) in the background: too few "
                 "for an over-representation test to say anything")
@@ -830,6 +868,15 @@ def _permutation_sensitivity(ctx: _Ctx) -> Record:
     if why:
         _empty(rec)
         rec.add("permutation", UNVERIFIED, why + "; no permutation null was drawn")
+    elif ctx.params.get("hits") == "screening":
+        floor = 1 / (perms + 1)
+        bad = [r["pathway"] for r in rows if r.get("empirical_p") is None or
+               not floor - 1e-12 <= r["empirical_p"] <= 1]
+        rec.add("permutation", FAIL if bad else PASS,
+                f"Screening active-rate permutation test on {len(rows)} pathways "
+                f"({ctx.result['background'].get('null_model', 'same-size protein sets')}, "
+                f"{perms} requested draws); BH applied to the empirical p-values, "
+                f"{len(candidates)} passed" if not bad else f"Invalid empirical p-values: {bad[:5]}")
     elif not candidates:
         # tested, and none passed BH: there is nothing to permute, and the stage is done
         rec.add("permutation", NOT_APPLICABLE,
@@ -840,7 +887,7 @@ def _permutation_sensitivity(ctx: _Ctx) -> Record:
         bad = [r["pathway"] for r in candidates
                if r.get("empirical_p") is None or r["empirical_p"] < floor - 1e-12]
         rec.add("permutation", FAIL if bad else PASS,
-                f"{len(candidates)} BH-significant pathway(s), each against {perms} degree-matched "
+                f"{len(candidates)} BH-significant pathway(s), each against {perms} degree- and opportunity-matched "
                 f"draws seeded per pathway; {len(significant)} pass both" if not bad else
                 f"BH-significant pathways without a valid permutation p: {bad[:5]}")
     if ctx.rebuttal is None:

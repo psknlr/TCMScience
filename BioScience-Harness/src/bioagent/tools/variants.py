@@ -79,8 +79,8 @@ def parse_hgvs(hgvs: str) -> dict[str, Any]:
             out["end"] = groups.get("end") or groups.get("start")
             out["ref"] = groups.get("ref")
             out["alt"] = groups.get("alt") or groups.get("seq")
-            out["intronic"] = any(sym in (out["start"] or "") for sym in "+-") or \
-                any(sym in (out["end"] or "") for sym in "+-")
+            out["intronic"] = any(re.search(r"\d[+-]\d+$", pos) is not None
+                                 for pos in (out["start"], out["end"]))
             return out
     raise ValueError(f"unsupported {kind}. change {body!r}")
 
@@ -114,14 +114,17 @@ def allele_frequencies(genotypes: Sequence[str]) -> dict[str, Any]:
         raise ValueError("genotypes must be a non-empty list of calls")
     hom_ref = het = hom_alt = missing = 0
     for call in genotypes:
-        alleles = re.split(r"[/|]", str(call).strip())
-        if len(alleles) != 2 or "." in alleles:
+        text = str(call).strip()
+        if text == ".":
             missing += 1
             continue
-        try:
-            a, b = int(alleles[0]), int(alleles[1])
-        except ValueError:
-            raise ValueError(f"unparseable genotype {call!r}") from None
+        alleles = re.split(r"[/|]", text)
+        if len(alleles) != 2 or any(a not in {"0", "1", "."} for a in alleles):
+            raise ValueError(f"biallelic diploid calls (0, 1 or .) required, got {call!r}")
+        if "." in alleles:
+            missing += 1
+            continue
+        a, b = map(int, alleles)
         if a == b == 0:
             hom_ref += 1
         elif a != b:

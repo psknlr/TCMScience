@@ -256,7 +256,7 @@ def test_bindingdb_filters_by_inchikey_licenses_per_record_and_reads_the_chain(t
     rows = [
         _bdb_row("1", PUERARIN, ki=">10000", pmid="111", chains=(("", "P35354"),)),
         _bdb_row("2", PUERARIN, ic50="30", curation="ChEMBL", doi="10.1/X",
-                 chains=(("", ""), ("", "P23219"))),          # accession on the second chain
+                 chains=(("", "P23219"),)),                 # one resolved chain
         _bdb_row("3", PUERARIN, ki="5", chains=(("", "P35354"),)),   # no reference
         _bdb_row("4", OTHER, ki="1", pmid="1", chains=(("", "P35354"),)),
         _bdb_row("5", PUERARIN, ki="1", pmid="2", chains=(("", ""),)),
@@ -326,11 +326,11 @@ def test_an_affinity_against_a_complex_is_not_filed_under_one_of_its_proteins(tm
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("BindingDB_All.tsv", "\n".join("\t".join(r) for r in [_BDB_HEADER] + rows))
     result = parse_bindingdb(path, inchikeys=[PUERARIN])
-    assert [e["object"] for e in result.edges] == ["uniprot:P23219"]
+    assert result.edges == []
+    assert result.report.dropped["unresolved multichain complex: at least one chain is unidentified"] == 1
     assert result.report.dropped[
         "multichain complex: the affinity belongs to the complex, not to one of its proteins"] == 1
-    # The licence rule is the card's, and a change of case is not a change of licence.
-    assert result.edges[0]["license"] == "CC-BY-SA-3.0"
+
 
 
 # ================================================================ herbs, composition, gold
@@ -369,7 +369,8 @@ def test_a_missing_marker_fails_the_gold_standard(raw, tmp_path):
     (raw / "260413_frozen.csv.gz").unlink()
     lotus = raw / "260413_frozen.csv.gz"
     with gzip.open(lotus, "wt", encoding="utf-8") as fh:
-        fh.write("structure_inchikey,organism_name,reference_doi\n")
+        fh.write("structure_inchikey,organism_name,reference_doi\n"
+                 f"{PUERARIN},another species,10.1234/other\n")
     build = build_gold(raw, tmp_path / "snap")
     assert not build.passed and "tcm:herb.gancao" in build.missing
     with pytest.raises(SnapshotError, match="glycyrrhizic acid"):
@@ -469,7 +470,7 @@ def test_the_network_build_scopes_string_and_reactome_to_the_targets_found(raw, 
     # Reactome is the whole human annotation: it is the enrichment background.
     reactome_edges = build.snapshots["reactome"].edges
     assert sorted(e["subject"] for e in reactome_edges) == ["uniprot:P12345", "uniprot:P35354"]
-    assert build.snapshots["reactome"].version == "current"
+    assert build.snapshots["reactome"].version.startswith("current+sha256-")
     assert build.snapshots["string"].version.startswith("12.0+subset-")
 
 
@@ -491,3 +492,25 @@ def test_a_new_release_is_compared_with_the_last_one_and_a_rebuild_is_not(raw, t
     subset = build_source("npass", raw, tmp_path / "snap", ledger=ledger, taxa=taxon_filter())
     assert subset.manifest["content"]["previous"] is None, (
         "a subset is not a release of the full file and is not compared with one")
+
+
+def test_changing_reactome_is_versioned_and_empty_full_mapping_is_rejected(tmp_path):
+    from bioagent.sources.ledger import SnapshotLedger
+    from bioagent.sources.snapshot import SnapshotRejected, load_snapshot
+    root = tmp_path / "snap"
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    input_file = raw / "UniProt2Reactome.txt"
+    input_file.write_text("malformed header only\n")
+    with pytest.raises(SnapshotRejected, match="empty snapshot"):
+        build_source("reactome", raw, root)
+    row = "P35354\tR-HSA-1\thttps://reactome.org\tP1\tTAS\tHomo sapiens\n"
+    input_file.write_text(row)
+    ledger = SnapshotLedger(tmp_path / "ledger.jsonl")
+    first = build_source("reactome", raw, root, ledger=ledger)
+    input_file.write_text(row + row.replace("R-HSA-1", "R-HSA-2"))
+    second = build_source("reactome", raw, root, ledger=ledger)
+    assert first.version != second.version
+    assert second.manifest["content"]["previous"] == first.snapshot_id
+    assert build_source("reactome", raw, root, ledger=ledger).snapshot_id == second.snapshot_id
+    assert load_snapshot(root, "reactome", first.version, ledger=ledger).snapshot_id == first.snapshot_id

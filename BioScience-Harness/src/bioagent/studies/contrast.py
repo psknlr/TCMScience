@@ -53,8 +53,8 @@ def _allowed(verdict: str, margin: float | None) -> tuple[list[str], list[str]]:
         return (["on this endpoint, in this model and at these doses, the monomer's effect "
                  "exceeds the formula's"], never)
     if verdict == "equivalent":
-        return ([f"the difference lies within the prespecified margin ±{margin}: the monomer "
-                 "accounts for the formula's effect on this endpoint, in this model"],
+        return ([f"the difference between the two treatment groups lies within the prespecified "
+                 f"margin ±{margin} on this endpoint in this model"],
                 never + ["that the formula adds nothing on other endpoints"])
     return (["the data cannot distinguish the formula from the monomer on this endpoint"],
             never + ["that the two are equivalent (no margin was met)",
@@ -115,16 +115,18 @@ def unexplained_response(formula: Sequence[float],
     Effects are differences from the control mean. The additive expectation (the sum of
     each constituent's mean effect) is estimated on one part of the units; the formula's
     effect is judged on the held-out part, so the residual is not fitted to the units it is
-    judged on. The interval is a one-sample t interval over the held-out formula units and
-    ignores the uncertainty of the expectation, so it is narrower than the truth.
+    judged on. The interval propagates sampling variance from each independent mean; the shared
+    training control enters the contrast with its actual coefficient.
     """
     clash = {"control", "formula"} & set(constituents)
     if clash:
         raise ValueError(f"constituent names {sorted(clash)} are reserved")
     rng = np.random.default_rng(seed)
+    if not constituents or not 0 < holdout < 1 or not 0 < level < 1:
+        raise ValueError("supply constituents and a holdout fraction and level in (0, 1)")
     groups = {"control": np.asarray(control, float), "formula": np.asarray(formula, float),
               **{k: np.asarray(v, float) for k, v in constituents.items()}}
-    if any(len(v) < 4 for v in groups.values()):
+    if any(v.ndim != 1 or len(v) < 4 or not np.isfinite(v).all() for v in groups.values()):
         raise ValueError("each group needs at least four units to hold part of them out")
     fit, test = {}, {}
     for name, x in groups.items():
@@ -135,11 +137,21 @@ def unexplained_response(formula: Sequence[float],
     observed = test["formula"] - test["control"].mean()
     resid = observed - expected
     n = len(resid)
-    se = float(resid.std(ddof=1) / math.sqrt(n))
-    q = t_ppf(1 - (1 - level) / 2, n - 1)
+    means = [(test["formula"], 1), (test["control"], -1),
+             (fit["control"], len(constituents))]
+    means.extend((fit[name], -1) for name in constituents)
+    variances = [(float(x.var(ddof=1)) * coefficient ** 2 / len(x), len(x) - 1)
+                 for x, coefficient in means]
+    variance = sum(v for v, _ in variances)
+    if variance == 0:
+        raise ValueError("no group variation from which to estimate a residual interval")
+    df = variance ** 2 / sum(v ** 2 / df_i for v, df_i in variances)
+    se = math.sqrt(variance)
+    q = t_ppf(1 - (1 - level) / 2, df)
     est = float(resid.mean())
     return {"additive_expectation": expected, "observed_effect_heldout": float(observed.mean()),
             "unexplained": {"estimate": est, "ci": [est - q * se, est + q * se],
-                            "level": level, "n_heldout": n},
+                            "level": level, "n_heldout": n, "se": se, "df": df,
+                            "method": "independent-group Welch-Satterthwaite contrast"},
             "label": "unexplained response, not synergy: unknown constituents, dose "
                      "mismatch, preparation or a wrong additive model can all produce it"}

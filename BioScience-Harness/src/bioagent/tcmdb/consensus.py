@@ -142,13 +142,19 @@ def _cited(ref: Any) -> str:
     return str(cited) if cited is not None and cited.scheme in _CITABLE else ""
 
 
+def _citations(reference: Any) -> set[str]:
+    # Historical stores serialised the article list with this delimiter.
+    return {citation for field in str(reference or "").split(" | ")
+            if (citation := _cited(field.strip()))}
+
+
 def lineage_of(row: Mapping[str, Any]) -> frozenset[str]:
     """The primary resources a relation row rests on."""
     ref = row.get("reference") or ""
     evidence, source = row.get("evidence"), row.get("source")
-    cited = _cited(ref) if evidence in OBSERVED else ""
+    cited = _citations(ref) if evidence in OBSERVED else set()
     if cited:
-        return frozenset({cited})
+        return frozenset(cited)
     note = row.get("note") or ""
     m = _VIA.search(note) if "via " in note else None
     if m:
@@ -318,19 +324,28 @@ class Crosswalk:
 
 def herb_key(name: str | None, entity_id: str, *, merge_processed: bool = False) -> str:
     """A herb's identity: its materia drug, a processed form of it, or its Chinese name."""
-    from ..sources.materia import MATERIA, resolve_name
-    for raw in (name or "").split(" | "):
-        raw = raw.strip()
+    from ..sources.materia import MATERIA, PROCESSING_WORDS, resolve_name, to_simplified
+    processing = tuple(sorted(set(PROCESSING_WORDS) | set(_PROCESSED), key=len, reverse=True))
+    base_key = None
+    for spelling in (name or "").split(" | "):
+        raw = to_simplified(spelling.strip())
         if not raw:
             continue
         drug = resolve_name(raw)
-        if drug:
-            base = MATERIA[drug]
-            processed = (raw != base.chinese and base.chinese in raw
-                         and raw.startswith(_PROCESSED))
-            if processed and not merge_processed:
-                return f"materia:{drug}#{raw}"
-            return f"materia:{drug}"
+        if not drug:
+            continue
+        base = MATERIA[drug].chinese
+        base_key = base_key or f"materia:{drug}"
+        if merge_processed or raw == base:
+            continue
+        # Compare the remainder to this material, so 生姜 itself remains a distinct drug.
+        for word in processing:
+            if ((raw.startswith(word) and resolve_name(raw[len(word):]) == drug)
+                    or (raw.endswith(word) and resolve_name(raw[:-len(word)]) == drug)
+                    or re.search(r"[（(]\s*" + re.escape(word) + r"\s*[）)]", raw)):
+                return f"materia:{drug}#{word}{base}"
+    if base_key:
+        return base_key
     for raw in (name or "").split(" | "):
         pinyin = re.sub(r"[\s'-]+", "", raw).lower()      # BATMAN names herbs in pinyin only
         if pinyin in MATERIA:
@@ -432,7 +447,7 @@ class Assertion:
         return best                       # associated | mentioned | predicted | signal
 
     def as_dict(self, redundant: Mapping[str, str] | None = None) -> dict[str, Any]:
-        refs = sorted({c for c in (_cited(r.get("reference")) for r in self.rows)
+        refs = sorted({c for r in self.rows for c in _citations(r.get("reference"))
                        if c.startswith(("pmid:", "pmcid:", "doi:"))})
         return {
             "kind": self.kind, "subject": self.subject, "object": self.object,
@@ -556,8 +571,8 @@ def redundancy(rows: Sequence[Mapping[str, Any]], *, threshold: float = REDUNDAN
         return x
     for a, b in itertools.combinations(sorted(by), 2):
         shared = set(by[a]) & set(by[b])
-        A = set().union(*(by[a][s] for s in shared)) if shared else set()
-        B = set().union(*(by[b][s] for s in shared)) if shared else set()
+        A = {(s, o) for s in shared for o in by[a][s]}
+        B = {(s, o) for s in shared for o in by[b][s]}
         if len(A) < min_objects or len(B) < min_objects:
             continue
         j = len(A & B) / len(A | B)
@@ -598,7 +613,7 @@ def consensus(hub: Any, kind: str, *, subject: str | None = None, object: str | 
                                 cw=cw, contains=contains, merge_processed=merge_processed)
     red = redundancy(rows)
     saved = hub.saved_survey(kind) if hasattr(hub, "saved_survey") else None
-    if saved is not None:
+    if saved is not None and saved.get("metric") == "subject_object_jaccard":
         # copy clusters from the corpus-wide survey; this query's overlap stays a report
         red["lineage_map"] = lineage_map(saved["clusters"])
         red["clusters_from"] = (f"survey of {saved['subjects_sampled']} shared subjects "
@@ -697,6 +712,7 @@ def survey(hub: Any, kind: str, *, sample: int = 200, min_sources: int = 3, seed
     keys = [k for k in (sources or hub.built()) if hub.db_path(k).exists()]
     per_source: dict[str, dict[str, list[str]]] = {}         # source -> canon -> local ids
     for key in keys:
+        hub._current_relations(key)
         with closing(sqlite3.connect(hub.db_path(key))) as conn:
             try:
                 found = conn.execute("SELECT DISTINCT subject_id, subject_name FROM relations "
@@ -729,7 +745,7 @@ def survey(hub: Any, kind: str, *, sample: int = 200, min_sources: int = 3, seed
                     r["_o"] = cw.canon(r["object_type"], r["object_id"], r["object_name"])
                     rows.append(r)
     result = redundancy(rows)
-    return {"kind": kind, "subjects_shared": len(shared), "subjects_sampled": len(chosen),
+    return {"kind": kind, "metric": "subject_object_jaccard", "subjects_shared": len(shared), "subjects_sampled": len(chosen),
             "min_sources": min_sources, "seed": seed,
             "coverage": {k: len(m) for k, m in sorted(per_source.items())},
             "jaccard": result["jaccard"], "clusters": result["clusters"],

@@ -2,9 +2,9 @@
 # Generated from the Registry; do not hand-edit. Every entry names an
 # immutable commit and a content hash, so an upstream edit that did not
 # bump the version still changes what is pinned.
-# Browser transport/count-kernel dependency pins proposed for maintainer review.
+# Scientific analysis dependency pins proposed for maintainer review.
 api_version: '1'
-generated_at: '2026-10-09T11:30:00Z'
+generated_at: '2026-11-19T06:55:00Z'
 frozen_season: ''
 skills:
 - skill_id: analyze-tcm-network-pharmacology
@@ -12,7 +12,7 @@ skills:
   composite_id: analyze-tcm-network-pharmacology@1.1.0
   source_repo: ''
   source_commit: ''
-  content_hash: 89034d920b1d9ff6d86b4ef1a2307c44315513913f30f1689b412f53bcf64e69
+  content_hash: bd4ba49f722c49d960a19af0b62737f7fe3f10d5eb71ba72fdacdc15df40bc1a
   license: MIT
   integration_mode: native
   allowed_hosts: []
@@ -24,14 +24,14 @@ skills:
   benchmark_version: season-1
   benchmark_scores: {}
   approved_by: Codex implementation review (pending maintainer PR acceptance)
-  approved_at: '2026-10-09T11:30:00Z'
+  approved_at: '2026-11-19T06:55:00Z'
   rollback_version: ''
 - skill_id: assess-tcm-safety
   version: 1.0.0
   composite_id: assess-tcm-safety@1.0.0
   source_repo: ''
   source_commit: ''
-  content_hash: f505c3bfde0c2ac49f1871e27edf67cca8c283d6d8680fb885a5458b29d079e3
+  content_hash: 3501d3913bb3bf92b4f79f68306879a97339652f516566059f9ce70e09b29e77
   license: MIT
   integration_mode: native
   allowed_hosts: []
@@ -43,14 +43,14 @@ skills:
   benchmark_version: season-1
   benchmark_scores: {}
   approved_by: Codex implementation review (pending maintainer PR acceptance)
-  approved_at: '2026-10-09T11:30:00Z'
+  approved_at: '2026-11-19T06:55:00Z'
   rollback_version: ''
 - skill_id: normalize-tcm-entities
   version: 1.0.0
   composite_id: normalize-tcm-entities@1.0.0
   source_repo: ''
   source_commit: ''
-  content_hash: b613d287d3bc57e63d2867f0470b2e5eb59ce3199992c6c5d1a86db514f28267
+  content_hash: e09c29eb3f697075100061bb49eb014a985013c34e9d55756292d68f89ba49a5
   license: MIT
   integration_mode: native
   allowed_hosts: []
@@ -62,14 +62,14 @@ skills:
   benchmark_version: season-1
   benchmark_scores: {}
   approved_by: Codex implementation review (pending maintainer PR acceptance)
-  approved_at: '2026-10-09T11:30:00Z'
+  approved_at: '2026-11-19T06:55:00Z'
   rollback_version: ''
 - skill_id: retrieve-tcm-evidence
   version: 1.1.0
   composite_id: retrieve-tcm-evidence@1.1.0
   source_repo: ''
   source_commit: ''
-  content_hash: 3b4281d416f5414b62f6c07b4e386825e1f3f8c19e06e373367741fa54cebc21
+  content_hash: d47fbd5287d4845f81bc96577db64697db3dfe6024ea242f9f6922b679cd8610
   license: MIT
   integration_mode: native
   allowed_hosts: []
@@ -81,5 +81,5 @@ skills:
   benchmark_version: season-1
   benchmark_scores: {}
   approved_by: Codex implementation review (pending maintainer PR acceptance)
-  approved_at: '2026-10-09T11:30:00Z'
+  approved_at: '2026-11-19T06:55:00Z'
   rollback_version: ''

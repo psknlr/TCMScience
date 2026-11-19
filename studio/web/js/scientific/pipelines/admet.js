@@ -852,7 +852,8 @@ async function splitSmiles(store, dir, e, split) {
  * {<model file>: bytes, <domain file>: bytes} | null.
  */
 async function keptModel(store, card, settings) {
-  if (!isPlainObject(card) || Object.entries(settings).some(([k, v]) => v === null || card[k] !== v)) return null;
+  if (!isPlainObject(card) || !Object.hasOwn(card, "heldout_by_domain")) return null;
+  if (Object.entries(settings).some(([k, v]) => v === null || card[k] !== v)) return null;
   if (canonicalJson(card.chemistry ?? null) !== canonicalJson(CHEMISTRY)) return null;
   const out = {};
   for (const [file, sha] of [[card.model_file, card.model_sha256], [card.domain_file, card.domain_sha256]]) {

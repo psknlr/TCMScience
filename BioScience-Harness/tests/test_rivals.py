@@ -49,6 +49,10 @@ def test_each_rival_is_accepted_in_the_world_that_makes_it_true(scaffold_id, tru
     modal = {t.id: max(t.predictions[truth], key=t.predictions[truth].get) for t in s.tests}
     inquiry = rivals.open_scaffold(scaffold_id, VALUES[scaffold_id])
     conclusion = run_inquiry(inquiry, lambda a, step: Executed(modal[a.id]))
+    if scaffold_id == "pathway_signal" and truth == "coverage":
+        # Failure to enrich and indeterminate control predictions cannot prove bias.
+        assert conclusion.final and not conclusion.accepted
+        return
     assert conclusion.accepted and conclusion.final, conclusion.reason
     assert conclusion.leader == truth
     assert conclusion.leader_posterior >= 0.95
@@ -282,7 +286,7 @@ def test_the_exposure_classifier_refuses_what_it_cannot_judge():
     ("higher", -0.1, 0.5, 0.3, "inconclusive")])
 def test_the_meta_analysis_classifier(better, low, high, mcid, outcome):
     values = {**VALUES["efficacy"], "better": better, "mcid": mcid}
-    got, _ = rivals.classify("efficacy", "all_trials", values, {"scale": "raw"},
+    got, _ = rivals.classify("efficacy", "all_trials", values, {"scale": "raw", "study_ids": ["a", "b", "c"]},
                              {"k": 3, "random_effects": {"ci_low": low, "ci_high": high}})
     assert got == outcome
 

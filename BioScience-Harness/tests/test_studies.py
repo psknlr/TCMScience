@@ -163,7 +163,7 @@ def test_single_agents_alone_cannot_show_synergy():
 
 # --------------------------------------------------------------------------- exposure
 def _exposure(value, unit="ng/mL", site="plasma", **kw):
-    return ExposureRecord("inchikey:B", "rat", site, 1.0, Measurement("measured", value, unit),
+    return ExposureRecord("inchikey:B", "human", site, 1.0, Measurement("measured", value, unit),
                           **kw)
 
 
@@ -257,14 +257,14 @@ def test_leave_one_group_out_reports_which_group_carries_a_pathway():
         s = next(x for x in snaps if x.key == "screen")
         has_a = any(e["g"] == "A" for e in s.edges)
         return SimpleNamespace(enrichment=[{"pathway": "R1", "name": "R1",
-                                            "q_value": 0.01 if has_a else 0.3,
+                                            "q_value": 0.01 if has_a else 0.3, "empirical_p": 0.01,
                                             "fold_enrichment": 2.0, "targets": ["P1"]}],
-                               release={"released": []})
+                               release={"released": [{"object": "R1"}] if has_a else []})
 
-    out = leave_one_group_out([src], formula=None, params=SimpleNamespace(fdr=0.05),
+    out = leave_one_group_out([src], formula=None, params=SimpleNamespace(fdr=0.05, permutation_alpha=.05),
                               source="screen", group_of=lambda e: e["g"], run=run)
     assert out["pathways"]["R1"]["lost_when_holding_out"] == ["A"]
-    assert out["pathways"]["R1"]["verdict"] == "carried by A"
+    assert out["pathways"]["R1"]["verdict"] == "lost significance after holding out A"
 
 
 # ---------------------------------------------------------------------- the runner lock
@@ -330,7 +330,7 @@ def test_combination_does_not_flag_excess_on_bliss_independent_data_at_three_rep
 
 
 def test_exposure_is_compared_in_molar_units_and_measured_values_come_first():
-    a = AssayResult("inchikey:B", "symbol:X", "IC50", Measurement("measured", 1.0, "uM"))
+    a = AssayResult("inchikey:B", "symbol:X", "IC50", Measurement("measured", 1.0, "uM"), species="rat")
     mixed = [ExposureRecord("inchikey:B", "rat", "plasma", 1, Measurement("measured", 2.0, "uM"),
                             free=True),
              ExposureRecord("inchikey:B", "rat", "plasma", 1,
@@ -419,3 +419,119 @@ def test_the_gqd_berberine_study_is_exploratory_and_its_contrasts_are_reproducib
     assert rows[("GQD vs HL", "AUC")]["verdict"] == "increased"
     assert rows[("GQD vs HL", "Cma")]["verdict"] == "decreased"
     assert rows[("GQD-GC vs HL", "AUC")]["verdict"] == "inconclusive"
+
+
+def test_archived_gqd_plasma_bounds_reproduce_the_published_table():
+    import importlib.util
+    import json
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location("gqd_case", root / "BioScience-Harness/scripts/study_gqd_berberine.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    study = root / "docs/studies/gqd_berberine"
+    groups = json.loads(study.with_suffix(".json").read_text())["exposure"]["by_group"]
+    assert module.bound_table(groups) in study.with_suffix(".md").read_text()
+    cyp = [r for r in groups["GQD"]["not_ruled_out"] if "CYP2D6" in r["assay"]]
+    assert max(r["ratio_range"][1] for r in cyp) == pytest.approx(0.119, abs=0.0005)
+
+
+def test_robustness_with_no_comparable_groups_is_untestable():
+    from types import SimpleNamespace
+    from dataclasses import dataclass
+    from bioagent.studies.robustness import leave_one_group_out
+
+    @dataclass(frozen=True)
+    class Group:
+        key: str
+        edges: tuple
+    src = Group("example", ({"object": "A", "id": "one"},))
+    row = {"pathway": "P", "name": "P", "q_value": .01, "empirical_p": .01,
+           "fold_enrichment": 2., "targets": ["A"]}
+    run = lambda snaps, **kwargs: SimpleNamespace(enrichment=[row], release={"released": [{"object": "P"}]})
+    for groups in ([], ["one"], ["absent"]):
+        result = leave_one_group_out([src], formula=None, params=SimpleNamespace(fdr=.05, permutation_alpha=.05),
+                                     source=src.key, group_of=lambda e: e["id"], groups=groups, run=run)
+        assert result["pathways"]["P"]["survives_all"] is None
+        assert not result["pathways"]["P"]["lost_when_holding_out"]
+
+
+def test_protocol_recursively_freezes_content_and_checks_exact_inputs():
+    source = {"steps": [{"model": "welch", "flags": ["one"]}]}
+    p = replace(_protocol(), analysis=source, interventions=("formula",), data=("cohort",)).lock()
+    source["steps"][0]["flags"].append("two")
+    assert p.analysis["steps"][0]["flags"] == ("one",)
+    with pytest.raises(TypeError):
+        p.analysis["steps"][0]["model"] = "changed"
+    with pytest.raises(ProtocolError):
+        p.check(endpoint=p.primary_endpoint, analysis=dict(p.analysis))
+    for changed in ({"extra": 3, **p.analysis}, {}, source):
+        with pytest.raises(ProtocolError):
+            p.check(endpoint=p.primary_endpoint, analysis=changed, interventions=("formula",),
+                    data=("cohort",))
+    with pytest.raises(ProtocolError):
+        replace(p, title="retrospectively edited").check(
+            endpoint=p.primary_endpoint, analysis=dict(p.analysis), interventions=("formula",),
+            data=("cohort",))
+    with pytest.raises(ProtocolError):
+        p.amend("changed analysis", analysis={}).lock()
+
+
+def test_free_exposures_are_compared_separately_by_origin_and_species():
+    free = _exposure(2, "uM", free=True, study="free measurement")
+    total = _exposure(10, "uM", free_fraction=(.001, .001), study="total measurement")
+    other_species = replace(free, species="mouse")
+    pairs = screen_exposure([free, total, other_species], [_assay(1)], site="plasma")
+    assert [(r["exposure_study"], r["verdict"]) for r in pairs] == [
+        ("free measurement", "plausible"), ("total measurement", "implausible"),
+        ("free measurement", "undeterminable")]
+    assert pairs[2]["ratio"] is None
+
+
+def test_selectivity_needs_same_well_readouts_and_simultaneous_intervals():
+    cells = [Cell(1, 0, (.1,) * 3), Cell(0, 1, (.1,) * 3),
+             Cell(1, 1, (.48, .5, .52))]
+    res = analyse_combination(cells, primary="bliss")
+    assert res["exceeds_reference"]["cells"] == 1
+    assert not res["exceeds_reference"]["selective"] and res["excess_with_unmeasured_cytotoxicity"] == 1
+    with pytest.raises(ValueError, match="each measured well"):
+        analyse_combination(cells[:-1] + [replace(cells[-1], cytotoxicity=(.1,))], primary="bliss")
+    expanded = analyse_combination(cells + [Cell(2, 0, (.1,) * 3),
+                                            Cell(2, 1, (.48, .5, .52))], primary="bliss")
+    assert expanded["intervals"]["family_size"] == 2
+    assert expanded["cells"][0]["primary_excess_ci"][0] < res["cells"][0]["primary_excess_ci"][0]
+
+
+def test_equivalence_and_residual_uncertainty():
+    f = Group("formula", (1., .999, 1.001, 1., 1.), "shared")
+    res = contrast_formula_monomer(f, replace(f, label="monomer"), margin=.1, dose_matched=True)
+    assert res["verdict"] == "equivalent"
+    assert "accounts for" not in " ".join(res["may_conclude"])
+    resid = unexplained_response([1] * 8, {"a": [0, 1] * 4}, [0, 1] * 4)["unexplained"]
+    assert resid["ci"][0] < resid["estimate"] < resid["ci"][1]
+    assert resid["se"] > 0
+
+
+def test_gqd_toxcast_matches_ncbi_species_and_preserves_original_input(tmp_path):
+    import importlib.util
+    import json
+    import sqlite3
+    from pathlib import Path
+    script = Path(__file__).resolve().parents[1] / "scripts/study_gqd_berberine.py"
+    spec = importlib.util.spec_from_file_location("gqd_taxon", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    (tmp_path / "db").mkdir()
+    path = tmp_path / "db/comptox.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE relations(subject_id, object_id, object_name, outcome, context)")
+        for name, taxon, unit in (("rat", "10116", "uM"), ("human", "9606", "uM"),
+                                  ("unit missing", "NCBITaxon:10116", None)):
+            context = {"species": taxon, "measure": "AC50", "value": 0.05, "unit": unit}
+            db.execute("INSERT INTO relations VALUES(?,?,?,?,?)",
+                       (module.COMPTOX_ID, name, name, "positive", json.dumps(context)))
+    assays, _, evidence = module.toxcast_assays(tmp_path)
+    assert evidence == module.toxcast_assays(tmp_path)[2] and evidence["n_input_rows"] == 3
+    full = module.exposure_screen(assays)["GQD"]
+    assert [r["assay"] for r in full["not_ruled_out"]] == ["rat"]
+    assert {r["target"] for r in full["unevaluable"]} == {"human", "unit missing"}

@@ -91,6 +91,21 @@ ctrl1,ctrl1_R1.fastq.gz,ctrl1_R2.fastq.gz,control,1
 trt1,trt1_R1.fastq.gz,trt1_R2.fastq.gz,treated,1
 ```
 
+The optional `strandedness` column takes `unstranded`, `forward`, `reverse`, or
+`auto`. All lanes of a sample must agree. Salmon can infer the protocol with `auto`.
+Kallisto and HISAT2 accept explicit protocols, and the built-in quantifier accepts
+unstranded libraries. With the column omitted, Salmon detects its library type and
+the other engines use unstranded counting, subject to the HISAT2 `--strand` default.
+A sheet entry takes precedence over that default. Per-sample protocols and tool
+commands are saved in `run.json`.
+
+For differential expression from transcript quantification, use `lengthScaledTPM`
+(the default) or `scaledTPM`. Both account for changes in effective gene length across
+samples. Raw estimated transcript counts aggregated to genes require a matrix of
+effective-length offsets that these DE backends do not accept. This also matters when
+preparing a count table externally with tximport. Direct gene counts from alignments
+can be used as provided.
+
 **From a count matrix** (`bioagent.omics.rnaseq_counts`), for counts made elsewhere (featureCounts, salmon through
 tximport, a published matrix):
 
@@ -249,7 +264,25 @@ refused ("line N of <sheet> names no path").
 | Markers | Wilcoxon rank-sum per cluster against the rest, tie-corrected, BH |
 | Annotation | Scanpy's `score_genes` against a marker panel (30 human types shipped with their sources, or your own); `unassigned` when no type leads |
 | Trajectory | PAGA connectivity and tree; diffusion pseudotime from a named root, over the clusters PAGA joins to it |
-| Conditions | pseudobulk per sample and cell type, DESeq2 method; the samples are the replicates |
+| Conditions | pseudobulk per independent biological unit, condition and cell type, with a DESeq2 Wald contrast |
+
+The single-cell pipeline accepts multiplexed AnnData. It preserves per-cell sample,
+donor and condition metadata and checks supplied sheet values against it. Multiple
+sources are compared over their common measured gene IDs. The report gives the number
+of excluded features. Mitochondrial QC needs gene symbols such as `MT-ND1`; an
+unmapped mitochondrial gene set leaves that percentage unavailable. Use a fresh output
+directory for each run.
+
+For pseudobulk, `--replicate-key` defaults to `donor` when present, otherwise `sample`.
+Identify technical libraries from the same biological unit with the same key. Their
+counts are pooled within each condition and cell type. Repeated measurements across
+conditions use a unit blocking term. In the automatic design, differences in batch
+proportions across retained units are adjusted; equal proportions need no extra term.
+A completely confounded batch/condition comparison is untestable. Use an explicit
+additive `--design '~ donor + batch + age + condition'` and `--covariate age` when
+the study calls for these adjustments. A cell type must retain at least two independent
+units per condition. The manifest records the experimental units, each skipped comparison
+and the design fitted to each tested cell type.
 
 Three choices are independent of one another:
 - `--analysis-backend scanpy` runs normalisation to markers with Scanpy;
@@ -597,6 +630,52 @@ that a model file altered after it was carded is refused; that an archive whose 
 does not match the pin is refused and not written; that a prediction for a molecule
 unlike anything in the training set is flagged as outside the domain; and that
 `verify_run` finds a changed output.
+
+### Applicability-domain results on the official TDC test sets
+
+All 22 TDC endpoints were rebuilt with `train_val` for fitting and `test` for
+evaluation. Native chemical preparation retained 65,430 of 65,430 training rows
+and 16,377 of 16,379 test rows. The two exclusions were in the AqSolDB solubility test set.
+A molecule can contribute to multiple endpoint counts. For each endpoint, a test molecule is
+inside the domain when its highest training-fingerprint Tanimoto similarity is at
+least 0.3. The full results include 14,393 inside and 1,984 outside test rows.
+[All 22 endpoint results](studies/tdc-admet/heldout.json) · [Official TDC archive](https://dataverse.harvard.edu/api/access/datafile/4426004)
+
+Four examples cover the leaderboard metrics.
+
+| Endpoint | Metric | All test molecules (n, score) | Inside (n, score) | Outside (n, score) |
+|---|---|---:|---:|---:|
+| `herg` | AUROC | 132, 0.8306 | 102, 0.7807 | 30, 0.9186 |
+| `caco2_wang` | MAE in log₁₀(cm/s) | 182, 0.2882 | 119, 0.2890 | 63, 0.2868 |
+| `half_life_obach` | Spearman ρ | 135, 0.4544 | 88, 0.6730 | 47, 0.0307 |
+| `cyp2c9_substrate_carbonmangels` | Average precision (AUPRC) | 135, 0.3684 | 94, 0.4220 | 41, 0.3774 |
+
+Classification cards also show Brier scores and the observed positive fraction in five
+probability bins. For hERG, 80/102 inside molecules and 17/30 outside molecules were
+positive, with Brier scores of 0.135765 and 0.114304 respectively. The outside
+0.6–0.8 probability bin held just one molecule, with prediction 0.653 and observed
+label 0. For CYP2C9 substrate status the positive counts were 28/94 and 10/41 and the
+Brier scores were 0.230374 and 0.185729. Prevalence affects average precision and
+Brier scores. The half-life rank correlation fell sharply outside the domain on this
+split, while hERG's outside AUROC was higher on just 30 molecules. These four sets
+offer endpoint-specific performance estimates with limited precision. Calibration on
+herbal constituents and prediction errors for individual molecules remain unmeasured.
+
+The native build used Python 3.12.14, RDKit 2026.9.1, scikit-learn 1.8.0, NumPy 2.5.5,
+SciPy 1.18.1 and one CPU thread. The downloaded zip contained 1,472,501 bytes and
+matched the repository SHA-256 `bd0005246cb6f1672333c28ad202112a8bf071ab65d847848715030308faf1f1`.
+A second calculation loaded the fitted models and training fingerprints, prepared the
+official test rows again, and used RDKit's `BulkTanimotoSimilarity` to assign domains.
+It reproduced the group sizes, scores, Brier scores and nonempty reliability bins at
+the precision written in the model cards. Rebuild these cards with the versions above.
+
+```bash
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+bioagent admet --build-models --cache ./tdc-domain-check --rebuild --seed 0 --max-iter 600
+```
+
+The resulting `tdc-domain-check/models/model_cards.json` contains `heldout_by_domain`
+for each endpoint. The next model build refreshes older cards that lack these diagnostics.
 
 **Why the domain flag matters here.** TDC's training sets are drug-like synthetic
 compounds, and much of what this repository studies is not. Largest Tanimoto similarity

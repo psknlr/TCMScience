@@ -60,6 +60,13 @@ either runs:
 | Cook's outliers | PyDESeq2 replaces outlier counts at 7+ replicates and refits; the built-in implementation has no replacement step | in both, an outlier loses its p-value and no count is replaced |
 | VST | one implementation's trend applied to the other's counts | each backend stabilises its own normalised counts with its own design-aware trend (DESeq2's `blind=FALSE`); `vst_detail` records which and the coefficients |
 
+A nonconverged gene fit has unavailable fold change, standard error, Wald statistic,
+p-value and adjusted p-value. Its flag remains in the diagnostics and the remaining
+valid p-values form the adjustment family. Rankings derived from either backend exclude
+failed fits and Cook's distance outliers in every mode and list the exclusions. A valid
+Wald statistic remains eligible when independent low-count filtering only suppressed its
+adjusted p-value.
+
 Both backends fill one result contract, with DESeq2's meanings:
 
 | DESeq2 / PyDESeq2 | here | meaning |
@@ -427,3 +434,80 @@ GSEA 不作为 Skill 的一步：它需要第三方基因集来源及其许可�
 - **安装：** `bioagent[analysis]` 提供 GSEApy 与 harmonypy，下限为实测通过的版本：GSEApy 1.1.6（1.1.0 和 1.1.5 未通过，现在会被拒绝并说明原因），harmonypy 0.0.10。`bioagent[scvi]` 提供 scvi-tools 1.5.1 及以上；先从 PyTorch 的 CPU 源安装 torch，可避免从 PyPI 装入 CUDA 版。
 - **测试：** 三个测试文件在单元层自动跳过需要可选包的部分，在 CI 的 analysis-tools 作业中全部运行。`tests/test_omics_deseq2_r.py` 还需要 R 和 DESeq2：同一作业安装了 R 与 Bioconductor 的 DESeq2 并运行它，并重跑 `tests/test_runrecord.py` 与 `tests/test_pipeline_references.py`（各流程记录的阶段，以及内置参考数据集）；这两个文件不需要任何引擎，参考数据集固定使用内置后端，所以引擎路径由上面的后端测试检查，而不是由它们检查。`tests/test_omics_scvi.py` 还需要 scvi-tools，在单独的 CI 作业「scVI, trained on the CPU」中用 PyTorch 的 CPU 版运行。
 - **依据：** 上述比较（PyDESeq2、R 的 DESeq2、Scanpy、harmonypy、scVI、GSEApy）是在撰写本文的环境中、用文中写明的版本实际运行的，CI 作业在每次分配到运行器时会重复这些比较（在 `ci` #317 中通过，2026-10-19，CPU 运行器）。这些后端都不在浏览器中运行，也没有来自任何已部署服务的记录：它们是 Runner 端的实现。内置实现则会在 Studio 的浏览器任务中运行，用于从计数矩阵出发的 RNA-seq 和从计数表出发的单细胞分析（内置 DESeq2 实现、内置分析、内置 Harmony）；在那里选择 PyDESeq2、Scanpy 或 scVI 的调用会被拒绝并说明原因，需要 Runner，绝不改交内置实现（[studio/docs/BROWSER_JOBS.md §3.1](../studio/docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)）。在两个模拟参考上，它们在浏览器中的数值与原生运行在给定容差内一致，而不是逐字节一致：DESeq2 的离散度搜索会把不同 numpy 构建之间末位的差异放大到打印出的数字（不同的表都是 DESeq2 拟合的输出；由 Harmony 得出的表格完全相同，不做比较的 UMAP 布局除外）。用户自己的运行不与任何结果比较。
+
+### Comparing the bulk backends on seven public pasilla samples
+
+The Bioconductor pasilla experiment includes three knockdown and four untreated
+Drosophila samples. On the same 14,599 genes and the same additive design
+(`~ library_type + condition`, treated versus untreated), the built-in backend
+and PyDESeq2 0.6.0 returned 8,562 genes with finite adjusted p-values in both
+results. The log2 fold-change Spearman correlation on those genes was 0.99994.
+At BH q < 0.05 they called 1,284 and 1,119 genes respectively; all 1,112 shared
+calls had matching signs. This measures backend agreement on one experiment.
+The extra calls require independent validation.
+
+Use the two files in the [pinned Bioconductor dataset](https://github.com/bioc/pasilla/tree/3c91e8df8add3549129e46b7a7a078fda4e2755a/inst/extdata).
+After installing the analysis dependencies, run the following from the repository
+root; the script checks both input SHA-256 values before analysis.
+
+```sh
+python BioScience-Harness/scripts/compare_pasilla_de.py pasilla_gene_counts.tsv pasilla_sample_annotation.csv pasilla-comparison
+```
+
+The per-backend manifests and `comparison.json` record the versions, parameters
+and denominators for that run.
+
+### Human PBMC annotation on three healthy donors
+
+We used the exonic UMI counts from three healthy volunteers in Wilk et al.
+(GSE150728). H1 and H2 exposed mixed lymphocyte clusters in the built-in
+annotation workflow. Of 106 cells called NK that could be linked to the
+authors’ coarse labels, the authors labelled 31 NK, 56 CD8 T, 16 CD4 T and
+3 γδ T. The cluster-wide median marker score led even though few individual
+cells supported that call. We changed assignment to require a positive median
+separated from the runner-up and a strict majority of cells with a unique
+positive top score for the same type. A tied cell contributes no vote. The
+cluster candidate, support fraction and decision are available under
+`annotation_decisions` in `run.json`. [Study](https://doi.org/10.1038/s41591-020-0944-y)
+
+We fixed the rule before examining H3 and processed that donor separately.
+Within each original library, 256 barcodes with at least 200 detected genes
+were selected by SHA-256 rank. Both runs used the same seed, retained all
+features shared between their input libraries, flagged doublets, and applied
+no batch correction. Each donor contributed one library. All donors were
+healthy, so no condition contrast was fitted. We reconstructed the published
+post-QC barcode ordinals and verified the mapping against the deposited UMI
+and detected-gene totals. Pearson r exceeded 0.99999 in each library for both
+checks. [GEO inputs](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE150728)
+[Authors’ barcode procedure](https://github.com/ajwilk/EpicTools/blob/4cc68f2c798d0f1d7ba52a4325812005b4591993/R/EpicMerge.R#L190-L224)
+[Versioned CELLxGENE author labels](https://datasets.cellxgene.cziscience.com/8d7fad46-2f37-4aa0-ac9d-babbc36efb6f.h5ad)
+
+| Donors and calling rule | Retained cells | Cells with author labels | Assigned among matched | Broad lineage agreement among assigned | Broad agreement among all matched |
+|---|---:|---:|---:|---:|---:|
+| H1/H2 exploratory, median only | 454 | 244 | 241 | 149/241 (61.8%) | 149/244 (61.1%) |
+| H1/H2 exploratory, majority required | 454 | 244 | 96 | 88/96 (91.7%) | 88/244 (36.1%) |
+| H3 held out, median only | 224 | 103 | 99 | 61/99 (61.6%) | 61/103 (59.2%) |
+| H3 held out, majority required | 224 | 103 | 38 | 37/38 (97.4%) | 37/103 (35.9%) |
+
+On H3, abstention avoided a 46-cell matched cluster in which only nine cells
+called NK had the authors’ NK label. It also left 65 of the 103 matched cells
+unassigned. The new rule retained fewer concordant assignments overall.
+These comparisons use broad immune lineages. CD4, CD8 and γδ T cells share a
+lineage in this calculation. The cohort, assay and author reference are shared
+across the donors, and author annotations are expression-based interpretations.
+This experiment evaluates the trade-off between coverage and agreement on
+these libraries. Its results do not establish fine-subtype accuracy or
+performance across cohorts. The two result files contain the complete
+confusion tables, denominators, parameters, input hashes and donor-level
+identity checks. [H1/H2 results](studies/wilk-pbmc/exploratory.json)
+[H3 results](studies/wilk-pbmc/donor-holdout.json)
+
+Install the project, `rdata==1.0.0` and `h5py`. Place the GEO RDS files
+listed in the result files under `geo-inputs/` and download the versioned
+CELLxGENE H5AD linked above. The script reads five observation metadata
+columns from that file. The GEO counts drive all clustering and annotation.
+
+```sh
+python BioScience-Harness/scripts/validate_wilk_pbmc.py geo-inputs wilk-h1-h2 --author-h5ad 8d7fad46-2f37-4aa0-ac9d-babbc36efb6f.h5ad
+python BioScience-Harness/scripts/validate_wilk_pbmc.py geo-inputs wilk-h3 --holdout --author-h5ad 8d7fad46-2f37-4aa0-ac9d-babbc36efb6f.h5ad
+```

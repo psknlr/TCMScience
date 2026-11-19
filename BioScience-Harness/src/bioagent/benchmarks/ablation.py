@@ -27,8 +27,7 @@ configurations differ in nothing but the gates. The one dependency is kept as th
 has it: with ingest on, the output gate sees the records ingest re-checked; with ingest off
 it sees them as supplied, and a record edited after signing looks intact to it.
 
-What it reports: the share of mutants each configuration releases (with a Wilson 95%
-interval), the share of base cases it refuses, which gate catches which error class, which
+What it reports: the share of mutants each configuration releases, the share of base cases it refuses, which gate catches which error class, which
 mutants only one gate catches, and which survive the full stack.
 
 What it is not. The base cases and the operators were written by the people who wrote the
@@ -44,7 +43,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import math
 import re
 import tempfile
 import types
@@ -581,15 +579,6 @@ CONFIGURATIONS: Mapping[str, tuple[str, ...]] = _configurations()
 
 
 # ------------------------------------------------------------------ the run
-def _wilson(k: int, n: int, z: float = 1.959964) -> tuple[float, float]:
-    if n == 0:
-        return (0.0, 0.0)
-    p = k / n
-    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-    return (round(max(0.0, centre - half), 4), round(min(1.0, centre + half), 4))
-
-
 @dataclass
 class AblationReport:
     cases: list[Case]
@@ -618,13 +607,18 @@ class AblationReport:
     def rows(self) -> list[dict[str, Any]]:
         out = []
         for name, gates in self.configurations.items():
-            leaked = sum(self.released(c, gates) for c in self.mutated)
+            leaked_cases = [c for c in self.mutated if self.released(c, gates)]
+            leaked = len(leaked_cases)
+            labelled = {c.base for c in self.mutated if c.base}
+            affected = {c.base for c in leaked_cases if c.base}
             refused = sum(not self.released(c, gates) for c in self.base)
             n, m = len(self.mutated), len(self.base)
             out.append({"configuration": name, "gates": list(gates),
                         "errors_released": leaked, "mutants": n,
                         "error_release_rate": round(leaked / n, 4) if n else 0.0,
-                        "error_release_ci95": list(_wilson(leaked, n)),
+                        "source_drafts_with_mutants": len(labelled),
+                        "source_drafts_with_released_mutants": len(affected),
+                        "mutants_without_source_draft": sum(not c.base for c in self.mutated),
                         "false_refusals": refused, "base_cases": m,
                         "false_refusal_rate": round(refused / m, 4) if m else 0.0})
         return out
@@ -739,12 +733,12 @@ def render_markdown(report: AblationReport) -> str:
              f"{len(data['kill_matrix'])} error classes, {len(GATES)} gates. "
              + data["construction"][0].upper() + data["construction"][1:] + ".", "",
              "## Configurations", "",
-             "| Configuration | Errors released | 95% CI | Correct outputs refused |",
+             "| Configuration | Errors released | Source drafts with ≥1 released mutant | Correct outputs refused |",
              "| --- | ---: | --- | ---: |"]
     for row in data["configurations"]:
-        lo, hi = row["error_release_ci95"]
         lines.append(f"| {row['configuration']} | {row['errors_released']}/{row['mutants']} "
-                     f"({_pct(row['error_release_rate'])}) | {_pct(lo)}–{_pct(hi)} | "
+                     f"({_pct(row['error_release_rate'])}) | "
+                     f"{row['source_drafts_with_released_mutants']}/{row['source_drafts_with_mutants']} | "
                      f"{row['false_refusals']}/{row['base_cases']} |")
     columns = (*GATES, "kernel", "domain", "full")
     lines += ["", "## Which part catches which error", "",

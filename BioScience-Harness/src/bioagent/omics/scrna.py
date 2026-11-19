@@ -136,6 +136,9 @@ class ScConfig:
     paga_threshold: float = 0.05             # PAGA edges that join a trajectory
     contrast: tuple[str, str, str] | None = None
     seed: int = 0
+    replicate_key: str = "auto"
+    design: str | None = None
+    covariates: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -147,6 +150,9 @@ def read_sheet(path: str | Path) -> list[dict[str, str]]:
     first = text.splitlines()[0] if text.strip() else ""
     dialect = "excel-tab" if first.count("\t") > first.count(",") else "excel"
     reader = csv.DictReader(text.splitlines(), dialect=dialect)
+    columns = [v.strip() for v in reader.fieldnames or ()]
+    if len(columns) != len(set(columns)) or "" in columns:
+        raise ScError(f"{p}: every sample-sheet column needs a unique nonempty name")
     rows, lines = [], []
     for r in reader:
         rows.append({k.strip(): (v or "").strip() for k, v in r.items() if k})
@@ -154,6 +160,8 @@ def read_sheet(path: str | Path) -> list[dict[str, str]]:
     if not rows or "sample" not in rows[0] or "path" not in rows[0]:
         raise ScError(f"{p} needs 'sample' and 'path' columns")
     names = [r["sample"] for r in rows]
+    if any(not name for name in names):
+        raise ScError(f"{p} contains an empty sample name")
     if len(set(names)) != len(names):
         raise ScError(f"{p} names a sample twice")
     for line, r in zip(lines, rows):
@@ -255,6 +263,15 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
     _check_choices(config)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    # Reserve this run before any stage writes, including when two callers race.
+    occupied = ("run.json", "cells.tsv", "markers.tsv", "clusters.tsv", "paga.tsv",
+                "report.md", "report.html", LIMITATIONS_FILE, "pseudobulk", "plots", "scvi_model")
+    if any((out / name).exists() for name in occupied):
+        raise ScError(f"{out} already contains analysis outputs; use a fresh output directory")
+    try:
+        (out / STAGES_FILE).touch(exist_ok=False)
+    except FileExistsError:
+        raise ScError(f"{out} already contains a run; use a fresh output directory") from None
     rec = StageRecorder(out, PIPELINE, plan=STAGES)
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     warnings: list[str] = []
@@ -270,15 +287,26 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
                 for r in rows}
         parts = [(r["sample"], sc_io.read_counts(r["path"])) for r in rows]
         digests = {}
+        sources_by_digest = {}
         for name, part in parts:
             if part.shape[0] == 0 or part.shape[1] == 0:
                 raise ScError(f"sample {name}: the matrix has {part.shape[0]} cells and "
                               f"{part.shape[1]} genes")
             if len(set(part.cells.tolist())) != len(part.cells):
                 raise ScError(f"sample {name}: a cell barcode appears more than once")
-            digests[name] = _matrix_digest(part)
+            digest = _matrix_digest(part)
+            if digest in sources_by_digest:
+                raise ScError(f"{name} and {sources_by_digest[digest]} contain the same count "
+                              "matrix; duplicate libraries are not independent replicates")
+            digests[name] = digest
+            sources_by_digest[digest] = name
         matrix = sc_io.concatenate(parts, info)
-        inputs = {}
+        feature_union = len(set().union(*(part.gene_ids for _, part in parts)))
+        if feature_union != matrix.shape[1]:
+            warnings.append(f"analysed {matrix.shape[1]} genes measured in every input; "
+                            f"{feature_union - matrix.shape[1]} genes absent from some "
+                            "sources were excluded")
+        inputs = {str(src): _sha256(src)} if src.is_file() else {}
         for r in rows:
             p = Path(r["path"])
             files = [p] if p.is_file() else sorted(q for q in p.rglob("*") if q.is_file())
@@ -286,8 +314,22 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
                 inputs[str(f)] = _sha256(f)
         if config.markers:
             inputs[str(config.markers)] = _sha256(Path(config.markers))
+        # Preserve sample-level metadata even when the input was one annotated h5ad.
+        sample_column = matrix.obs["sample"]
+        fields = {"condition", "donor", "batch", config.replicate_key,
+                          *(config.design or "").removeprefix("~").replace("+", " ").split()}
+        varying = sorted(fields.intersection(matrix.obs) - {"sample", "auto"})
+        embedded_info = {}
+        for sample in dict.fromkeys(sample_column):
+            idx = sample_column == sample
+            supplied = dict(info.get(sample, {}))
+            for key in varying:
+                values = sorted(set(matrix.obs[key][idx]))
+                supplied[key] = values[0] if len(values) == 1 else values
+            embedded_info[str(sample)] = supplied
+        info = embedded_info
         st.check = "PASS"
-        st.reason = (f"{len(parts)} samples, {matrix.shape[0]:,} cells x {matrix.shape[1]:,} "
+        st.reason = (f"{len(info)} samples, {matrix.shape[0]:,} cells x {matrix.shape[1]:,} "
                      "genes of raw counts (non-negative integers); barcodes unique per sample")
     reference_dataset = match_reference(PIPELINE, digests)
 
@@ -297,6 +339,9 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
                                                            min_cells=config.min_cells,
                                                            nmads=config.nmads))
         m = qres.matrix
+        if not np.isfinite(qres.metrics["pct_mito"]).any():
+            warnings.append("mitochondrial QC unavailable: no MT- gene symbols matched; "
+                            "supply feature gene symbols for mitochondrial filtering")
         if m.shape[0] < 50:
             raise ScError(f"only {m.shape[0]} cells pass QC; too few to analyse")
         qc = {"cells_in": int(matrix.shape[0]), "cells_out": int(m.shape[0]),
@@ -385,8 +430,8 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
             cell_types = dict(annotation.labels)
             unassigned = [c for c, v in cell_types.items() if v == sc_annotate.UNASSIGNED]
             if unassigned:
-                warnings.append(f"clusters {', '.join(unassigned)}: no cell type of the "
-                                "panel leads; left unassigned")
+                warnings.append(f"clusters {', '.join(unassigned)} left unassigned because marker "
+                                "scores or within-cluster support were insufficient")
             st.reason = (f"{len(cell_types) - len(unassigned)} of {len(cell_types)} clusters "
                          "named from marker scores"
                          + (" (the given panel)" if config.markers else
@@ -418,7 +463,8 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
 
     # 9. conditions
     pb = None
-    contrast = config.contrast or _infer_contrast(info)
+    observed_levels = set(m.obs.get("condition", ()))
+    contrast = config.contrast or _infer_contrast({lv: {"condition": lv} for lv in observed_levels})
     if contrast is not None and not config.contrast:
         warnings.append(_chosen_contrast_note(contrast))
     if contrast is not None:
@@ -426,15 +472,25 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
                        engine="builtin-de" if config.de_backend == "builtin" else "pydeseq2"
                        ) as st:
             labels = np.array([cell_types[str(c)] for c in clusters], dtype=object)
-            pb = sc_pb.pseudobulk_de(m.counts, list(m.gene_names), labels, m.obs["sample"],
-                                     info, design=f"~ {contrast[0]}", contrast=contrast,
-                                     de_backend=config.de_backend)
+            units, unit_info, pb_design, pb_unit = sc_pb.experimental_units(
+                m.obs, contrast, config.replicate_key, config.design)
+            selected = np.isin(m.obs[contrast[0]], contrast[1:])
+            unresolved = selected & (labels == sc_annotate.UNASSIGNED)
+            if np.any(unresolved):
+                warnings.append(f"{int(unresolved.sum())} cells lack a confident cell-type label "
+                                "and were excluded from cell-type pseudobulk testing")
+                selected &= ~unresolved
+            pb = sc_pb.pseudobulk_de(m.counts[selected], list(m.gene_names), labels[selected],
+                                     units[selected], unit_info, design=pb_design, contrast=contrast,
+                                     de_backend=config.de_backend, covariates=config.covariates,
+                                     adjust_batch=config.design is None)
+            pb.design, pb.replicate_key, pb.unit_metadata = pb_design, pb_unit, unit_info
             st.version = pb.version
             if not pb.results:
-                warnings.append("no cell type has enough samples per condition for "
-                                "pseudobulk testing")
+                warnings.append("no estimable pseudobulk comparison: "
+                                + "; ".join(sorted(set(pb.skipped.values()))))
                 st.status = "skipped"
-                st.reason = "no cell type has enough samples per condition to test"
+                st.reason = warnings[-1]
             else:
                 st.reason = (f"{contrast[1]} vs {contrast[2]} in {len(pb.results)} cell "
                              f"types; {len(pb.skipped)} not tested")
@@ -573,7 +629,8 @@ def _write(run: ScRun, m: sc_io.CellMatrix, config: ScConfig, qmetrics: dict[str
         _tsv(out / "cells.tsv", CELLS_HEADER,
              [[m.cells[i], m.obs["sample"][i], int(cl[i]), run.cell_types[str(cl[i])],
                float(qmetrics["n_genes"][i]), float(qmetrics["total_counts"][i]),
-               float(qmetrics["pct_mito"][i]), float(scores[i]), bool(called[i]),
+               (float(qmetrics["pct_mito"][i]) if np.isfinite(qmetrics["pct_mito"][i])
+                else None), float(scores[i]), bool(called[i]),
                float(run.umap[i, 0]), float(run.umap[i, 1]),
                (float(pt[i]) if pt is not None else None)] for i in range(len(cl))])
         rows = []
@@ -624,14 +681,17 @@ def _write(run: ScRun, m: sc_io.CellMatrix, config: ScConfig, qmetrics: dict[str
         # each test's table by name (pseudobulk_files): a reader takes it from here, and never
         # re-derives it from the cell type's name, whose stem another cell type may have taken
         pseudobulk = {"backend": pb.backend, "version": pb.version,
+                      "design": pb.design, "replicate_key": pb.replicate_key,
+                      "unit_metadata": pb.unit_metadata,
                       "tests": {ct: res.record() for ct, res in pb.results.items()},
                       "files": {ct: f"pseudobulk/{stem}.tsv"
                                 for ct, stem in pseudobulk_files(pb.results).items()},
                       "skipped": pb.skipped}
     manifest: dict[str, Any] = {}
     with rec.stage("verify", engine=PIPELINE, version=_VERSION) as st:
-        outputs = {str(p.relative_to(out)): _sha256(p) for p in sorted(out.rglob("*"))
-                   if p.is_file() and p.name not in _UNLISTED}
+        declared = {rel for stage in rec.stages for rel in stage.outputs}
+        declared.update(run.integration.get("artefact", {}))
+        outputs = {rel: _sha256(out / rel) for rel in sorted(declared) if (out / rel).is_file()}
         manifest.update({
             "pipeline": PIPELINE, "code_digest": _code_digest(), "started": started,
             "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -639,6 +699,7 @@ def _write(run: ScRun, m: sc_io.CellMatrix, config: ScConfig, qmetrics: dict[str
             "config": config.as_dict(), "samples": info, "inputs": inputs,
             "outputs": outputs, "summary": run.summary(), "qc": run.qc,
             "doublets": run.doublets, "analysis": {**run.analysis, "modularity": an.modularity},
+            "annotation_decisions": run.annotation.decisions if run.annotation else {},
             "integration": run.integration, "pseudobulk": pseudobulk,
             "warnings": run.warnings})
         found = _content_problems(out, manifest) + output_problems(rec.stages, outputs, out)
@@ -704,6 +765,10 @@ def _content_problems(out: Path, manifest: Mapping[str, Any]) -> list[str]:
     files = {ct: f"pseudobulk/{stem}.tsv" for ct, stem in pseudobulk_files(tests).items()}
     if pb.get("files") is not None and pb["files"] != files:   # a record from before has none
         found.append("pseudobulk.files does not name each test's table as the pipeline writes it")
+    tables = {str(p.relative_to(out)) for p in (out / "pseudobulk").glob("*.tsv")}
+    tables.update(rel for rel in manifest.get("outputs", {}) if rel.startswith("pseudobulk/"))
+    for rel in sorted(tables - set(files.values())):
+        found.append(f"{rel} has no pseudobulk test in this run")
     for ct, rel in files.items():
         if not (out / rel).is_file():
             found.append(f"{rel} is missing for the {ct} test")
@@ -771,7 +836,9 @@ def _plots(run: ScRun, m: sc_io.CellMatrix, qmetrics: dict[str, np.ndarray],
                                           title="Genes detected per cell (after QC)",
                                           xlabel="genes")
     plots["qc_mito"] = svgplot.histogram(qmetrics["pct_mito"], bins=40,
-                                         title="Mitochondrial share per cell (after QC)",
+                                         title=("Mitochondrial share per cell (after QC)"
+                                                if np.isfinite(qmetrics["pct_mito"]).any() else
+                                                "Mitochondrial share unavailable (no MT- symbols)"),
                                          xlabel="% of counts")
     plots["pca_variance"] = svgplot.bars([str(i + 1) for i in range(len(ratio))],
                                          list(ratio), title="Variance explained by each PC",
@@ -837,8 +904,16 @@ def _markdown(run: ScRun, config: ScConfig, contrast: tuple[str, str, str] | Non
         top = ", ".join(r["gene"] for r in run.markers.top(g, 5))
         lines.append(f"| {g} | {s['clusters'].get(g, 0)} | {run.cell_types.get(g, '')} | "
                      f"{'NA' if conf is None else f'{conf:.0%}'} | {top} |")
-    lines += ["", "Confidence is the share of the cluster's cells whose own best-scoring type "
-              "is the cluster's. `markers.tsv` holds 50 markers per cluster, `cells.tsv` every "
+    if run.annotation:
+        for group, decision in run.annotation.decisions.items():
+            if decision["reason"] == "minority_support":
+                lines.append(f"\nCluster {group} remained unassigned. Its leading candidate "
+                             f"{decision['candidate']} had a unique positive best score in "
+                             f"{decision['support']:.1%} of cells.")
+    lines += ["", "Confidence for an assigned type is the share of all cells with a unique, "
+              "positive top score for that type. Assignment requires a majority of cells. "
+              "Per-cluster candidates and support fractions are recorded in "
+              "`run.json` under `annotation_decisions`. `markers.tsv` holds 50 markers per cluster, `cells.tsv` every "
               "cell, `paga.tsv` the cluster connectivities.", ""]
     lines += ["## Trajectory", ""]
     lines.append("PAGA tree (minimum spanning tree of the inverse connectivities): "
@@ -854,6 +929,8 @@ def _markdown(run: ScRun, config: ScConfig, contrast: tuple[str, str, str] | Non
     if run.pseudobulk is not None and contrast is not None:
         lines += [f"## {contrast[1]} vs {contrast[2]}, per cell type (pseudobulk)", "",
                   f"(a log2 fold change > 0 means higher in {contrast[1]})", "",
+                  f"Independent unit: `{pb.replicate_key}`; base design: `{pb.design}`. "
+                  "Each test records its fitted design in run.json.", "",
                   "| cell type | samples | genes at FDR < 0.05 | up | down |",
                   "|---|---|---|---|---|"]
         for ct, res in sorted(run.pseudobulk.results.items()):

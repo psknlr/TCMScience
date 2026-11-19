@@ -1,0 +1,194 @@
+{
+  "reference_actions_artifact": 14230690825,
+  "files": [
+    {
+      "file": "NPASSv2.0_download_naturalProducts_generalInfo.txt",
+      "url": "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_generalInfo.txt",
+      "bytes": 9379911,
+      "sha256": "sha256:4ec8f066abf7cebe8b172e1b16a6248f3b6a94efb00ed587f0a9489f5ca688bf",
+      "ci_sha256": "sha256:4ec8f066abf7cebe8b172e1b16a6248f3b6a94efb00ed587f0a9489f5ca688bf",
+      "publisher_or_registry_checksum": "sha256:4ec8f066abf7cebe8b172e1b16a6248f3b6a94efb00ed587f0a9489f5ca688bf"
+    },
+    {
+      "file": "NPASSv2.0_download_naturalProducts_structureInfo.txt",
+      "url": "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_structureInfo.txt",
+      "bytes": 29748831,
+      "sha256": "sha256:cbe688e9b6fdd0960c78d1a93d7f487ca4a2bbad3017275515c3d90d2a0f72fa",
+      "ci_sha256": "sha256:cbe688e9b6fdd0960c78d1a93d7f487ca4a2bbad3017275515c3d90d2a0f72fa",
+      "publisher_or_registry_checksum": "sha256:cbe688e9b6fdd0960c78d1a93d7f487ca4a2bbad3017275515c3d90d2a0f72fa"
+    },
+    {
+      "file": "NPASSv2.0_download_naturalProducts_speciesInfo.txt",
+      "url": "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_speciesInfo.txt",
+      "bytes": 3631384,
+      "sha256": "sha256:a934641ce11140938c72f0fb63bd775a153398e4caf429a4a171b563669fb65a",
+      "ci_sha256": "sha256:a934641ce11140938c72f0fb63bd775a153398e4caf429a4a171b563669fb65a",
+      "publisher_or_registry_checksum": "sha256:a934641ce11140938c72f0fb63bd775a153398e4caf429a4a171b563669fb65a"
+    },
+    {
+      "file": "NPASSv2.0_download_naturalProducts_species_pair.txt",
+      "url": "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_species_pair.txt",
+      "bytes": 80284064,
+      "sha256": "sha256:acc4f806d48327c6f258ef75afa6b69ff7d362455dff35e3a720976d09543c3e",
+      "ci_sha256": "sha256:acc4f806d48327c6f258ef75afa6b69ff7d362455dff35e3a720976d09543c3e",
+      "publisher_or_registry_checksum": "sha256:acc4f806d48327c6f258ef75afa6b69ff7d362455dff35e3a720976d09543c3e"
+    },
+    {
+      "file": "NPASSv2.0_download_naturalProducts_targetInfo.txt",
+      "url": "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_targetInfo.txt",
+      "bytes": 629317,
+      "sha256": "sha256:d171c261e839a95ff6fdadeba6d1eeacf1536a70eae7668d6a179f85d44d83dc",
+      "ci_sha256": "sha256:d171c261e839a95ff6fdadeba6d1eeacf1536a70eae7668d6a179f85d44d83dc",
+      "publisher_or_registry_checksum": "sha256:d171c261e839a95ff6fdadeba6d1eeacf1536a70eae7668d6a179f85d44d83dc"
+    },
+    {
+      "file": "NPASSv2.0_download_naturalProducts_activities.txt",
+      "url": "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_activities.txt",
+      "bytes": 90364982,
+      "sha256": "sha256:ced9ee333e7e5e12eb07d21d52ec20af777b6c429a6438ed9b402ca8fd547507",
+      "ci_sha256": "sha256:ced9ee333e7e5e12eb07d21d52ec20af777b6c429a6438ed9b402ca8fd547507",
+      "publisher_or_registry_checksum": "sha256:ced9ee333e7e5e12eb07d21d52ec20af777b6c429a6438ed9b402ca8fd547507"
+    },
+    {
+      "file": "CMAUPv2.0_download_Plants.txt",
+      "url": "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Plants.txt",
+      "bytes": 648352,
+      "sha256": "sha256:74c41c5b1b85e041163c2b74ac74e400f49cd4696a8f8a2bb1d112da3fffe780",
+      "ci_sha256": "sha256:74c41c5b1b85e041163c2b74ac74e400f49cd4696a8f8a2bb1d112da3fffe780",
+      "publisher_or_registry_checksum": "sha256:74c41c5b1b85e041163c2b74ac74e400f49cd4696a8f8a2bb1d112da3fffe780"
+    },
+    {
+      "file": "CMAUPv2.0_download_Ingredients_All.txt",
+      "url": "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Ingredients_All.txt",
+      "bytes": 25238280,
+      "sha256": "sha256:5b091ad0c4f8c576cfbd2b5ee5418dd25c1171ccaf2f9811acb558717f155c6f",
+      "ci_sha256": "sha256:5b091ad0c4f8c576cfbd2b5ee5418dd25c1171ccaf2f9811acb558717f155c6f",
+      "publisher_or_registry_checksum": "sha256:5b091ad0c4f8c576cfbd2b5ee5418dd25c1171ccaf2f9811acb558717f155c6f"
+    },
+    {
+      "file": "CMAUPv2.0_download_Plant_Ingredient_Associations_allIngredients.txt",
+      "url": "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Plant_Ingredient_Associations_allIngredients.txt",
+      "bytes": 7973286,
+      "sha256": "sha256:a0a7321201b15f4465e615e97e6f01651e26db6a88c13faea47d8e337a7e598b",
+      "ci_sha256": "sha256:a0a7321201b15f4465e615e97e6f01651e26db6a88c13faea47d8e337a7e598b",
+      "publisher_or_registry_checksum": "sha256:a0a7321201b15f4465e615e97e6f01651e26db6a88c13faea47d8e337a7e598b"
+    },
+    {
+      "file": "CMAUPv2.0_download_Targets.txt",
+      "url": "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Targets.txt",
+      "bytes": 117843,
+      "sha256": "sha256:baf471c054fb858e130fdf6ab0b4e78869e8acb20336fad757828113b67ae16b",
+      "ci_sha256": "sha256:baf471c054fb858e130fdf6ab0b4e78869e8acb20336fad757828113b67ae16b",
+      "publisher_or_registry_checksum": "sha256:baf471c054fb858e130fdf6ab0b4e78869e8acb20336fad757828113b67ae16b"
+    },
+    {
+      "file": "CMAUPv2.0_download_Ingredient_Target_Associations_ActivityValues_References.txt",
+      "url": "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Ingredient_Target_Associations_ActivityValues_References.txt",
+      "bytes": 1338251,
+      "sha256": "sha256:10b3ffacafcdae53180842945468aad726f1be30deafbc56fd04de4eca1165f5",
+      "ci_sha256": "sha256:10b3ffacafcdae53180842945468aad726f1be30deafbc56fd04de4eca1165f5",
+      "publisher_or_registry_checksum": "sha256:10b3ffacafcdae53180842945468aad726f1be30deafbc56fd04de4eca1165f5"
+    },
+    {
+      "file": "260413_frozen.csv.gz",
+      "url": "https://zenodo.org/api/records/19360665/files/260413_frozen.csv.gz/content",
+      "bytes": 20594507,
+      "sha256": "sha256:c0744fb4d4395a638739078601836d9472612c1ed6db6c8e4f0b5e8a972ced70",
+      "ci_sha256": "sha256:c0744fb4d4395a638739078601836d9472612c1ed6db6c8e4f0b5e8a972ced70",
+      "publisher_or_registry_checksum": "md5:cf0cf2afa2ca4d758b68f2e39d466f5d"
+    },
+    {
+      "file": "9606.protein.info.v12.0.txt.gz",
+      "url": "https://stringdb-downloads.org/download/protein.info.v12.0/9606.protein.info.v12.0.txt.gz",
+      "bytes": 1970090,
+      "sha256": "sha256:144de4b0d98c6a7dfde6ddc2591cf88657f27b989eadff4f501450c3ed1f0f1c",
+      "ci_sha256": "sha256:144de4b0d98c6a7dfde6ddc2591cf88657f27b989eadff4f501450c3ed1f0f1c",
+      "publisher_or_registry_checksum": "sha256:144de4b0d98c6a7dfde6ddc2591cf88657f27b989eadff4f501450c3ed1f0f1c"
+    },
+    {
+      "file": "9606.protein.links.v12.0.txt.gz",
+      "url": "https://stringdb-downloads.org/download/protein.links.v12.0/9606.protein.links.v12.0.txt.gz",
+      "bytes": 83164437,
+      "sha256": "sha256:3e22f32572211aa341d5b4bd08d30c32e693e294603202120936872f87719d4f",
+      "ci_sha256": "sha256:3e22f32572211aa341d5b4bd08d30c32e693e294603202120936872f87719d4f",
+      "publisher_or_registry_checksum": "sha256:3e22f32572211aa341d5b4bd08d30c32e693e294603202120936872f87719d4f"
+    },
+    {
+      "file": "9606.protein.aliases.v12.0.txt.gz",
+      "url": "https://stringdb-downloads.org/download/protein.aliases.v12.0/9606.protein.aliases.v12.0.txt.gz",
+      "bytes": 19777800,
+      "sha256": "sha256:b65f730b993ed0c1bd72edf4565d3d425db42861101b29699704810e8f125680",
+      "ci_sha256": "sha256:b65f730b993ed0c1bd72edf4565d3d425db42861101b29699704810e8f125680",
+      "publisher_or_registry_checksum": "sha256:b65f730b993ed0c1bd72edf4565d3d425db42861101b29699704810e8f125680"
+    },
+    {
+      "file": "UniProt2Reactome.txt",
+      "url": "https://reactome.org/download/current/UniProt2Reactome.txt",
+      "bytes": 43219161,
+      "sha256": "sha256:e16cf600292fc592957daf696ab5ffd9373ed6b49582def5988ec5bedfcc48cf",
+      "ci_sha256": "sha256:e16cf600292fc592957daf696ab5ffd9373ed6b49582def5988ec5bedfcc48cf",
+      "publisher_or_registry_checksum": null
+    },
+    {
+      "file": "uniprot_human_reviewed_accessions.txt",
+      "url": "https://rest.uniprot.org/uniprotkb/stream?query=organism_id:9606+AND+reviewed:true&format=list",
+      "bytes": 144655,
+      "sha256": "sha256:21883a8ff24b952b1294dd05198b823d725428e842894005d32baba7bbe03fdf",
+      "ci_sha256": "sha256:21883a8ff24b952b1294dd05198b823d725428e842894005d32baba7bbe03fdf",
+      "publisher_or_registry_checksum": null
+    }
+  ],
+  "snapshot_ids": {
+    "cmaup": "cmaup@2.0+subset-438c95ee#17aa8cdf43f3",
+    "lotus": "lotus@2026-04-13+subset-438c95ee#6e693af7e7bd",
+    "npass": "npass@2.0+subset-438c95ee#930ff062acc1",
+    "reactome": "reactome@current+sha256-e16cf600292fc592957daf696ab5ffd9373ed6b49582def5988ec5bedfcc48cf#3b68f1717cb8",
+    "string": "string@12.0+subset-dcc762e4#7b4c738671da",
+    "tcm_herbs": "tcm_herbs@c8ce0e9f4745#0b043582ef35"
+  },
+  "analysis_code_digest": "sha256:ba418b68aa2ca23c2bad635f513e74f84b671e7ba514dd3b85aec492e727f198",
+  "result_digest": "sha256:24c8def00a80678833c50718bd447d07157badce53dd6a27825281c04de7281e",
+  "snapshot_lock": {
+    "schema": 1,
+    "snapshots": {
+      "cmaup": "cmaup@2.0+subset-438c95ee#17aa8cdf43f3",
+      "lotus": "lotus@2026-04-13+subset-438c95ee#6e693af7e7bd",
+      "npass": "npass@2.0+subset-438c95ee#930ff062acc1",
+      "reactome": "reactome@current+sha256-e16cf600292fc592957daf696ab5ffd9373ed6b49582def5988ec5bedfcc48cf#3b68f1717cb8",
+      "string": "string@12.0+subset-dcc762e4#7b4c738671da",
+      "tcm_herbs": "tcm_herbs@c8ce0e9f4745#0b043582ef35"
+    }
+  },
+  "integrity_note": "15 registered checksum or size checks passed. The two unpinned moving inputs (UniProt2Reactome.txt and uniprot_human_reviewed_accessions.txt) independently match their archived CI SHA-256. All six snapshots passed QC and their recorded ledger entries were verified.",
+  "parameters": {
+    "activity_max_nm": 10000.0,
+    "activity_types": [
+      "IC50",
+      "Ki",
+      "Kd",
+      "EC50"
+    ],
+    "background": "assayed",
+    "composition_min_level": "C1",
+    "degree_bins": 10,
+    "disease_evidence": "genetic_association",
+    "disease_min_score": 0.5,
+    "fdr": 0.05,
+    "hits": "potency",
+    "pathway_max_size": 500,
+    "pathway_min_size": 5,
+    "permutation_alpha": 0.05,
+    "permutations": 1000,
+    "screening_assay_types": [
+      "Confirmatory",
+      "Screening",
+      "Other",
+      "Summary"
+    ],
+    "screening_min_compounds": 20,
+    "screening_min_members": 3,
+    "seed": 20260923,
+    "string_min_score": 0.7
+  },
+  "reference_artifact_url": "https://github.com/psknlr/TCMScience/actions/runs/43872919627/artifacts/14230690825"
+}

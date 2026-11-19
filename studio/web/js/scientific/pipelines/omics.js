@@ -14,7 +14,7 @@
 // The inputs are the project's own files (core/store.js, in IndexedDB). Each is copied into this origin's private file
 // system under the job (tcmstudio/jobs/<id>/inputs/<name>), hashed as it is written, and used only when it has the
 // SHA-256 the project recorded for it; then it is mounted read-only in the worker. A sample sheet's files are found the
-// same way and the sheet is rewritten to name the copies, as the runner's _stage_sheet does.
+// same way; paths that name upload IDs or collide are rewritten to name the job's local copies.
 //
 // inputs → analysis → verify. The analysis stage is checkpointed (its parameters, its inputs' digests and the runtime
 // that computed it: the bundle, Pyodide, numpy and scipy): a resumed job reuses it when every output it wrote still
@@ -99,7 +99,7 @@ const SCRNA = {
   kind: "pipeline.scrna",
   fn: "run_scrna",
   artefacts: { run: "run.json", report: "report.html", clusters: "clusters.tsv", cells: "cells.tsv", limitations: "limitations.md" },
-  params: ["source", "doublets", "analysis_backend", "integration", "resolution", "seed", "markers", "root", "contrast", "n_top_genes"],
+  params: ["source", "doublets", "analysis_backend", "integration", "resolution", "seed", "markers", "root", "contrast", "replicate_key", "design", "covariates", "n_top_genes"],
   files: ["source", "markers"],
   lines: [UMAP_LINE],
 };
@@ -229,7 +229,11 @@ function checkScrna(p) {
   if (present(p.resolution)) checkNumber("resolution", p.resolution, RESOLUTION);
   if (present(p.seed)) checkNumber("seed", p.seed, SEED, { integer: true });
   if (present(p.n_top_genes)) checkNumber("n_top_genes", p.n_top_genes, N_TOP_GENES, { integer: true });
-  for (const key of ["root", "contrast"]) if (given(p[key])) checkText(key, p[key]);
+  for (const key of ["root", "contrast", "replicate_key", "design"]) if (given(p[key])) checkText(key, p[key]);
+  if (present(p.covariates)) {
+    if (!Array.isArray(p.covariates)) throw bad("covariates must be a list of numeric column names");
+    for (const key of p.covariates) checkText("covariate", key);
+  }
 }
 
 // --------------------------------------------------------------------------------------------- project files
@@ -405,9 +409,10 @@ async function sheetRows(rec) {
   return rows;
 }
 
-/** The sheet with each path cell replaced (paths: line → the new path), written with the sheet's own delimiter. */
+/** Return a rewritten sheet only when one of its paths must change to name a staged file. */
 function rewriteSheet(text, paths) {
   const { header, rows, delimiter } = readSheet(text);
+  if (rows.every((row) => paths.get(row.line) === row.path)) return null;
   const out = [formatRow(header, delimiter)];
   for (const r of rows) out.push(formatRow(header.map((h) => (h === "path" && paths.has(r.line) ? paths.get(r.line) : r.values[h])), delimiter));
   return `${out.join("\n")}\n`;
@@ -427,7 +432,7 @@ function safeName(name) {
  * refused unless its SHA-256 is the one the project recorded; the sheet rewritten to name the copies. Each input is
  * recorded on the job (ctx.input) → {names: the staged files, paths: param → path in the worker, digests}.
  */
-async function stageInputs(ctx, spec, inputsDir) {
+export async function stageInputs(ctx, spec, inputsDir) {
   const { files, sheet } = await plan(spec, ctx.params, ctx.projectFiles, ctx.job.project_id);
   const dir = [...ctx.dir, "inputs"];
   // an earlier attempt's copies are not trusted: every input is copied and checked again
@@ -461,7 +466,7 @@ async function stageInputs(ctx, spec, inputsDir) {
     done += 1;
     ctx.progress(0.1 * (done / files.length), `${f.rec.name} copied and checked`);
     const path = `${inputsDir}/${name}`;
-    if (f.param === "source.files") sheetPaths.set(Number(f.line.slice(5)), path);
+    if (f.param === "source.files") sheetPaths.set(Number(f.line.slice(5)), name);
     else paths[f.param] = path;
     const got = copied.get(f.rec.id);
     if (got) {
@@ -471,12 +476,15 @@ async function stageInputs(ctx, spec, inputsDir) {
     }
   }
   if (sheet) {
-    // the sheet's own bytes are held to the project's digest; the copy the pipeline reads names the staged files, as
-    // the runner's staged sheet names its uploads
+    // Keep the original bytes whenever the sheet already resolves beside its staged files.
+    // Upload IDs or filename collisions need relative paths that also survive moving the job.
     const bytes = new Uint8Array(await sheet.rec.blob.arrayBuffer());
     const sha256 = await sha256Hex(bytes);
     if (sha256 !== bareSha256(sheet.rec.sha256)) throw mismatch(sheet.rec, sha256);
-    await ctx.store.writeText([...dir, staged.get(sheet.rec.id)], rewriteSheet(sheetText(sheet.rec, bytes), sheetPaths));
+    const rewritten = rewriteSheet(sheetText(sheet.rec, bytes), sheetPaths);
+    const target = [...dir, staged.get(sheet.rec.id)];
+    if (rewritten === null) await ctx.store.writeBytes(target, bytes);
+    else await ctx.store.writeText(target, rewritten);
     ctx.input({ name: "source", sha256, bytes: bytes.length, source: { project_file: sheet.rec.id, name: sheet.rec.name } });
     digests.source = sha256;
   }
@@ -510,7 +518,7 @@ function pythonArgs(spec, p, paths, outDir) {
   }
   return {
     source: paths.source, markers: paths.markers, doublets: p.doublets, analysis_backend: p.analysis_backend, integration: p.integration,
-    resolution: p.resolution, seed: p.seed, root: p.root, contrast: p.contrast, n_top_genes: p.n_top_genes, out_dir: outDir,
+    resolution: p.resolution, seed: p.seed, root: p.root, contrast: p.contrast, replicate_key: p.replicate_key, design: p.design, covariates: p.covariates, n_top_genes: p.n_top_genes, out_dir: outDir,
   };
 }
 
